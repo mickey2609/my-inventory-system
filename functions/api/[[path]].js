@@ -3,7 +3,6 @@ export async function onRequest(context) {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    // CORS 跨域設定
     const corsHeaders = {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -16,13 +15,41 @@ export async function onRequest(context) {
     }
 
     try {
-        // 1. 清空舊庫存資料 API (上傳前呼叫)
+        // 1. 登入 API (提供 admin/admin 與 6 碼員編通行權限)
+        if (path === '/api/login' && request.method === 'POST') {
+            const { username, password } = await request.json();
+
+            // 預設只要帳號為 admin 且密碼為 admin，或密碼與帳號一致即允許登入
+            if ((username === 'admin' && password === 'admin') || (username && password === username)) {
+                return new Response(JSON.stringify({
+                    status: 'success',
+                    username: username,
+                    name: username === 'admin' ? '系統管理員' : username,
+                    role: username === 'admin' ? 'admin' : 'user',
+                    must_change_pwd: false
+                }), { headers: corsHeaders });
+            }
+
+            return new Response(JSON.stringify({ status: 'error', detail: '帳號或密碼錯誤！' }), { status: 400, headers: corsHeaders });
+        }
+
+        // 2. 紀錄日誌 API
+        if (path === '/api/record-log' && request.method === 'POST') {
+            return new Response(JSON.stringify({ status: 'success' }), { headers: corsHeaders });
+        }
+
+        // 3. 取得欄位設定 API
+        if (path === '/api/get-column-config') {
+            return new Response(JSON.stringify({ success: true }), { headers: corsHeaders });
+        }
+
+        // 4. 清空舊庫存資料 API
         if (path === '/api/clear' && request.method === 'POST') {
             await env.DB.prepare('DELETE FROM inventory').run();
             return new Response(JSON.stringify({ success: true, message: '舊資料已清空' }), { headers: corsHeaders });
         }
 
-        // 2. 批次寫入資料 API (支援網頁 UI 批次上傳)
+        // 5. 批次寫入庫存 API
         if (path === '/api/batch-insert' && request.method === 'POST') {
             const { items } = await request.json();
             if (!items || !Array.isArray(items) || items.length === 0) {
@@ -30,8 +57,8 @@ export async function onRequest(context) {
             }
 
             const statements = items.map(item => {
-                const categoryLarge = item['大區名'] || '';
-                const categorySmall = item['區名'] || '';
+                const categoryLarge = item['大區名'] || item['大區'] || '';
+                const categorySmall = item['區名'] || item['區'] || '';
                 const productCode = item['商品ID'] || '';
                 const productName = item['商品名稱'] || '';
                 const rawData = JSON.stringify(item);
@@ -41,12 +68,11 @@ export async function onRequest(context) {
                 ).bind(categoryLarge, categorySmall, productCode, productName, rawData);
             });
 
-            // 批次執行（以 Transaction 提升併發吞吐）
             await env.DB.batch(statements);
             return new Response(JSON.stringify({ success: true, count: items.length }), { headers: corsHeaders });
         }
 
-        // 3. 取得動態大區清單 API (根據實體庫存自動去重)
+        // 6. 取得動態大區清單 API
         if (path === '/api/categories/large' && request.method === 'GET') {
             const { results } = await env.DB.prepare(
                 `SELECT DISTINCT category_large FROM inventory WHERE category_large IS NOT NULL AND category_large != '' ORDER BY category_large`
@@ -55,7 +81,7 @@ export async function onRequest(context) {
             return new Response(JSON.stringify({ success: true, data: categories }), { headers: corsHeaders });
         }
 
-        // 4. 根據大區取得連動小區清單 API
+        // 7. 取得動態小區連動清單 API
         if (path === '/api/categories/small' && request.method === 'GET') {
             const large = url.searchParams.get('large') || '';
             const { results } = await env.DB.prepare(
@@ -65,10 +91,10 @@ export async function onRequest(context) {
             return new Response(JSON.stringify({ success: true, data: categories }), { headers: corsHeaders });
         }
 
-        // 5. 伺服器端分頁與關鍵字查詢 API (突破 1000 筆限制)
+        // 8. 伺服器端分頁查詢 API
         if (path === '/api/search' && request.method === 'GET') {
             const page = parseInt(url.searchParams.get('page') || '1');
-            const pageSize = parseInt(url.searchParams.get('pageSize') || '50');
+            const pageSize = parseInt(url.searchParams.get('pageSize') || '1000');
             const offset = (page - 1) * pageSize;
 
             const categoryLarge = url.searchParams.get('categoryLarge') || '';
@@ -93,11 +119,9 @@ export async function onRequest(context) {
 
             const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
 
-            // 查詢符合條件的總筆數
             const countResult = await env.DB.prepare(`SELECT COUNT(*) as total FROM inventory ${whereSql}`).bind(...params).first();
             const total = countResult ? countResult.total : 0;
 
-            // 查詢當前頁面資料
             const querySql = `SELECT raw_data FROM inventory ${whereSql} LIMIT ? OFFSET ?`;
             const { results } = await env.DB.prepare(querySql).bind(...params, pageSize, offset).all();
 
