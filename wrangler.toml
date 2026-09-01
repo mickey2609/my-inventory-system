@@ -1,0 +1,8 @@
+name = "my-inventory-system"
+main = "functions/api/[[path]].js"
+compatibility_date = "2024-01-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "inventory-db"
+database_id = "130306ea-d7fc-44ff-ae01-b9ca6d83fb60"

@@ -201,9 +201,8 @@
       <div style="font-size: 14px; line-height: 1.8; color: #cbd5e1;">
         <p style="margin-top: 0; color: #38bdf8; font-weight: bold;">請確認您準備上傳的商品明細檔案符合以下規範：</p>
         <ol style="padding-left: 20px; margin-bottom: 15px;">
-          <li><b>建議上傳檔名</b>：<code style="color: #fef08a;">latest_inventory.csv</code></li>
-          <li><b>支援副檔名</b>：<code style="color: #4ade80;">.csv</code> 或 <code style="color: #4ade80;">.xlsx</code></li>
-          <li><b>更新效益</b>：上傳成功後，系統將<b>即時同步最新庫存數據</b>！</li>
+          <li><b>建議上傳檔案格式</b>：<code style="color: #4ade80;">.csv</code></li>
+          <li><b>更新效益</b>：上傳成功後，資料將直接寫入 Cloudflare D1 資料庫，<b>即時同步全公司最新庫存</b>！</li>
         </ol>
       </div>
       <template #footer>
@@ -638,34 +637,71 @@ export default {
     },
     handlePageChange(page) {
       this.currentPage = page;
+      this.handleSearch();
     },
     triggerSelectInventoryFile() {
       this.showInventoryImportTipDialog = false;
       this.$refs.inventoryFileInput.click();
     },
+    
+    // 批次匯入至 Cloudflare D1
     async handleInventoryUpload(event) {
       const file = event.target.files[0];
       if (!file) return;
 
-      this.$message.info('⚡ 正在解析並更新商品資料明細，請稍候...');
+      const loadingMsg = this.$message.info({ message: '⚡ 正在解析 CSV 檔案...', duration: 0 });
 
       try {
-        const text = await file.text();
-        const parsedData = this.parseCSV(text);
-        if (parsedData && parsedData.length > 0) {
-          this.$message.success(`🎉 成功上傳解析 ${parsedData.length} 筆資料！`);
-          this.sendLog('資料匯入', '成功上傳解析商品資料明細：' + file.name);
-          this.fetchInitData();
-          if (this.currentTab === 'inv80') {
-            this.handleSearch();
-          }
+        const papa = window.Papa || Papa;
+        if (!papa) {
+          throw new Error('PapaParse 解析庫尚未載入完成，請重新整理頁面再試');
         }
+
+        papa.parse(file, {
+          header: true,
+          skipEmptyLines: true,
+          complete: async (results) => {
+            const allData = results.data;
+            const totalRows = allData.length;
+
+            try {
+              loadingMsg.message = '🧹 正在清空 D1 資料庫舊數據...';
+              await axios.post('/api/clear');
+
+              const batchSize = 1000;
+              let inserted = 0;
+
+              for (let i = 0; i < totalRows; i += batchSize) {
+                const chunk = allData.slice(i, i + batchSize);
+                await axios.post('/api/batch-insert', { items: chunk });
+                
+                inserted += chunk.length;
+                const percent = Math.round((inserted / totalRows) * 100);
+                loadingMsg.message = `📦 正在寫入 D1 資料庫: ${inserted.toLocaleString()} / ${totalRows.toLocaleString()} 筆 (${percent}%)...`;
+              }
+
+              loadingMsg.close();
+              this.$message.success(`🎉 成功寫入 ${totalRows.toLocaleString()} 筆庫存資料至 D1 資料庫！`);
+              this.sendLog('資料匯入', '成功匯入至 D1 資料庫：' + file.name);
+              
+              this.fetchInitData();
+              if (this.currentTab === 'inv80') {
+                this.handleSearch();
+              }
+            } catch (err) {
+              loadingMsg.close();
+              this.$message.error('寫入 D1 失敗：' + err.message);
+            }
+          }
+        });
       } catch (e) {
+        loadingMsg.close();
         this.$message.error('解析檔案失敗：' + e.message);
       } finally {
         event.target.value = '';
       }
     },
+
     formatNumber(val) {
       if (val === null || val === undefined || val === '') return '0';
       const num = Number(String(val).replace(/,/g, ''));
@@ -1229,6 +1265,7 @@ export default {
       return names[tabKey] || '系統模組';
     },
 
+    // 取得 D1 資料庫動態大區清單
     async fetchInitData() {
       try {
         const ghRes = await fetch('/options.json?v=' + Date.now());
@@ -1239,98 +1276,35 @@ export default {
           this.options.vol_types = optionsData.vol_types || [];
         }
 
-        const csvRes = await fetch('/latest_inventory.csv?v=' + Date.now());
-        if (csvRes.ok) {
-          const csvText = await csvRes.text();
-          const rawData = this.parseCSV(csvText);
-
-          const bigZonesSet = new Set();
-          const zonesMap = {};
-
-          rawData.forEach(row => {
-            const bZone = (row['大區名'] || row['大區'] || '').toString().trim();
-            const sZone = (row['區名'] || row['區'] || '').toString().trim();
-
-            if (bZone && !bZone.includes('#N/A')) {
-              bigZonesSet.add(bZone);
-
-              if (!zonesMap[bZone]) {
-                zonesMap[bZone] = new Set();
-              }
-              if (sZone && !sZone.includes('#N/A')) {
-                zonesMap[bZone].add(sZone);
-              }
-            }
-          });
-
-          this.options.big_zones = Array.from(bigZonesSet).sort();
-          
-          const finalZonesMap = {};
-          Object.keys(zonesMap).forEach(bz => {
-            finalZonesMap[bz] = Array.from(zonesMap[bz]).sort();
-          });
-          this.options.zones_map = finalZonesMap;
+        const res = await axios.get('/api/categories/large');
+        if (res.data && res.data.success) {
+          this.options.big_zones = res.data.data;
         }
       } catch (e) {
-        console.warn('⚠️ 動態解析大區/小區選單失敗...', e);
+        console.warn('⚠️ 動態解析 D1 大區選單失敗...', e);
       }
     },
-    onBigZoneChange(val) {
+
+    // 根據大區，向 D1 抓取動態小區連動清單
+    async onBigZoneChange(val) {
       this.form.cbo_zone = '';
-      if (!val) {
-        this.options.zones = [];
-        return;
-      }
+      this.options.zones = [];
+      if (!val) return;
 
-      if (this.options.zones_map && this.options.zones_map[val]) {
-        this.options.zones = this.options.zones_map[val];
-      } else {
-        this.options.zones = [];
+      try {
+        const res = await axios.get('/api/categories/small?large=' + encodeURIComponent(val));
+        if (res.data && res.data.success) {
+          this.options.zones = res.data.data;
+        }
+      } catch (e) {
+        console.error('⚠️ 抓取小區連動失敗:', e);
       }
     },
 
-    parseCSV(text) {
-      if (!text) return [];
-      const lines = text.split(/\r\n|\n/);
-      if (lines.length < 2) return [];
-      
-      const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, '').replace(/\ufeff/g, ''));
-      const result = [];
-
-      for (let i = 1; i < lines.length; i++) {
-        if (!lines[i].trim()) continue;
-        
-        const row = [];
-        let insideQuote = false;
-        let entry = '';
-        
-        for (let char of lines[i]) {
-          if (char === '"') {
-            insideQuote = !insideQuote;
-          } else if (char === ',' && !insideQuote) {
-            row.push(entry.trim().replace(/^"|"$/g, ''));
-            entry = '';
-          } else {
-            entry += char;
-          }
-        }
-        row.push(entry.trim().replace(/^"|"$/g, ''));
-
-        if (row.length >= headers.length) {
-          const obj = {};
-          headers.forEach((h, idx) => {
-            obj[h] = row[idx] || '';
-          });
-          result.push(obj);
-        }
-      }
-      return result;
-    },
-
+    // 透過 Cloudflare D1 伺服器端 API 進行分頁查詢
     async handleSearch() {
       this.loading = true;
       this.searchElapsedSec = 0;
-      this.currentPage = 1;
 
       if (this.searchTimer) clearInterval(this.searchTimer);
       this.searchTimer = setInterval(() => {
@@ -1354,117 +1328,42 @@ export default {
           if (selectedCols.includes(col)) orderedSelectedCols.push(col);
         });
 
-        let rawData = [];
-        try {
-          const csvRes = await fetch('/latest_inventory.csv?v=' + Date.now());
-          if (csvRes.ok) {
-            const csvText = await csvRes.text();
-            rawData = this.parseCSV(csvText);
-          }
-        } catch (err) {
-          console.warn('讀取 /latest_inventory.csv 失敗，嘗試後端 API', err);
-        }
-
-        if (!rawData || rawData.length === 0) {
-          try {
-            const res = await axios.post('/api/search-inventory', {
-              ...this.form,
-              selected_columns: orderedSelectedCols,
-              repo_type: '80',
-              page: 1,
-              page_size: 100000
-            });
-            if (res.data && res.data.status === 'success' && res.data.data) {
-              rawData = res.data.data;
-            }
-          } catch (e) {}
-        }
-
-        // 依大區名進行前端篩選 (若未選大區則跳過，不排擠數據)
-        if (this.form.cbo_big_zone && this.form.cbo_big_zone.trim() !== '') {
-          const targetZone = this.form.cbo_big_zone.trim().toLowerCase();
-          rawData = rawData.filter(r => {
-            const bZone = (r['大區名'] || r['大區'] || '').toString().trim().toLowerCase();
-            return bZone === targetZone;
-          });
-        }
-
-        // 依區名進行篩選 (若未選區名則跳過)
-        if (this.form.cbo_zone && this.form.cbo_zone.trim() !== '') {
-          const targetSubZone = this.form.cbo_zone.trim().toLowerCase();
-          rawData = rawData.filter(r => {
-            const subZone = (r['區名'] || r['區'] || '').toString().trim().toLowerCase();
-            return subZone === targetSubZone;
-          });
-        }
-
-        // 依樓層篩選
-        if (this.form.cbo_floor && this.form.cbo_floor.trim() !== '') {
-          const targetFloor = this.form.cbo_floor.trim().toLowerCase();
-          rawData = rawData.filter(r => {
-            const fl = (r['樓層'] || '').toString().trim().toLowerCase();
-            return fl === targetFloor;
-          });
-        }
-
-        // 依關鍵字篩選 (商品ID與名稱)
-        if (this.form.txt_id && this.form.txt_id.trim() !== '') {
-          const kw = this.form.txt_id.trim().toLowerCase();
-          rawData = rawData.filter(r => (r['商品ID'] || '').toString().toLowerCase().includes(kw));
-        }
-        if (this.form.txt_name && this.form.txt_name.trim() !== '') {
-          const kw = this.form.txt_name.trim().toLowerCase();
-          rawData = rawData.filter(r => (r['商品名稱'] || '').toString().toLowerCase().includes(kw));
-        }
-
-        this.hasSearched = true;
-        this.columns = orderedSelectedCols;
-
-        const detailCols = ["儲位", "庫齡", "樓層", "儲位編碼", "儲位編碼-3", "儲位編碼5", "儲位層標示", "庫齡級距", "備註"];
-        const hasDetail = this.columns.some(col => detailCols.includes(col));
-
-        if (!hasDetail && rawData.length > 0) {
-          const groupedMap = new Map();
-          rawData.forEach(row => {
-            const pid = row['商品ID'];
-            if (!pid) return;
-            if (!groupedMap.has(pid)) {
-              groupedMap.set(pid, { ...row });
-            } else {
-              const existing = groupedMap.get(pid);
-              ['儲位庫存數', '才數', '總庫存數'].forEach(numKey => {
-                if (row[numKey] !== undefined) {
-                  const val1 = Number(String(existing[numKey] || 0).replace(/,/g, '')) || 0;
-                  const val2 = Number(String(row[numKey] || 0).replace(/,/g, '')) || 0;
-                  existing[numKey] = val1 + val2;
-                }
-              });
-            }
-          });
-          rawData = Array.from(groupedMap.values());
-        }
-
-        let totalPcs = 0;
-        let totalAo = 0;
-        rawData.forEach(r => {
-          totalPcs += Number(String(r['儲位庫存數'] || r['總庫存數'] || 0).replace(/,/g, '')) || 0;
-          totalAo += Number(String(r['才數'] || 0).replace(/,/g, '')) || 0;
+        const params = new URLSearchParams({
+          page: this.currentPage,
+          pageSize: this.pageSize,
+          categoryLarge: this.form.cbo_big_zone || '',
+          categorySmall: this.form.cbo_zone || '',
+          keyword: this.form.txt_id || this.form.txt_name || ''
         });
 
-        this.tableData = rawData;
-        this.totalRowsCount = rawData.length;
-        
-        this.summary = {
-          total_items: this.formatNumber(rawData.length),
-          total_rows: this.formatNumber(rawData.length),
-          total_pcs: this.formatNumber(totalPcs),
-          total_ao: this.formatNumber(totalAo.toFixed(2))
-        };
+        const res = await axios.get(`/api/search?${params.toString()}`);
 
-        this.searchTime = new Date().toLocaleString() + ' (耗時 ' + this.searchElapsedSec + ' 秒)';
-        this.showSearchModal = false;
-        this.$message.success('檢索成功！共查出 ' + this.summary.total_rows + ' 筆紀錄 (耗時 ' + this.searchElapsedSec + ' 秒)');
-        this.sendLog('庫存查詢80', '檢索成功 (' + this.searchElapsedSec + 's)');
+        if (res.data && res.data.success) {
+          const rawData = res.data.data || [];
+          this.totalRowsCount = res.data.total || 0;
+          this.tableData = rawData;
+          this.hasSearched = true;
+          this.columns = orderedSelectedCols;
+
+          let totalPcs = 0;
+          let totalAo = 0;
+          rawData.forEach(r => {
+            totalPcs += Number(String(r['儲位庫存數'] || r['總庫存數'] || 0).replace(/,/g, '')) || 0;
+            totalAo += Number(String(r['才數'] || 0).replace(/,/g, '')) || 0;
+          });
+
+          this.summary = {
+            total_items: this.formatNumber(this.totalRowsCount),
+            total_rows: this.formatNumber(this.totalRowsCount),
+            total_pcs: this.formatNumber(totalPcs),
+            total_ao: this.formatNumber(totalAo.toFixed(2))
+          };
+
+          this.searchTime = new Date().toLocaleString() + ' (耗時 ' + this.searchElapsedSec + ' 秒)';
+          this.showSearchModal = false;
+          this.$message.success('檢索成功！共查出 ' + this.summary.total_rows + ' 筆紀錄 (耗時 ' + this.searchElapsedSec + ' 秒)');
+          this.sendLog('庫存查詢80', '檢索成功 (' + this.searchElapsedSec + 's)');
+        }
       } catch (e) {
         this.$message.error('搜尋失敗：' + e.message);
       } finally {
@@ -1475,6 +1374,7 @@ export default {
         this.loading = false;
       }
     },
+
     exportData(fmt) {
       if (!this.tableData || this.tableData.length === 0) {
         this.$message.warning('目前無可匯出的資料！');
