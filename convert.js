@@ -1,59 +1,64 @@
 ﻿const fs = require('fs');
 const path = require('path');
+const readline = require('readline');
 
-const csvPath = path.join(__dirname, 'frontend/public/latest_inventory.csv');
-const jsonPath = path.join(__dirname, 'frontend/public/latest_inventory.json');
+const csvPath = path.resolve(__dirname, 'latest_inventory.csv');
+const jsonPath = path.resolve(__dirname, 'frontend', 'public', 'latest_inventory.json');
 
-if (!fs.existsSync(csvPath)) {
-  console.error('❌ 找不到 latest_inventory.csv 檔案！');
-  process.exit(1);
-}
-
-console.log('⏳ 正在讀取 36 欄位 CSV 並生成 JSON...');
-const text = fs.readFileSync(csvPath, 'utf-8');
-const lines = text.split(/\r\n|\n/);
-if (lines.length < 2) process.exit(1);
-
-const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, '').replace(/\ufeff/g, ''));
-const result = [];
-
-const keepFields = [
-  "商品ID", "商品名稱", "借/採", "儲位", "儲位庫存數", "庫齡", "區編", "區名", "館編", "館名",
-  "長(cm)", "寬(cm)", "高(cm)", "重量(kg)", "(近)月銷量", "(近)月-有揀貨單天數", "(近)90日銷量", 
-  "(近)90日-有揀貨單天數", "供應商ID", "供應商名稱", "所屬PM", "總庫存數", "總庫存_迴轉天數", 
-  "才數", "材積別", "樓層", "儲位型態", "大區編", "大區名", "儲位才數", "儲位健康度", 
-  "材積判斷", "總才數", "人工/自動", "庫齡級距", "重型架判斷"
-];
-
-for (let i = 1; i < lines.length; i++) {
-  if (!lines[i].trim()) continue;
-  const row = [];
-  let insideQuote = false;
-  let entry = '';
-  for (let char of lines[i]) {
-    if (char === '"') {
-      insideQuote = !insideQuote;
-    } else if (char === ',' && !insideQuote) {
-      row.push(entry.trim().replace(/^"|"$/g, ''));
-      entry = '';
-    } else {
-      entry += char;
+// 處理 CSV 欄位解析
+function parseCSVLine(line) {
+    const result = [];
+    let start = 0;
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+        if (line[i] === '"') {
+            inQuotes = !inQuotes;
+        } else if (line[i] === ',' && !inQuotes) {
+            let field = line.substring(start, i).trim();
+            if (field.startsWith('"') && field.endsWith('"')) {
+                field = field.slice(1, -1).replace(/""/g, '"');
+            }
+            result.push(field);
+            start = i + 1;
+        }
     }
-  }
-  row.push(entry.trim().replace(/^"|"$/g, ''));
-
-  if (row.length >= headers.length) {
-    const obj = {};
-    headers.forEach((h, idx) => {
-      if (keepFields.includes(h)) {
-        obj[h] = row[idx] || '';
-      }
-    });
-    result.push(obj);
-  }
+    let lastField = line.substring(start).trim();
+    if (lastField.startsWith('"') && lastField.endsWith('"')) {
+        lastField = lastField.slice(1, -1).replace(/""/g, '"');
+    }
+    result.push(lastField);
+    return result;
 }
 
-fs.writeFileSync(jsonPath, JSON.stringify(result), 'utf-8');
-const stats = fs.statSync(jsonPath);
-const fileSizeInMB = (stats.size / (1024 * 1024)).toFixed(2);
-console.log('🎉 轉檔成功！共 ' + result.length + ' 筆資料，JSON 大小：' + fileSizeInMB + ' MB');
+async function convert() {
+    const fileStream = fs.createReadStream(csvPath);
+    const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
+
+    let headers = [];
+    const results = [];
+
+    for await (const line of rl) {
+        if (!line.trim()) continue;
+        const parsed = parseCSVLine(line);
+        if (headers.length === 0) {
+            headers = parsed;
+        } else {
+            const row = {};
+            headers.forEach((header, index) => {
+                const val = parsed[index] || '';
+                // 排除空值，節省空間
+                if (val !== '') {
+                    row[header] = val;
+                }
+            });
+            results.push(row);
+        }
+    }
+
+    // 使用無縮排壓縮格式 (JSON.stringify 移除第三個參數 null, 2)
+    fs.writeFileSync(jsonPath, JSON.stringify(results), 'utf8');
+    const stats = fs.statSync(jsonPath);
+    console.log(`✅ 轉檔成功！檔案大小：${(stats.size / 1024 / 1024).toFixed(2)} MB`);
+}
+
+convert().catch(err => console.error('❌ 錯誤:', err));
