@@ -1,45 +1,43 @@
 <template>
   <header class="top-navbar">
-    <div class="navbar-left">
-      <div class="navbar-brand">
-        <span class="brand-title">📦 庫存儲位系統</span>
-        <span class="brand-version">{{ version }}</span>
-      </div>
+    <div class="brand-section">
+      <span class="logo">📦</span>
+      <span class="title">庫存儲位系統</span>
+      <!-- 動態帶入當前編譯時間版號 -->
+      <span class="version-tag">{{ appVersion }}</span>
+    </div>
 
-      <el-button type="primary" size="medium" icon="Menu" class="unified-menu-btn" @click="$emit('open-drawer')">
-        ☰ 系統控制選單
-      </el-button>
-
-      <!-- 🔥 靠選單右側的動態頁籤按鈕列 -->
-      <div class="active-tabs-bar" v-if="openedTabs && openedTabs.length > 0">
-        <div 
-          v-for="tabKey in openedTabs" 
-          :key="tabKey"
-          :class="['tab-btn-item', { active: currentTab === tabKey }]"
-          @click="$emit('switch-tab', tabKey)"
-        >
-          <span class="tab-btn-text">{{ getTabName(tabKey) }}</span>
-          <span 
-            v-if="openedTabs.length > 1" 
-            class="close-tab-icon" 
-            @click.stop="$emit('close-tab', tabKey)"
-            title="關閉頁籤"
-          >✕</span>
-        </div>
+    <!-- 中間頁籤切換區 -->
+    <div class="tabs-container">
+      <div 
+        v-for="tab in openedTabs" 
+        :key="tab"
+        class="tab-item"
+        :class="{ active: currentTab === tab }"
+        @click="$emit('switch-tab', tab)"
+      >
+        <span class="tab-name">{{ getTabName(tab) }}</span>
+        <span 
+          v-if="openedTabs.length > 1" 
+          class="close-tab-btn" 
+          @click.stop="$emit('close-tab', tab)"
+        >✕</span>
       </div>
     </div>
 
-    <div class="top-right-actions">
-      <el-button 
-        type="success" 
-        size="medium" 
-        icon="Download"
-        class="header-export-btn"
-        v-if="showExportBtn"
+    <!-- 右側選單與功能按鈕 -->
+    <div class="actions-section">
+      <button class="nav-btn menu-btn" @click="$emit('open-drawer')">
+        <span>☰</span> 系統控制選單
+      </button>
+
+      <button 
+        v-if="showExportBtn" 
+        class="nav-btn export-btn" 
         @click="$emit('export-excel')"
       >
-        ↓ 匯出 Excel
-      </el-button>
+        📊 匯出美化 Excel
+      </button>
     </div>
   </header>
 </template>
@@ -47,13 +45,26 @@
 <script>
 export default {
   name: 'TopNavbar',
-  props: ['currentTab', 'openedTabs', 'showExportBtn'],
-  emits: ['switch-tab', 'close-tab', 'export-excel', 'open-drawer'],
-  data() {
-    return {
-      version: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'v2026.08'
+  props: {
+    // 接收來自 App.vue 的動態編譯版號
+    appVersion: {
+      type: String,
+      default: 'v2026.09.01'
+    },
+    currentTab: {
+      type: String,
+      default: 'inv80'
+    },
+    openedTabs: {
+      type: Array,
+      default: () => ['inv80']
+    },
+    showExportBtn: {
+      type: Boolean,
+      default: false
     }
   },
+  emits: ['switch-tab', 'close-tab', 'open-drawer', 'export-excel'],
   methods: {
     getTabName(tabKey) {
       const names = {
@@ -73,117 +84,116 @@ export default {
 
 <style scoped>
 .top-navbar {
-  height: 52px;
-  background-color: #1e293b;
-  border-bottom: 1px solid #334155;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 20px;
-  z-index: 100;
-  position: relative;
+  height: 52px;
+  padding: 0 16px;
+  background-color: #1e293b;
+  border-bottom: 1px solid #334155;
+  user-select: none;
 }
 
-.navbar-left {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex: 1;
-  overflow-x: auto;
-}
-
-.navbar-brand {
+.brand-section {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-shrink: 0;
 }
 
-.brand-title {
-  font-size: 18px;
+.logo {
+  font-size: 1.2rem;
+}
+
+.title {
   font-weight: 700;
+  font-size: 1rem;
+  color: #f8fafc;
+}
+
+.version-tag {
+  background-color: #0284c7;
   color: #ffffff;
-  white-space: nowrap;
-}
-
-.brand-version {
-  font-size: 11px;
-  color: #38bdf8;
-  background: #0f172a;
-  border: 1px solid #0284c7;
   padding: 2px 8px;
-  border-radius: 4px;
-  font-family: monospace;
-  font-weight: bold;
-  white-space: nowrap;
+  border-radius: 12px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  border: 1px solid #38bdf8;
+  margin-left: 4px;
 }
 
-.unified-menu-btn {
-  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important;
-  border: none !important;
-  font-weight: bold !important;
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
-  flex-shrink: 0;
-}
-
-/* 動態動態頁籤列 */
-.active-tabs-bar {
+.tabs-container {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-left: 10px;
+  overflow-x: auto;
+  max-width: 50vw;
 }
 
-.tab-btn-item {
+.tab-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  background: #0f172a;
-  border: 1px solid #334155;
+  gap: 6px;
+  padding: 6px 12px;
+  background-color: #0f172a;
   color: #94a3b8;
-  padding: 6px 14px;
-  border-radius: 6px;
-  font-size: 13px;
-  font-weight: 600;
+  border-radius: 6px 6px 0 0;
+  font-size: 0.85rem;
   cursor: pointer;
+  border: 1px solid transparent;
   transition: all 0.2s ease;
-  white-space: nowrap;
 }
 
-.tab-btn-item:hover {
-  background: #1e293b;
-  color: #ffffff;
-  border-color: #38bdf8;
+.tab-item:hover {
+  color: #f8fafc;
+  background-color: #334155;
 }
 
-.tab-btn-item.active {
-  background: #2563eb;
-  color: #ffffff;
-  border-color: #60a5fa;
-  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.4);
+.tab-item.active {
+  color: #38bdf8;
+  background-color: #1e293b;
+  border-color: #334155;
+  border-bottom-color: #1e293b;
+  font-weight: bold;
 }
 
-.close-tab-icon {
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.6);
+.close-tab-btn {
+  font-size: 0.75rem;
   border-radius: 50%;
-  padding: 1px 4px;
+  padding: 0 4px;
 }
 
-.close-tab-icon:hover {
-  background: rgba(255, 255, 255, 0.2);
+.close-tab-btn:hover {
+  background-color: #ef4444;
   color: #ffffff;
 }
 
-.top-right-actions {
+.actions-section {
   display: flex;
   align-items: center;
   gap: 10px;
-  flex-shrink: 0;
 }
 
-.header-export-btn {
-  font-weight: bold !important;
-  box-shadow: 0 4px 12px rgba(34, 197, 94, 0.25);
+.nav-btn {
+  padding: 6px 14px;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.nav-btn:hover {
+  opacity: 0.9;
+}
+
+.menu-btn {
+  background-color: #2563eb;
+  color: #ffffff;
+}
+
+.export-btn {
+  background-color: #059669;
+  color: #ffffff;
 }
 </style>
