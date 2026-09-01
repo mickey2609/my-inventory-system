@@ -51,6 +51,7 @@
         v-if="isLoggedIn"
         :current-tab="currentTab"
         :opened-tabs="openedTabs"
+        :app-version="appVersion"
         :show-export-btn="currentTab === 'loc_summary' && (summaryGridData.length > 0 || areaGridTable.length > 0)"
         @switch-tab="switchTab"
         @close-tab="closeTab"
@@ -464,6 +465,9 @@ export default {
   },
   data() {
     return {
+      // 讀取 Vite 自動寫入的當下編譯精確日期時間版號
+      appVersion: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'v2026.09.01',
+
       isLoggedIn: false,
       currentUser: '',
       loginLoading: false,
