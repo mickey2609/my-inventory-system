@@ -38,17 +38,21 @@ export function useAuthSession(onAutoLogoutCallback) {
     }
   };
 
-  // 🌟 3. 儲存 Session 資訊與最後活躍時間戳
-  const saveSession = (username, name) => {
+  // 🌟 3. 儲存 Session 資訊與最後活躍時間戳 (補齊名字與權限)
+  const saveSession = (username, name, role, permissions) => {
     const now = Date.now();
+    const displayName = name || username || '系統管理員';
     const sessionData = {
       isLoggedIn: true,
-      username,
-      name,
+      username: username || 'admin',
+      name: displayName,
+      role: role || (username === 'admin' ? 'sys_admin' : 'user'),
+      permissions: permissions || 'all',
       loginTimestamp: now,
       lastActiveTimestamp: now
     };
     localStorage.setItem('auth_session', JSON.stringify(sessionData));
+    localStorage.setItem('currentUser', displayName);
   };
 
   // 🌟 4. 更新最後活躍時間 (包含寫入 localStorage)
@@ -69,6 +73,7 @@ export function useAuthSession(onAutoLogoutCallback) {
 
   const clearSession = () => {
     localStorage.removeItem('auth_session');
+    localStorage.removeItem('currentUser');
   };
 
   const formatLoginTimeStr = () => {
