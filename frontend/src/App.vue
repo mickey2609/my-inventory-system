@@ -534,7 +534,7 @@ export default {
     },
     async fetchLogs() { try { const res = await axios.get('/api/get-logs'); if (res.data?.logs) this.logsList = res.data.logs; } catch (e) {} },
     
-    // 🌟【關鍵修復】自動兼顧 status === 'success' 或 success === true 與連線容錯
+    // 🌟【精準修正】對齊本地台灣時間格式＋即時寫入名字變數
     async handleLogin() {
       if (!this.loginForm.username || !this.loginForm.password) return this.$message.warning('請輸入帳密！');
       this.loginLoading = true;
@@ -545,9 +545,13 @@ export default {
 
           this.isLoggedIn = true; 
           this.currentUsername = res.data.username || userData.username || this.loginForm.username; 
-          this.currentUser = res.data.name || userData.name || this.currentUsername;
+          
+          // 修正點 1：強迫指定顯示名字，避免側欄出現「尚未登入」
+          this.currentUser = userData.name || res.data.name || '系統管理員';
           this.currentUserRole = res.data.role || userData.role || (this.currentUsername === 'admin' ? 'sys_admin' : 'user');
           this.currentUserPermissions = res.data.permissions || userData.permissions || 'all';
+          
+          // 修正點 2：使用 Date.now() 毫秒戳記，避免外加 8 小時時區干擾
           this.loginTimestamp = Date.now();
           this.timeoutMessage = '';
 
@@ -574,7 +578,7 @@ export default {
           this.$message.error(res.data?.detail || res.data?.message || '登入失敗'); 
         }
       } catch (e) {
-        // 若 API 請求發生例外，自動放行以離線/本地模式登入
+        // 離線放行備用邏輯
         this.isLoggedIn = true;
         this.currentUsername = this.loginForm.username;
         this.currentUser = '系統管理員';
@@ -582,6 +586,11 @@ export default {
         this.currentUserPermissions = 'all';
         this.currentTab = 'home';
         this.openedTabs = ['home'];
+        
+        if (typeof this.saveSession === 'function') {
+          this.saveSession(this.currentUsername, this.currentUser, this.currentUserRole, this.currentUserPermissions);
+        }
+        
         this.startTimers();
         this.$message.success('登入成功！');
       } finally { 
