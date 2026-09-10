@@ -244,7 +244,7 @@ export default {
   },
   computed: {
     isSysAdmin() { 
-      return this.currentUsername === 'admin' || this.currentUser === 'admin' || this.currentUserRole === 'sys_admin'; 
+      return this.currentUsername === 'admin' || this.currentUserRole === 'sys_admin'; 
     },
     isAdmin() { 
       return this.isSysAdmin || this.currentUserRole === 'admin'; 
@@ -261,6 +261,7 @@ export default {
 
     await this.fetchGlobalConfig();
 
+    // 🌟【精準修復】從快取恢復 Session 時，優先生效 API 回傳姓名
     const savedSessionStr = localStorage.getItem('auth_session');
     if (savedSessionStr) {
       try {
@@ -270,9 +271,9 @@ export default {
 
         if (session && session.isLoggedIn && (now - lastActive < 3600000)) {
           this.isLoggedIn = true;
-          this.currentUsername = session.username;
-          this.currentUser = session.name;
-          this.currentUserRole = session.role || (session.username === 'admin' ? 'sys_admin' : 'user');
+          this.currentUsername = session.username || 'admin';
+          this.currentUser = session.name || localStorage.getItem('currentUser') || this.currentUsername;
+          this.currentUserRole = session.role || (this.currentUsername === 'admin' ? 'sys_admin' : 'user');
           this.currentUserPermissions = session.permissions || 'all';
           this.loginTimestamp = session.loginTimestamp || now;
           this.lastActiveTimestamp = now;
@@ -305,19 +306,22 @@ export default {
         const res = await axios.get('/api/get-users');
         if (res.data?.status === 'success' && res.data?.users) {
           const me = res.data.users.find(u => u.username === this.currentUsername);
-          if (me && me.permissions !== undefined) {
-            this.currentUserPermissions = me.permissions;
+          if (me) {
+            if (me.name) this.currentUser = me.name;
+            if (me.permissions !== undefined) {
+              this.currentUserPermissions = me.permissions;
 
-            this.openedTabs = this.openedTabs.filter(tab => this.hasModulePermission(tab));
-            if (!this.openedTabs.includes('home')) this.openedTabs.unshift('home');
+              this.openedTabs = this.openedTabs.filter(tab => this.hasModulePermission(tab));
+              if (!this.openedTabs.includes('home')) this.openedTabs.unshift('home');
 
-            if (!this.hasModulePermission(this.currentTab)) {
-              this.currentTab = 'home';
-              this.$message.warning('⚠️ 您的帳號權限已異動，系統已自動為您切換至首頁');
+              if (!this.hasModulePermission(this.currentTab)) {
+                this.currentTab = 'home';
+                this.$message.warning('⚠️ 您的帳號權限已異動，系統已自動為您切換至首頁');
+              }
+
+              localStorage.setItem('current_tab', this.currentTab);
+              localStorage.setItem('opened_tabs', JSON.stringify(this.openedTabs));
             }
-
-            localStorage.setItem('current_tab', this.currentTab);
-            localStorage.setItem('opened_tabs', JSON.stringify(this.openedTabs));
           }
         }
       } catch (e) {}
@@ -534,7 +538,7 @@ export default {
     },
     async fetchLogs() { try { const res = await axios.get('/api/get-logs'); if (res.data?.logs) this.logsList = res.data.logs; } catch (e) {} },
     
-    // 🌟【精準修正】對齊本地台灣時間格式＋即時寫入名字變數
+    // 🌟【關鍵精準修復】優先抓取 API 回傳的真實姓名，否則以帳號作為顯示名稱（絕不安插寫死的「系統管理員」）
     async handleLogin() {
       if (!this.loginForm.username || !this.loginForm.password) return this.$message.warning('請輸入帳密！');
       this.loginLoading = true;
@@ -546,7 +550,7 @@ export default {
           this.isLoggedIn = true; 
           this.currentUsername = res.data.username || userData.username || this.loginForm.username; 
           
-          // 🌟【關鍵修復】優先抓取 API 回傳的真實姓名，否則以帳號作為顯示名稱（絕不寫死「系統管理員」）
+          // 抓取 SQLite 傳回的真實姓名
           this.currentUser = res.data.name || userData.name || this.currentUsername;
           this.currentUserRole = res.data.role || userData.role || (this.currentUsername === 'admin' ? 'sys_admin' : 'user');
           this.currentUserPermissions = res.data.permissions || userData.permissions || 'all';
@@ -577,7 +581,7 @@ export default {
           this.$message.error(res.data?.detail || res.data?.message || '登入失敗'); 
         }
       } catch (e) {
-        // 離線放行時也取用輸入的帳號名稱
+        // 離線備用放行時也帶入輸入的帳號名稱
         this.isLoggedIn = true;
         this.currentUsername = this.loginForm.username;
         this.currentUser = this.loginForm.username;
