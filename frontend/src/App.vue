@@ -546,12 +546,11 @@ export default {
           this.isLoggedIn = true; 
           this.currentUsername = res.data.username || userData.username || this.loginForm.username; 
           
-          // 修正點 1：強迫指定顯示名字，避免側欄出現「尚未登入」
-          this.currentUser = userData.name || res.data.name || '系統管理員';
+          // 🌟【關鍵修復】優先抓取 API 回傳的真實姓名，否則以帳號作為顯示名稱（絕不寫死「系統管理員」）
+          this.currentUser = res.data.name || userData.name || this.currentUsername;
           this.currentUserRole = res.data.role || userData.role || (this.currentUsername === 'admin' ? 'sys_admin' : 'user');
           this.currentUserPermissions = res.data.permissions || userData.permissions || 'all';
           
-          // 修正點 2：使用 Date.now() 毫秒戳記，避免外加 8 小時時區干擾
           this.loginTimestamp = Date.now();
           this.timeoutMessage = '';
 
@@ -578,11 +577,11 @@ export default {
           this.$message.error(res.data?.detail || res.data?.message || '登入失敗'); 
         }
       } catch (e) {
-        // 離線放行備用邏輯
+        // 離線放行時也取用輸入的帳號名稱
         this.isLoggedIn = true;
         this.currentUsername = this.loginForm.username;
-        this.currentUser = '系統管理員';
-        this.currentUserRole = 'sys_admin';
+        this.currentUser = this.loginForm.username;
+        this.currentUserRole = this.loginForm.username === 'admin' ? 'sys_admin' : 'user';
         this.currentUserPermissions = 'all';
         this.currentTab = 'home';
         this.openedTabs = ['home'];
