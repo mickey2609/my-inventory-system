@@ -1,8 +1,8 @@
 <template>
   <div class="dashboard-home">
     <div class="welcome-banner">
-      <h2>👋 歡迎回來，{{ currentUser }}</h2>
-      <p>當前 Cloudflare D1 資料庫即時運作狀態與數據概覽</p>
+      <h2>👋 歡迎回來，{{ currentUser || '系統管理員' }}</h2>
+      <p>當前地端 SQLite 資料庫即時運作狀態與數據概覽</p>
     </div>
 
     <!-- 數據指標卡片 -->
@@ -11,7 +11,7 @@
         <div class="card-icon">📦</div>
         <div class="card-info">
           <span class="card-title">總庫存明細筆數</span>
-          <span class="card-value">{{ dbMetrics.totalRows.toLocaleString() }} <small>筆</small></span>
+          <span class="card-value">{{ isServerOnline ? (dbMetrics.totalRows || 0).toLocaleString() : 0 }} <small>筆</small></span>
         </div>
       </div>
 
@@ -19,15 +19,18 @@
         <div class="card-icon">🏢</div>
         <div class="card-info">
           <span class="card-title">涵蓋大區數量</span>
-          <span class="card-value">{{ dbMetrics.totalCategories }} <small>個區域</small></span>
+          <span class="card-value">{{ isServerOnline ? (dbMetrics.totalCategories || 0) : 0 }} <small>個區域</small></span>
         </div>
       </div>
 
+      <!-- 🌟 動態偵測地端連線狀態 -->
       <div class="metric-card">
         <div class="card-icon">⚡</div>
         <div class="card-info">
-          <span class="card-title">D1 引擎狀態</span>
-          <span class="card-value status-online">🟢 正常運作中</span>
+          <span class="card-title">地端 SQLite 引擎狀態</span>
+          <span class="card-value" :class="isServerOnline ? 'status-online' : 'status-offline'">
+            {{ isServerOnline ? '🟢 正常連線中' : '🔴 伺服器斷線' }}
+          </span>
         </div>
       </div>
     </div>
@@ -56,7 +59,7 @@
           <div class="action-icon">📥</div>
           <div class="action-text">
             <h4>匯入庫存 CSV</h4>
-            <p>上傳最新商品庫存明細並寫入 Cloudflare D1</p>
+            <p>上傳最新商品庫存明細並同步寫入地端 SQLite</p>
           </div>
         </div>
       </div>
@@ -65,6 +68,8 @@
 </template>
 
 <script>
+import axios from 'axios'
+
 export default {
   name: 'HomeDashboard',
   props: {
@@ -74,7 +79,31 @@ export default {
       default: () => ({ totalRows: 0, totalCategories: 0 })
     }
   },
-  emits: ['open-tab', 'open-import-inventory']
+  emits: ['open-tab', 'open-import-inventory'],
+  data() {
+    return {
+      isServerOnline: false,
+      checkTimer: null
+    }
+  },
+  mounted() {
+    this.checkServerStatus();
+    // 每 8 秒自動輪詢一次地端連線狀態
+    this.checkTimer = setInterval(this.checkServerStatus, 8000);
+  },
+  beforeUnmount() {
+    if (this.checkTimer) clearInterval(this.checkTimer);
+  },
+  methods: {
+    async checkServerStatus() {
+      try {
+        const res = await axios.get('/api/get-global-config', { timeout: 3000 });
+        this.isServerOnline = !!(res.data && (res.data.success || res.data.status === 'success'));
+      } catch (e) {
+        this.isServerOnline = false;
+      }
+    }
+  }
 }
 </script>
 
@@ -109,6 +138,7 @@ export default {
 .card-value { font-size: 1.5rem; font-weight: bold; color: #f8fafc; }
 .card-value small { font-size: 0.85rem; font-weight: normal; color: #64748b; }
 .status-online { color: #4ade80; font-size: 1.1rem; }
+.status-offline { color: #f87171; font-size: 1.1rem; }
 
 .quick-actions-section h3 { font-size: 1.2rem; margin-bottom: 16px; color: #f8fafc; }
 .actions-grid {
