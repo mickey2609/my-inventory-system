@@ -1,9 +1,9 @@
 import axios from 'axios';
 
-// 輔助函式：讓 CPU 喘息，避免觸發 Cloudflare 限制
+// 輔助函式：讓 CPU 喘息，避免 HTTP 連線擠塞
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-// 💡 補齊：安全的欄位值讀取工具函式 (解決 getRowValue is not defined 錯誤)
+// 安全的欄位值讀取工具函式
 const getRowValue = (row, col) => {
   if (!row) return '-';
   const val = row[col];
@@ -11,7 +11,7 @@ const getRowValue = (row, col) => {
   return '-';
 };
 
-// 1. CSV 批次寫入 D1 資料庫
+// 1. CSV 批次寫入地端 SQLite 資料庫 (分批 Chunking 解決 11 萬筆上限問題)
 export async function processCsvUpload(file, onProgress, sendLogCallback) {
   return new Promise((resolve, reject) => {
     const papa = window.Papa || (typeof Papa !== 'undefined' ? Papa : null);
@@ -28,58 +28,67 @@ export async function processCsvUpload(file, onProgress, sendLogCallback) {
         const totalRows = allData.length;
 
         try {
-          if (onProgress) onProgress(0);
-          await axios.post('/api/clear');
+          if (!allData || totalRows === 0) {
+            throw new Error('CSV 檔案為空或無有效資料！');
+          }
 
-          // 🔥 動態批次：測試環境一次 5000 筆，正式環境一次 1000 筆
-          const batchSize = import.meta.env.DEV ? 5000 : 1000;
+          if (onProgress) onProgress(0);
+
+          // 🌟 每 10,000 筆為一個 Batch 分批傳送，避免 11 萬筆一次爆開導致 HTTP 504/404
+          const batchSize = 10000;
           let inserted = 0;
 
           for (let i = 0; i < totalRows; i += batchSize) {
             const chunk = allData.slice(i, i + batchSize);
 
             const parsedChunk = chunk.map(row => ({
-              item_id: row['商品ID'] || row['item_id'],
-              item_name: row['商品名稱'] || row['item_name'],
-              // 💡 多重備援讀取 CSV 標題
-              borrow_proc: row['借/採'] || row['借採'] || row['borrow_proc'] || row['borrow_type'] || '',
-              location: row['儲位'] || row['location'],
-              qty: row['儲位庫存數'] || row['qty'],
-              age: row['庫齡'] || row['age'],
-              zone_id: row['區編'] || row['zone_id'],
-              zone_name: row['區名'] || row['zone_name'],
-              hall_id: row['館編'] || row['hall_id'],
-              hall_name: row['館名'] || row['hall_name'],
-              length: row['長(cm)'] || row['length'],
-              width: row['寬(cm)'] || row['width'],
-              height: row['高(cm)'] || row['height'],
-              weight: row['重量(kg)'] || row['weight'],
-              monthly_sales: row['(近)月銷量'] || row['monthly_sales'],
-              pick_days_m: row['(近)月-有揀貨單天數'] || row['pick_days_m'],
-              sales_90d: row['(近)90日銷量'] || row['sales_90d'],
-              pick_days_90d: row['(近)90日-有揀貨單天數'] || row['pick_days_90d'],
-              supplier_id: row['供應商ID'] || row['supplier_id'],
-              supplier_name: row['供應商名稱'] || row['supplier_name'],
-              pm: row['所屬PM'] || row['pm'],
-              total_qty: row['總庫存數'] || row['total_qty'],
-              turn_days_total: row['總庫存_迴轉天數'] || row['turn_days_total'],
-              cubic_feet: row['才數'] || row['cubic_feet'],
-              vol_type: row['材積別'] || row['vol_type'],
-              floor: row['樓層'] || row['floor'],
-              loc_type: row['儲位型態'] || row['loc_type'],
-              big_zone_id: row['大區編'] || row['big_zone_id'],
-              big_zone: row['大區名'] || row['big_zone'],
-              loc_cubic_feet: row['儲位才數'] || row['loc_cubic_feet'],
-              loc_health: row['儲位健康度'] || row['loc_health'],
-              vol_check: row['材積判斷'] || row['vol_check'],
-              total_cubic_feet: row['總才數'] || row['total_cubic_feet'],
-              // 💡 多重備援讀取 CSV 標題
-              auto_type: row['人工/自動'] || row['人工/自動化'] || row['auto_type'] || row['is_auto'] || '',
-              age_bracket: row['庫齡級距'] || row['age_bracket'],
-              heavy_rack_check: row['重型架判斷'] || row['heavy_rack_check']
+              '商品ID': row['商品ID'] || row['item_id'] || '',
+              '商品名稱': row['商品名稱'] || row['item_name'] || '',
+              '借/採': row['借/採'] || row['借採'] || row['borrow_proc'] || row['borrow_type'] || '',
+              '儲位': row['儲位'] || row['location'] || '',
+              '儲位庫存數': row['儲位庫存數'] || row['qty'] || 0,
+              '庫齡': row['庫齡'] || row['age'] || 0,
+              '區編': row['區編'] || row['zone_id'] || '',
+              '區名': row['區名'] || row['zone_name'] || '',
+              '館編': row['館編'] || row['hall_id'] || '',
+              '館名': row['館名'] || row['hall_name'] || '',
+              '長(cm)': row['長(cm)'] || row['length'] || 0,
+              '寬(cm)': row['寬(cm)'] || row['width'] || 0,
+              '高(cm)': row['高(cm)'] || row['height'] || 0,
+              '重量(kg)': row['重量(kg)'] || row['weight'] || 0,
+              '(近)月銷量': row['(近)月銷量'] || row['monthly_sales'] || 0,
+              '(近)月-有揀貨單天數': row['(近)月-有揀貨單天數'] || row['pick_days_m'] || 0,
+              '(近)90日銷量': row['(近)90日銷量'] || row['sales_90d'] || 0,
+              '(近)90日-有揀貨單天數': row['(近)90日-有揀貨單天數'] || row['pick_days_90d'] || 0,
+              '供應商ID': row['供應商ID'] || row['supplier_id'] || '',
+              '供應商名稱': row['供應商名稱'] || row['supplier_name'] || '',
+              '所屬PM': row['所屬PM'] || row['pm'] || '',
+              '總庫存數': row['總庫存數'] || row['total_qty'] || 0,
+              '總庫存_迴轉天數': row['總庫存_迴轉天數'] || row['turn_days_total'] || 0,
+              '才數': row['才數'] || row['cubic_feet'] || 0,
+              '材積別': row['材積別'] || row['vol_type'] || '',
+              '樓層': row['樓層'] || row['floor'] || '',
+              '儲位型態': row['儲位型態'] || row['loc_type'] || '',
+              '大區編': row['大區編'] || row['big_zone_id'] || '',
+              '大區名': row['大區名'] || row['big_zone'] || '',
+              '儲位才數': row['儲位才數'] || row['loc_cubic_feet'] || 0,
+              '儲位健康度': row['儲位健康度'] || row['loc_health'] || '',
+              '材積判斷': row['材積判斷'] || row['vol_check'] || '',
+              '總才數': row['總才數'] || row['total_cubic_feet'] || 0,
+              '人工/自動': row['人工/自動'] || row['auto_type'] || '',
+              '庫齡級距': row['庫齡級距'] || row['age_bracket'] || '',
+              '重型架判斷': row['重型架判斷'] || row['heavy_rack_check'] || ''
             }));
             
-            await axios.post('/api/batch-insert', { items: parsedChunk });
+            // 🌟 呼叫地端 SQLite 匯入 API，第一批傳送時帶入 isFirstChunk 清空舊 SQLite 資料
+            const response = await axios.post('/api/upload', { 
+              items: parsedChunk,
+              isFirstChunk: i === 0 
+            });
+
+            if (!response.data || !response.data.success) {
+              throw new Error(response.data?.message || `第 ${i + 1} ~ ${i + chunk.length} 筆寫入失敗`);
+            }
 
             inserted += chunk.length;
             const percent = Math.min(100, Math.round((inserted / totalRows) * 100));
@@ -88,19 +97,19 @@ export async function processCsvUpload(file, onProgress, sendLogCallback) {
               onProgress(percent);
             }
 
-            await sleep(30);
+            await sleep(50);
           }
 
-          if (sendLogCallback) sendLogCallback('資料匯入', '成功匯入全量資料至 D1：' + file.name);
+          if (sendLogCallback) sendLogCallback('資料匯入', `成功分批匯入 ${totalRows.toLocaleString()} 筆資料至地端 SQLite：` + file.name);
           resolve(totalRows);
         } catch (err) {
-          const errorMsg = err.response?.data?.detail || err.message;
-          if (sendLogCallback) sendLogCallback('資料匯入', '⚠️ 寫入 D1 失敗: ' + errorMsg);
+          const errorMsg = err.response?.data?.error || err.message;
+          if (sendLogCallback) sendLogCallback('資料匯入', '⚠️ 寫入地端 SQLite 失敗: ' + errorMsg);
           reject(new Error(errorMsg));
         }
       },
       error: (err) => {
-        if (sendLogCallback) sendLogCallback('資料匯入', '⚠️ 解析檔案失敗: ' + err.message);
+        if (sendLogCallback) sendLogCallback('資料匯入', '⚠️ 解析 CSV 檔案失敗: ' + err.message);
         reject(err);
       }
     });
@@ -187,7 +196,7 @@ export function processExportData({ fmt, tableData, exportCols, moduleName, summ
     return fileName;
   }
 
-  // C. PDF (預覽列印視窗)
+  // C. PDF
   if (targetFmt === 'pdf') {
     let tableRows = tableData.map(r =>
       '<tr>' + exportCols.map(c => '<td style="border:1px solid #ddd;padding:4px;font-size:11px;">' + getRowValue(r, c) + '</td>').join('') + '</tr>'
