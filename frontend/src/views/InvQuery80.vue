@@ -134,7 +134,7 @@ export default {
     tableData: { type: Array, default: () => [] },
     columns: { type: Array, default: () => [] },
     currentPage: { type: Number, default: 1 },
-    pageSize: { type: Number, default: 500 }, // 🌟 預設 500 筆，兼具資料量與順暢度
+    pageSize: { type: Number, default: 500 },
     totalRowsCount: { type: Number, default: 0 },
     customWidths: { type: Object, default: () => ({}) },
     form: { type: Object, default: () => ({}) },
@@ -149,7 +149,6 @@ export default {
       if (this.columns && this.columns.length > 0) return this.columns;
       return ['商品ID', '商品名稱', '借/採', '人工/自動', '儲位庫存數', '庫齡', '區編', '區名', '館編', '館名', '大區名', '樓層'];
     },
-    // 🌟 精準解析動態查詢條件與庫齡範圍顯示
     searchConditionText() {
       if (!this.form) return '全量無條件檢索';
 
@@ -172,7 +171,6 @@ export default {
       if (this.form.cbo_zone) conds.push(`區名: ${this.form.cbo_zone}`);
       if (this.form.cbo_floor) conds.push(`樓層: ${this.form.cbo_floor}`);
       
-      // 🌟 精準格式化庫齡顯示
       if (this.form.txt_age) {
         const ageVal = String(this.form.txt_age).trim();
         if (ageVal.includes('~') || ageVal.includes('-')) {
@@ -198,12 +196,12 @@ export default {
       const num = Number(String(val).replace(/,/g, ''));
       return isNaN(num) ? val : num.toLocaleString();
     },
-    // 🌟 保留完整的全欄位讀取邏輯
     getValueByColName(row, colName) {
       if (!row) return '-';
 
       const qty = parseFloat(row.qty !== undefined ? row.qty : (row.stock_qty || row['儲位庫存數'] || 0));
-      const singleCubicFeet = parseFloat(row.cubic_feet || row['才數'] || 0);
+      const rawCubicFeet = row.cubic_feet !== undefined ? row.cubic_feet : row['才數'];
+      const singleCubicFeet = parseFloat(rawCubicFeet);
 
       const fieldMap = {
         '商品ID': row['商品ID'] || row.item_id,
@@ -231,7 +229,8 @@ export default {
         '所屬PM': row['所屬PM'] || row.pm,
         '總庫存數': row['總庫存數'] || row.total_qty,
         '總庫存_迴轉天數': row['總庫存_迴轉天數'] || row.turn_days_total,
-        '才數': singleCubicFeet ? (singleCubicFeet * qty).toFixed(4) : (row['才數'] || '-'),
+        // 🌟【精準修正】顯示單一商品才數（保持原始小數點後 4 位）
+        '才數': !isNaN(singleCubicFeet) ? singleCubicFeet.toFixed(4) : (rawCubicFeet || '-'),
         '材積別': row['材積別'] || row.vol_type,
         '儲位型態': row['儲位型態'] || row.loc_type,
         '大區編': row['大區編'] || row.big_zone_id,
