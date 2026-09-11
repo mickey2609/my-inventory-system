@@ -51,6 +51,7 @@
             :export-config="exportConfig"
             :is-sys-admin="isSysAdmin"
             @open-search="openSearchModal" @export-data="exportData" @page-change="handlePageChange"
+            @size-change="handlePageSizeChange"
           />
 
           <SettingsLog 
@@ -207,7 +208,9 @@ export default {
       loginForm: { username: '', password: '', rememberMe: true },
       currentTab: 'home', openedTabs: ['home'], dbMetrics: { totalRows: 0, totalCategories: 0 },
       logTab: 'normal', loading: false, draggedIndex: null, hasSearched: false, searchTime: '',
-      currentPage: 1, pageSize: 1000, totalRowsCount: 0, showColSettingDialog: false,
+      currentPage: 1, 
+      pageSize: 500, // 🌟 預設每頁顯示 500 筆，載入速度流暢
+      totalRowsCount: 0, showColSettingDialog: false,
       
       exportConfig: { xlsx: true, csv: true, pdf: true },
 
@@ -436,6 +439,12 @@ export default {
       this.currentPage = page;
       this.handleSearch();
     },
+    // 🌟 每頁筆數變更時自動重整當前頁面
+    handlePageSizeChange(newSize) {
+      this.pageSize = newSize;
+      this.currentPage = 1;
+      this.handleSearch();
+    },
     triggerSelectInventoryFile() { this.$refs.inventoryFileInput.click(); },
     async handleInventoryUpload(event) {
       const file = event.target.files[0];
@@ -490,7 +499,7 @@ export default {
       } catch (e) { this.$message.error('匯出帳號清單失敗！'); }
     },
     
-    // 🌟【精準修正】對齊地端伺服器 API /api/save-column-config 寫入 SQLite
+    // 🌟 對齊地端伺服器 API /api/save-column-config 寫入 SQLite
     async saveColumnConfig() {
       if (!this.isSysAdmin) return;
       this.savingConfig = true;
