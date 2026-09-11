@@ -261,7 +261,6 @@ export default {
 
     await this.fetchGlobalConfig();
 
-    // 🌟【精準修復】從快取恢復 Session 時，優先生效 API 回傳姓名
     const savedSessionStr = localStorage.getItem('auth_session');
     if (savedSessionStr) {
       try {
@@ -345,15 +344,14 @@ export default {
 
     async fetchGlobalConfig() {
       try {
-        const res = await axios.get('/api/get-global-config');
-        if (res.data?.status === 'success' && res.data?.config) {
-          const cfg = res.data.config;
-          if (cfg.export_config) {
-            this.exportConfig = cfg.export_config;
-            localStorage.setItem('global_export_config', JSON.stringify(cfg.export_config));
-          }
+        const res = await axios.get('/api/get-column-config?key=global_default');
+        if (res.data?.success && res.data?.data) {
+          const cfg = res.data.data;
           if (cfg.selected_columns) {
             this.form.selected_columns = cfg.selected_columns;
+          }
+          if (cfg.all_columns) {
+            this.allAvailableColumns = cfg.all_columns;
           }
         }
       } catch (e) {}
@@ -363,15 +361,16 @@ export default {
       if (!this.isSysAdmin) return;
       this.savingExportConfig = true;
       try {
-        const res = await axios.post('/api/save-global-config', {
-          export_config: this.exportConfig
+        const res = await axios.post('/api/save-column-config', {
+          key: 'export_config',
+          config: this.exportConfig
         });
-        if (res.data?.status === 'success') {
+        if (res.data?.success) {
           localStorage.setItem('global_export_config', JSON.stringify(this.exportConfig));
           this.$message.success('🎉 成功！匯出權限設定已同步至全公司所有帳號。');
           this.showParamMenuDialog = false;
         } else {
-          this.$message.error('儲存失敗：' + (res.data?.detail || '位置錯誤'));
+          this.$message.error('儲存失敗：' + (res.data?.message || '位置錯誤'));
         }
       } catch (e) {
         this.$message.error('儲存連線失敗：' + e.message);
@@ -490,17 +489,32 @@ export default {
         this.$message.success('已成功匯出帳號與權限清單！');
       } catch (e) { this.$message.error('匯出帳號清單失敗！'); }
     },
+    
+    // 🌟【精準修正】對齊地端伺服器 API /api/save-column-config 寫入 SQLite
     async saveColumnConfig() {
       if (!this.isSysAdmin) return;
       this.savingConfig = true;
       try {
-        await axios.post('/api/save-global-config', {
-          username: this.currentUsername, all_columns: this.allAvailableColumns, selected_columns: this.form.selected_columns
+        const res = await axios.post('/api/save-column-config', {
+          key: 'global_default',
+          config: {
+            all_columns: this.allAvailableColumns,
+            selected_columns: this.form.selected_columns
+          }
         });
-        this.$message.success('欄位設定已同步全公司！'); this.showColSettingDialog = false;
-      } catch (e) { this.$message.error('儲存失敗：' + e.message); }
-      finally { this.savingConfig = false; }
+        if (res.data?.success) {
+          this.$message.success('🎉 欄位預設順序已成功同步全公司！'); 
+          this.showColSettingDialog = false;
+        } else {
+          this.$message.error('儲存失敗：' + (res.data?.error || '位置錯誤'));
+        }
+      } catch (e) { 
+        this.$message.error('儲存失敗：' + (e.response?.data?.error || e.message)); 
+      } finally { 
+        this.savingConfig = false; 
+      }
     },
+
     async openSearchModal() { this.showSearchModal = true; await this.fetchInitData(); },
     toggleColumnSelection(colName) {
       const idx = this.form.selected_columns.indexOf(colName);
@@ -538,7 +552,6 @@ export default {
     },
     async fetchLogs() { try { const res = await axios.get('/api/get-logs'); if (res.data?.logs) this.logsList = res.data.logs; } catch (e) {} },
     
-    // 🌟【關鍵精準修復】優先抓取 API 回傳的真實姓名，否則以帳號作為顯示名稱（絕不安插寫死的「系統管理員」）
     async handleLogin() {
       if (!this.loginForm.username || !this.loginForm.password) return this.$message.warning('請輸入帳密！');
       this.loginLoading = true;
@@ -550,7 +563,6 @@ export default {
           this.isLoggedIn = true; 
           this.currentUsername = res.data.username || userData.username || this.loginForm.username; 
           
-          // 抓取 SQLite 傳回的真實姓名
           this.currentUser = res.data.name || userData.name || this.currentUsername;
           this.currentUserRole = res.data.role || userData.role || (this.currentUsername === 'admin' ? 'sys_admin' : 'user');
           this.currentUserPermissions = res.data.permissions || userData.permissions || 'all';
@@ -581,7 +593,6 @@ export default {
           this.$message.error(res.data?.detail || res.data?.message || '登入失敗'); 
         }
       } catch (e) {
-        // 離線備用放行時也帶入輸入的帳號名稱
         this.isLoggedIn = true;
         this.currentUsername = this.loginForm.username;
         this.currentUser = this.loginForm.username;
