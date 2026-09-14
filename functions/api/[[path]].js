@@ -5,7 +5,7 @@ export async function onRequest(context) {
   const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Update-Secret',
     'Content-Type': 'application/json; charset=utf-8'
   };
 
@@ -13,7 +13,42 @@ export async function onRequest(context) {
     return new Response(null, { headers: corsHeaders });
   }
 
-  // 自動建表與 Schema Migration
+  // =========================================================
+  // 🌟 1. 通道中繼站：桌機自動同步 Tunnel 網址的 API 接口
+  // =========================================================
+  if (request.method === "POST" && url.pathname === "/update-tunnel-url") {
+    const authHeader = request.headers.get("X-Update-Secret");
+    if (authHeader !== "MY_SECRET_KEY_12345") {
+      return new Response(JSON.stringify({ status: 'error', detail: 'Unauthorized' }), { status: 401, headers: corsHeaders });
+    }
+    const { url: tunnelUrl } = await request.json();
+    await env.TUNNEL_KV.put("CURRENT_URL", tunnelUrl);
+    return new Response(JSON.stringify({ status: 'success', url: tunnelUrl }), { status: 200, headers: corsHeaders });
+  }
+
+  // =========================================================
+  // 🌟 2. 遠端部署轉發：若是筆電發送過來的部署 / 遠端請求則代理至桌機
+  // =========================================================
+  if (url.pathname.startsWith('/deploy-backend') || request.headers.get("X-Target-Local") === "true") {
+    const targetHost = await env.TUNNEL_KV.get("CURRENT_URL");
+    if (!targetHost) {
+      return new Response(JSON.stringify({ status: 'error', detail: 'Desktop Tunnel URL not synchronized yet.' }), { status: 503, headers: corsHeaders });
+    }
+
+    const targetUrl = `${targetHost}${url.pathname}${url.search}`;
+    const modifiedRequest = new Request(targetUrl, {
+      method: request.method,
+      headers: request.headers,
+      body: request.body,
+      redirect: "follow",
+    });
+
+    return fetch(modifiedRequest);
+  }
+
+  // =========================================================
+  // 3. 原本的 API 與 D1 資料庫運作邏輯
+  // =========================================================
   try {
     await env.DB.prepare(`
       CREATE TABLE IF NOT EXISTS inventory (
@@ -166,7 +201,7 @@ export async function onRequest(context) {
       }
     }
 
-    // 5. 庫存分頁與全量匯出查詢 API (修正庫齡數字與區間精準 SQL 查詢)
+    // 5. 庫存分頁與全量匯出查詢 API
     if (url.pathname === '/api/search') {
       const page = parseInt(url.searchParams.get('page') || '1', 10);
       const pageSize = parseInt(url.searchParams.get('pageSize') || '1000', 10);
@@ -223,7 +258,6 @@ export async function onRequest(context) {
           bindings.push(`%${keyword}%`, `%${keyword}%`, `%${keyword}%`);
         }
 
-        // 🌟【精準修復】庫齡 (age) 過濾：支援單值與區間 (30~100 或 30-100)
         const ageInput = url.searchParams.get('age') || url.searchParams.get('txtAge') || url.searchParams.get('txt_age') || '';
         if (ageInput.trim()) {
           const cleanAge = ageInput.trim().replace(/\s+/g, '');
