@@ -2,8 +2,8 @@ const fs = require('fs');
 const sqlite3 = require('sqlite3').verbose();
 const axios = require('axios');
 
-// 替換為你在桌機端看到的 Tunnel 網址
-const DESKTOP_API_URL = 'https://vincent-laugh-pan-orange.trycloudflare.com/api/upload';
+// 🌟 使用 Cloudflare Pages 固定入口網址，並指定上傳 API
+const DESKTOP_API_URL = 'https://my-inventory-system.pages.dev/api/upload';
 
 // 1. 自動尋找筆電本地 .wrangler 模擬器 SQLite 檔案
 const wranglerDir = './.wrangler/state/v3/d1/miniflare-D1DatabaseObject';
@@ -27,10 +27,14 @@ db.all('SELECT * FROM inventory', [], async (err, rows) => {
     return;
   }
 
-  console.log(`🚀 正在將 ${rows.length} 筆資料同步至桌機...`);
+  console.log(`🚀 正在透過 Cloudflare Pages 將 ${rows.length} 筆資料同步至桌機...`);
 
   try {
-    const res = await axios.post(DESKTOP_API_URL, { items: rows });
+    const res = await axios.post(DESKTOP_API_URL, { items: rows }, {
+      headers: {
+        'X-Target-Local': 'true' // 告訴 Cloudflare Pages 自動代理轉發至桌機
+      }
+    });
     console.log(`🎉 轉移成功！桌機回傳訊息: ${res.data.message}`);
   } catch (uploadErr) {
     console.error('❌ 推送至桌機失敗:', uploadErr.message);

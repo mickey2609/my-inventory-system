@@ -18,8 +18,12 @@ for (let i = 1; i < lines.length; i++) {
   });
 }
 
-console.log(`🚀 正在將 ${items.length} 筆資料傳送至桌機...`);
+console.log(`🚀 正在透過 Cloudflare Pages 將 ${items.length} 筆資料傳送至桌機...`);
 
-axios.post('https://vincent-laugh-pan-orange.trycloudflare.com/api/upload', { items })
+axios.post('https://my-inventory-system.pages.dev/api/upload', { items }, {
+  headers: {
+    'X-Target-Local': 'true' // 告訴 Cloudflare Pages 自動代理轉發至桌機
+  }
+})
   .then(res => console.log('🎉 桌機回應:', res.data))
   .catch(err => console.error('❌ 上傳失敗:', err.message));
