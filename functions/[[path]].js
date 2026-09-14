@@ -2,6 +2,12 @@ export async function onRequest(context) {
   const { request, env } = context;
   const url = new URL(request.url);
 
+  // 🌟 1. 靜態檔案 passThrough (解決首頁網頁被 API 錯誤覆蓋的問題)
+  // 如果存取的是首頁 "/" 或包含副檔名 (.js, .css, .ico, .png 等)，直接交給 Pages 靜態資源處理
+  if (url.pathname === '/' || (url.pathname.includes('.') && !url.pathname.startsWith('/api/'))) {
+    return env.ASSETS.fetch(request);
+  }
+
   const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -14,7 +20,7 @@ export async function onRequest(context) {
   }
 
   // =========================================================
-  // 🌟 1. 通道中繼站：桌機自動同步 Tunnel 網址的 API 接口
+  // 🌟 2. 通道中繼站：桌機自動同步 Tunnel 網址的 API 接口
   // =========================================================
   if (request.method === "POST" && url.pathname === "/update-tunnel-url") {
     const authHeader = request.headers.get("X-Update-Secret");
@@ -27,7 +33,7 @@ export async function onRequest(context) {
   }
 
   // =========================================================
-  // 🌟 2. 遠端部署轉發：若是筆電發送過來的部署 / 遠端請求則代理至桌機
+  // 🌟 3. 遠端部署轉發：若是筆電發送過來的部署 / 遠端請求則代理至桌機
   // =========================================================
   if (url.pathname.startsWith('/deploy-backend') || request.headers.get("X-Target-Local") === "true") {
     const targetHost = await env.TUNNEL_KV.get("CURRENT_URL");
@@ -47,7 +53,7 @@ export async function onRequest(context) {
   }
 
   // =========================================================
-  // 3. 原本的 API 與 D1 資料庫運作邏輯
+  // 4. 原本的 API 與 D1 資料庫運作邏輯
   // =========================================================
   try {
     await env.DB.prepare(`

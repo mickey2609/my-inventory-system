@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const https = require('https');
 
-// 🌟 永久固定的入口網址（一勞永逸，這輩子都不需要再更動！）
+// 🌟 永久固定的入口網址
 const TARGET_HOST = 'my-inventory-system.pages.dev';
 
 function deployBackendCode() {
@@ -21,7 +21,7 @@ function deployBackendCode() {
     const options = {
       hostname: TARGET_HOST,
       port: 443,
-      path: '/deploy-backend', // 自動代理路由
+      path: '/api/system/update-server-code', // 對應桌機 server.js 實際監聽的路由
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
