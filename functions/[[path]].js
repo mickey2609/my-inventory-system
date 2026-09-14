@@ -29,9 +29,10 @@ export async function onRequest(context) {
     return new Response(JSON.stringify({ status: 'success', url: tunnelUrl }), { status: 200, headers: corsHeaders });
   }
 
-  // 3. 🌟 自動代理轉發至桌機：部署請求、顯式本地請求、或是連線檢查 API
+  // 3. 🌟 自動代理轉發至桌機：部署請求、顯式本地請求、或是所有 API 資料請求
   const isDeployOrLocal = url.pathname.startsWith('/deploy-backend') || request.headers.get("X-Target-Local") === "true";
-  const isDesktopApi = url.pathname === '/api/health' || url.pathname.startsWith('/api/system/');
+  // 將所有 /api/ 請求全數自動代理轉發至桌機 SQLite 處理
+  const isDesktopApi = url.pathname.startsWith('/api/');
 
   if (isDeployOrLocal || isDesktopApi) {
     const targetHost = await env.TUNNEL_KV.get("CURRENT_URL");
@@ -51,7 +52,7 @@ export async function onRequest(context) {
   }
 
   // =========================================================
-  // 4. 原本的 API 與 D1 資料庫運作邏輯
+  // 4. 備用 Cloudflare D1 資料庫運作邏輯
   // =========================================================
   try {
     await env.DB.prepare(`
