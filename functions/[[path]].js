@@ -2,8 +2,7 @@ export async function onRequest(context) {
   const { request, env } = context;
   const url = new URL(request.url);
 
-  // 🌟 1. 靜態檔案 passThrough (解決首頁網頁被 API 錯誤覆蓋的問題)
-  // 如果存取的是首頁 "/" 或包含副檔名 (.js, .css, .ico, .png 等)，直接交給 Pages 靜態資源處理
+  // 1. 靜態檔案 passThrough (解決首頁網頁顯示問題)
   if (url.pathname === '/' || (url.pathname.includes('.') && !url.pathname.startsWith('/api/'))) {
     return env.ASSETS.fetch(request);
   }
@@ -11,7 +10,7 @@ export async function onRequest(context) {
   const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, X-Update-Secret',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Update-Secret, X-Target-Local',
     'Content-Type': 'application/json; charset=utf-8'
   };
 
@@ -19,9 +18,7 @@ export async function onRequest(context) {
     return new Response(null, { headers: corsHeaders });
   }
 
-  // =========================================================
-  // 🌟 2. 通道中繼站：桌機自動同步 Tunnel 網址的 API 接口
-  // =========================================================
+  // 2. 通道網址更新 API (桌機 sync_tunnel.js 專用)
   if (request.method === "POST" && url.pathname === "/update-tunnel-url") {
     const authHeader = request.headers.get("X-Update-Secret");
     if (authHeader !== "MY_SECRET_KEY_12345") {
@@ -32,10 +29,11 @@ export async function onRequest(context) {
     return new Response(JSON.stringify({ status: 'success', url: tunnelUrl }), { status: 200, headers: corsHeaders });
   }
 
-  // =========================================================
-  // 🌟 3. 遠端部署轉發：若是筆電發送過來的部署 / 遠端請求則代理至桌機
-  // =========================================================
-  if (url.pathname.startsWith('/deploy-backend') || request.headers.get("X-Target-Local") === "true") {
+  // 3. 🌟 自動代理轉發至桌機：部署請求、顯式本地請求、或是連線檢查/桌機專屬 API
+  const isDeployOrLocal = url.pathname.startsWith('/deploy-backend') || request.headers.get("X-Target-Local") === "true";
+  const isDesktopApi = url.pathname === '/api/health' || url.pathname.startsWith('/api/system/');
+
+  if (isDeployOrLocal || isDesktopApi) {
     const targetHost = await env.TUNNEL_KV.get("CURRENT_URL");
     if (!targetHost) {
       return new Response(JSON.stringify({ status: 'error', detail: 'Desktop Tunnel URL not synchronized yet.' }), { status: 503, headers: corsHeaders });
