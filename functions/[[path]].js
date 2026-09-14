@@ -2,7 +2,7 @@ export async function onRequest(context) {
   const { request, env } = context;
   const url = new URL(request.url);
 
-  // 1. 靜態檔案 passThrough (解決首頁網頁顯示問題)
+  // 1. 靜態檔案 passThrough (解決首頁與前端 CSS/JS 顯示問題)
   if (url.pathname === '/' || (url.pathname.includes('.') && !url.pathname.startsWith('/api/'))) {
     return env.ASSETS.fetch(request);
   }
@@ -29,7 +29,7 @@ export async function onRequest(context) {
     return new Response(JSON.stringify({ status: 'success', url: tunnelUrl }), { status: 200, headers: corsHeaders });
   }
 
-  // 3. 🌟 自動代理轉發至桌機：部署請求、顯式本地請求、或是連線檢查/桌機專屬 API
+  // 3. 🌟 自動代理轉發至桌機：部署請求、顯式本地請求、或是連線檢查 API
   const isDeployOrLocal = url.pathname.startsWith('/deploy-backend') || request.headers.get("X-Target-Local") === "true";
   const isDesktopApi = url.pathname === '/api/health' || url.pathname.startsWith('/api/system/');
 
@@ -43,7 +43,7 @@ export async function onRequest(context) {
     const modifiedRequest = new Request(targetUrl, {
       method: request.method,
       headers: request.headers,
-      body: request.body,
+      body: (request.method === 'GET' || request.method === 'HEAD') ? null : request.body,
       redirect: "follow",
     });
 
