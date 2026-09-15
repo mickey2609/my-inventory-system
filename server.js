@@ -7,6 +7,46 @@ const fs = require('fs');
 const app = express();
 const PORT = 3000;
 
+// 中文顯示欄位 ➔ SQLite 資料庫實體欄位映射表
+const COLUMN_MAP = {
+  '商品ID': 'item_id',
+  '商品名稱': 'item_name',
+  '借/採': 'borrow_proc',
+  '儲位': 'location',
+  '儲位庫存數': 'qty',
+  '庫齡': 'age',
+  '區編': 'zone_id',
+  '區名': 'zone_name',
+  '館編': 'hall_id',
+  '館名': 'hall_name',
+  '長(cm)': 'length',
+  '寬(cm)': 'width',
+  '高(cm)': 'height',
+  '重量(kg)': 'weight',
+  '(近)月銷量': 'monthly_sales',
+  '(近)月-有揀貨單天數': 'pick_days_m',
+  '(近)90日銷量': 'sales_90d',
+  '(近)90日-有揀貨單天數': 'pick_days_90d',
+  '供應商ID': 'supplier_id',
+  '供應商名稱': 'supplier_name',
+  '所屬PM': 'pm',
+  '總庫存數': 'total_qty',
+  '總庫存_迴轉天數': 'turn_days_total',
+  '才數': 'cubic_feet',
+  '材積別': 'vol_type',
+  '樓層': 'floor',
+  '儲位型態': 'loc_type',
+  '大區編': 'big_zone_id',
+  '大區名': 'big_zone',
+  '儲位才數': 'loc_cubic_feet',
+  '儲位健康度': 'loc_health',
+  '材積判斷': 'vol_check',
+  '總才數': 'total_cubic_feet',
+  '人工/自動': 'auto_type',
+  '庫齡級距': 'age_bracket',
+  '重型架判斷': 'heavy_rack_check'
+};
+
 // 1. 初始化 SQLite 資料庫檔案
 const db = new sqlite3.Database('inventory_local.sqlite', (err) => {
   if (err) {
@@ -146,7 +186,7 @@ app.get('/api/get-users', (req, res) => {
   });
 });
 
-// [GET] 庫存查詢 API (支援批次 ID、批次區編與一般多條件查詢)
+// [GET] 庫存查詢 API (支援動態 ORDER BY 排序)
 app.get('/api/search', (req, res) => {
   const page = parseInt(req.query.page || '1', 10);
   const pageSize = parseInt(req.query.pageSize || '500', 10);
@@ -158,6 +198,11 @@ app.get('/api/search', (req, res) => {
   const categorySmall = req.query.categorySmall || req.query.cbo_zone || '';
   const keyword = req.query.keyword || req.query.txt_id || req.query.txt_name || req.query.cbo_loc_id || '';
   const ageInput = req.query.txtAge || req.query.txt_age || req.query.age || '';
+
+  // 🌟 解析排序欄位與遞增/遞減
+  const sortByChinese = req.query.cbo_sort || req.query.cboSort || '';
+  const sortOrder = (req.query.sort_order || req.query.sortOrder || 'asc').toLowerCase() === 'desc' ? 'DESC' : 'ASC';
+  const sortColumn = COLUMN_MAP[sortByChinese] || 'id';
 
   let whereConditions = [];
   let bindings = [];
@@ -233,7 +278,10 @@ app.get('/api/search', (req, res) => {
 
     const totalCount = summaryRow ? summaryRow.total_rows : 0;
 
-    db.all(`SELECT * FROM inventory ${whereClause} LIMIT ? OFFSET ?`, [...bindings, pageSize, offset], (err, rows) => {
+    // 🌟 帶入 ORDER BY 子句
+    const querySql = `SELECT * FROM inventory ${whereClause} ORDER BY ${sortColumn} ${sortOrder} LIMIT ? OFFSET ?`;
+
+    db.all(querySql, [...bindings, pageSize, offset], (err, rows) => {
       if (err) return res.status(500).json({ success: false, error: err.message });
 
       const formattedRows = rows.map(row => {

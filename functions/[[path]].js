@@ -1,3 +1,42 @@
+const COLUMN_MAP = {
+  '商品ID': 'item_id',
+  '商品名稱': 'item_name',
+  '借/採': 'borrow_proc',
+  '儲位': 'location',
+  '儲位庫存數': 'qty',
+  '庫齡': 'age',
+  '區編': 'zone_id',
+  '區名': 'zone_name',
+  '館編': 'hall_id',
+  '館名': 'hall_name',
+  '長(cm)': 'length',
+  '寬(cm)': 'width',
+  '高(cm)': 'height',
+  '重量(kg)': 'weight',
+  '(近)月銷量': 'monthly_sales',
+  '(近)月-有揀貨單天數': 'pick_days_m',
+  '(近)90日銷量': 'sales_90d',
+  '(近)90日-有揀貨單天數': 'pick_days_90d',
+  '供應商ID': 'supplier_id',
+  '供應商名稱': 'supplier_name',
+  '所屬PM': 'pm',
+  '總庫存數': 'total_qty',
+  '總庫存_迴轉天數': 'turn_days_total',
+  '才數': 'cubic_feet',
+  '材積別': 'vol_type',
+  '樓層': 'floor',
+  '儲位型態': 'loc_type',
+  '大區編': 'big_zone_id',
+  '大區名': 'big_zone',
+  '儲位才數': 'loc_cubic_feet',
+  '儲位健康度': 'loc_health',
+  '材積判斷': 'vol_check',
+  '總才數': 'total_cubic_feet',
+  '人工/自動': 'auto_type',
+  '庫齡級距': 'age_bracket',
+  '重型架判斷': 'heavy_rack_check'
+};
+
 export async function onRequest(context) {
   const { request, env } = context;
   const url = new URL(request.url);
@@ -205,7 +244,7 @@ export async function onRequest(context) {
       }
     }
 
-    // 5. 庫存分頁與全量匯出查詢 API
+    // 5. 庫存分頁與全量匯出查詢 API (支援動態 ORDER BY)
     if (url.pathname === '/api/search') {
       const page = parseInt(url.searchParams.get('page') || '1', 10);
       const pageSize = parseInt(url.searchParams.get('pageSize') || '1000', 10);
@@ -218,6 +257,10 @@ export async function onRequest(context) {
       const keyword = url.searchParams.get('keyword') || url.searchParams.get('txt_id') || url.searchParams.get('txt_name') || url.searchParams.get('cbo_loc_id') || '';
       const aggregate = url.searchParams.get('aggregate') === 'true';
       const exportAll = url.searchParams.get('exportAll') === 'true';
+
+      const sortByChinese = url.searchParams.get('cbo_sort') || url.searchParams.get('cboSort') || '';
+      const sortOrder = (url.searchParams.get('sort_order') || url.searchParams.get('sortOrder') || 'asc').toLowerCase() === 'desc' ? 'DESC' : 'ASC';
+      const sortColumn = COLUMN_MAP[sortByChinese] || 'id';
 
       const offset = (page - 1) * pageSize;
 
@@ -339,10 +382,11 @@ export async function onRequest(context) {
               SUM(qty) as qty
             FROM inventory ${whereClause}
             GROUP BY item_id, age
+            ORDER BY ${sortColumn} ${sortOrder}
           `;
         } else {
           baseQuery = `
-            SELECT * FROM inventory ${whereClause}
+            SELECT * FROM inventory ${whereClause} ORDER BY ${sortColumn} ${sortOrder}
           `;
         }
 
