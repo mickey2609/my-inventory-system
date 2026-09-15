@@ -32,6 +32,7 @@
             v-if="currentTab === 'home'" key="home"
             :current-user="currentUser" :db-metrics="dbMetrics" 
             @open-tab="openNewTab"
+            @logout-offline="handleLogout"
           />
 
           <LocSummary 
@@ -177,7 +178,6 @@ export default {
   setup() {
     const { sendLog, getDeviceType, setupAxiosInterceptor } = useSystemLogs();
     
-    // 🌟 (1) 伺服器斷線或 Session 過期時自動退回登入遮罩
     const onAutoLogout = () => {
       authSession.clearSession();
       authSession.stopTimers();
@@ -258,8 +258,6 @@ export default {
   async mounted() {
     const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
     if (isLocal && !document.title.includes('(測)')) document.title = `${document.title} (測)`;
-    
-    // 🌟 設定 Axios 回應攔截器，當 API 傳回 503 / 斷線時自動踢回登入頁
     this.setupAxiosInterceptor(() => this.currentUsername);
 
     if (typeof this.loadSavedCredentials === 'function') {
@@ -562,6 +560,7 @@ export default {
     },
     async fetchLogs() { try { const res = await axios.get('/api/get-logs'); if (res.data?.logs) this.logsList = res.data.logs; } catch (e) {} },
     
+    // 🌟 核心修復：伺服器斷線時禁止登入
     async handleLogin() {
       if (!this.loginForm.username || !this.loginForm.password) return this.$message.warning('請輸入帳密！');
       this.loginLoading = true;
@@ -603,20 +602,9 @@ export default {
           this.$message.error(res.data?.detail || res.data?.message || '登入失敗'); 
         }
       } catch (e) {
-        this.isLoggedIn = true;
-        this.currentUsername = this.loginForm.username;
-        this.currentUser = this.loginForm.username;
-        this.currentUserRole = this.loginForm.username === 'admin' ? 'sys_admin' : 'user';
-        this.currentUserPermissions = 'all';
-        this.currentTab = 'home';
-        this.openedTabs = ['home'];
-        
-        if (typeof this.saveSession === 'function') {
-          this.saveSession(this.currentUsername, this.currentUser, this.currentUserRole, this.currentUserPermissions);
-        }
-        
-        this.startTimers();
-        this.$message.success('登入成功！');
+        // 🌟 伺服器斷線跳進 catch 時，嚴格禁止登入，並跳出明確提示
+        this.isLoggedIn = false;
+        this.$message.error('⚠️ 伺服器未連線，請確認地端桌機 start_tunnel.bat 是否已啟動！');
       } finally { 
         this.loginLoading = false; 
       }
@@ -633,7 +621,6 @@ export default {
       this.currentUserRole = 'user';
       this.currentUserPermissions = [];
       this.openedTabs = [];
-      this.$message.info('已成功登出');
     },
     getTabName(k) {
       const names = { 'home': '🏠 系統首頁', 'inv80': '庫存查詢80', 'inv15': '庫存查詢15', 'loc_summary': '儲位數才數統整', 'turnover': '迴轉率清單', 'abnormal_purchase': '不合理進貨清單', 'settings_perm': '權限管理', 'settings_log': '日誌歷程查詢' };

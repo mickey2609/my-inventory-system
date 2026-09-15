@@ -23,7 +23,7 @@
         </div>
       </div>
 
-      <!-- 🌟 動態偵測地端連線狀態與連線時數 -->
+      <!-- 地端連線狀態與連線時數 -->
       <div class="metric-card">
         <div class="card-icon">⚡</div>
         <div class="card-info">
@@ -38,7 +38,7 @@
       </div>
     </div>
 
-    <!-- 快捷功能入口卡片 (已移除「匯入庫存 CSV」) -->
+    <!-- 快捷功能選單 -->
     <div class="quick-actions-section">
       <h3>🚀 快捷功能選單</h3>
       <div class="actions-grid">
@@ -74,10 +74,10 @@ export default {
       default: () => ({ totalRows: 0, totalCategories: 0 })
     }
   },
-  emits: ['open-tab'],
+  emits: ['open-tab', 'logout-offline'],
   data() {
     return {
-      isServerOnline: false,
+      isServerOnline: true,
       checkTimer: null,
       uptimeSeconds: 0,
       uptimeTimer: null
@@ -95,7 +95,9 @@ export default {
   },
   mounted() {
     this.checkServerStatus();
-    this.checkTimer = setInterval(this.checkServerStatus, 8000);
+    // 每 5 秒輪詢偵測伺服器連線狀態
+    this.checkTimer = setInterval(this.checkServerStatus, 5000);
+    
     this.uptimeTimer = setInterval(() => {
       if (this.isServerOnline) this.uptimeSeconds++;
     }, 1000);
@@ -109,12 +111,20 @@ export default {
       try {
         const res = await axios.get('/api/get-global-config', { timeout: 3000 });
         const online = !!(res.data && (res.data.success || res.data.status === 'success'));
-        if (!online && this.isServerOnline) this.uptimeSeconds = 0;
-        this.isServerOnline = online;
+        if (!online) {
+          this.handleOffline();
+        } else {
+          this.isServerOnline = true;
+        }
       } catch (e) {
-        this.isServerOnline = false;
-        this.uptimeSeconds = 0;
+        this.handleOffline();
       }
+    },
+    handleOffline() {
+      this.isServerOnline = false;
+      this.uptimeSeconds = 0;
+      this.$message.error('⚠️ 伺服器已斷開連線，系統已自動返回登入頁面！');
+      this.$emit('logout-offline');
     }
   }
 }
