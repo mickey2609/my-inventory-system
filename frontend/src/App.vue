@@ -31,7 +31,7 @@
           <HomeDashboard 
             v-if="currentTab === 'home'" key="home"
             :current-user="currentUser" :db-metrics="dbMetrics" 
-            @open-tab="openNewTab" @open-import-inventory="showInventoryImportTipDialog = true" 
+            @open-tab="openNewTab"
           />
 
           <LocSummary 
@@ -110,6 +110,7 @@
       :saving="savingExportConfig"
       @update-export-config="exportConfig = $event"
       @save-export-config="saveExportConfig"
+      @open-import-inventory="showParamMenuDialog = false; showInventoryImportTipDialog = true;"
       @open-col-setting="showParamMenuDialog = false; showColSettingDialog = true;"
       @open-width-config="showParamMenuDialog = false; showWidthConfigDialog = true;"
       @open-export-width-config="showParamMenuDialog = false; showExportWidthConfigDialog = true;"
@@ -136,7 +137,7 @@
 
     <InventorySearchModal 
       v-model="showSearchModal" :form="form" :options="options" :loading="loading" :search-elapsed-sec="searchElapsedSec"
-      :is-sys-admin="isSysAdmin"
+      :is-sys-admin="isSysAdmin" :enable-sort-config="false"
       @open-param-menu="showParamMenuDialog = true" @big-zone-change="onBigZoneChange" @submit-search="handleSearch"
     />
   </div>
@@ -176,6 +177,7 @@ export default {
   setup() {
     const { sendLog, getDeviceType, setupAxiosInterceptor } = useSystemLogs();
     
+    // 🌟 (1) 伺服器斷線或 Session 過期時自動退回登入遮罩
     const onAutoLogout = () => {
       authSession.clearSession();
       authSession.stopTimers();
@@ -209,7 +211,7 @@ export default {
       currentTab: 'home', openedTabs: ['home'], dbMetrics: { totalRows: 0, totalCategories: 0 },
       logTab: 'normal', loading: false, draggedIndex: null, hasSearched: false, searchTime: '',
       currentPage: 1, 
-      pageSize: 500, // 🌟 預設每頁顯示 500 筆，載入速度流暢
+      pageSize: 500,
       totalRowsCount: 0, showColSettingDialog: false,
       
       exportConfig: { xlsx: true, csv: true, pdf: true },
@@ -256,6 +258,8 @@ export default {
   async mounted() {
     const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
     if (isLocal && !document.title.includes('(測)')) document.title = `${document.title} (測)`;
+    
+    // 🌟 設定 Axios 回應攔截器，當 API 傳回 503 / 斷線時自動踢回登入頁
     this.setupAxiosInterceptor(() => this.currentUsername);
 
     if (typeof this.loadSavedCredentials === 'function') {
@@ -439,7 +443,6 @@ export default {
       this.currentPage = page;
       this.handleSearch();
     },
-    // 🌟 每頁筆數變更時自動重整當前頁面
     handlePageSizeChange(newSize) {
       this.pageSize = newSize;
       this.currentPage = 1;
@@ -498,8 +501,6 @@ export default {
         this.$message.success('已成功匯出帳號與權限清單！');
       } catch (e) { this.$message.error('匯出帳號清單失敗！'); }
     },
-    
-    // 🌟 對齊地端伺服器 API /api/save-column-config 寫入 SQLite
     async saveColumnConfig() {
       if (!this.isSysAdmin) return;
       this.savingConfig = true;

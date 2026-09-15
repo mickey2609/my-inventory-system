@@ -23,7 +23,7 @@
         </div>
       </div>
 
-      <!-- 🌟 動態偵測地端連線狀態 -->
+      <!-- 🌟 動態偵測地端連線狀態與連線時數 -->
       <div class="metric-card">
         <div class="card-icon">⚡</div>
         <div class="card-info">
@@ -31,11 +31,14 @@
           <span class="card-value" :class="isServerOnline ? 'status-online' : 'status-offline'">
             {{ isServerOnline ? '🟢 正常連線中' : '🔴 伺服器斷線' }}
           </span>
+          <div v-if="isServerOnline" class="uptime-text">
+            ⏱️ 已連續連線：{{ uptimeString }}
+          </div>
         </div>
       </div>
     </div>
 
-    <!-- 快捷功能入口卡片 -->
+    <!-- 快捷功能入口卡片 (已移除「匯入庫存 CSV」) -->
     <div class="quick-actions-section">
       <h3>🚀 快捷功能選單</h3>
       <div class="actions-grid">
@@ -52,14 +55,6 @@
           <div class="action-text">
             <h4>儲位數才數統整</h4>
             <p>自動計算各區域規劃才數、使用率與儲位健康度</p>
-          </div>
-        </div>
-
-        <div class="action-card" @click="$emit('open-import-inventory')">
-          <div class="action-icon">📥</div>
-          <div class="action-text">
-            <h4>匯入庫存 CSV</h4>
-            <p>上傳最新商品庫存明細並同步寫入地端 SQLite</p>
           </div>
         </div>
       </div>
@@ -79,28 +74,46 @@ export default {
       default: () => ({ totalRows: 0, totalCategories: 0 })
     }
   },
-  emits: ['open-tab', 'open-import-inventory'],
+  emits: ['open-tab'],
   data() {
     return {
       isServerOnline: false,
-      checkTimer: null
+      checkTimer: null,
+      uptimeSeconds: 0,
+      uptimeTimer: null
+    }
+  },
+  computed: {
+    uptimeString() {
+      const hrs = Math.floor(this.uptimeSeconds / 3600);
+      const mins = Math.floor((this.uptimeSeconds % 3600) / 60);
+      const secs = this.uptimeSeconds % 60;
+      if (hrs > 0) return `${hrs} 小時 ${mins} 分 ${secs} 秒`;
+      if (mins > 0) return `${mins} 分 ${secs} 秒`;
+      return `${secs} 秒`;
     }
   },
   mounted() {
     this.checkServerStatus();
-    // 每 8 秒自動輪詢一次地端連線狀態
     this.checkTimer = setInterval(this.checkServerStatus, 8000);
+    this.uptimeTimer = setInterval(() => {
+      if (this.isServerOnline) this.uptimeSeconds++;
+    }, 1000);
   },
   beforeUnmount() {
     if (this.checkTimer) clearInterval(this.checkTimer);
+    if (this.uptimeTimer) clearInterval(this.uptimeTimer);
   },
   methods: {
     async checkServerStatus() {
       try {
         const res = await axios.get('/api/get-global-config', { timeout: 3000 });
-        this.isServerOnline = !!(res.data && (res.data.success || res.data.status === 'success'));
+        const online = !!(res.data && (res.data.success || res.data.status === 'success'));
+        if (!online && this.isServerOnline) this.uptimeSeconds = 0;
+        this.isServerOnline = online;
       } catch (e) {
         this.isServerOnline = false;
+        this.uptimeSeconds = 0;
       }
     }
   }
@@ -139,6 +152,13 @@ export default {
 .card-value small { font-size: 0.85rem; font-weight: normal; color: #64748b; }
 .status-online { color: #4ade80; font-size: 1.1rem; }
 .status-offline { color: #f87171; font-size: 1.1rem; }
+
+.uptime-text {
+  font-size: 0.8rem;
+  color: #cbd5e1;
+  margin-top: 6px;
+  font-weight: bold;
+}
 
 .quick-actions-section h3 { font-size: 1.2rem; margin-bottom: 16px; color: #f8fafc; }
 .actions-grid {
