@@ -68,7 +68,7 @@ export async function onRequest(context) {
     return new Response(JSON.stringify({ status: 'success', url: tunnelUrl }), { status: 200, headers: corsHeaders });
   }
 
-  // 3. 🌟 自動代理轉發至桌機：部署請求、顯式本地請求、或是所有 API 資料請求
+  // 3. 🌟 自動代理轉發至桌機：部署請求、顯式本地請求、或是所有 API 資料請求 (無條件代理至桌機)
   const isDeployOrLocal = url.pathname.startsWith('/deploy-backend') || request.headers.get("X-Target-Local") === "true";
   const isDesktopApi = url.pathname.startsWith('/api/');
 
