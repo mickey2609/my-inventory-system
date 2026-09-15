@@ -7,7 +7,15 @@
         <h2>庫存儲位管理系統</h2>
       </div>
 
-      <!-- 2. 表單輸入區塊 (支援 Enter 鍵直接觸發登入) -->
+      <!-- 🌟 2. 地端伺服器連線狀態 Badge -->
+      <div class="server-status-box" :class="isServerOnline ? 'online' : 'offline'">
+        <span class="status-dot"></span>
+        <span class="status-text">
+          地端伺服器：{{ isServerOnline ? '🟢 正常連線中' : '🔴 伺服器未連線 (請開啟 start_tunnel.bat)' }}
+        </span>
+      </div>
+
+      <!-- 3. 表單輸入區塊 (支援 Enter 鍵直接觸發登入) -->
       <el-form :model="loginForm" class="login-form" @keyup.enter="onLogin">
         <!-- 帳號欄位 -->
         <el-form-item label="帳號">
@@ -35,28 +43,29 @@
           />
         </el-form-item>
 
-        <!-- 🌟 記住帳號與密碼勾選框 -->
+        <!-- 記住帳號與密碼勾選框 -->
         <div class="form-options">
           <el-checkbox v-model="loginForm.rememberMe">記住帳號與密碼</el-checkbox>
         </div>
 
-        <!-- 3. 登入按鈕 -->
+        <!-- 4. 登入按鈕 (斷線時禁用) -->
         <el-button 
           type="primary" 
           class="login-btn" 
           :loading="loading" 
+          :disabled="!isServerOnline"
           @click="onLogin"
         >
-          🔐 登入系統
+          {{ isServerOnline ? '🔐 登入系統' : '🚫 伺服器斷線中，無法登入' }}
         </el-button>
       </el-form>
 
-      <!-- 4. 超時提示 -->
+      <!-- 5. 超時提示 -->
       <div v-if="timeoutMessage" class="timeout-msg">
         ⚠️ {{ timeoutMessage }}
       </div>
 
-      <!-- 5. 置中版本號資訊 -->
+      <!-- 6. 置中版本號資訊 -->
       <div class="version-info">
         Version {{ appVersion }}
       </div>
@@ -65,6 +74,8 @@
 </template>
 
 <script>
+import axios from 'axios'
+
 export default {
   name: 'LoginOverlay',
   props: {
@@ -86,8 +97,31 @@ export default {
     }
   },
   emits: ['login'],
+  data() {
+    return {
+      isServerOnline: false,
+      checkTimer: null
+    }
+  },
+  mounted() {
+    this.checkServerStatus();
+    // 每 4 秒自動檢查一次地端 API 連線狀態
+    this.checkTimer = setInterval(this.checkServerStatus, 4000);
+  },
+  beforeUnmount() {
+    if (this.checkTimer) clearInterval(this.checkTimer);
+  },
   methods: {
+    async checkServerStatus() {
+      try {
+        const res = await axios.get('/api/get-global-config', { timeout: 2500 });
+        this.isServerOnline = !!(res.data && (res.data.success || res.data.status === 'success'));
+      } catch (e) {
+        this.isServerOnline = false;
+      }
+    },
     onLogin() {
+      if (!this.isServerOnline) return;
       this.$emit('login');
     }
   }
@@ -120,7 +154,7 @@ export default {
 /* 置中標題區塊 */
 .login-header {
   text-align: center;
-  margin-bottom: 24px;
+  margin-bottom: 16px;
 }
 
 .login-header .icon {
@@ -135,6 +169,40 @@ export default {
   margin: 0;
   letter-spacing: 0.5px;
 }
+
+/* 🌟 伺服器連線狀態 Badge 樣式 */
+.server-status-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: bold;
+  margin-bottom: 20px;
+  transition: all 0.3s ease;
+}
+
+.server-status-box.online {
+  background-color: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  color: #4ade80;
+}
+
+.server-status-box.offline {
+  background-color: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #f87171;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.online .status-dot { background-color: #22c55e; box-shadow: 0 0 8px #22c55e; }
+.offline .status-dot { background-color: #ef4444; box-shadow: 0 0 8px #ef4444; }
 
 /* 帳密中間提示文字 */
 .mid-subtitle {
@@ -163,16 +231,23 @@ export default {
 .login-btn {
   width: 100%;
   height: 42px;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
   border-radius: 8px;
   background-color: #2563eb;
   border-color: #2563eb;
 }
 
-.login-btn:hover {
+.login-btn:hover:not(:disabled) {
   background-color: #1d4ed8;
   border-color: #1d4ed8;
+}
+
+.login-btn:disabled {
+  background-color: #475569 !important;
+  border-color: #475569 !important;
+  color: #94a3b8 !important;
+  cursor: not-allowed;
 }
 
 .timeout-msg {
