@@ -7,7 +7,7 @@
     custom-class="dark-dialog inventory-search-modal"
   >
     <div class="search-modal-container">
-      <!-- 🌟【關鍵修改】加入 v-if="isSysAdmin"：只有最高系統管理員看得到此按鈕 -->
+      <!-- 只有最高系統管理員看得到此按鈕 -->
       <el-button 
         v-if="isSysAdmin"
         type="warning" 
@@ -33,19 +33,19 @@
         <!-- 2. 批次查詢輸入框 (依據模式切換) -->
         <div v-if="form.search_mode === 'batch_id'" class="form-row">
           <div class="form-group full-width">
-            <label class="field-label">批次商品 ID (以換行、逗號或空白分隔)</label>
-            <el-input type="textarea" :rows="4" v-model="form.batch_ids" placeholder="例如: ITEM001, ITEM002..."></el-input>
+            <label class="field-label">批次商品 ID (以換行、短劃線或空白分隔)</label>
+            <el-input type="textarea" :rows="6" v-model="form.batch_ids" placeholder="請在此貼上多筆商品 ID，例如：&#10;DYAQ8F-A900GY9S3-000&#10;DYAQ8F-A900GBL5E-000"></el-input>
           </div>
         </div>
 
         <div v-else-if="form.search_mode === 'batch_zone'" class="form-row">
           <div class="form-group full-width">
             <label class="field-label">批次儲位區編 (以換行、逗號或空白分隔)</label>
-            <el-input type="textarea" :rows="4" v-model="form.batch_zones" placeholder="例如: A01, A02, B01..."></el-input>
+            <el-input type="textarea" :rows="6" v-model="form.batch_zones" placeholder="例如: A01, A02, B01..."></el-input>
           </div>
         </div>
 
-        <!-- 3. 一般多條件查詢欄位 -->
+        <!-- 3. 一般多條件查詢欄位 (當非批次模式時顯示) -->
         <template v-else>
           <div class="form-row two-cols">
             <div class="form-group">
@@ -183,7 +183,36 @@ export default {
       this.$emit('open-param-menu');
     },
     onSearchModeChange(val) {
-      if (val === 'normal') {
+      if (val === 'batch_id') {
+        // 🌟 切換至批次商品 ID 模式時，徹底清空一般查詢條件與批次區編
+        this.form.txt_id = '';
+        this.form.txt_name = '';
+        this.form.cbo_big_zone = '';
+        this.form.cbo_zone = '';
+        this.form.cbo_loc_id = '';
+        this.form.cbo_floor = '';
+        this.form.txt_age = '';
+        this.form.txt_weight = '';
+        this.form.txt_monthly_sales = '';
+        this.form.cbo_type = '';
+        this.form.cbo_vol_type = '';
+        this.form.batch_zones = '';
+      } else if (val === 'batch_zone') {
+        // 切換至批次區編模式時，清空其他條件
+        this.form.txt_id = '';
+        this.form.txt_name = '';
+        this.form.cbo_big_zone = '';
+        this.form.cbo_zone = '';
+        this.form.cbo_loc_id = '';
+        this.form.cbo_floor = '';
+        this.form.txt_age = '';
+        this.form.txt_weight = '';
+        this.form.txt_monthly_sales = '';
+        this.form.cbo_type = '';
+        this.form.cbo_vol_type = '';
+        this.form.batch_ids = '';
+      } else if (val === 'normal') {
+        // 切換回一般模式時，清空批次欄位
         this.form.batch_ids = '';
         this.form.batch_zones = '';
       }

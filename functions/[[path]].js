@@ -31,7 +31,6 @@ export async function onRequest(context) {
 
   // 3. 🌟 自動代理轉發至桌機：部署請求、顯式本地請求、或是所有 API 資料請求
   const isDeployOrLocal = url.pathname.startsWith('/deploy-backend') || request.headers.get("X-Target-Local") === "true";
-  // 將所有 /api/ 請求全數自動代理轉發至桌機 SQLite 處理
   const isDesktopApi = url.pathname.startsWith('/api/');
 
   if (isDeployOrLocal || isDesktopApi) {
@@ -210,11 +209,13 @@ export async function onRequest(context) {
     if (url.pathname === '/api/search') {
       const page = parseInt(url.searchParams.get('page') || '1', 10);
       const pageSize = parseInt(url.searchParams.get('pageSize') || '1000', 10);
-      const searchMode = url.searchParams.get('searchMode') || 'normal';
-      const batchIds = url.searchParams.get('batchIds') || '';
-      const categoryLarge = url.searchParams.get('categoryLarge') || '';
-      const categorySmall = url.searchParams.get('categorySmall') || '';
-      const keyword = url.searchParams.get('keyword') || '';
+      const searchMode = url.searchParams.get('searchMode') || url.searchParams.get('search_mode') || 'normal';
+      const batchIds = url.searchParams.get('batchIds') || url.searchParams.get('batch_ids') || '';
+      const batchZones = url.searchParams.get('batchZones') || url.searchParams.get('batch_zones') || '';
+
+      const categoryLarge = url.searchParams.get('categoryLarge') || url.searchParams.get('cbo_big_zone') || '';
+      const categorySmall = url.searchParams.get('categorySmall') || url.searchParams.get('cbo_zone') || '';
+      const keyword = url.searchParams.get('keyword') || url.searchParams.get('txt_id') || url.searchParams.get('txt_name') || url.searchParams.get('cbo_loc_id') || '';
       const aggregate = url.searchParams.get('aggregate') === 'true';
       const exportAll = url.searchParams.get('exportAll') === 'true';
 
@@ -224,27 +225,24 @@ export async function onRequest(context) {
       let bindings = [];
 
       if (searchMode === 'batch_id' && batchIds.trim()) {
-        const idList = batchIds.split('\n').map(s => s.trim()).filter(Boolean);
+        const idList = batchIds.split(/[\n,\s]+/).map(s => s.trim()).filter(Boolean);
         if (idList.length > 0) {
           const placeholders = idList.map(() => '?').join(',');
           whereConditions.push(`item_id IN (${placeholders})`);
           bindings.push(...idList);
         }
       } 
-      else if (searchMode === 'batch_zone' && batchIds.trim()) {
-        const zoneList = batchIds.split('\n').map(s => s.trim()).filter(Boolean);
+      else if (searchMode === 'batch_zone' && (batchZones.trim() || batchIds.trim())) {
+        const zoneStr = batchZones.trim() || batchIds.trim();
+        const zoneList = zoneStr.split(/[\n,\s]+/).map(s => s.trim()).filter(Boolean);
         if (zoneList.length > 0) {
-          const placeholders = zoneList.map(() => '?').join(',');
-          
           const zoneConditions = [
-            `big_zone IN (${placeholders})`,
-            `zone_name IN (${placeholders})`,
-            `zone_id IN (${placeholders})`,
+            `big_zone IN (${zoneList.map(() => '?').join(',')})`,
+            `zone_name IN (${zoneList.map(() => '?').join(',')})`,
+            `zone_id IN (${zoneList.map(() => '?').join(',')})`,
             ...zoneList.map(() => `location LIKE ?`)
           ];
-
           whereConditions.push(`(${zoneConditions.join(' OR ')})`);
-
           bindings.push(...zoneList, ...zoneList, ...zoneList);
           zoneList.forEach(z => bindings.push(`${z}%`));
         }

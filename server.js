@@ -20,7 +20,7 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-// 2. 自動初始化資料庫 Schema (完全對齊 36 個欄位)
+// 2. 自動初始化資料庫 Schema
 db.serialize(() => {
   db.run(`
     CREATE TABLE IF NOT EXISTS inventory (
@@ -78,13 +78,11 @@ app.post('/api/system/update-server-code', (req, res) => {
       return res.status(400).json({ success: false, message: '無效的程式碼內容' });
     }
 
-    // 1. 覆蓋地端 server.js 檔案
     fs.writeFileSync(path.join(__dirname, 'server.js'), code, 'utf8');
     console.log('✅ 已成功接收筆電傳來的最新 server.js，準備自動重啟...');
 
     res.json({ success: true, message: '🎉 最新 server.js 已成功覆蓋地端檔案，伺服器重啟中...' });
 
-    // 2. 1 秒後正常結束當前進程，由外層 run_server.bat 迴圈在 VS Code 終端機內重新拉起
     setTimeout(() => {
       process.exit(0);
     }, 1000);
@@ -148,40 +146,72 @@ app.get('/api/get-users', (req, res) => {
   });
 });
 
-// [GET] 庫存查詢 API (根據對照表精準回傳 36 欄位 + 計算總才數)
+// [GET] 庫存查詢 API (支援批次 ID、批次區編與一般多條件查詢)
 app.get('/api/search', (req, res) => {
   const page = parseInt(req.query.page || '1', 10);
   const pageSize = parseInt(req.query.pageSize || '500', 10);
-  const categoryLarge = req.query.categoryLarge || '';
-  const categorySmall = req.query.categorySmall || '';
-  const keyword = req.query.keyword || '';
-  const ageInput = req.query.txtAge || req.query.age || '';
+  const searchMode = req.query.searchMode || req.query.search_mode || 'normal';
+  const batchIds = req.query.batchIds || req.query.batch_ids || '';
+  const batchZones = req.query.batchZones || req.query.batch_zones || '';
+
+  const categoryLarge = req.query.categoryLarge || req.query.cbo_big_zone || '';
+  const categorySmall = req.query.categorySmall || req.query.cbo_zone || '';
+  const keyword = req.query.keyword || req.query.txt_id || req.query.txt_name || req.query.cbo_loc_id || '';
+  const ageInput = req.query.txtAge || req.query.txt_age || req.query.age || '';
 
   let whereConditions = [];
   let bindings = [];
 
-  if (categoryLarge) { whereConditions.push("big_zone = ?"); bindings.push(categoryLarge); }
-  if (categorySmall) { whereConditions.push("zone_name = ?"); bindings.push(categorySmall); }
-  if (keyword) {
-    whereConditions.push("(item_id LIKE ? OR item_name LIKE ? OR location LIKE ?)");
-    bindings.push(`%${keyword}%`, `%${keyword}%`, `%${keyword}%`);
-  }
+  // A. 批次商品 ID 模式
+  if (searchMode === 'batch_id' && batchIds.trim()) {
+    const idList = batchIds.split(/[\n,\s]+/).map(s => s.trim()).filter(Boolean);
+    if (idList.length > 0) {
+      const placeholders = idList.map(() => '?').join(',');
+      whereConditions.push(`item_id IN (${placeholders})`);
+      bindings.push(...idList);
+    }
+  } 
+  // B. 批次儲位區編模式
+  else if (searchMode === 'batch_zone' && (batchZones.trim() || batchIds.trim())) {
+    const zoneStr = batchZones.trim() || batchIds.trim();
+    const zoneList = zoneStr.split(/[\n,\s]+/).map(s => s.trim()).filter(Boolean);
+    if (zoneList.length > 0) {
+      const zoneConditions = [
+        `big_zone IN (${zoneList.map(() => '?').join(',')})`,
+        `zone_name IN (${zoneList.map(() => '?').join(',')})`,
+        `zone_id IN (${zoneList.map(() => '?').join(',')})`,
+        ...zoneList.map(() => `location LIKE ?`)
+      ];
+      whereConditions.push(`(${zoneConditions.join(' OR ')})`);
+      bindings.push(...zoneList, ...zoneList, ...zoneList);
+      zoneList.forEach(z => bindings.push(`${z}%`));
+    }
+  } 
+  // C. 一般模式
+  else {
+    if (categoryLarge) { whereConditions.push("big_zone = ?"); bindings.push(categoryLarge); }
+    if (categorySmall) { whereConditions.push("zone_name = ?"); bindings.push(categorySmall); }
+    if (keyword) {
+      whereConditions.push("(item_id LIKE ? OR item_name LIKE ? OR location LIKE ?)");
+      bindings.push(`%${keyword}%`, `%${keyword}%`, `%${keyword}%`);
+    }
 
-  if (ageInput.trim()) {
-    const cleanAge = ageInput.trim().replace(/\s+/g, '');
-    if (cleanAge.includes('~') || cleanAge.includes('-')) {
-      const parts = cleanAge.split(/[~-]/);
-      const minAge = parseInt(parts[0], 10);
-      const maxAge = parseInt(parts[1], 10);
-      if (!isNaN(minAge) && !isNaN(maxAge)) {
-        whereConditions.push("CAST(age AS INTEGER) BETWEEN ? AND ?");
-        bindings.push(Math.min(minAge, maxAge), Math.max(minAge, maxAge));
-      }
-    } else {
-      const numAge = parseInt(cleanAge, 10);
-      if (!isNaN(numAge)) {
-        whereConditions.push("CAST(age AS INTEGER) >= ?");
-        bindings.push(numAge);
+    if (ageInput.trim()) {
+      const cleanAge = ageInput.trim().replace(/\s+/g, '');
+      if (cleanAge.includes('~') || cleanAge.includes('-')) {
+        const parts = cleanAge.split(/[~-]/);
+        const minAge = parseInt(parts[0], 10);
+        const maxAge = parseInt(parts[1], 10);
+        if (!isNaN(minAge) && !isNaN(maxAge)) {
+          whereConditions.push("CAST(age AS INTEGER) BETWEEN ? AND ?");
+          bindings.push(Math.min(minAge, maxAge), Math.max(minAge, maxAge));
+        }
+      } else {
+        const numAge = parseInt(cleanAge, 10);
+        if (!isNaN(numAge)) {
+          whereConditions.push("CAST(age AS INTEGER) >= ?");
+          bindings.push(numAge);
+        }
       }
     }
   }
@@ -364,7 +394,7 @@ app.get('/api/get-logs', (req, res) => {
   });
 });
 
-// [POST] 批次上傳庫存資料 (根據對照表 100% 精準將 CSV 欄位寫入 SQLite DB)
+// [POST] 批次上傳庫存資料
 app.post('/api/upload', (req, res) => {
   try {
     const { items, isFirstChunk } = req.body;
@@ -462,5 +492,3 @@ app.post('/api/upload', (req, res) => {
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 地端伺服器已成功啟動！(Port: ${PORT})`);
 });
-
-console.log
