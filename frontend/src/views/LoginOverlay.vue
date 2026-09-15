@@ -7,7 +7,7 @@
         <h2>庫存儲位管理系統</h2>
       </div>
 
-      <!-- 🌟 2. 地端伺服器連線狀態 Badge -->
+      <!-- 2. 地端伺服器連線狀態 Badge -->
       <div class="server-status-box" :class="isServerOnline ? 'online' : 'offline'">
         <span class="status-dot"></span>
         <span class="status-text">
@@ -99,7 +99,7 @@ export default {
   emits: ['login'],
   data() {
     return {
-      isServerOnline: false,
+      isServerOnline: true, // 🌟 預設先給 true，避免畫面載入當下閃爍禁用
       checkTimer: null
     }
   },
@@ -114,8 +114,13 @@ export default {
   methods: {
     async checkServerStatus() {
       try {
-        const res = await axios.get('/api/get-global-config', { timeout: 2500 });
-        this.isServerOnline = !!(res.data && (res.data.success || res.data.status === 'success'));
+        const res = await axios.get('/api/get-global-config', { timeout: 3000 });
+        // 🌟 放寬判斷：只要 HTTP 狀態碼是 200 且 response 不為空就認定為正常連線
+        if (res && res.status === 200 && res.data) {
+          this.isServerOnline = true;
+        } else {
+          this.isServerOnline = false;
+        }
       } catch (e) {
         this.isServerOnline = false;
       }
@@ -151,7 +156,6 @@ export default {
   box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
 }
 
-/* 置中標題區塊 */
 .login-header {
   text-align: center;
   margin-bottom: 16px;
@@ -170,7 +174,6 @@ export default {
   letter-spacing: 0.5px;
 }
 
-/* 🌟 伺服器連線狀態 Badge 樣式 */
 .server-status-box {
   display: flex;
   align-items: center;
@@ -204,7 +207,6 @@ export default {
 .online .status-dot { background-color: #22c55e; box-shadow: 0 0 8px #22c55e; }
 .offline .status-dot { background-color: #ef4444; box-shadow: 0 0 8px #ef4444; }
 
-/* 帳密中間提示文字 */
 .mid-subtitle {
   text-align: center;
   color: #94a3b8;
@@ -257,7 +259,6 @@ export default {
   font-size: 13px;
 }
 
-/* 置中版本號樣式 */
 .version-info {
   text-align: center;
   margin-top: 22px;
