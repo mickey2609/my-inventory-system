@@ -3,15 +3,16 @@
     title="⚙️ 參數設定選項" 
     :model-value="modelValue" 
     @update:model-value="$emit('update:modelValue', $event)" 
-    width="450px" 
+    width="480px" 
     class="dark-dialog"
   >
     <div class="param-dialog-body">
-      <!-- 🌟 將「匯入庫存 CSV」按鈕收合至此 -->
+      <!-- 1. 匯入庫存按鈕 -->
       <button class="aligned-btn btn-purple" @click="$emit('open-import-inventory')">
         📥 匯入最新庫存 CSV 資料
       </button>
 
+      <!-- 2. 欄位與欄寬設定 -->
       <button class="aligned-btn btn-blue" @click="$emit('open-col-setting')">
         1. 庫存明細欄位順序設定
       </button>
@@ -24,7 +25,27 @@
         3. 庫存明細匯出欄寬設定
       </button>
 
-      <!-- 三種匯出格式權限控制區塊 -->
+      <!-- 🌟 3. 新增：庫存清單預設排序設定 -->
+      <div class="param-box">
+        <div class="box-title">📊 4. 庫存清單預設排序設定</div>
+        <div class="sort-config-row">
+          <div class="sort-select">
+            <label class="sub-label">排序欄位</label>
+            <el-select v-model="form.cbo_sort" placeholder="選擇欄位" style="width: 100%;">
+              <el-option v-for="col in form.selected_columns" :key="col" :label="col" :value="col"></el-option>
+            </el-select>
+          </div>
+          <div class="sort-radio">
+            <label class="sub-label">方向</label>
+            <el-radio-group v-model="form.sort_order">
+              <el-radio label="asc">遞增</el-radio>
+              <el-radio label="desc">遞減</el-radio>
+            </el-radio-group>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. 三種匯出格式權限控制區塊 -->
       <div class="export-toggle-box">
         <div class="toggle-header">
           <span class="toggle-title">🔒 開放庫存查詢 80 匯出功能權限</span>
@@ -73,6 +94,7 @@ export default {
   props: {
     modelValue: { type: Boolean, default: false },
     saving: { type: Boolean, default: false },
+    form: { type: Object, required: true },
     exportConfig: {
       type: Object,
       default: () => ({ xlsx: true, csv: true, pdf: true })
@@ -102,13 +124,19 @@ export default {
 .aligned-btn.btn-orange { background-color: #d97706; }
 .aligned-btn.btn-orange:hover { background-color: #b45309; }
 
-.export-toggle-box {
+/* 🌟 排序設定 Box 樣式 */
+.param-box, .export-toggle-box {
   background-color: #0f172a;
   border: 1px solid #334155;
   border-radius: 6px;
   padding: 14px;
-  margin-top: 4px;
 }
+
+.box-title { color: #f8fafc; font-size: 14px; font-weight: bold; margin-bottom: 10px; }
+.sort-config-row { display: flex; gap: 15px; align-items: flex-end; }
+.sort-select { flex: 1; }
+.sort-radio { flex: 1; padding-bottom: 4px; }
+.sub-label { display: block; font-size: 12px; color: #94a3b8; margin-bottom: 5px; }
 
 .toggle-header { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
 .toggle-title { color: #f8fafc; font-size: 14px; font-weight: bold; }
@@ -121,13 +149,9 @@ export default {
   padding-left: 5px;
 }
 
-.dialog-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-}
+.dialog-footer { display: flex; justify-content: flex-end; gap: 10px; }
 
-:deep(.el-checkbox__label) {
+:deep(.el-checkbox__label), :deep(.el-radio__label) {
   color: #cbd5e1 !important;
   font-size: 13px;
 }

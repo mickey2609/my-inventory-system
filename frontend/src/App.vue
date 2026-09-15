@@ -107,6 +107,7 @@
 
     <ParamMenuModal 
       v-model="showParamMenuDialog"
+      :form="form"
       :export-config="exportConfig"
       :saving="savingExportConfig"
       @update-export-config="exportConfig = $event"
