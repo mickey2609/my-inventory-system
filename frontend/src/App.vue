@@ -30,7 +30,10 @@
         <keep-alive>
           <HomeDashboard 
             v-if="currentTab === 'home'" key="home"
-            :current-user="currentUser" :db-metrics="dbMetrics" 
+            :current-user="currentUser" 
+            :current-user-permissions="currentUserPermissions"
+            :is-sys-admin="isSysAdmin"
+            :db-metrics="dbMetrics" 
             @open-tab="openNewTab"
             @logout-offline="handleLogout"
           />

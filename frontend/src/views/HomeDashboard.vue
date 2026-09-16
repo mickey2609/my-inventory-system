@@ -23,7 +23,7 @@
         </div>
       </div>
 
-      <!-- 地端連線狀態與真實伺服器連線時數 -->
+      <!-- 地端連線狀態與連線時數 -->
       <div class="metric-card">
         <div class="card-icon">⚡</div>
         <div class="card-info">
@@ -38,23 +38,20 @@
       </div>
     </div>
 
-    <!-- 快捷功能選單 -->
+    <!-- 🚀 快捷功能選單 (根據權限動態呈現卡片) -->
     <div class="quick-actions-section">
       <h3>🚀 快捷功能選單</h3>
       <div class="actions-grid">
-        <div class="action-card" @click="$emit('open-tab', 'inv80')">
-          <div class="action-icon">🔍</div>
+        <div 
+          v-for="mod in visibleModules" 
+          :key="mod.key" 
+          class="action-card" 
+          @click="$emit('open-tab', mod.key)"
+        >
+          <div class="action-icon">{{ mod.icon }}</div>
           <div class="action-text">
-            <h4>庫存查詢80</h4>
-            <p>多條件搜尋商品 ID、儲位、大區小區與庫齡明細</p>
-          </div>
-        </div>
-
-        <div class="action-card" @click="$emit('open-tab', 'loc_summary')">
-          <div class="action-icon">📊</div>
-          <div class="action-text">
-            <h4>儲位數才數統整</h4>
-            <p>自動計算各區域規劃才數、使用率與儲位健康度</p>
+            <h4>{{ mod.name }}</h4>
+            <p>{{ mod.desc }}</p>
           </div>
         </div>
       </div>
@@ -69,6 +66,14 @@ export default {
   name: 'HomeDashboard',
   props: {
     currentUser: String,
+    currentUserPermissions: {
+      type: [Array, String],
+      default: 'all'
+    },
+    isSysAdmin: {
+      type: Boolean,
+      default: false
+    },
     dbMetrics: {
       type: Object,
       default: () => ({ totalRows: 0, totalCategories: 0 })
@@ -79,10 +84,37 @@ export default {
     return {
       isServerOnline: true,
       checkTimer: null,
-      serverUptimeSec: 0 // 🌟 來自桌機地端後端的真實秒數
+      serverUptimeSec: 0,
+      
+      // 所有系統模組定義
+      allModulesMaster: [
+        { key: 'inv80', name: '庫存查詢 80', icon: '🔍', desc: '多條件搜尋商品 ID、儲位、大區小區與庫齡明細' },
+        { key: 'loc_summary', name: '儲位數才數統整', icon: '📊', desc: '自動計算各區域規劃才數、使用率與儲位健康度' },
+        { key: 'inv15', name: '庫存查詢 15', icon: '⚡', desc: '極速檢索核心欄位與熱門品項即時庫存' },
+        { key: 'turnover', name: '迴轉率清單', icon: '📈', desc: '分析高低迴轉品項與庫齡動態趨勢' },
+        { key: 'abnormal_purchase', name: '不合理進貨清單', icon: '⚠️', desc: '自動稽核進貨異常、庫存過剩與超額預警' }
+      ]
     }
   },
   computed: {
+    // 🌟 根據使用者權限動態過濾出的模組列表 (系統管理員直接顯示 5 個)
+    visibleModules() {
+      if (this.isSysAdmin) return this.allModulesMaster;
+      
+      const perms = this.currentUserPermissions;
+      if (!perms || perms === 'all' || perms === 'all,') {
+        return this.allModulesMaster;
+      }
+
+      let permArray = [];
+      if (Array.isArray(perms)) {
+        permArray = perms;
+      } else if (typeof perms === 'string') {
+        permArray = perms.split(',').map(s => s.trim()).filter(Boolean);
+      }
+
+      return this.allModulesMaster.filter(m => permArray.includes(m.key));
+    },
     uptimeString() {
       const hrs = Math.floor(this.serverUptimeSec / 3600);
       const mins = Math.floor((this.serverUptimeSec % 3600) / 60);
@@ -94,7 +126,6 @@ export default {
   },
   mounted() {
     this.checkServerStatus();
-    // 每 3 秒輪詢後端更新一次地端真實 Uptime
     this.checkTimer = setInterval(this.checkServerStatus, 3000);
   },
   beforeUnmount() {
@@ -106,7 +137,6 @@ export default {
         const res = await axios.get('/api/get-global-config', { timeout: 3000 });
         if (res && res.status === 200 && res.data) {
           this.isServerOnline = true;
-          // 讀取桌機後端傳來的伺服器運作秒數
           const cfg = res.data.data || res.data.config || {};
           if (cfg.server_uptime_seconds !== undefined) {
             this.serverUptimeSec = cfg.server_uptime_seconds;
@@ -170,7 +200,7 @@ export default {
 .quick-actions-section h3 { font-size: 1.2rem; margin-bottom: 16px; color: #f8fafc; }
 .actions-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 20px;
 }
 .action-card {
@@ -188,8 +218,9 @@ export default {
   border-color: #38bdf8;
   transform: translateY(-2px);
   background: #26334d;
+  box-shadow: 0 8px 20px rgba(56, 189, 248, 0.15);
 }
-.action-icon { font-size: 2rem; }
+.action-icon { font-size: 2rem; background: #0f172a; padding: 10px; border-radius: 10px; }
 .action-text h4 { margin: 0 0 6px 0; font-size: 1.05rem; color: #f8fafc; }
 .action-text p { margin: 0; font-size: 0.85rem; color: #94a3b8; line-height: 1.4; }
 </style>
