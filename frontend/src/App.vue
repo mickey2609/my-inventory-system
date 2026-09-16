@@ -208,6 +208,7 @@ export default {
       showUnifiedDrawer: false, showSearchModal: false, showParamMenuDialog: false, showWidthConfigDialog: false,
       showExportWidthConfigDialog: false, showImportTipDialog: false, showInventoryImportTipDialog: false,
       isUploading: false, uploadPercent: 0, timeoutMessage: '', searchTimer: null, searchElapsedSec: 0,
+      heartbeatTimer: null, // 🌟 新增心跳保活計時器
       loginForm: { username: '', password: '', rememberMe: true },
       currentTab: 'home', openedTabs: ['home'], dbMetrics: { totalRows: 0, totalCategories: 0 },
       logTab: 'normal', loading: false, draggedIndex: null, hasSearched: false, searchTime: '',
@@ -287,6 +288,7 @@ export default {
 
           this.formatLoginTimeStr();
           this.startTimers();
+          this.startHeartbeat(); // 🌟 Session 恢復時啟動心跳保活
           this.fetchDashboardMetrics();
           this.fetchLogs();
         } else {
@@ -302,9 +304,28 @@ export default {
     this.fetchUsers();
   },
   beforeUnmount() {
+    this.stopHeartbeat();
     window.removeEventListener('focus', this.reloadCurrentUserPermissions);
   },
   methods: {
+    // 🌟 心跳保活計時器控制 (每 15 秒回報當前登入者)
+    startHeartbeat() {
+      this.stopHeartbeat();
+      this.sendHeartbeat();
+      this.heartbeatTimer = setInterval(this.sendHeartbeat, 15000);
+    },
+    stopHeartbeat() {
+      if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    },
+    async sendHeartbeat() {
+      if (this.isLoggedIn && this.currentUsername) {
+        try {
+          await axios.post('/api/heartbeat', { username: this.currentUsername });
+        } catch (e) {}
+      }
+    },
+
     async reloadCurrentUserPermissions() {
       if (!this.isLoggedIn || !this.currentUsername || this.isSysAdmin) return;
       try {
@@ -561,7 +582,6 @@ export default {
     },
     async fetchLogs() { try { const res = await axios.get('/api/get-logs'); if (res.data?.logs) this.logsList = res.data.logs; } catch (e) {} },
     
-    // 🌟 核心修復：伺服器斷線時禁止登入
     async handleLogin() {
       if (!this.loginForm.username || !this.loginForm.password) return this.$message.warning('請輸入帳密！');
       this.loginLoading = true;
@@ -595,6 +615,7 @@ export default {
 
           this.formatLoginTimeStr();
           this.startTimers();
+          this.startHeartbeat(); // 🌟 登入成功開啟心跳保活
           this.fetchGlobalConfig();
           this.fetchDashboardMetrics(); 
           this.fetchLogs(); 
@@ -603,7 +624,6 @@ export default {
           this.$message.error(res.data?.detail || res.data?.message || '登入失敗'); 
         }
       } catch (e) {
-        // 🌟 伺服器斷線跳進 catch 時，嚴格禁止登入，並跳出明確提示
         this.isLoggedIn = false;
         this.$message.error('⚠️ 伺服器未連線，請確認地端桌機 start_tunnel.bat 是否已啟動！');
       } finally { 
@@ -619,6 +639,7 @@ export default {
         }
       } catch (e) {}
 
+      this.stopHeartbeat(); // 🌟 停止心跳保活
       if (typeof this.clearSession === 'function') {
         this.clearSession();
       }

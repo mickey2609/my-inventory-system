@@ -184,20 +184,14 @@ app.get('/api/categories/small', (req, res) => {
   });
 });
 
-// 🌟 [GET] 取得使用者列表 API (改為 60 秒內有活動才算在線)
-app.get('/api/get-users', (req, res) => {
-  db.all('SELECT username, name, role, permissions, last_active FROM users', [], (err, rows) => {
-    if (err) return res.status(500).json({ success: false, error: err.message });
-
+// 🌟 [POST] 心跳保活 API (登入中的使用者每 15 秒發送一次)
+app.post('/api/heartbeat', (req, res) => {
+  const { username } = req.body;
+  if (username) {
     const now = Math.floor(Date.now() / 1000);
-    // 🌟 計算：若最後活動時間在 60 秒內，才判定為在線 (is_online: true)
-    const formattedUsers = (rows || []).map(u => ({
-      ...u,
-      is_online: !!(u.last_active && (now - u.last_active < 60))
-    }));
-
-    res.json({ success: true, users: formattedUsers });
-  });
+    db.run('UPDATE users SET last_active = ? WHERE username = ?', [now, username]);
+  }
+  res.json({ success: true });
 });
 
 // 🌟 [POST] 使用者登出 API (主動清除 last_active)
@@ -207,6 +201,21 @@ app.post('/api/logout', (req, res) => {
     db.run('UPDATE users SET last_active = 0 WHERE username = ?', [username]);
   }
   res.json({ success: true, message: '已成功登出' });
+});
+
+// 🌟 [GET] 取得使用者列表 API (改為 60 秒內有心跳才算在線)
+app.get('/api/get-users', (req, res) => {
+  db.all('SELECT username, name, role, permissions, last_active FROM users', [], (err, rows) => {
+    if (err) return res.status(500).json({ success: false, error: err.message });
+
+    const now = Math.floor(Date.now() / 1000);
+    const formattedUsers = (rows || []).map(u => ({
+      ...u,
+      is_online: !!(u.last_active && (now - u.last_active < 60))
+    }));
+
+    res.json({ success: true, users: formattedUsers });
+  });
 });
 
 // [POST] 新增使用者 API
@@ -455,7 +464,7 @@ app.get('/api/get-column-config', (req, res) => {
   });
 });
 
-// 🌟 [POST] 使用者登入驗證 (記錄登入者最後活動時間戳)
+// [POST] 使用者登入驗證
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
   if (!username) return res.status(400).json({ success: false, message: '請輸入帳號' });
@@ -501,15 +510,10 @@ app.post('/api/login', (req, res) => {
   });
 });
 
-// 🌟 [POST] 寫入操作日誌 (同步刷新操作者的 last_active 時間)
+// [POST] 寫入操作日誌 (不再隨意更新特定帳號的 last_active，避免覆蓋心跳)
 app.post('/api/record-log', (req, res) => {
   const { username, name, role, device, feature, action } = req.body;
   const isoTimeStr = new Date().toISOString();
-  const now = Math.floor(Date.now() / 1000);
-
-  if (username) {
-    db.run('UPDATE users SET last_active = ? WHERE username = ?', [now, username]);
-  }
 
   db.run(
     `INSERT INTO system_logs (username, name, role, device, feature, action, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
