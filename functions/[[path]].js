@@ -63,7 +63,7 @@ export async function onRequest(context) {
   }
 
   // 2. 通道網址更新 API (桌機 sync_tunnel.js 專用)
-  if (url.pathname === "/update-tunnel-url") {
+  if (url.pathname === "/update-tunnel-url" || url.pathname === "/api/update-tunnel-url") {
     const authHeader = request.headers.get("X-Update-Secret");
     if (authHeader !== "MY_SECRET_KEY_12345") {
       return new Response(JSON.stringify({ status: 'error', detail: 'Unauthorized' }), { status: 401, headers: corsHeaders });
