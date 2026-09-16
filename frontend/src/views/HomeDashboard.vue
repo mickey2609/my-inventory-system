@@ -38,7 +38,7 @@
       </div>
     </div>
 
-    <!-- 🚀 快捷功能選單 (根據權限動態呈現卡片) -->
+    <!-- 🚀 快捷功能選單 (5 個模組全數開放呈現) -->
     <div class="quick-actions-section">
       <h3>🚀 快捷功能選單</h3>
       <div class="actions-grid">
@@ -68,11 +68,11 @@ export default {
     currentUser: String,
     currentUserPermissions: {
       type: [Array, String],
-      default: 'all'
+      default: () => ['loc_summary', 'inv80', 'inv15', 'turnover', 'abnormal_purchase']
     },
     isSysAdmin: {
       type: Boolean,
-      default: false
+      default: true
     },
     dbMetrics: {
       type: Object,
@@ -86,7 +86,7 @@ export default {
       checkTimer: null,
       serverUptimeSec: 0,
       
-      // 所有系統模組定義
+      // 所有 5 個系統模組定義
       allModulesMaster: [
         { key: 'inv80', name: '庫存查詢 80', icon: '🔍', desc: '多條件搜尋商品 ID、儲位、大區小區與庫齡明細' },
         { key: 'loc_summary', name: '儲位數才數統整', icon: '📊', desc: '自動計算各區域規劃才數、使用率與儲位健康度' },
@@ -97,7 +97,7 @@ export default {
     }
   },
   computed: {
-    // 🌟 根據使用者權限動態過濾出的模組列表 (系統管理員直接顯示 5 個)
+    // 🌟 修正：管理員/系統管理員或無特別限制時，預設顯示全部 5 個模組卡片
     visibleModules() {
       if (this.isSysAdmin) return this.allModulesMaster;
       
@@ -112,6 +112,8 @@ export default {
       } else if (typeof perms === 'string') {
         permArray = perms.split(',').map(s => s.trim()).filter(Boolean);
       }
+
+      if (permArray.length === 0) return this.allModulesMaster;
 
       return this.allModulesMaster.filter(m => permArray.includes(m.key));
     },
