@@ -76,7 +76,7 @@
           </template>
         </el-table-column>
 
-        <!-- 🌟【關鍵修復 1】將欄寬改為 360，確保右側「刪除」按鈕不會被切掉邊緣 -->
+        <!-- 操作按鈕群組 -->
         <el-table-column label="操作" width="360" fixed="right" align="center">
           <template #default="scope">
             <div class="opt-btn-group">
@@ -133,6 +133,21 @@ export default {
     'open-perm',
     'delete-user'
   ],
+  data() {
+    return {
+      autoRefreshTimer: null
+    };
+  },
+  mounted() {
+    this.$emit('refresh-users');
+    // 🌟 啟動 5 秒自動重新整理，無縫同步其他使用者的在線燈號
+    this.autoRefreshTimer = setInterval(() => {
+      this.$emit('refresh-users');
+    }, 5000);
+  },
+  beforeUnmount() {
+    if (this.autoRefreshTimer) clearInterval(this.autoRefreshTimer);
+  },
   methods: {
     getRoleLabel(row) {
       if (!row) return '👤 一般人員';
@@ -243,7 +258,6 @@ export default {
 .pwd-mask { color: #64748b !important; }
 .cell-perm-text { color: #cbd5e1 !important; font-size: 13px; }
 
-/* 🌟【關鍵修復 2】縮微按鈕間距與外距，擺脫邊緣遮擋問題 */
 .opt-btn-group {
   display: flex;
   justify-content: center;

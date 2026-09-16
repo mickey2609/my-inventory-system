@@ -184,35 +184,44 @@ app.get('/api/categories/small', (req, res) => {
   });
 });
 
-// [GET] 取得使用者列表 API
+// 🌟 [GET] 取得使用者列表 API (加入 is_online 動態即時計算)
 app.get('/api/get-users', (req, res) => {
   db.all('SELECT username, name, role, permissions, last_active FROM users', [], (err, rows) => {
     if (err) return res.status(500).json({ success: false, error: err.message });
-    res.json({ success: true, users: rows });
+
+    const now = Math.floor(Date.now() / 1000);
+    // 🌟 計算：若最後活動時間在 10 分鐘 (600 秒) 內，判定為在線 (is_online: true)
+    const formattedUsers = (rows || []).map(u => ({
+      ...u,
+      is_online: !!(u.last_active && (now - u.last_active < 600))
+    }));
+
+    res.json({ success: true, users: formattedUsers });
   });
 });
 
-// 🌟 [POST] 新增使用者 API
+// [POST] 新增使用者 API
 app.post('/api/add-user', (req, res) => {
   const { username, name, role, password } = req.body;
   if (!username) return res.status(400).json({ success: false, message: '帳號名稱不可為空！' });
 
   const stmt = db.prepare(`
-    INSERT INTO users (username, name, role, password, permissions) 
-    VALUES (?, ?, ?, ?, 'all')
+    INSERT INTO users (username, name, role, password, permissions, last_active) 
+    VALUES (?, ?, ?, ?, 'all', ?)
     ON CONFLICT(username) DO UPDATE SET 
       name = excluded.name, 
       role = excluded.role, 
       password = excluded.password
   `);
 
-  stmt.run(username, name || username, role || 'user', password || '123456', (err) => {
+  const now = Math.floor(Date.now() / 1000);
+  stmt.run(username, name || username, role || 'user', password || '123456', now, (err) => {
     if (err) return res.status(500).json({ success: false, error: err.message });
     res.json({ success: true, message: '新增帳號成功！' });
   });
 });
 
-// 🌟 [POST] 更新使用者角色 API
+// [POST] 更新使用者角色 API
 app.post(['/api/update-role', '/api/update-user-role', '/api/update-user'], (req, res) => {
   const { username, target_role, role, target_name, name } = req.body;
   const newRole = role || target_role;
@@ -224,7 +233,7 @@ app.post(['/api/update-role', '/api/update-user-role', '/api/update-user'], (req
   });
 });
 
-// 🌟 [POST] 更新使用者密碼 API
+// [POST] 更新使用者密碼 API
 app.post(['/api/update-password', '/api/update-user-password'], (req, res) => {
   const { username, new_password, password } = req.body;
   const pwd = new_password || password;
@@ -235,7 +244,7 @@ app.post(['/api/update-password', '/api/update-user-password'], (req, res) => {
   });
 });
 
-// 🌟 [POST] 更新使用者權限 API
+// [POST] 更新使用者權限 API
 app.post(['/api/update-permissions', '/api/update-user-permissions'], (req, res) => {
   const { username, permissions, selected_modules } = req.body;
   const targetMods = permissions || selected_modules;
@@ -247,7 +256,7 @@ app.post(['/api/update-permissions', '/api/update-user-permissions'], (req, res)
   });
 });
 
-// 🌟 [POST] 刪除使用者 API
+// [POST] 刪除使用者 API
 app.post('/api/delete-user', (req, res) => {
   const { username } = req.body;
   db.run('DELETE FROM users WHERE username = ?', [username], (err) => {
@@ -437,7 +446,7 @@ app.get('/api/get-column-config', (req, res) => {
   });
 });
 
-// [POST] 使用者登入驗證
+// 🌟 [POST] 使用者登入驗證 (記錄登入者最後活動時間戳)
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
   if (!username) return res.status(400).json({ success: false, message: '請輸入帳號' });
@@ -483,10 +492,15 @@ app.post('/api/login', (req, res) => {
   });
 });
 
-// [POST] 寫入操作日誌
+// 🌟 [POST] 寫入操作日誌 (同步刷新操作者的 last_active 時間)
 app.post('/api/record-log', (req, res) => {
   const { username, name, role, device, feature, action } = req.body;
   const isoTimeStr = new Date().toISOString();
+  const now = Math.floor(Date.now() / 1000);
+
+  if (username) {
+    db.run('UPDATE users SET last_active = ? WHERE username = ?', [now, username]);
+  }
 
   db.run(
     `INSERT INTO system_logs (username, name, role, device, feature, action, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
