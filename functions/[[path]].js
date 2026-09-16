@@ -37,14 +37,14 @@ const COLUMN_MAP = {
   '重型架判斷': 'heavy_rack_check'
 };
 
-// 🌟 核心修復：顯式導出 POST、GET、OPTIONS Handler，徹底解開 405 鎖定
-export async function onRequestPost(context) { return onRequest(context); }
-export async function onRequestGet(context) { return onRequest(context); }
-export async function onRequestOptions(context) { return onRequest(context); }
-
 export async function onRequest(context) {
   const { request, env } = context;
   const url = new URL(request.url);
+
+  // 1. 靜態檔案 passThrough (解決首頁與前端 CSS/JS 顯示問題)
+  if (url.pathname === '/' || (url.pathname.includes('.') && !url.pathname.startsWith('/api/'))) {
+    return env.ASSETS.fetch(request);
+  }
 
   const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -57,27 +57,15 @@ export async function onRequest(context) {
     return new Response(null, { headers: corsHeaders });
   }
 
-  // 1. 靜態檔案 passThrough (解決首頁與前端 CSS/JS 顯示問題)
-  if (url.pathname === '/' || (url.pathname.includes('.') && !url.pathname.startsWith('/api/'))) {
-    return env.ASSETS.fetch(request);
-  }
-
   // 2. 通道網址更新 API (桌機 sync_tunnel.js 專用)
-  if (url.pathname === "/update-tunnel-url" || url.pathname === "/api/update-tunnel-url") {
+  if (request.method === "POST" && url.pathname === "/update-tunnel-url") {
     const authHeader = request.headers.get("X-Update-Secret");
     if (authHeader !== "MY_SECRET_KEY_12345") {
       return new Response(JSON.stringify({ status: 'error', detail: 'Unauthorized' }), { status: 401, headers: corsHeaders });
     }
-    try {
-      const body = await request.json().catch(() => ({}));
-      const tunnelUrl = body.url || "";
-      if (tunnelUrl) {
-        await env.TUNNEL_KV.put("CURRENT_URL", tunnelUrl);
-      }
-      return new Response(JSON.stringify({ status: 'success', url: tunnelUrl }), { status: 200, headers: corsHeaders });
-    } catch (e) {
-      return new Response(JSON.stringify({ status: 'error', detail: e.message }), { status: 500, headers: corsHeaders });
-    }
+    const { url: tunnelUrl } = await request.json();
+    await env.TUNNEL_KV.put("CURRENT_URL", tunnelUrl);
+    return new Response(JSON.stringify({ status: 'success', url: tunnelUrl }), { status: 200, headers: corsHeaders });
   }
 
   // 3. 🌟 自動代理轉發至桌機：部署請求、顯式本地請求、或是所有 API 資料請求 (無條件代理至桌機)
@@ -86,19 +74,19 @@ export async function onRequest(context) {
 
   if (isDeployOrLocal || isDesktopApi) {
     const targetHost = await env.TUNNEL_KV.get("CURRENT_URL");
-    if (targetHost) {
-      const targetUrl = `${targetHost}${url.pathname}${url.search}`;
-      const modifiedRequest = new Request(targetUrl, {
-        method: request.method,
-        headers: request.headers,
-        body: (request.method === 'GET' || request.method === 'HEAD') ? null : request.body,
-        redirect: "follow",
-      });
-
-      try {
-        return await fetch(modifiedRequest);
-      } catch (err) {}
+    if (!targetHost) {
+      return new Response(JSON.stringify({ status: 'error', detail: 'Desktop Tunnel URL not synchronized yet.' }), { status: 503, headers: corsHeaders });
     }
+
+    const targetUrl = `${targetHost}${url.pathname}${url.search}`;
+    const modifiedRequest = new Request(targetUrl, {
+      method: request.method,
+      headers: request.headers,
+      body: (request.method === 'GET' || request.method === 'HEAD') ? null : request.body,
+      redirect: "follow",
+    });
+
+    return fetch(modifiedRequest);
   }
 
   // =========================================================
@@ -149,14 +137,9 @@ export async function onRequest(context) {
   } catch (schemaErr) {}
 
   try {
-    // 🌟 心跳與日誌 API 保底
-    if (url.pathname === '/api/record-log' || url.pathname === '/api/heartbeat') {
-      return new Response(JSON.stringify({ status: 'success' }), { headers: corsHeaders });
-    }
-
     // 1. 登入 API
     if (url.pathname === '/api/login' && request.method === 'POST') {
-      const body = await request.json().catch(() => ({}));
+      const body = await request.json();
       const { username, password } = body;
 
       if (!username || !password) {
@@ -261,7 +244,7 @@ export async function onRequest(context) {
       }
     }
 
-    // 5. 庫存分頁與全量匯出查詢 API
+    // 5. 庫存分頁與全量匯出查詢 API (支援動態 ORDER BY)
     if (url.pathname === '/api/search') {
       const page = parseInt(url.searchParams.get('page') || '1', 10);
       const pageSize = parseInt(url.searchParams.get('pageSize') || '1000', 10);
@@ -517,7 +500,7 @@ export async function onRequest(context) {
     // 9. 紀錄日誌 API
     if (url.pathname === '/api/record-log' && request.method === 'POST') {
       try {
-        const body = await request.json().catch(() => ({}));
+        const body = await request.json();
         const nowStr = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' });
         const now = Date.now();
 
@@ -555,7 +538,7 @@ export async function onRequest(context) {
     // 11. 更新使用者角色 API
     if ((url.pathname === '/api/update-role' || url.pathname === '/api/update-user' || url.pathname === '/api/update-user-role') && request.method === 'POST') {
       try {
-        const body = await request.json().catch(() => ({}));
+        const body = await request.json();
         const username = body.username;
         const name = body.name || body.target_name;
         const role = body.role || body.target_role;
@@ -574,7 +557,7 @@ export async function onRequest(context) {
     // 12. 重設密碼 API
     if ((url.pathname === '/api/update-password' || url.pathname === '/api/update-user-password') && request.method === 'POST') {
       try {
-        const body = await request.json().catch(() => ({}));
+        const body = await request.json();
         const { username, password, new_password } = body;
         const targetPwd = new_password || password;
         await env.DB.prepare("UPDATE users SET password = ? WHERE username = ?").bind(targetPwd, username).run();
@@ -587,7 +570,7 @@ export async function onRequest(context) {
     // 13. 更新權限 API
     if ((url.pathname === '/api/update-permissions' || url.pathname === '/api/update-user-permissions') && request.method === 'POST') {
       try {
-        const body = await request.json().catch(() => ({}));
+        const body = await request.json();
         const { username, permissions, selected_modules } = body;
         const targetModules = permissions || selected_modules;
         const permStr = Array.isArray(targetModules) ? targetModules.join(',') : String(targetModules || '');
@@ -602,7 +585,7 @@ export async function onRequest(context) {
     // 14. 新增使用者 API
     if (url.pathname === '/api/add-user' && request.method === 'POST') {
       try {
-        const body = await request.json().catch(() => ({}));
+        const body = await request.json();
         const username = String(body.username || '').trim();
         const name = String(body.name || username).trim();
         const role = String(body.role || 'user').trim();
@@ -631,7 +614,7 @@ export async function onRequest(context) {
     // 15. 刪除使用者 API
     if (url.pathname === '/api/delete-user' && request.method === 'POST') {
       try {
-        const { username } = await request.json().catch(() => ({}));
+        const { username } = await request.json();
         await env.DB.prepare("DELETE FROM users WHERE username = ?").bind(username).run();
         return new Response(JSON.stringify({ status: 'success', message: '刪除帳號成功！' }), { headers: corsHeaders });
       } catch (err) {
@@ -661,7 +644,7 @@ export async function onRequest(context) {
     // 16-B. 儲存全公司欄位與匯出權限設定 API
     if (url.pathname === '/api/save-global-config' && request.method === 'POST') {
       try {
-        const body = await request.json().catch(() => ({}));
+        const body = await request.json();
         const { export_config, all_columns, selected_columns } = body;
 
         await env.DB.prepare(`
