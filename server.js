@@ -7,6 +7,9 @@ const fs = require('fs');
 const app = express();
 const PORT = 3000;
 
+// 🌟 紀錄地端伺服器 (Node.js) 真正的啟動時間點
+const SERVER_START_TIME = Date.now();
+
 // 中文顯示欄位 ➔ SQLite 資料庫實體欄位映射表
 const COLUMN_MAP = {
   '商品ID': 'item_id',
@@ -142,13 +145,16 @@ app.post('/api/system/restart', (req, res) => {
   }, 1000);
 });
 
-// [GET] 全域系統設定 API
+// [GET] 全域系統設定 API (包含伺服器真實運作秒數)
 app.get('/api/get-global-config', (req, res) => {
+  const currentUptimeSec = Math.floor((Date.now() - SERVER_START_TIME) / 1000);
+
   res.json({
     success: true,
     data: {
       system_name: "庫存儲位管理系統",
-      version: "v2026.09.09.1028"
+      version: "v2026.09.09.1028",
+      server_uptime_seconds: currentUptimeSec // 🌟 動態回傳地端伺服器連線運作秒數
     }
   });
 });
@@ -199,7 +205,7 @@ app.get('/api/search', (req, res) => {
   const keyword = req.query.keyword || req.query.txt_id || req.query.txt_name || req.query.cbo_loc_id || '';
   const ageInput = req.query.txtAge || req.query.txt_age || req.query.age || '';
 
-  // 🌟 解析排序欄位與遞增/遞減
+  // 解析排序欄位與遞增/遞減
   const sortByChinese = req.query.cbo_sort || req.query.cboSort || '';
   const sortOrder = (req.query.sort_order || req.query.sortOrder || 'asc').toLowerCase() === 'desc' ? 'DESC' : 'ASC';
   const sortColumn = COLUMN_MAP[sortByChinese] || 'id';
@@ -278,7 +284,6 @@ app.get('/api/search', (req, res) => {
 
     const totalCount = summaryRow ? summaryRow.total_rows : 0;
 
-    // 🌟 帶入 ORDER BY 子句
     const querySql = `SELECT * FROM inventory ${whereClause} ORDER BY ${sortColumn} ${sortOrder} LIMIT ? OFFSET ?`;
 
     db.all(querySql, [...bindings, pageSize, offset], (err, rows) => {

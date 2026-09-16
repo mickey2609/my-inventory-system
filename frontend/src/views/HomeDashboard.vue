@@ -23,7 +23,7 @@
         </div>
       </div>
 
-      <!-- 地端連線狀態與連線時數 -->
+      <!-- 地端連線狀態與真實伺服器連線時數 -->
       <div class="metric-card">
         <div class="card-icon">⚡</div>
         <div class="card-info">
@@ -32,7 +32,7 @@
             {{ isServerOnline ? '🟢 正常連線中' : '🔴 伺服器斷線' }}
           </span>
           <div v-if="isServerOnline" class="uptime-text">
-            ⏱️ 已連續連線：{{ uptimeString }}
+            ⏱️ 伺服器已連續運作：{{ uptimeString }}
           </div>
         </div>
       </div>
@@ -79,15 +79,14 @@ export default {
     return {
       isServerOnline: true,
       checkTimer: null,
-      uptimeSeconds: 0,
-      uptimeTimer: null
+      serverUptimeSec: 0 // 🌟 來自桌機地端後端的真實秒數
     }
   },
   computed: {
     uptimeString() {
-      const hrs = Math.floor(this.uptimeSeconds / 3600);
-      const mins = Math.floor((this.uptimeSeconds % 3600) / 60);
-      const secs = this.uptimeSeconds % 60;
+      const hrs = Math.floor(this.serverUptimeSec / 3600);
+      const mins = Math.floor((this.serverUptimeSec % 3600) / 60);
+      const secs = this.serverUptimeSec % 60;
       if (hrs > 0) return `${hrs} 小時 ${mins} 分 ${secs} 秒`;
       if (mins > 0) return `${mins} 分 ${secs} 秒`;
       return `${secs} 秒`;
@@ -95,26 +94,25 @@ export default {
   },
   mounted() {
     this.checkServerStatus();
-    // 每 5 秒輪詢偵測伺服器連線狀態
-    this.checkTimer = setInterval(this.checkServerStatus, 5000);
-    
-    this.uptimeTimer = setInterval(() => {
-      if (this.isServerOnline) this.uptimeSeconds++;
-    }, 1000);
+    // 每 3 秒輪詢後端更新一次地端真實 Uptime
+    this.checkTimer = setInterval(this.checkServerStatus, 3000);
   },
   beforeUnmount() {
     if (this.checkTimer) clearInterval(this.checkTimer);
-    if (this.uptimeTimer) clearInterval(this.uptimeTimer);
   },
   methods: {
     async checkServerStatus() {
       try {
         const res = await axios.get('/api/get-global-config', { timeout: 3000 });
-        const online = !!(res.data && (res.data.success || res.data.status === 'success'));
-        if (!online) {
-          this.handleOffline();
-        } else {
+        if (res && res.status === 200 && res.data) {
           this.isServerOnline = true;
+          // 讀取桌機後端傳來的伺服器運作秒數
+          const cfg = res.data.data || res.data.config || {};
+          if (cfg.server_uptime_seconds !== undefined) {
+            this.serverUptimeSec = cfg.server_uptime_seconds;
+          }
+        } else {
+          this.handleOffline();
         }
       } catch (e) {
         this.handleOffline();
@@ -122,8 +120,7 @@ export default {
     },
     handleOffline() {
       this.isServerOnline = false;
-      this.uptimeSeconds = 0;
-      this.$message.error('⚠️ 伺服器已斷開連線，系統已自動返回登入頁面！');
+      this.serverUptimeSec = 0;
       this.$emit('logout-offline');
     }
   }
