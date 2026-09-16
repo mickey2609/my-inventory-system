@@ -691,3 +691,5 @@ export async function onRequest(context) {
     return new Response(JSON.stringify({ status: 'error', detail: err.message }), { status: 500, headers: corsHeaders });
   }
 }
+
+// force rebuild 2026-09-17
