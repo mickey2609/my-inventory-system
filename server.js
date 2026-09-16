@@ -7,7 +7,7 @@ const fs = require('fs');
 const app = express();
 const PORT = 3000;
 
-// 🌟 紀錄地端伺服器 (Node.js) 真正的啟動時間點
+// 紀錄地端伺服器 (Node.js) 真正的啟動時間點
 const SERVER_START_TIME = Date.now();
 
 // 中文顯示欄位 ➔ SQLite 資料庫實體欄位映射表
@@ -154,7 +154,7 @@ app.get('/api/get-global-config', (req, res) => {
     data: {
       system_name: "庫存儲位管理系統",
       version: "v2026.09.09.1028",
-      server_uptime_seconds: currentUptimeSec // 🌟 動態回傳地端伺服器連線運作秒數
+      server_uptime_seconds: currentUptimeSec
     }
   });
 });
@@ -192,6 +192,70 @@ app.get('/api/get-users', (req, res) => {
   });
 });
 
+// 🌟 [POST] 新增使用者 API
+app.post('/api/add-user', (req, res) => {
+  const { username, name, role, password } = req.body;
+  if (!username) return res.status(400).json({ success: false, message: '帳號名稱不可為空！' });
+
+  const stmt = db.prepare(`
+    INSERT INTO users (username, name, role, password, permissions) 
+    VALUES (?, ?, ?, ?, 'all')
+    ON CONFLICT(username) DO UPDATE SET 
+      name = excluded.name, 
+      role = excluded.role, 
+      password = excluded.password
+  `);
+
+  stmt.run(username, name || username, role || 'user', password || '123456', (err) => {
+    if (err) return res.status(500).json({ success: false, error: err.message });
+    res.json({ success: true, message: '新增帳號成功！' });
+  });
+});
+
+// 🌟 [POST] 更新使用者角色 API
+app.post(['/api/update-role', '/api/update-user-role', '/api/update-user'], (req, res) => {
+  const { username, target_role, role, target_name, name } = req.body;
+  const newRole = role || target_role;
+  const newName = name || target_name;
+
+  db.run('UPDATE users SET role = COALESCE(?, role), name = COALESCE(?, name) WHERE username = ?', [newRole, newName, username], (err) => {
+    if (err) return res.status(500).json({ success: false, error: err.message });
+    res.json({ success: true, message: '角色已成功更新！' });
+  });
+});
+
+// 🌟 [POST] 更新使用者密碼 API
+app.post(['/api/update-password', '/api/update-user-password'], (req, res) => {
+  const { username, new_password, password } = req.body;
+  const pwd = new_password || password;
+
+  db.run('UPDATE users SET password = ? WHERE username = ?', [pwd, username], (err) => {
+    if (err) return res.status(500).json({ success: false, error: err.message });
+    res.json({ success: true, message: '密碼已成功變更！' });
+  });
+});
+
+// 🌟 [POST] 更新使用者權限 API
+app.post(['/api/update-permissions', '/api/update-user-permissions'], (req, res) => {
+  const { username, permissions, selected_modules } = req.body;
+  const targetMods = permissions || selected_modules;
+  const permStr = Array.isArray(targetMods) ? targetMods.join(',') : String(targetMods || '');
+
+  db.run('UPDATE users SET permissions = ? WHERE username = ?', [permStr, username], (err) => {
+    if (err) return res.status(500).json({ success: false, error: err.message });
+    res.json({ success: true, message: '模組權限已成功更新！' });
+  });
+});
+
+// 🌟 [POST] 刪除使用者 API
+app.post('/api/delete-user', (req, res) => {
+  const { username } = req.body;
+  db.run('DELETE FROM users WHERE username = ?', [username], (err) => {
+    if (err) return res.status(500).json({ success: false, error: err.message });
+    res.json({ success: true, message: '刪除帳號成功！' });
+  });
+});
+
 // [GET] 庫存查詢 API (支援動態 ORDER BY 排序)
 app.get('/api/search', (req, res) => {
   const page = parseInt(req.query.page || '1', 10);
@@ -205,7 +269,6 @@ app.get('/api/search', (req, res) => {
   const keyword = req.query.keyword || req.query.txt_id || req.query.txt_name || req.query.cbo_loc_id || '';
   const ageInput = req.query.txtAge || req.query.txt_age || req.query.age || '';
 
-  // 解析排序欄位與遞增/遞減
   const sortByChinese = req.query.cbo_sort || req.query.cboSort || '';
   const sortOrder = (req.query.sort_order || req.query.sortOrder || 'asc').toLowerCase() === 'desc' ? 'DESC' : 'ASC';
   const sortColumn = COLUMN_MAP[sortByChinese] || 'id';
@@ -213,7 +276,6 @@ app.get('/api/search', (req, res) => {
   let whereConditions = [];
   let bindings = [];
 
-  // A. 批次商品 ID 模式
   if (searchMode === 'batch_id' && batchIds.trim()) {
     const idList = batchIds.split(/[\n,\s]+/).map(s => s.trim()).filter(Boolean);
     if (idList.length > 0) {
@@ -222,7 +284,6 @@ app.get('/api/search', (req, res) => {
       bindings.push(...idList);
     }
   } 
-  // B. 批次儲位區編模式
   else if (searchMode === 'batch_zone' && (batchZones.trim() || batchIds.trim())) {
     const zoneStr = batchZones.trim() || batchIds.trim();
     const zoneList = zoneStr.split(/[\n,\s]+/).map(s => s.trim()).filter(Boolean);
@@ -238,7 +299,6 @@ app.get('/api/search', (req, res) => {
       zoneList.forEach(z => bindings.push(`${z}%`));
     }
   } 
-  // C. 一般模式
   else {
     if (categoryLarge) { whereConditions.push("big_zone = ?"); bindings.push(categoryLarge); }
     if (categorySmall) { whereConditions.push("zone_name = ?"); bindings.push(categorySmall); }
@@ -283,7 +343,6 @@ app.get('/api/search', (req, res) => {
     if (err) return res.status(500).json({ success: false, error: err.message });
 
     const totalCount = summaryRow ? summaryRow.total_rows : 0;
-
     const querySql = `SELECT * FROM inventory ${whereClause} ORDER BY ${sortColumn} ${sortOrder} LIMIT ? OFFSET ?`;
 
     db.all(querySql, [...bindings, pageSize, offset], (err, rows) => {
