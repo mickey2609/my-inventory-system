@@ -184,20 +184,29 @@ app.get('/api/categories/small', (req, res) => {
   });
 });
 
-// 🌟 [GET] 取得使用者列表 API (加入 is_online 動態即時計算)
+// 🌟 [GET] 取得使用者列表 API (改為 60 秒內有活動才算在線)
 app.get('/api/get-users', (req, res) => {
   db.all('SELECT username, name, role, permissions, last_active FROM users', [], (err, rows) => {
     if (err) return res.status(500).json({ success: false, error: err.message });
 
     const now = Math.floor(Date.now() / 1000);
-    // 🌟 計算：若最後活動時間在 10 分鐘 (600 秒) 內，判定為在線 (is_online: true)
+    // 🌟 計算：若最後活動時間在 60 秒內，才判定為在線 (is_online: true)
     const formattedUsers = (rows || []).map(u => ({
       ...u,
-      is_online: !!(u.last_active && (now - u.last_active < 600))
+      is_online: !!(u.last_active && (now - u.last_active < 60))
     }));
 
     res.json({ success: true, users: formattedUsers });
   });
+});
+
+// 🌟 [POST] 使用者登出 API (主動清除 last_active)
+app.post('/api/logout', (req, res) => {
+  const { username } = req.body;
+  if (username) {
+    db.run('UPDATE users SET last_active = 0 WHERE username = ?', [username]);
+  }
+  res.json({ success: true, message: '已成功登出' });
 });
 
 // [POST] 新增使用者 API

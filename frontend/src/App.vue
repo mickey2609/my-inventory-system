@@ -611,7 +611,14 @@ export default {
       }
     },
 
-    handleLogout() {
+    async handleLogout() {
+      try {
+        if (this.currentUsername) {
+          // 🌟 通知地端後端該使用者已登出，清除 last_active
+          await axios.post('/api/logout', { username: this.currentUsername });
+        }
+      } catch (e) {}
+
       if (typeof this.clearSession === 'function') {
         this.clearSession();
       }
@@ -622,6 +629,7 @@ export default {
       this.currentUserRole = 'user';
       this.currentUserPermissions = [];
       this.openedTabs = [];
+      this.$message.info('已成功登出');
     },
     getTabName(k) {
       const names = { 'home': '🏠 系統首頁', 'inv80': '庫存查詢80', 'inv15': '庫存查詢15', 'loc_summary': '儲位數才數統整', 'turnover': '迴轉率清單', 'abnormal_purchase': '不合理進貨清單', 'settings_perm': '權限管理', 'settings_log': '日誌歷程查詢' };
