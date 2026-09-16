@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "include": [
+    "/update-tunnel-url",
+    "/api/*"
+  ],
+  "exclude": [
+    "/static/*",
+    "/favicon.ico"
+  ]
+}
