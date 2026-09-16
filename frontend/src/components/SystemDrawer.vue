@@ -36,66 +36,10 @@
         </div>
       </div>
 
-      <!-- 2. 系統功能模組選單 (根據個人權限過濾顯示) -->
-      <div class="menu-group-section">
-        <div class="group-title">🎯 系統功能模組</div>
-        <div class="nav-list">
-          <button 
-            v-if="hasModulePerm('loc_summary')"
-            :class="['nav-card-btn', { active: currentTab === 'loc_summary' }]" 
-            @click="onSwitchTab('loc_summary')"
-          >
-            <span class="btn-icon">📊</span>
-            <span class="btn-text">儲位數才數統整</span>
-          </button>
-
-          <button 
-            v-if="hasModulePerm('inv80')"
-            :class="['nav-card-btn', { active: currentTab === 'inv80' }]" 
-            @click="onSwitchTab('inv80')"
-          >
-            <span class="btn-icon">🔍</span>
-            <span class="btn-text">庫存查詢 80</span>
-          </button>
-
-          <button 
-            v-if="hasModulePerm('inv15')"
-            :class="['nav-card-btn', { active: currentTab === 'inv15' }]" 
-            @click="onSwitchTab('inv15')"
-          >
-            <span class="btn-icon">⚡</span>
-            <span class="btn-text">庫存查詢 15</span>
-          </button>
-
-          <button 
-            v-if="hasModulePerm('turnover')"
-            :class="['nav-card-btn', { active: currentTab === 'turnover' }]" 
-            @click="onSwitchTab('turnover')"
-          >
-            <span class="btn-icon">📈</span>
-            <span class="btn-text">迴轉率清單</span>
-          </button>
-
-          <button 
-            v-if="hasModulePerm('abnormal_purchase')"
-            :class="['nav-card-btn', { active: currentTab === 'abnormal_purchase' }]" 
-            @click="onSwitchTab('abnormal_purchase')"
-          >
-            <span class="btn-icon">⚠️</span>
-            <span class="btn-text">不合理進貨清單</span>
-          </button>
-        </div>
-      </div>
-
-      <!-- 3. 系統設定與管理 (管理員限定) -->
+      <!-- 🌟 2. ⚙️ 系統設定與管理 (已移除功能模組與明細匯入) -->
       <div v-if="isAdmin" class="menu-group-section">
         <div class="group-title">⚙️ 系統設定與管理</div>
         <div class="nav-list">
-          <button class="nav-card-btn setting highlight-import" @click="$emit('open-import-inventory'); visible = false;">
-            <span class="btn-icon">📥</span>
-            <span class="btn-text">商品資料明細匯入</span>
-          </button>
-
           <button 
             :class="['nav-card-btn setting', { active: currentTab === 'settings_perm' }]" 
             @click="onSwitchTab('settings_perm')"
@@ -104,7 +48,9 @@
             <span class="btn-text">權限設定 (帳號管理)</span>
           </button>
 
+          <!-- 🌟 僅限最高系統管理員 (isSysAdmin) 才可見操作歷程 -->
           <button 
+            v-if="isSysAdmin"
             :class="['nav-card-btn setting', { active: currentTab === 'settings_log' }]" 
             @click="onSwitchTab('settings_log')"
           >
@@ -142,19 +88,6 @@ export default {
     }
   },
   methods: {
-    hasModulePerm(modKey) {
-      if (this.isSysAdmin) return true;
-      const perms = this.userPermissions;
-      if (!perms || perms === 'all' || perms === 'all,') return true;
-
-      if (Array.isArray(perms)) {
-        return perms.includes(modKey);
-      }
-      if (typeof perms === 'string') {
-        return perms.split(',').map(s => s.trim()).includes(modKey);
-      }
-      return false;
-    },
     onSwitchTab(tabKey) {
       this.$emit('switch-tab', tabKey);
       this.visible = false;
@@ -299,21 +232,9 @@ export default {
   box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
 }
 
-.nav-card-btn.active {
-  background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
-  border-color: #60a5fa;
-  color: #ffffff;
-  font-weight: 700;
-}
-
 .nav-card-btn.setting {
   background-color: #1e293b;
   border-color: #475569;
-}
-
-.nav-card-btn.setting.highlight-import {
-  border-color: #eab308;
-  color: #fef08a;
 }
 
 .nav-card-btn.setting:hover {

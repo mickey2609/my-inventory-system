@@ -81,7 +81,7 @@
       </div>
     </div>
 
-    <!-- 3. 全局彈窗與抽屜組件 -->
+    <!-- 3. 全局彈窗與抽屜組件 (包含完整的 isSysAdmin 屬性傳遞) -->
     <SystemDrawer 
       v-model="showUnifiedDrawer" 
       :current-user="currentUser" 
@@ -134,6 +134,7 @@
       v-model:show-edit-perm="showEditPermDialog" v-model:show-add-user="showAddUserDialog"
       :target-user="targetUser" :edit-role-form="editRoleForm" :edit-password-form="editPasswordForm"
       :edit-perm-form="editPermForm" :new-user-form="newUserForm" :available-modules="availableModules"
+      :is-sys-admin="isSysAdmin"
       @save-role="onSaveRole" @save-pwd="onSavePwd" @save-perm="onSavePerm" @save-add-user="onSaveAddUser"
     />
 
@@ -208,7 +209,7 @@ export default {
       showUnifiedDrawer: false, showSearchModal: false, showParamMenuDialog: false, showWidthConfigDialog: false,
       showExportWidthConfigDialog: false, showImportTipDialog: false, showInventoryImportTipDialog: false,
       isUploading: false, uploadPercent: 0, timeoutMessage: '', searchTimer: null, searchElapsedSec: 0,
-      heartbeatTimer: null, // 🌟 新增心跳保活計時器
+      heartbeatTimer: null,
       loginForm: { username: '', password: '', rememberMe: true },
       currentTab: 'home', openedTabs: ['home'], dbMetrics: { totalRows: 0, totalCategories: 0 },
       logTab: 'normal', loading: false, draggedIndex: null, hasSearched: false, searchTime: '',
@@ -288,7 +289,7 @@ export default {
 
           this.formatLoginTimeStr();
           this.startTimers();
-          this.startHeartbeat(); // 🌟 Session 恢復時啟動心跳保活
+          this.startHeartbeat();
           this.fetchDashboardMetrics();
           this.fetchLogs();
         } else {
@@ -308,7 +309,6 @@ export default {
     window.removeEventListener('focus', this.reloadCurrentUserPermissions);
   },
   methods: {
-    // 🌟 心跳保活計時器控制 (每 15 秒回報當前登入者)
     startHeartbeat() {
       this.stopHeartbeat();
       this.sendHeartbeat();
@@ -615,7 +615,7 @@ export default {
 
           this.formatLoginTimeStr();
           this.startTimers();
-          this.startHeartbeat(); // 🌟 登入成功開啟心跳保活
+          this.startHeartbeat();
           this.fetchGlobalConfig();
           this.fetchDashboardMetrics(); 
           this.fetchLogs(); 
@@ -634,12 +634,11 @@ export default {
     async handleLogout() {
       try {
         if (this.currentUsername) {
-          // 🌟 通知地端後端該使用者已登出，清除 last_active
           await axios.post('/api/logout', { username: this.currentUsername });
         }
       } catch (e) {}
 
-      this.stopHeartbeat(); // 🌟 停止心跳保活
+      this.stopHeartbeat();
       if (typeof this.clearSession === 'function') {
         this.clearSession();
       }
