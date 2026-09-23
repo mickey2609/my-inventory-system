@@ -246,8 +246,8 @@ export default {
         search_mode: 'normal', batch_ids: '', batch_zones: '', txt_id: '', txt_name: '', cbo_big_zone: '',
         cbo_zone: '', cbo_loc_id: '', cbo_floor: '', cbo_type: '', cbo_vol_type: '', txt_age: '', txt_weight: '',
         txt_monthly_sales: '',
-        selected_columns: ["商品ID", "商品名稱", "借/採", "儲位庫存數", "庫齡", "區編", "區名", "館編", "館名", "長(cm)", "寬(cm)", "高(cm)", "重量(kg)", "大區名", "樓層", "人工/自動"],
-        chk_show_loc: false, chk_show_dim: true, cbo_sort: '商品ID', sort_order: 'desc'
+        selected_columns: [...full48Cols],
+        chk_show_loc: true, chk_show_dim: true, cbo_sort: '商品ID', sort_order: 'desc'
       },
       options: { big_zones: [], zones_map: {}, zones: [], floors: [], ap_types: [], vol_types: [] },
       summary: { total_items: 0, total_rows: 0, total_pcs: 0, total_ao: 0 },
@@ -378,10 +378,10 @@ export default {
         const res = await axios.get('/api/get-column-config?key=global_default');
         if (res.data?.success && res.data?.data) {
           const cfg = res.data.data;
-          if (cfg.selected_columns) {
+          if (cfg.selected_columns && Array.isArray(cfg.selected_columns) && cfg.selected_columns.length >= 36) {
             this.form.selected_columns = cfg.selected_columns;
           }
-          if (cfg.all_columns && Array.isArray(cfg.all_columns) && cfg.all_columns.length >= 36) {
+          if (cfg.all_columns && Array.isArray(cfg.all_columns) && cfg.all_columns.length >= 48) {
             this.allAvailableColumns = cfg.all_columns;
           }
         }
@@ -564,7 +564,7 @@ export default {
     },
     onDrop() { this.draggedIndex = null; },
     onDragEnd() { this.draggedIndex = null; },
-    selectAllCols() { this.form.selected_columns = [...this.allAvailableColumns]; },
+    selectAllCols() { this.form.selected_columns = [...this.rawColumnsMaster]; },
     unselectAllCols() { this.form.selected_columns = []; },
     openPwdDialog(row) { this.targetUser = row.username; this.editPasswordForm.new_password = ''; this.showEditPwdDialog = true; },
     openPermDialog(row) {
@@ -673,23 +673,27 @@ export default {
       }, 100);
 
       try {
-        let currentCols = [...this.form.selected_columns];
+        let currentCols = Array.isArray(this.form.selected_columns) && this.form.selected_columns.length > 0 
+          ? [...this.form.selected_columns] 
+          : [...this.rawColumnsMaster];
+
         if (this.form.chk_show_loc) {
           if (!currentCols.includes('儲位')) currentCols.push('儲位');
-        } else {
-          currentCols = currentCols.filter(c => c !== '儲位');
         }
 
         const dimCols = ['長(cm)', '寬(cm)', '高(cm)', '重量(kg)', '才數', '材積別'];
         if (this.form.chk_show_dim) {
           dimCols.forEach(col => { if (!currentCols.includes(col)) currentCols.push(col); });
-        } else {
-          currentCols = currentCols.filter(c => !dimCols.includes(c));
         }
 
-        this.columns = this.allAvailableColumns.filter(c => currentCols.includes(c));
-        const hasLocationCol = this.columns.includes('儲位');
+        // 🌟 核心過濾修正：直接以 rawColumnsMaster 為基準防呆過濾，防止舊快取剝奪新欄位
+        const masterSet = new Set(this.rawColumnsMaster);
+        this.columns = currentCols.filter(c => masterSet.has(c));
+        if (this.columns.length === 0) {
+          this.columns = [...this.rawColumnsMaster];
+        }
 
+        const hasLocationCol = this.columns.includes('儲位');
         const mode = this.form.search_mode || 'normal';
         let batchTxt = '';
         if (mode === 'batch_id') batchTxt = this.form.batch_ids || '';
