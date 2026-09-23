@@ -1,5 +1,5 @@
 // C:\my-inventory-server\server.js
-// 業務主程式 API 伺服器 (整合 36 欄位處理 + VBA 儲位才數統整 + LocSummary.vue 視圖對接 + 彈窗預覽清單 API)
+// 業務主程式 API 伺服器 (整合 48 欄位處理 + VBA 儲位才數統整 + LocSummary.vue 視圖對接)
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const cors = require('cors');
@@ -12,7 +12,7 @@ const PORT = 3000;
 // 紀錄地端伺服器 (Node.js) 真正的啟動時間點
 const SERVER_START_TIME = Date.now();
 
-// 中文顯示欄位 ➔ SQLite 資料庫實體欄位映射表
+// 48 欄位中文顯示名稱 ➔ SQLite 資料庫實體欄位映射表
 const COLUMN_MAP = {
   '商品ID': 'item_id',
   '商品名稱': 'item_name',
@@ -39,17 +39,29 @@ const COLUMN_MAP = {
   '總庫存_迴轉天數': 'turn_days_total',
   '才數': 'cubic_feet',
   '材積別': 'vol_type',
+  '儲位編碼-3': 'loc_code_3',
+  '儲位編碼': 'loc_code_full',
+  '儲位編碼5': 'loc_code_5',
   '樓層': 'floor',
+  '樓層區域': 'floor_zone',
   '儲位型態': 'loc_type',
   '大區編': 'big_zone_id',
   '大區名': 'big_zone',
+  '三邊長': 'dim_sum',
+  '最長邊': 'max_dim',
+  '最短邊': 'min_dim',
   '儲位才數': 'loc_cubic_feet',
   '儲位健康度': 'loc_health',
+  '不符合': 'non_compliant',
   '材積判斷': 'vol_check',
   '總才數': 'total_cubic_feet',
   '人工/自動': 'auto_type',
+  '儲位層標示': 'shelf_level',
   '庫齡級距': 'age_bracket',
-  '重型架判斷': 'heavy_rack_check'
+  '樓層設定': 'floor_config',
+  '重型架判斷': 'heavy_rack_check',
+  'ID指定樓層': 'assigned_floor',
+  '備註': 'remark'
 };
 
 // 1. 初始化 SQLite 資料庫檔案
@@ -62,8 +74,8 @@ const db = new sqlite3.Database('inventory_local.sqlite', (err) => {
 });
 
 app.use(cors());
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
 // [POST] 接收筆電更新代碼並轉發給 Port 3001 (system-manager)
 app.post('/api/system/update-server-code', (req, res) => {
@@ -98,7 +110,7 @@ app.post('/api/system/update-server-code', (req, res) => {
   // ⚠️ 絕對不呼叫 process.exit()，由 system-manager 統一管理進程生命週期
 });
 
-// 2. 自動初始化資料庫 Schema
+// 2. 自動初始化資料庫 Schema (含 48 欄位定義)
 db.serialize(() => {
   db.run(`
     CREATE TABLE IF NOT EXISTS inventory (
@@ -108,9 +120,12 @@ db.serialize(() => {
       length REAL, width REAL, height REAL, weight REAL,
       monthly_sales REAL, pick_days_m REAL, sales_90d REAL, pick_days_90d REAL,
       supplier_id TEXT, supplier_name TEXT, pm TEXT, total_qty REAL, turn_days_total REAL,
-      cubic_feet REAL, vol_type TEXT, floor TEXT, loc_type TEXT,
-      big_zone_id TEXT, big_zone TEXT, loc_cubic_feet REAL, loc_health TEXT,
-      vol_check TEXT, total_cubic_feet REAL, auto_type TEXT, age_bracket TEXT, heavy_rack_check TEXT
+      cubic_feet REAL, vol_type TEXT, loc_code_3 TEXT, loc_code_full TEXT, loc_code_5 TEXT,
+      floor TEXT, floor_zone TEXT, loc_type TEXT, big_zone_id TEXT, big_zone TEXT,
+      dim_sum REAL, max_dim REAL, min_dim REAL, loc_cubic_feet REAL, loc_health TEXT,
+      non_compliant TEXT, vol_check TEXT, total_cubic_feet REAL, auto_type TEXT,
+      shelf_level TEXT, age_bracket TEXT, floor_config TEXT, heavy_rack_check TEXT,
+      assigned_floor TEXT, remark TEXT
     );
   `);
 
@@ -206,12 +221,12 @@ function parseCsvTextToObjects(csvText) {
 app.get('/api/get-locations-master', (req, res) => {
   const sql = `
     SELECT 
-      floor as 樓層,
-      zone as 區域,
-      loc_type as 儲位類型,
-      cubic_feet as 才數,
-      grid_count as 儲格數,
-      single_cubic_feet as 儲位才數
+      COALESCE(floor, '') as 樓層,
+      COALESCE(zone, '') as 區域,
+      COALESCE(loc_type, '') as 儲位類型,
+      COALESCE(cubic_feet, 0) as 才數,
+      COALESCE(grid_count, 0) as 儲格數,
+      COALESCE(single_cubic_feet, 0) as 儲位才數
     FROM locations_master
     ORDER BY id ASC
   `;
@@ -315,10 +330,9 @@ app.post(['/api/import-locations-master', '/api/import-locations-master-json'], 
 
 // [GET] 📊 儲位才數統整 API (同時支援 /api/calc-location-summary 與 /api/stats/location-capacity)
 app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, res) => {
-  // 防呆 SQL：同時相容英文欄位與中文欄位
   const masterSql = `
     SELECT 
-      COALESCE(floor, '未知') as floor,
+      COALESCE(floor, '') as floor,
       COALESCE(zone, '') as zone,
       COALESCE(loc_type, '') as loc_type,
       COALESCE(cubic_feet, 0) as cubic_feet,
@@ -331,9 +345,10 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
     SELECT 
       COALESCE(floor, '') as floor,
       COALESCE(big_zone, '') as big_zone,
-      COALESCE(zone_name, '') as zone_name,
       COALESCE(loc_type, '') as loc_type,
       COALESCE(location, '') as location,
+      COALESCE(loc_code_3, '') as loc_code_3,
+      COALESCE(shelf_level, '') as shelf_level,
       COALESCE(total_cubic_feet, 0) as total_cubic_feet,
       COALESCE(cubic_feet, 0) as cubic_feet,
       COALESCE(qty, 0) as qty
@@ -341,32 +356,27 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
   `;
 
   db.all(masterSql, [], (err, masterRows) => {
-    if (err) {
-      console.error('❌ 讀取 locations_master 失敗:', err.message);
-      masterRows = [];
-    }
+    if (err) masterRows = [];
 
     db.all(inventorySql, [], (err, invRows) => {
-      if (err) {
-        console.error('❌ 讀取 inventory 失敗:', err.message);
-        invRows = [];
-      }
+      if (err) invRows = [];
 
       const statsMap = {};
 
       // A. 彙總 locations_master 規劃數據
       (masterRows || []).forEach(r => {
-        let floor = String(r.floor || '').toUpperCase().trim();
+        let rawFloor = String(r.floor || '').trim();
         let rType = String(r.loc_type || '').trim();
-        if (!floor || floor === '樓層' || !rType) return;
-        if (floor === '1F' && rType === '自動化板式') return;
+        if (!rawFloor || rawFloor === '樓層' || !rType) return;
+        if (rawFloor === '1F' && rType === '自動化板式') return;
 
-        const uKey = `${floor}_${rType.replace(/\s+/g, '')}`;
+        const uKey = `${rawFloor}_${rType.replace(/\s+/g, '')}`;
+
         if (!statsMap[uKey]) {
           statsMap[uKey] = {
             key: uKey,
-            floorRegion: `${floor} ${rType}`,
-            floor: floor,
+            floorRegion: `${rawFloor} ${rType}`,
+            rawFloor: rawFloor,
             loc_type: rType,
             grid_plan: 0,
             grid_used: 0,
@@ -387,25 +397,36 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
       const usedStorageCheck = new Set();
 
       (invRows || []).forEach(r => {
-        let floor = String(r.floor || '').toUpperCase().trim();
+        let invFloor = String(r.floor || '').trim();
         const storageCode = String(r.location || '').toUpperCase().trim();
         const originalType = String(r.loc_type || '').trim();
-        const shelfLevel = storageCode.length >= 7 ? storageCode.substring(6, 7) : '';
+        const shelfLevel = String(r.shelf_level || (storageCode.length >= 7 ? storageCode.substring(6, 7) : '')).trim();
 
-        if (!floor && storageCode.length >= 2) {
-          const matchFloor = storageCode.match(/^([0-9]F)/);
-          if (matchFloor) floor = matchFloor[1];
+        if (!invFloor && storageCode.length >= 2) {
+          const matchFloor = storageCode.match(/^([0-9]F[東西南北]?)/i);
+          if (matchFloor) invFloor = matchFloor[1].toUpperCase();
+          else {
+            const matchSimple = storageCode.match(/^([0-9]F)/i);
+            if (matchSimple) invFloor = matchSimple[1].toUpperCase();
+          }
         }
 
-        const adjustedType = getAdjustedType(floor, originalType, storageCode, shelfLevel);
+        const adjustedType = getAdjustedType(invFloor, originalType, storageCode, shelfLevel);
         const cleanType = (adjustedType || originalType || '').replace(/\s+/g, '');
-        const uKey = `${floor}_${cleanType}`;
 
-        let targetItem = statsMap[uKey];
+        let targetItem = null;
+        const allKeys = Object.keys(statsMap);
+        const exactKey = `${invFloor}_${cleanType}`;
 
-        if (!targetItem && floor) {
-          const allKeys = Object.keys(statsMap);
-          const foundKey = allKeys.find(k => k.startsWith(`${floor}_`) && (k.includes(cleanType) || cleanType.includes(k.split('_')[1])));
+        if (statsMap[exactKey]) {
+          targetItem = statsMap[exactKey];
+        } else {
+          const pureFloor = invFloor.replace(/[^0-9F]/gi, '');
+          const foundKey = allKeys.find(k => {
+            const [mFloor, mType] = k.split('_');
+            const mPureFloor = mFloor.replace(/[^0-9F]/gi, '');
+            return mPureFloor === pureFloor && (mType.includes(cleanType) || cleanType.includes(mType));
+          });
           if (foundKey) targetItem = statsMap[foundKey];
         }
 
@@ -423,7 +444,7 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         }
       });
 
-      // C. 格式化為前端 Vue 要求之數據物件
+      // C. 格式化為前端 Vue 要求之數據物件 (對齊 VBA 剩餘才數計算公式)
       const gridTableData = [];
       const volTableData = [];
 
@@ -434,9 +455,14 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         const remGrid = Math.max(0, item.grid_plan - item.grid_used);
         const gridRate = item.grid_plan > 0 ? ((item.grid_used / item.grid_plan) * 100).toFixed(1) + '%' : '0.0%';
 
-        const remVol = Math.max(0, item.vol_plan - item.vol_used);
+        // VBA 公式：剩餘才數 = 單格才數 * 剩餘儲格數
+        const remVol = item.single_cubic_feet > 0 
+          ? (item.single_cubic_feet * remGrid) 
+          : Math.max(0, item.vol_plan - item.vol_used);
+
         const volRate = item.vol_plan > 0 ? ((item.vol_used / item.vol_plan) * 100).toFixed(1) + '%' : '0.0%';
 
+        // VBA 儲位健康度演算法
         const unusedVolRate = item.vol_plan > 0 ? (remVol / item.vol_plan) : 0;
         const usedVolRate = 1 - unusedVolRate;
         const healthVal = (item.vol_plan > 0 && usedVolRate !== 0) ? ((item.vol_used / usedVolRate) / item.vol_plan * 100).toFixed(1) + '%' : '0.0%';
@@ -496,7 +522,7 @@ app.get('/api/get-global-config', (req, res) => {
     success: true,
     data: {
       system_name: "庫存儲位管理系統",
-      version: "v2026.09.23-LOC-SUMMARY-MATCH",
+      version: "v2026.09.23-48COL-MATCH",
       server_uptime_seconds: currentUptimeSec
     }
   });
@@ -506,7 +532,7 @@ app.get('/api/get-global-config', (req, res) => {
 app.get('/api/categories/large', (req, res) => {
   db.all('SELECT DISTINCT big_zone FROM inventory WHERE big_zone IS NOT NULL AND big_zone != ""', [], (err, rows) => {
     if (err) return res.status(500).json({ success: false, error: err.message });
-    const list = rows.map(r => r.big_zone);
+    const list = (rows || []).map(r => r.big_zone);
     res.json({ success: true, data: list });
   });
 });
@@ -522,7 +548,7 @@ app.get('/api/categories/small', (req, res) => {
   }
   db.all(sql, params, (err, rows) => {
     if (err) return res.status(500).json({ success: false, error: err.message });
-    const list = rows.map(r => r.zone_name);
+    const list = (rows || []).map(r => r.zone_name);
     res.json({ success: true, data: list });
   });
 });
@@ -752,17 +778,29 @@ app.get('/api/search', (req, res) => {
           '總庫存_迴轉天數': getVal('turn_days_total'),
           '才數': getVal('cubic_feet'),
           '材積別': getVal('vol_type'),
+          '儲位編碼-3': getVal('loc_code_3'),
+          '儲位編碼': getVal('loc_code_full'),
+          '儲位編碼5': getVal('loc_code_5'),
           '樓層': getVal('floor'),
+          '樓層區域': getVal('floor_zone'),
           '儲位型態': getVal('loc_type'),
           '大區編': getVal('big_zone_id'),
           '大區名': getVal('big_zone'),
+          '三邊長': getVal('dim_sum'),
+          '最長邊': getVal('max_dim'),
+          '最短邊': getVal('min_dim'),
           '儲位才數': getVal('loc_cubic_feet'),
           '儲位健康度': getVal('loc_health'),
+          '不符合': getVal('non_compliant'),
           '材積判斷': getVal('vol_check'),
           '總才數': getVal('total_cubic_feet'),
           '人工/自動': getVal('auto_type'),
+          '儲位層標示': getVal('shelf_level'),
           '庫齡級距': getVal('age_bracket'),
-          '重型架判斷': getVal('heavy_rack_check')
+          '樓層設定': getVal('floor_config'),
+          '重型架判斷': getVal('heavy_rack_check'),
+          'ID指定樓層': getVal('assigned_floor'),
+          '備註': getVal('remark')
         };
       });
 
@@ -876,7 +914,7 @@ app.get('/api/get-logs', (req, res) => {
   });
 });
 
-// [POST] 批次上傳庫存資料
+// [POST] 批次上傳 48 欄位庫存資料
 app.post('/api/upload', (req, res) => {
   try {
     const { items, isFirstChunk } = req.body;
@@ -895,11 +933,12 @@ app.post('/api/upload', (req, res) => {
         INSERT INTO inventory (
           item_id, item_name, borrow_proc, location, qty, age,
           zone_id, zone_name, hall_id, hall_name, length, width, height, weight,
-          monthly_sales, pick_days_m, sales_90d, pick_days_90d,
-          supplier_id, supplier_name, pm, total_qty, turn_days_total,
-          cubic_feet, vol_type, floor, loc_type, big_zone_id, big_zone,
-          loc_cubic_feet, loc_health, vol_check, total_cubic_feet, auto_type, age_bracket, heavy_rack_check
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          monthly_sales, pick_days_m, sales_90d, pick_days_90d, supplier_id, supplier_name, pm,
+          total_qty, turn_days_total, cubic_feet, vol_type, loc_code_3, loc_code_full, loc_code_5,
+          floor, floor_zone, loc_type, big_zone_id, big_zone, dim_sum, max_dim, min_dim,
+          loc_cubic_feet, loc_health, non_compliant, vol_check, total_cubic_feet, auto_type,
+          shelf_level, age_bracket, floor_config, heavy_rack_check, assigned_floor, remark
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       for (const item of items) {
@@ -941,17 +980,29 @@ app.post('/api/upload', (req, res) => {
           getNum('turn_days_total', '總庫存_迴轉天數'),
           getNum('cubic_feet', '才數'),
           getField('vol_type', '材積別'),
+          getField('loc_code_3', '儲位編碼-3'),
+          getField('loc_code_full', '儲位編碼'),
+          getField('loc_code_5', '儲位編碼5'),
           getField('floor', '樓層'),
+          getField('floor_zone', '樓層區域'),
           getField('loc_type', '儲位型態'),
           getField('big_zone_id', '大區編'),
           getField('big_zone', '大區名'),
+          getNum('dim_sum', '三邊長'),
+          getNum('max_dim', '最長邊'),
+          getNum('min_dim', '最短邊'),
           getNum('loc_cubic_feet', '儲位才數'),
           getField('loc_health', '儲位健康度'),
+          getField('non_compliant', '不符合'),
           getField('vol_check', '材積判斷'),
           getNum('total_cubic_feet', '總才數'),
           getField('auto_type', '人工/自動'),
+          getField('shelf_level', '儲位層標示'),
           getField('age_bracket', '庫齡級距'),
-          getField('heavy_rack_check', '重型架判斷')
+          getField('floor_config', '樓層設定'),
+          getField('heavy_rack_check', '重型架判斷'),
+          getField('assigned_floor', 'ID指定樓層'),
+          getField('remark', '備註')
         );
       }
       stmt.finalize();
@@ -961,7 +1012,7 @@ app.post('/api/upload', (req, res) => {
           console.error('❌ Transaction Commit 失敗:', err.message);
           return res.status(500).json({ success: false, error: err.message });
         }
-        res.json({ success: true, count: items.length, message: '36 欄位極速寫入成功！' });
+        res.json({ success: true, count: items.length, message: '48 欄位極速寫入成功！' });
       });
     });
   } catch (err) {
