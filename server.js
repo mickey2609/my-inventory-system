@@ -110,7 +110,7 @@ app.post('/api/system/update-server-code', (req, res) => {
   // ⚠️ 絕對不呼叫 process.exit()，由 system-manager 統一管理進程生命週期
 });
 
-// 2. 自動初始化資料庫 Schema (含 48 欄位定義)
+// 2. 自動初始化資料庫 Schema (含自動擴充舊資料表至 48 欄位之 Migration)
 db.serialize(() => {
   db.run(`
     CREATE TABLE IF NOT EXISTS inventory (
@@ -129,41 +129,27 @@ db.serialize(() => {
     );
   `);
 
-  db.run(`
-    CREATE TABLE IF NOT EXISTS users (
-      username TEXT PRIMARY KEY, name TEXT, role TEXT, password TEXT, permissions TEXT, last_active INTEGER
-    );
-  `);
+  // 防呆自動為舊表動態補齊新增的 12 個欄位 (防止舊 Table 報錯 SQLITE_ERROR)
+  const newCols = [
+    'loc_code_3 TEXT', 'loc_code_full TEXT', 'loc_code_5 TEXT', 'floor_zone TEXT',
+    'dim_sum REAL', 'max_dim REAL', 'min_dim REAL', 'non_compliant TEXT',
+    'shelf_level TEXT', 'floor_config TEXT', 'assigned_floor TEXT', 'remark TEXT'
+  ];
 
-  db.run(`
-    CREATE TABLE IF NOT EXISTS system_logs (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT, name TEXT, role TEXT, device TEXT, feature TEXT, action TEXT, created_at TEXT
-    );
-  `);
+  newCols.forEach(colDef => {
+    const colName = colDef.split(' ')[0];
+    db.run(`ALTER TABLE inventory ADD COLUMN ${colDef}`, (err) => {
+      // 若欄位已存在則忽略錯誤
+    });
+  });
 
-  db.run(`
-    CREATE TABLE IF NOT EXISTS column_config (
-      key TEXT PRIMARY KEY, config_json TEXT, updated_at TEXT
-    );
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS locations_master (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      floor TEXT, zone TEXT, loc_type TEXT, cubic_feet REAL, grid_count INTEGER, single_cubic_feet REAL
-    );
-  `);
-
-  db.run(`
-    INSERT OR IGNORE INTO users (username, name, role, password, permissions) 
-    VALUES ('admin', '系統管理員', 'sys_admin', 'admin', 'all');
-  `);
+  db.run(`CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, name TEXT, role TEXT, password TEXT, permissions TEXT, last_active INTEGER);`);
+  db.run(`CREATE TABLE IF NOT EXISTS system_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, name TEXT, role TEXT, device TEXT, feature TEXT, action TEXT, created_at TEXT);`);
+  db.run(`CREATE TABLE IF NOT EXISTS column_config (key TEXT PRIMARY KEY, config_json TEXT, updated_at TEXT);`);
+  db.run(`CREATE TABLE IF NOT EXISTS locations_master (id INTEGER PRIMARY KEY AUTOINCREMENT, floor TEXT, zone TEXT, loc_type TEXT, cubic_feet REAL, grid_count INTEGER, single_cubic_feet REAL);`);
   
-  db.run(`
-    INSERT OR IGNORE INTO users (username, name, role, password, permissions) 
-    VALUES ('801854', '黃勝鴻', 'sys_admin', '801854', 'all');
-  `);
+  db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions) VALUES ('admin', '系統管理員', 'sys_admin', 'admin', 'all');`);
+  db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions) VALUES ('801854', '黃勝鴻', 'sys_admin', '801854', 'all');`);
 });
 
 // --- VBA 特殊紙抽判斷邏輯 ( GetAdjustedType ) ---
