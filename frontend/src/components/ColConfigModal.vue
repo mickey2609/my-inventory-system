@@ -10,15 +10,16 @@
       <div class="tip-bar">
         <span>💡 打勾選取欄位，按住 <b>☰</b> 拖拉卡片即可調整縱向/橫向順序（完成後全公司同步生效）</span>
         <div class="btn-group">
+          <el-button type="danger" size="mini" @click="resetTo48Cols">🔄 重置 48 欄</el-button>
           <el-button type="primary" size="mini" @click="$emit('select-all')">全選</el-button>
           <el-button size="mini" @click="$emit('unselect-all')">全不選</el-button>
         </div>
       </div>
 
-      <!-- 🌟 改為直向流動 (grid-auto-flow: column) 網格容器 -->
+      <!-- 🌟 直向流動 (grid-auto-flow: column) 網格容器 (支援 48 欄位排列) -->
       <div class="column-cards-grid">
         <div 
-          v-for="(col, idx) in allAvailableColumns" 
+          v-for="(col, idx) in effectiveColumns" 
           :key="col"
           class="col-card-item"
           :class="{ 'is-selected': isSelected(col), 'is-dragging': draggedIndex === idx }"
@@ -68,6 +69,10 @@ export default {
       type: Array,
       default: () => []
     },
+    rawColumnsMaster: {
+      type: Array,
+      default: () => []
+    },
     selectedColumns: {
       type: Array,
       default: () => []
@@ -75,11 +80,27 @@ export default {
     draggedIndex: Number,
     savingConfig: Boolean
   },
+  emits: [
+    'update:modelValue', 'select-all', 'unselect-all', 'toggle-col',
+    'drag-start', 'drag-over', 'drag-drop', 'drag-end', 'save-config'
+  ],
+  computed: {
+    // 優先確保呈現全量 48 個欄位 (避免舊 SQLite 36 欄位設定鎖死)
+    effectiveColumns() {
+      if (this.allAvailableColumns && this.allAvailableColumns.length >= 48) {
+        return this.allAvailableColumns;
+      }
+      if (this.rawColumnsMaster && this.rawColumnsMaster.length >= 48) {
+        return this.rawColumnsMaster;
+      }
+      return this.allAvailableColumns && this.allAvailableColumns.length > 0 ? this.allAvailableColumns : this.rawColumnsMaster;
+    }
+  },
   methods: {
     isSelected(col) {
       return Array.isArray(this.selectedColumns) && this.selectedColumns.includes(col);
     },
-    // 自動生成 Excel 欄位英文字母代號 (A, B... Z, AA, AB...)
+    // 自動生成 Excel 欄位英文字母代號 (A, B... Z, AA, AB... AV)
     getExcelColLetter(index) {
       let temp = '';
       let letter = '';
@@ -89,6 +110,10 @@ export default {
         index = Math.floor(index / 26) - 1;
       }
       return letter;
+    },
+    resetTo48Cols() {
+      this.$emit('select-all');
+      this.$message.success('已為您自動重置並勾選預設 48 欄位！請點擊右下角「💾 儲存為全公司預設順序」。');
     }
   }
 }
@@ -117,14 +142,14 @@ export default {
   gap: 8px;
 }
 
-/* 🌟 設定固定 9 列 (rows)，並使用 grid-auto-flow: column 讓資料直向填滿排列 */
+/* 🌟 設定 12 列 (rows)，確保 48 欄位能以 4 欄直向勻稱流動呈現 */
 .column-cards-grid {
   display: grid;
-  grid-template-rows: repeat(9, auto);
+  grid-template-rows: repeat(12, auto);
   grid-auto-flow: column;
   grid-auto-columns: minmax(200px, 1fr);
-  gap: 10px;
-  max-height: 60vh;
+  gap: 8px;
+  max-height: 65vh;
   overflow-x: auto;
   overflow-y: hidden;
   padding-bottom: 8px;
