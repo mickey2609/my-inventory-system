@@ -1,3 +1,5 @@
+// C:\my-inventory-server\server.js
+// 業務主程式 API 伺服器 (整合 36 欄位處理 + VBA 儲位才數統整 + LocSummary.vue 視圖對接 + 彈窗預覽清單 API)
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const cors = require('cors');
@@ -63,6 +65,39 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
+// [POST] 接收筆電更新代碼並轉發給 Port 3001 (system-manager)
+app.post('/api/system/update-server-code', (req, res) => {
+  const http = require('http');
+  const payload = JSON.stringify(req.body);
+
+  const options = {
+    hostname: '127.0.0.1',
+    port: 3001,
+    path: '/api/system/update-server-code',
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(payload)
+    }
+  };
+
+  const proxyReq = http.request(options, (proxyRes) => {
+    let body = '';
+    proxyRes.on('data', chunk => body += chunk);
+    proxyRes.on('end', () => {
+      res.status(proxyRes.statusCode).send(body);
+    });
+  });
+
+  proxyReq.on('error', (err) => {
+    res.status(500).json({ success: false, message: '無法連線至系統管理服務 (Port 3001): ' + err.message });
+  });
+
+  proxyReq.write(payload);
+  proxyReq.end();
+  // ⚠️ 絕對不呼叫 process.exit()，由 system-manager 統一管理進程生命週期
+});
+
 // 2. 自動初始化資料庫 Schema
 db.serialize(() => {
   db.run(`
@@ -99,6 +134,13 @@ db.serialize(() => {
   `);
 
   db.run(`
+    CREATE TABLE IF NOT EXISTS locations_master (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      floor TEXT, zone TEXT, loc_type TEXT, cubic_feet REAL, grid_count INTEGER, single_cubic_feet REAL
+    );
+  `);
+
+  db.run(`
     INSERT OR IGNORE INTO users (username, name, role, password, permissions) 
     VALUES ('admin', '系統管理員', 'sys_admin', 'admin', 'all');
   `);
@@ -109,43 +151,297 @@ db.serialize(() => {
   `);
 });
 
+// --- VBA 特殊紙抽判斷邏輯 ( GetAdjustedType ) ---
+function getAdjustedType(floor, rType, storageCode, shelfLevel) {
+  floor = String(floor || '').toUpperCase().trim();
+  rType = String(rType || '').trim();
+  storageCode = String(storageCode || '').toUpperCase().trim();
+  shelfLevel = String(shelfLevel || '').toUpperCase().trim();
+
+  const rowTag = storageCode.substring(0, 3);
+  const seatTag = parseInt(storageCode.substring(3, 6), 10) || 0;
+
+  if (floor === '7F') {
+    if (rowTag >= 'M01' && rowTag <= 'M53' && seatTag <= 56) {
+      if (shelfLevel === 'B' || shelfLevel === 'C') return 'AGV層架-紙抽';
+    }
+  } else if (floor === '6F') {
+    if (rowTag >= 'L01' && rowTag <= 'L26' && seatTag <= 60) {
+      if (['A', 'B', 'C'].includes(shelfLevel)) return 'AGV層架-紙抽';
+    } else if (rowTag >= 'L27' && rowTag <= 'L30' && seatTag <= 60) {
+      if (['A', 'B', 'C', 'D', 'E', 'F'].includes(shelfLevel)) return 'AGV層架-紙抽';
+    }
+  }
+
+  if (rowTag >= 'R13' && rowTag <= 'R42') {
+    if (shelfLevel === 'A' || shelfLevel === 'B') return 'AGV層架-紙抽';
+  } else if ((rowTag === 'R11' || rowTag === 'R12') && seatTag >= 1 && seatTag <= 20) {
+    if (shelfLevel === 'A' || shelfLevel === 'B') return 'AGV層架-紙抽';
+  }
+
+  return rType;
+}
+
 // ------------------------------------------------------------------
 // 3. API 路由設定
 // ------------------------------------------------------------------
 
-// [POST] 筆電遠端推送最新 server.js 程式碼並自動覆蓋重啟
-app.post('/api/system/update-server-code', (req, res) => {
-  try {
-    const { code } = req.body;
-    if (!code || typeof code !== 'string') {
-      return res.status(400).json({ success: false, message: '無效的程式碼內容' });
-    }
-
-    fs.writeFileSync(path.join(__dirname, 'server.js'), code, 'utf8');
-    console.log('✅ 已成功接收筆電傳來的最新 server.js，準備自動重啟...');
-
-    res.json({ success: true, message: '🎉 最新 server.js 已成功覆蓋地端檔案，伺服器重啟中...' });
-
-    setTimeout(() => {
-      process.exit(0);
-    }, 1000);
-  } catch (err) {
-    console.error('❌ 覆蓋程式碼失敗:', err.message);
-    res.status(500).json({ success: false, error: err.message });
+// 解析 CSV 字串之輔助函式
+function parseCsvTextToObjects(csvText) {
+  const lines = csvText.split(/\r?\n/).filter(l => l.trim());
+  if (lines.length <= 1) return [];
+  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+  const list = [];
+  for (let i = 1; i < lines.length; i++) {
+    const rowVals = lines[i].split(',').map(v => v.trim().replace(/^"|"$/g, ''));
+    if (rowVals.length < headers.length) continue;
+    const rowObj = {};
+    headers.forEach((h, idx) => rowObj[h] = rowVals[idx]);
+    list.push(rowObj);
   }
+  return list;
+}
+
+// [GET] 讀取 locations_master 儲位結構定義清單 (提供給 LocSummary.vue 彈窗表格顯示)
+app.get('/api/get-locations-master', (req, res) => {
+  const sql = `
+    SELECT 
+      floor as 樓層,
+      zone as 區域,
+      loc_type as 儲位類型,
+      cubic_feet as 才數,
+      grid_count as 儲格數,
+      single_cubic_feet as 儲位才數
+    FROM locations_master
+    ORDER BY id ASC
+  `;
+
+  db.all(sql, [], (err, rows) => {
+    if (err) {
+      return res.status(500).json({ success: false, message: '讀取儲位定義失敗: ' + err.message });
+    }
+    res.json({ success: true, data: rows || [] });
+  });
 });
 
-// [POST] 遠端觸發重啟服務 API
-app.post('/api/system/restart', (req, res) => {
-  res.json({ success: true, message: '🔄 遠端指令已接收，地端伺服器正在重新啟動中...' });
-  console.log('⚠️ 收到遠端重啟請求，準備重新拉起服務進程...');
+// [POST] 匯入 locations_master 資料 (全相容 FormData / CSV 原生文字 / JSON 陣列)
+app.post(['/api/import-locations-master', '/api/import-locations-master-json'], (req, res) => {
+  let chunks = [];
 
-  setTimeout(() => {
-    process.exit(0);
-  }, 1000);
+  req.on('data', chunk => {
+    chunks.push(chunk);
+  });
+
+  req.on('end', () => {
+    try {
+      const buffer = Buffer.concat(chunks);
+      const rawText = buffer.toString('utf8');
+      let items = [];
+
+      // A. 若傳送 FormData multipart，從 Stream 內容提取 CSV 區塊
+      if (rawText.includes('name="file"') || rawText.includes('Content-Type:')) {
+        const matches = rawText.match(/\r\n\r\n([\s\S]*?)\r\n--/);
+        if (matches && matches[1]) {
+          items = parseCsvTextToObjects(matches[1].trim());
+        }
+      }
+      // B. 若直接傳送 CSV 純文字
+      else if (rawText.includes(',') && !rawText.trim().startsWith('{') && !rawText.trim().startsWith('[')) {
+        items = parseCsvTextToObjects(rawText.trim());
+      }
+      // C. 若傳送 JSON 格式 (JSON.parse)
+      else if (req.body) {
+        items = req.body;
+        if (items && Array.isArray(items.items)) items = items.items;
+        else if (items && Array.isArray(items.data)) items = items.data;
+      }
+
+      if (!Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ success: false, message: '未接收到有效 CSV 內容或資料為空' });
+      }
+
+      db.serialize(() => {
+        db.run('BEGIN TRANSACTION');
+        db.run('DELETE FROM locations_master');
+
+        const stmt = db.prepare(`
+          INSERT INTO locations_master (floor, zone, loc_type, cubic_feet, grid_count, single_cubic_feet)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `);
+
+        const parseNum = (val) => {
+          if (val === null || val === undefined) return 0;
+          const num = parseFloat(String(val).replace(/,/g, '').trim());
+          return isNaN(num) ? 0 : num;
+        };
+
+        const parseIntNum = (val) => {
+          if (val === null || val === undefined) return 0;
+          const num = parseInt(String(val).replace(/,/g, '').trim(), 10);
+          return isNaN(num) ? 0 : num;
+        };
+
+        for (const r of items) {
+          if (!r || typeof r !== 'object') continue;
+
+          const floor = String(r['樓層'] || r.floor || r.Floor || '').trim();
+          const zone = String(r['區域'] || r.zone || r.Zone || '').trim();
+          const locType = String(r['儲位類型'] || r['儲位型態'] || r.loc_type || r.LocType || '').trim();
+          const cubicFeet = parseNum(r['才數'] || r.cubic_feet || r.CubicFeet);
+          const gridCount = parseIntNum(r['儲格數(板、層)'] || r['儲格數'] || r.grid_count || r.GridCount);
+          const singleCubicFeet = parseNum(r['儲位才數'] || r.single_cubic_feet || r.SingleCubicFeet);
+
+          stmt.run(floor, zone, locType, cubicFeet, gridCount, singleCubicFeet);
+        }
+
+        stmt.finalize();
+
+        db.run('COMMIT', (err) => {
+          if (err) {
+            console.error('❌ Commit 寫入失敗:', err.message);
+            return res.status(500).json({ success: false, message: '寫入資料庫失敗: ' + err.message });
+          }
+          console.log(`✅ 成功寫入 ${items.length} 筆 locations_master 儲位結構！`);
+          res.json({ success: true, count: items.length, message: '儲位結構定義更新成功！' });
+        });
+      });
+    } catch (err) {
+      console.error('❌ 解析匯入失敗:', err.message);
+      db.run('ROLLBACK');
+      res.status(500).json({ success: false, message: '伺服器處理失敗: ' + err.message });
+    }
+  });
 });
 
-// [GET] 全域系統設定 API (包含伺服器真實運作秒數)
+// [GET] 📊 儲位才數統整 API (精準契合 LocSummary.vue 6大 KPI + 2大雙頁籤表格)
+app.get('/api/stats/location-capacity', (req, res) => {
+  const masterSql = `SELECT floor, zone, loc_type, cubic_feet, grid_count, single_cubic_feet FROM locations_master`;
+  const inventorySql = `SELECT floor, big_zone, zone_name, loc_type, location, total_cubic_feet, cubic_feet, qty FROM inventory`;
+
+  db.all(masterSql, [], (err, masterRows) => {
+    if (err) return res.status(500).json({ success: false, message: '讀取儲位結構失敗: ' + err.message });
+
+    db.all(inventorySql, [], (err, invRows) => {
+      if (err) return res.status(500).json({ success: false, message: '讀取庫存失敗: ' + err.message });
+
+      const statsMap = {};
+
+      // A. 彙總 locations_master 規劃數據
+      (masterRows || []).forEach(r => {
+        const floor = String(r.floor || '').toUpperCase().trim();
+        const rType = String(r.loc_type || '').trim();
+        if (!floor || floor === '樓層' || !rType) return;
+        if (floor === '1F' && rType === '自動化板式') return;
+
+        const uKey = `${floor}_${rType}`;
+        if (!statsMap[uKey]) {
+          statsMap[uKey] = {
+            floorRegion: `${floor} ${rType}`,
+            grid_plan: 0, grid_used: 0,
+            vol_plan: 0, vol_used: 0,
+            single_cubic_feet: parseFloat(r.single_cubic_feet || 0)
+          };
+        }
+        statsMap[uKey].grid_plan += parseInt(r.grid_count || 0, 10);
+        statsMap[uKey].vol_plan += parseFloat(r.cubic_feet || 0);
+      });
+
+      // B. 彙總 inventory 使用中數據 (按不重複儲位數與才數加總)
+      const usedStorageCheck = new Set();
+      (invRows || []).forEach(r => {
+        const floor = String(r.floor || '').toUpperCase().trim();
+        const storageCode = String(r.location || '').toUpperCase().trim();
+        const originalType = String(r.loc_type || '').trim();
+        const shelfLevel = storageCode.length >= 7 ? storageCode.substring(6, 7) : '';
+
+        const adjustedType = getAdjustedType(floor, originalType, storageCode, shelfLevel);
+        const uKey = `${floor}_${adjustedType}`;
+
+        if (statsMap[uKey]) {
+          const curVol = parseFloat(r.total_cubic_feet) > 0 
+            ? parseFloat(r.total_cubic_feet) 
+            : (parseFloat(r.cubic_feet || 0) * parseFloat(r.qty || 0));
+
+          statsMap[uKey].vol_used += curVol;
+
+          if (!usedStorageCheck.has(storageCode)) {
+            usedStorageCheck.add(storageCode);
+            statsMap[uKey].grid_used += 1;
+          }
+        }
+      });
+
+      // C. 格式化為 LocSummary.vue 綁定之完整視圖物件
+      const gridTableData = [];
+      const volTableData = [];
+
+      let totalPlanGrid = 0, totalUsedGrid = 0, totalRemGrid = 0;
+      let totalPlanVol = 0, totalUsedVol = 0;
+
+      Object.values(statsMap).forEach(item => {
+        const remGrid = Math.max(0, item.grid_plan - item.grid_used);
+        const gridRate = item.grid_plan > 0 ? ((item.grid_used / item.grid_plan) * 100).toFixed(1) + '%' : '0.0%';
+
+        const remVol = Math.max(0, item.vol_plan - item.vol_used);
+        const volRate = item.vol_plan > 0 ? ((item.vol_used / item.vol_plan) * 100).toFixed(1) + '%' : '0.0%';
+
+        // VBA 儲位健康度核心演算法
+        const unusedVolRate = item.vol_plan > 0 ? (remVol / item.vol_plan) : 0;
+        const usedVolRate = 1 - unusedVolRate;
+        const healthVal = (item.vol_plan > 0 && usedVolRate !== 0) ? ((item.vol_used / usedVolRate) / item.vol_plan * 100).toFixed(1) + '%' : '0.0%';
+
+        // 頁籤 1: 儲格數統計明細 (依樓層區域)
+        gridTableData.push({
+          '樓層區域': item.floorRegion,
+          '規劃儲格數': item.grid_plan,
+          '使用儲格數': item.grid_used,
+          '剩餘儲格數': remGrid,
+          '使用率': gridRate,
+          '儲位健康度': healthVal
+        });
+
+        // 頁籤 2: 才數統計明細 (依樓層區域)
+        volTableData.push({
+          '樓層區域': item.floorRegion,
+          '規劃總才數': parseFloat(item.vol_plan.toFixed(1)),
+          '使用中才數': parseFloat(item.vol_used.toFixed(1)),
+          '剩餘才數': parseFloat(remVol.toFixed(1)),
+          '才數使用率': volRate
+        });
+
+        // 全局 KPI 累加
+        totalPlanGrid += item.grid_plan;
+        totalUsedGrid += item.grid_used;
+        totalRemGrid += remGrid;
+
+        totalPlanVol += item.vol_plan;
+        totalUsedVol += item.vol_used;
+      });
+
+      // 儲位整體健康度計算
+      const overallRemVol = Math.max(0, totalPlanVol - totalUsedVol);
+      const overallUnusedRate = totalPlanVol > 0 ? (overallRemVol / totalPlanVol) : 0;
+      const overallUsedRate = 1 - overallUnusedRate;
+      const overallHealth = (totalPlanVol > 0 && overallUsedRate !== 0) ? ((totalUsedVol / overallUsedRate) / totalPlanVol * 100).toFixed(1) + '%' : '0.0%';
+
+      res.json({
+        success: true,
+        summaryStats: {
+          total_plan_grid: totalPlanGrid,
+          total_used_grid: totalUsedGrid,
+          total_rem_grid: totalRemGrid,
+          total_plan_vol: parseFloat(totalPlanVol.toFixed(1)),
+          total_used_vol: parseFloat(totalUsedVol.toFixed(1)),
+          total_health: overallHealth
+        },
+        summaryGridData: gridTableData,
+        summaryVolData: volTableData
+      });
+    });
+  });
+});
+
+// [GET] 全域系統設定 API
 app.get('/api/get-global-config', (req, res) => {
   const currentUptimeSec = Math.floor((Date.now() - SERVER_START_TIME) / 1000);
 
@@ -153,7 +449,7 @@ app.get('/api/get-global-config', (req, res) => {
     success: true,
     data: {
       system_name: "庫存儲位管理系統",
-      version: "v2026.09.09.1028",
+      version: "v2026.09.23-LOC-SUMMARY-MATCH",
       server_uptime_seconds: currentUptimeSec
     }
   });
@@ -184,7 +480,7 @@ app.get('/api/categories/small', (req, res) => {
   });
 });
 
-// 🌟 [POST] 心跳保活 API (登入中的使用者每 15 秒發送一次)
+// [POST] 心跳保活 API
 app.post('/api/heartbeat', (req, res) => {
   const { username } = req.body;
   if (username) {
@@ -194,7 +490,7 @@ app.post('/api/heartbeat', (req, res) => {
   res.json({ success: true });
 });
 
-// 🌟 [POST] 使用者登出 API (主動清除 last_active)
+// [POST] 使用者登出 API
 app.post('/api/logout', (req, res) => {
   const { username } = req.body;
   if (username) {
@@ -203,7 +499,7 @@ app.post('/api/logout', (req, res) => {
   res.json({ success: true, message: '已成功登出' });
 });
 
-// 🌟 [GET] 取得使用者列表 API (改為 60 秒內有心跳才算在線)
+// [GET] 取得使用者列表 API
 app.get('/api/get-users', (req, res) => {
   db.all('SELECT username, name, role, permissions, last_active FROM users', [], (err, rows) => {
     if (err) return res.status(500).json({ success: false, error: err.message });
@@ -283,7 +579,7 @@ app.post('/api/delete-user', (req, res) => {
   });
 });
 
-// [GET] 庫存查詢 API (支援動態 ORDER BY 排序)
+// [GET] 庫存查詢 API
 app.get('/api/search', (req, res) => {
   const page = parseInt(req.query.page || '1', 10);
   const pageSize = parseInt(req.query.pageSize || '500', 10);
@@ -510,7 +806,7 @@ app.post('/api/login', (req, res) => {
   });
 });
 
-// [POST] 寫入操作日誌 (不再隨意更新特定帳號的 last_active，避免覆蓋心跳)
+// [POST] 寫入操作日誌
 app.post('/api/record-log', (req, res) => {
   const { username, name, role, device, feature, action } = req.body;
   const isoTimeStr = new Date().toISOString();
@@ -629,5 +925,5 @@ app.post('/api/upload', (req, res) => {
 
 // 4. 啟動伺服器
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 地端伺服器已成功啟動！(Port: ${PORT})`);
+  console.log(`🚀 業務 API 伺服器已成功啟動！(Port: ${PORT})`);
 });

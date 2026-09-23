@@ -41,15 +41,10 @@ export async function onRequest(context) {
   const { request, env } = context;
   const url = new URL(request.url);
 
-  // 1. 靜態檔案 passThrough (解決首頁與前端 CSS/JS 顯示問題)
-  if (url.pathname === '/' || (url.pathname.includes('.') && !url.pathname.startsWith('/api/'))) {
-    return env.ASSETS.fetch(request);
-  }
-
   const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, X-Update-Secret, X-Target-Local',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Update-Secret, X-Target-Local, Authorization',
     'Content-Type': 'application/json; charset=utf-8'
   };
 
@@ -57,40 +52,64 @@ export async function onRequest(context) {
     return new Response(null, { headers: corsHeaders });
   }
 
-  // 2. 通道網址更新 API (桌機 sync_tunnel.js 專用)
-  if (request.method === "POST" && url.pathname === "/update-tunnel-url") {
-    const authHeader = request.headers.get("X-Update-Secret");
-    if (authHeader !== "MY_SECRET_KEY_12345") {
-      return new Response(JSON.stringify({ status: 'error', detail: 'Unauthorized' }), { status: 401, headers: corsHeaders });
-    }
-    const { url: tunnelUrl } = await request.json();
-    await env.TUNNEL_KV.put("CURRENT_URL", tunnelUrl);
-    return new Response(JSON.stringify({ status: 'success', url: tunnelUrl }), { status: 200, headers: corsHeaders });
+  // 1. 靜態檔案 passThrough (解決首頁與前端 CSS/JS 顯示問題)
+  if (url.pathname === '/' || (url.pathname.includes('.') && !url.pathname.startsWith('/api/'))) {
+    return env.ASSETS ? env.ASSETS.fetch(request) : fetch(request);
   }
 
-  // 3. 🌟 自動代理轉發至桌機：部署請求、顯式本地請求、或是所有 API 資料請求 (無條件代理至桌機)
+  // 2. 🌟 自動代理轉發至桌機：從 JSONBin 抓取最新 Tunnel 網址並轉發
   const isDeployOrLocal = url.pathname.startsWith('/deploy-backend') || request.headers.get("X-Target-Local") === "true";
   const isDesktopApi = url.pathname.startsWith('/api/');
 
   if (isDeployOrLocal || isDesktopApi) {
-    const targetHost = await env.TUNNEL_KV.get("CURRENT_URL");
+    let targetHost = '';
+    
+    // 從 JSONBin 讀取最新桌機 Tunnel 網址
+    try {
+      const binRes = await fetch('https://api.jsonbin.io/v3/b/6aad2ed2ac6210605adc4575/latest', {
+        headers: { 'X-Master-Key': '$2a$10$GBayhoY0k2Exom4NkRzydu3CEcLJj1vior2Yld0PPsPDHsjDJG0wm' }
+      });
+      const binJson = await binRes.json();
+      if (binJson.record && binJson.record.url) {
+        targetHost = binJson.record.url.trim();
+      }
+    } catch (e) {
+      console.error('從 JSONBin 讀取網址失敗:', e);
+    }
+
     if (!targetHost) {
       return new Response(JSON.stringify({ status: 'error', detail: 'Desktop Tunnel URL not synchronized yet.' }), { status: 503, headers: corsHeaders });
     }
 
     const targetUrl = `${targetHost}${url.pathname}${url.search}`;
+
+    let bodyData = null;
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      bodyData = await request.arrayBuffer();
+    }
+
     const modifiedRequest = new Request(targetUrl, {
       method: request.method,
       headers: request.headers,
-      body: (request.method === 'GET' || request.method === 'HEAD') ? null : request.body,
+      body: bodyData,
       redirect: "follow",
     });
 
-    return fetch(modifiedRequest);
+    try {
+      const resp = await fetch(modifiedRequest);
+      const respHeaders = new Headers(resp.headers);
+      Object.keys(corsHeaders).forEach(k => respHeaders.set(k, corsHeaders[k]));
+      return new Response(resp.body, {
+        status: resp.status,
+        headers: respHeaders
+      });
+    } catch (err) {
+      return new Response(JSON.stringify({ status: 'error', detail: '連線至地端失敗: ' + err.message }), { status: 502, headers: corsHeaders });
+    }
   }
 
   // =========================================================
-  // 4. 備用 Cloudflare D1 資料庫運作邏輯
+  // 3. 備用 Cloudflare D1 資料庫運作邏輯
   // =========================================================
   try {
     await env.DB.prepare(`
@@ -691,5 +710,3 @@ export async function onRequest(context) {
     return new Response(JSON.stringify({ status: 'error', detail: err.message }), { status: 500, headers: corsHeaders });
   }
 }
-
-// force rebuild 2026-09-17// force rebuild 2026

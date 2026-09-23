@@ -28,9 +28,13 @@
 
       <div class="views-wrapper">
         <keep-alive>
+          <!-- 將使用者權限與身份狀態精準傳遞給 HomeDashboard -->
           <HomeDashboard 
             v-if="currentTab === 'home'" key="home"
-            :current-user="currentUser" :db-metrics="dbMetrics" 
+            :current-user="currentUser" 
+            :db-metrics="dbMetrics"
+            :current-user-permissions="currentUserPermissions"
+            :is-sys-admin="isSysAdmin"
             @open-tab="openNewTab"
             @logout-offline="handleLogout"
           />
@@ -81,7 +85,7 @@
       </div>
     </div>
 
-    <!-- 3. 全局彈窗與抽屜組件 (包含完整的 isSysAdmin 屬性傳遞) -->
+    <!-- 3. 全局彈窗與抽屜組件 -->
     <SystemDrawer 
       v-model="showUnifiedDrawer" 
       :current-user="currentUser" 
@@ -131,10 +135,10 @@
 
     <UserManagementModals 
       v-model:show-edit-role="showEditRoleDialog" v-model:show-edit-pwd="showEditPwdDialog"
+      :is-sys-admin="isSysAdmin"
       v-model:show-edit-perm="showEditPermDialog" v-model:show-add-user="showAddUserDialog"
       :target-user="targetUser" :edit-role-form="editRoleForm" :edit-password-form="editPasswordForm"
       :edit-perm-form="editPermForm" :new-user-form="newUserForm" :available-modules="availableModules"
-      :is-sys-admin="isSysAdmin"
       @save-role="onSaveRole" @save-pwd="onSavePwd" @save-perm="onSavePerm" @save-add-user="onSaveAddUser"
     />
 
@@ -217,6 +221,7 @@ export default {
       pageSize: 500,
       totalRowsCount: 0, showColSettingDialog: false,
       
+      // 🌟【修復 1】預設值預先設為 true，避免未設定前預設全隱藏
       exportConfig: { xlsx: true, csv: true, pdf: true },
 
       customColWidths: { '商品ID': 180, '商品名稱': 300, '儲位': 130 },
@@ -265,6 +270,12 @@ export default {
 
     if (typeof this.loadSavedCredentials === 'function') {
       this.loadSavedCredentials(this.loginForm);
+    }
+
+    // 先嘗試從 localStorage 讀取最後一次的設定
+    const localExp = localStorage.getItem('global_export_config');
+    if (localExp) {
+      try { this.exportConfig = JSON.parse(localExp); } catch(e){}
     }
 
     await this.fetchGlobalConfig();
@@ -371,15 +382,17 @@ export default {
 
     async fetchGlobalConfig() {
       try {
-        const res = await axios.get('/api/get-column-config?key=global_default');
-        if (res.data?.success && res.data?.data) {
-          const cfg = res.data.data;
-          if (cfg.selected_columns) {
-            this.form.selected_columns = cfg.selected_columns;
-          }
-          if (cfg.all_columns) {
-            this.allAvailableColumns = cfg.all_columns;
-          }
+        const resCols = await axios.get('/api/get-column-config?key=global_default');
+        if (resCols.data?.success && resCols.data?.data) {
+          const cfg = resCols.data.data;
+          if (cfg.selected_columns) this.form.selected_columns = cfg.selected_columns;
+          if (cfg.all_columns) this.allAvailableColumns = cfg.all_columns;
+        }
+
+        const resExp = await axios.get('/api/get-column-config?key=export_config');
+        if (resExp.data?.success && resExp.data?.data) {
+          this.exportConfig = resExp.data.data;
+          localStorage.setItem('global_export_config', JSON.stringify(this.exportConfig));
         }
       } catch (e) {}
     },

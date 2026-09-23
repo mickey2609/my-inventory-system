@@ -1,44 +1,86 @@
-const fs = require('fs');
-const sqlite3 = require('sqlite3').verbose();
-const axios = require('axios');
+const https = require('https');
 
-// 🌟 使用 Cloudflare Pages 固定入口網址，並指定上傳 API
-const DESKTOP_API_URL = 'https://my-inventory-system.pages.dev/api/upload';
+// 🌟 已完全填入你的 JSONBin 憑證
+const BIN_ID = '6aad2ed2ac6210605adc4575'; 
+const JSONBIN_KEY = '$2a$10$GBayhoY0k2Exom4NkRzydu3CEcLJj1vior2Yld0PPsPDHsjDJG0wm'; 
 
-// 1. 自動尋找筆電本地 .wrangler 模擬器 SQLite 檔案
-const wranglerDir = './.wrangler/state/v3/d1/miniflare-D1DatabaseObject';
-const files = fs.readdirSync(wranglerDir);
-const dbFile = files.find(f => f.endsWith('.sqlite') || !f.includes('.'));
+function getTunnelUrlFromBin() {
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname: 'api.jsonbin.io',
+      port: 443,
+      path: `/v3/b/${BIN_ID}/latest`,
+      method: 'GET',
+      headers: {
+        'X-Master-Key': JSONBIN_KEY
+      }
+    };
 
-if (!dbFile) {
-  console.error('❌ 找不到模擬器資料庫檔案！');
-  process.exit(1);
+    const req = https.request(options, (res) => {
+      let body = '';
+      res.on('data', (chunk) => body += chunk);
+      res.on('end', () => {
+        if (res.statusCode === 200) {
+          const json = JSON.parse(body);
+          if (json.record && json.record.url) {
+            resolve(json.record.url.trim());
+          } else {
+            reject('Bin 內容無網址');
+          }
+        } else {
+          reject(`抓取網址失敗 (Status: ${res.statusCode})`);
+        }
+      });
+    });
+
+    req.on('error', reject);
+    req.end();
+  });
 }
 
-const dbPath = `${wranglerDir}/${dbFile}`;
-console.log(`📁 讀取筆電模擬器資料庫: ${dbPath}`);
+function pushCodeToDesktop(desktopUrl) {
+  return new Promise((resolve, reject) => {
+    const urlObj = new URL(desktopUrl);
+    const postData = JSON.stringify({ message: "Laptop Code Update" });
 
-const db = new sqlite3.Database(dbPath);
-
-// 2. 讀取所有庫存資料並推送到桌機
-db.all('SELECT * FROM inventory', [], async (err, rows) => {
-  if (err) {
-    console.error('❌ 讀取模擬器資料失敗:', err.message);
-    return;
-  }
-
-  console.log(`🚀 正在透過 Cloudflare Pages 將 ${rows.length} 筆資料同步至桌機...`);
-
-  try {
-    const res = await axios.post(DESKTOP_API_URL, { items: rows }, {
+    const options = {
+      hostname: urlObj.hostname,
+      port: 443,
+      path: '/api/update',
+      method: 'POST',
       headers: {
-        'X-Target-Local': 'true' // 告訴 Cloudflare Pages 自動代理轉發至桌機
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(postData)
       }
+    };
+
+    const req = https.request(options, (res) => {
+      let body = '';
+      res.on('data', (chunk) => body += chunk);
+      res.on('end', () => {
+        if (res.statusCode === 200) resolve(body);
+        else reject(`桌機回應錯誤 (${res.statusCode}): ${body}`);
+      });
     });
-    console.log(`🎉 轉移成功！桌機回傳訊息: ${res.data.message}`);
-  } catch (uploadErr) {
-    console.error('❌ 推送至桌機失敗:', uploadErr.message);
-  } finally {
-    db.close();
+
+    req.on('error', reject);
+    req.write(postData);
+    req.end();
+  });
+}
+
+async function main() {
+  try {
+    console.log('🔍 正在從 JSONBin 讀取桌機最新網址...');
+    const desktopUrl = await getTunnelUrlFromBin();
+    console.log(`🔗 成功取得桌機網址：${desktopUrl}`);
+
+    console.log('🚀 開始推送程式碼至桌機...');
+    const result = await pushCodeToDesktop(desktopUrl);
+    console.log(`🎉 推送成功！桌機回應：${result}`);
+  } catch (err) {
+    console.error('❌ 執行失敗:', err);
   }
-});
+}
+
+main();

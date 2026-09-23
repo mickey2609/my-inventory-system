@@ -7,7 +7,7 @@
           🔍 設定搜尋條件與檢索
         </el-button>
 
-        <!-- 個別權限判斷匯出按鈕 -->
+        <!-- 🌟 匯出按鈕 (系統管理員恆常顯示；其餘帳號受 exportConfig 控管) -->
         <el-button 
           v-if="canExport('xlsx')" 
           type="success" 
@@ -184,9 +184,13 @@ export default {
     }
   },
   methods: {
+    // 🌟 1. 最高系統管理員（isSysAdmin）永遠放行顯示
+    // 🌟 2. 一般管理員與一般人員，嚴格看 exportConfig 勾選狀態
     canExport(type) {
       if (this.isSysAdmin) return true;
-      return !!(this.exportConfig && this.exportConfig[type]);
+      if (!this.exportConfig) return true;
+      const val = this.exportConfig[type];
+      return val === true || val === 'true' || val === 1 || val === undefined;
     },
     indexMethod(index) {
       return (this.currentPage - 1) * this.pageSize + index + 1;
@@ -221,26 +225,13 @@ export default {
         '高(cm)': row['高(cm)'] || row.height,
         '重量(kg)': row['重量(kg)'] || row.weight,
         '(近)月銷量': row['(近)月銷量'] || row.monthly_sales,
-        '(近)月-有揀貨單天數': row['(近)月-有揀貨單天數'] || row.pick_days_m,
         '(近)90日銷量': row['(近)90日銷量'] || row.sales_90d,
-        '(近)90日-有揀貨單天數': row['(近)90日-有揀貨單天數'] || row.pick_days_90d,
-        '供應商ID': row['供應商ID'] || row.supplier_id,
         '供應商名稱': row['供應商名稱'] || row.supplier_name,
-        '所屬PM': row['所屬PM'] || row.pm,
         '總庫存數': row['總庫存數'] || row.total_qty,
-        '總庫存_迴轉天數': row['總庫存_迴轉天數'] || row.turn_days_total,
-        // 🌟【精準修正】顯示單一商品才數（保持原始小數點後 4 位）
         '才數': !isNaN(singleCubicFeet) ? singleCubicFeet.toFixed(4) : (rawCubicFeet || '-'),
         '材積別': row['材積別'] || row.vol_type,
         '儲位型態': row['儲位型態'] || row.loc_type,
-        '大區編': row['大區編'] || row.big_zone_id,
-        '儲位才數': row['儲位才數'] || row.loc_cubic_feet,
-        '儲位健康度': row['儲位健康度'] || row.loc_health,
-        '材積判斷': row['材積判斷'] || row.vol_check,
-        '總才數': row['總才數'] || row.total_cubic_feet,
-        '人工/自動': row['人工/自動'] || row.auto_type,
-        '庫齡級距': row['庫齡級距'] || row.age_bracket,
-        '重型架判斷': row['重型架判斷'] || row.heavy_rack_check
+        '人工/自動': row['人工/自動'] || row.auto_type
       };
 
       const val = fieldMap[colName] !== undefined ? fieldMap[colName] : row[colName];

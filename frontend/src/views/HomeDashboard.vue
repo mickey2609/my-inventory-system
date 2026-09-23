@@ -11,7 +11,7 @@
         <div class="card-icon">📦</div>
         <div class="card-info">
           <span class="card-title">總庫存明細筆數</span>
-          <span class="card-value">{{ isServerOnline ? (dbMetrics.totalRows || 0).toLocaleString() : 0 }} <small>筆</small></span>
+          <span class="card-value">{{ isServerOnline ? safeTotalRows.toLocaleString() : 0 }} <small>筆</small></span>
         </div>
       </div>
 
@@ -19,7 +19,7 @@
         <div class="card-icon">🏢</div>
         <div class="card-info">
           <span class="card-title">涵蓋大區數量</span>
-          <span class="card-value">{{ isServerOnline ? (dbMetrics.totalCategories || 0) : 0 }} <small>個區域</small></span>
+          <span class="card-value">{{ isServerOnline ? safeTotalCategories : 0 }} <small>個區域</small></span>
         </div>
       </div>
 
@@ -38,8 +38,8 @@
       </div>
     </div>
 
-    <!-- 🚀 快捷功能選單 (5 個模組全數開放呈現) -->
-    <div class="quick-actions-section">
+    <!-- 🚀 快捷功能選單 (無權限直接完全拔除，不留卡片) -->
+    <div class="quick-actions-section" v-if="visibleModules.length > 0">
       <h3>🚀 快捷功能選單</h3>
       <div class="actions-grid">
         <div 
@@ -68,11 +68,11 @@ export default {
     currentUser: String,
     currentUserPermissions: {
       type: [Array, String],
-      default: () => ['loc_summary', 'inv80', 'inv15', 'turnover', 'abnormal_purchase']
+      default: () => []
     },
     isSysAdmin: {
       type: Boolean,
-      default: true
+      default: false
     },
     dbMetrics: {
       type: Object,
@@ -86,36 +86,48 @@ export default {
       checkTimer: null,
       serverUptimeSec: 0,
       
-      // 所有 5 個系統模組定義
       allModulesMaster: [
-        { key: 'inv80', name: '庫存查詢 80', icon: '🔍', desc: '多條件搜尋商品 ID、儲位、大區小區與庫齡明細' },
-        { key: 'loc_summary', name: '儲位數才數統整', icon: '📊', desc: '自動計算各區域規劃才數、使用率與儲位健康度' },
-        { key: 'inv15', name: '庫存查詢 15', icon: '⚡', desc: '極速檢索核心欄位與熱門品項即時庫存' },
-        { key: 'turnover', name: '迴轉率清單', icon: '📈', desc: '分析高低迴轉品項與庫齡動態趨勢' },
-        { key: 'abnormal_purchase', name: '不合理進貨清單', icon: '⚠️', desc: '自動稽核進貨異常、庫存過剩與超額預警' }
+        { key: 'inv80', name: '庫存查詢 80', matchKeys: ['inv80', '庫存查詢80', '庫存查詢 80'], icon: '🔍', desc: '多條件搜尋商品 ID、儲位、大區小區與庫齡明細' },
+        { key: 'loc_summary', name: '儲位數才數統整', matchKeys: ['loc_summary', '儲位數才數統整'], icon: '📊', desc: '自動計算各區域規劃才數、使用率與儲位健康度' },
+        { key: 'inv15', name: '庫存查詢 15', matchKeys: ['inv15', '庫存查詢15', '庫存查詢 15'], icon: '⚡', desc: '極速檢索核心欄位與熱門品項即時庫存' },
+        { key: 'turnover', name: '迴轉率清單', matchKeys: ['turnover', '迴轉率清單'], icon: '📈', desc: '分析高低迴轉品項與庫齡動態趨勢' },
+        { key: 'abnormal_purchase', name: '不合理進貨清單', matchKeys: ['abnormal_purchase', '不合理進貨清單'], icon: '⚠️', desc: '自動稽核進貨異常、庫存過剩與超額預警' }
       ]
     }
   },
   computed: {
-    // 🌟 修正：管理員/系統管理員或無特別限制時，預設顯示全部 5 個模組卡片
+    safeTotalRows() {
+      if (!this.dbMetrics) return 0;
+      return this.dbMetrics.totalRows || this.dbMetrics.total_rows || 0;
+    },
+    safeTotalCategories() {
+      if (!this.dbMetrics) return 0;
+      return this.dbMetrics.totalCategories || this.dbMetrics.total_categories || 0;
+    },
+    // 🌟 核心剔除邏輯：只保留確定授權的模組，沒有權限的一律完全不渲染
     visibleModules() {
-      if (this.isSysAdmin) return this.allModulesMaster;
-      
-      const perms = this.currentUserPermissions;
-      if (!perms || perms === 'all' || perms === 'all,') {
+      // 只有最高管理員 sysAdmin 才放行全開
+      if (this.isSysAdmin) {
         return this.allModulesMaster;
       }
 
-      let permArray = [];
-      if (Array.isArray(perms)) {
-        permArray = perms;
-      } else if (typeof perms === 'string') {
-        permArray = perms.split(',').map(s => s.trim()).filter(Boolean);
+      const rawPerms = this.currentUserPermissions;
+      if (!rawPerms) return [];
+
+      let userPermList = [];
+      if (Array.isArray(rawPerms)) {
+        userPermList = rawPerms.map(p => String(p).trim());
+      } else if (typeof rawPerms === 'string') {
+        if (rawPerms === 'all' || rawPerms === 'all,') return this.allModulesMaster;
+        userPermList = rawPerms.split(',').map(s => s.trim()).filter(Boolean);
       }
 
-      if (permArray.length === 0) return this.allModulesMaster;
+      if (userPermList.length === 0) return [];
 
-      return this.allModulesMaster.filter(m => permArray.includes(m.key));
+      // 嚴格比對：模組的 matchKeys 必須有任何一個存在於使用者的權限清單中
+      return this.allModulesMaster.filter(mod => {
+        return mod.matchKeys.some(k => userPermList.includes(k));
+      });
     },
     uptimeString() {
       const hrs = Math.floor(this.serverUptimeSec / 3600);

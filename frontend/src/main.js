@@ -6,12 +6,30 @@ import axios from 'axios'; // 引入 axios 用於設定全域 API 基礎網址
 import App from './App.vue';
 
 // -------------------------------------------------------------
-// 1. 設定全域 Axios API 基礎網址 (連接桌機 Cloudflare Tunnel)
+// 1. 動態從 JSONBin 讀取桌機 Tunnel 網址並設定全域 Axios
 // -------------------------------------------------------------
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
-if (API_BASE) {
-  axios.defaults.baseURL = API_BASE;
+const BIN_ID = '6aad2ed2ac6210605adc4575';
+const JSONBIN_KEY = '$2a$10$GBayhoY0k2Exom4NkRzydu3CEcLJj1vior2Yld0PPsPDHsjDJG0wm';
+
+async function initDesktopApiBase() {
+  try {
+    const res = await axios.get(`https://api.jsonbin.io/v3/b/${BIN_ID}/latest`, {
+      headers: { 'X-Master-Key': JSONBIN_KEY }
+    });
+    if (res.data && res.data.record && res.data.record.url) {
+      const desktopUrl = res.data.record.url.trim();
+      axios.defaults.baseURL = desktopUrl;
+      console.log('✅ 前端已成功直連桌機 API：', desktopUrl);
+    }
+  } catch (err) {
+    console.error('❌ 讀取桌機網址失敗，採用預設環境變數:', err);
+    const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+    if (API_BASE) axios.defaults.baseURL = API_BASE;
+  }
 }
+
+// 啟動時先讀取網址
+initDesktopApiBase();
 
 const app = createApp(App);
 
