@@ -313,7 +313,7 @@ app.post(['/api/import-locations-master', '/api/import-locations-master-json'], 
   });
 });
 
-// [GET] 📊 儲位才數統整 API (精準契合 LocSummary.vue 6大 KPI + 2大雙頁籤表格)
+// [GET] 📊 儲位才數統整 API (相容性強化與寬鬆比對版)
 app.get('/api/stats/location-capacity', (req, res) => {
   const masterSql = `SELECT floor, zone, loc_type, cubic_feet, grid_count, single_cubic_feet FROM locations_master`;
   const inventorySql = `SELECT floor, big_zone, zone_name, loc_type, location, total_cubic_feet, cubic_feet, qty FROM inventory`;
@@ -326,6 +326,9 @@ app.get('/api/stats/location-capacity', (req, res) => {
 
       const statsMap = {};
 
+      // 清理與正規化字串之工具函式
+      const normalize = (str) => String(val => val || '').toUpperCase().replace(/\s+/g, '').trim();
+
       // A. 彙總 locations_master 規劃數據
       (masterRows || []).forEach(r => {
         const floor = String(r.floor || '').toUpperCase().trim();
@@ -333,10 +336,12 @@ app.get('/api/stats/location-capacity', (req, res) => {
         if (!floor || floor === '樓層' || !rType) return;
         if (floor === '1F' && rType === '自動化板式') return;
 
-        const uKey = `${floor}_${rType}`;
+        const uKey = `${floor}_${rType.replace(/\s+/g, '')}`;
         if (!statsMap[uKey]) {
           statsMap[uKey] = {
             floorRegion: `${floor} ${rType}`,
+            floor: floor,
+            loc_type: rType,
             grid_plan: 0, grid_used: 0,
             vol_plan: 0, vol_used: 0,
             single_cubic_feet: parseFloat(r.single_cubic_feet || 0)
@@ -348,28 +353,49 @@ app.get('/api/stats/location-capacity', (req, res) => {
 
       // B. 彙總 inventory 使用中數據 (按不重複儲位數與才數加總)
       const usedStorageCheck = new Set();
+      let matchedCount = 0;
+
       (invRows || []).forEach(r => {
-        const floor = String(r.floor || '').toUpperCase().trim();
+        let floor = String(r.floor || '').toUpperCase().trim();
         const storageCode = String(r.location || '').toUpperCase().trim();
         const originalType = String(r.loc_type || '').trim();
         const shelfLevel = storageCode.length >= 7 ? storageCode.substring(6, 7) : '';
 
-        const adjustedType = getAdjustedType(floor, originalType, storageCode, shelfLevel);
-        const uKey = `${floor}_${adjustedType}`;
+        // 如果庫存表沒有 floor 欄位，自動從儲位編號前兩碼推算 (例如: 7F0101 -> 7F)
+        if (!floor && storageCode.length >= 2) {
+          const matchFloor = storageCode.match(/^([0-9]F)/);
+          if (matchFloor) floor = matchFloor[1];
+        }
 
-        if (statsMap[uKey]) {
+        const adjustedType = getAdjustedType(floor, originalType, storageCode, shelfLevel);
+        const cleanType = adjustedType.replace(/\s+/g, '');
+        const uKey = `${floor}_${cleanType}`;
+
+        // 若精準 Key 找不到，嘗試嘗試只匹配同樓層同型態的項目
+        let targetItem = statsMap[uKey];
+        if (!targetItem) {
+          const fallbackKey = Object.keys(statsMap).find(k => 
+            k.startsWith(`${floor}_`) && (k.includes(cleanType) || cleanType.includes(k.split('_')[1]))
+          );
+          if (fallbackKey) targetItem = statsMap[fallbackKey];
+        }
+
+        if (targetItem) {
+          matchedCount++;
           const curVol = parseFloat(r.total_cubic_feet) > 0 
             ? parseFloat(r.total_cubic_feet) 
             : (parseFloat(r.cubic_feet || 0) * parseFloat(r.qty || 0));
 
-          statsMap[uKey].vol_used += curVol;
+          targetItem.vol_used += curVol;
 
           if (!usedStorageCheck.has(storageCode)) {
             usedStorageCheck.add(storageCode);
-            statsMap[uKey].grid_used += 1;
+            targetItem.grid_used += 1;
           }
         }
       });
+
+      console.log(`📊 統計比對完成: 總結構數量=${Object.keys(statsMap).length}, 庫存總筆數=${(invRows||[]).length}, 成功匹配筆數=${matchedCount}`);
 
       // C. 格式化為 LocSummary.vue 綁定之完整視圖物件
       const gridTableData = [];
