@@ -10,13 +10,13 @@
       <div class="tip-bar">
         <span>💡 打勾選取欄位，按住 <b>☰</b> 拖拉卡片即可調整縱向/橫向順序（完成後全公司同步生效）</span>
         <div class="btn-group">
-          <el-button type="danger" size="mini" @click="resetTo48Cols">🔄 重置 48 欄</el-button>
-          <el-button type="primary" size="mini" @click="$emit('select-all')">全選</el-button>
+          <el-button type="danger" size="mini" @click="resetAndSelectAll48">🔄 重置 48 欄</el-button>
+          <el-button type="primary" size="mini" @click="selectAll48">全選</el-button>
           <el-button size="mini" @click="$emit('unselect-all')">全不選</el-button>
         </div>
       </div>
 
-      <!-- 🌟 直向流動 (grid-auto-flow: column) 網格容器 (支援 48 欄位排列) -->
+      <!-- 🌟 直向流動 (grid-auto-flow: column) 網格容器 (支援 48 欄位呈現) -->
       <div class="column-cards-grid">
         <div 
           v-for="(col, idx) in effectiveColumns" 
@@ -65,18 +65,9 @@ export default {
   props: {
     modelValue: Boolean,
     isAdmin: Boolean,
-    allAvailableColumns: {
-      type: Array,
-      default: () => []
-    },
-    rawColumnsMaster: {
-      type: Array,
-      default: () => []
-    },
-    selectedColumns: {
-      type: Array,
-      default: () => []
-    },
+    allAvailableColumns: { type: Array, default: () => [] },
+    rawColumnsMaster: { type: Array, default: () => [] },
+    selectedColumns: { type: Array, default: () => [] },
     draggedIndex: Number,
     savingConfig: Boolean
   },
@@ -85,7 +76,6 @@ export default {
     'drag-start', 'drag-over', 'drag-drop', 'drag-end', 'save-config'
   ],
   computed: {
-    // 優先確保呈現全量 48 個欄位 (避免舊 SQLite 36 欄位設定鎖死)
     effectiveColumns() {
       if (this.allAvailableColumns && this.allAvailableColumns.length >= 48) {
         return this.allAvailableColumns;
@@ -100,7 +90,6 @@ export default {
     isSelected(col) {
       return Array.isArray(this.selectedColumns) && this.selectedColumns.includes(col);
     },
-    // 自動生成 Excel 欄位英文字母代號 (A, B... Z, AA, AB... AV)
     getExcelColLetter(index) {
       let temp = '';
       let letter = '';
@@ -111,122 +100,33 @@ export default {
       }
       return letter;
     },
-    resetTo48Cols() {
-      this.$emit('select-all');
-      this.$message.success('已為您自動重置並勾選預設 48 欄位！請點擊右下角「💾 儲存為全公司預設順序」。');
+    // 🌟 強制全選所有 48 個欄位
+    selectAll48() {
+      const all48 = this.effectiveColumns;
+      this.selectedColumns.splice(0, this.selectedColumns.length, ...all48);
+      this.$message.success('已為您全選完整 48 個欄位！');
+    },
+    resetAndSelectAll48() {
+      this.selectAll48();
+      this.$message.success('已重置並成功全選 48 欄位！請點擊右下角「💾 儲存為全公司預設順序」。');
     }
   }
 }
 </script>
 
 <style scoped>
-.col-config-container {
-  padding: 5px;
-}
-
-.tip-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 15px;
-  background-color: #0f172a;
-  padding: 10px 14px;
-  border-radius: 6px;
-  border: 1px solid #334155;
-  font-size: 13px;
-  color: #cbd5e1;
-}
-
-.btn-group {
-  display: flex;
-  gap: 8px;
-}
-
-/* 🌟 設定 12 列 (rows)，確保 48 欄位能以 4 欄直向勻稱流動呈現 */
-.column-cards-grid {
-  display: grid;
-  grid-template-rows: repeat(12, auto);
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(200px, 1fr);
-  gap: 8px;
-  max-height: 65vh;
-  overflow-x: auto;
-  overflow-y: hidden;
-  padding-bottom: 8px;
-}
-
-/* 單一欄位卡片樣式 */
-.col-card-item {
-  display: flex;
-  align-items: center;
-  background-color: #0f172a;
-  border: 1px solid #334155;
-  border-radius: 6px;
-  padding: 8px 10px;
-  user-select: none;
-  transition: all 0.2s ease;
-  position: relative;
-  height: 38px;
-  box-sizing: border-box;
-}
-
-.col-card-item:hover {
-  border-color: #38bdf8;
-  background-color: #1e293b;
-  transform: translateY(-1px);
-}
-
-.col-card-item.is-selected {
-  border-color: #0284c7;
-  background-color: rgba(2, 132, 199, 0.15);
-}
-
-.col-card-item.is-dragging {
-  opacity: 0.4;
-  border: 2px dashed #38bdf8;
-}
-
-.drag-handle {
-  cursor: grab;
-  color: #64748b;
-  font-size: 16px;
-  margin-right: 8px;
-}
-
-.drag-handle:active {
-  cursor: grabbing;
-  color: #38bdf8;
-}
-
-.col-checkbox {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  overflow: hidden;
-  margin-right: 0 !important;
-}
-
-:deep(.col-checkbox .el-checkbox__label) {
-  color: #f8fafc !important;
-  font-size: 13px;
-  padding-left: 6px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.order-badge {
-  background-color: #334155;
-  color: #94a3b8;
-  font-size: 11px;
-  padding: 2px 6px;
-  border-radius: 10px;
-  font-weight: bold;
-  margin-left: 6px;
-}
-
-.col-card-item.is-selected .order-badge {
-  background-color: #0284c7;
-  color: #ffffff;
-}
+.col-config-container { padding: 5px; }
+.tip-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; background-color: #0f172a; padding: 10px 14px; border-radius: 6px; border: 1px solid #334155; font-size: 13px; color: #cbd5e1; }
+.btn-group { display: flex; gap: 8px; }
+.column-cards-grid { display: grid; grid-template-rows: repeat(12, auto); grid-auto-flow: column; grid-auto-columns: minmax(200px, 1fr); gap: 8px; max-height: 65vh; overflow-x: auto; overflow-y: hidden; padding-bottom: 8px; }
+.col-card-item { display: flex; align-items: center; background-color: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 8px 10px; user-select: none; transition: all 0.2s ease; position: relative; height: 38px; box-sizing: border-box; }
+.col-card-item:hover { border-color: #38bdf8; background-color: #1e293b; transform: translateY(-1px); }
+.col-card-item.is-selected { border-color: #0284c7; background-color: rgba(2, 132, 199, 0.15); }
+.col-card-item.is-dragging { opacity: 0.4; border: 2px dashed #38bdf8; }
+.drag-handle { cursor: grab; color: #64748b; font-size: 16px; margin-right: 8px; }
+.drag-handle:active { cursor: grabbing; color: #38bdf8; }
+.col-checkbox { flex: 1; display: flex; align-items: center; overflow: hidden; margin-right: 0 !important; }
+:deep(.col-checkbox .el-checkbox__label) { color: #f8fafc !important; font-size: 13px; padding-left: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.order-badge { background-color: #334155; color: #94a3b8; font-size: 11px; padding: 2px 6px; border-radius: 10px; font-weight: bold; margin-left: 6px; }
+.col-card-item.is-selected .order-badge { background-color: #0284c7; color: #ffffff; }
 </style>
