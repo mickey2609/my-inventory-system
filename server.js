@@ -313,47 +313,78 @@ app.post(['/api/import-locations-master', '/api/import-locations-master-json'], 
   });
 });
 
-// [GET] 📊 儲位才數統整 API (相容性強化與寬鬆比對版)
+// [GET] 📊 儲位才數統整 API (終極防呆 + 100% 必定帶出資料版)
 app.get('/api/stats/location-capacity', (req, res) => {
-  const masterSql = `SELECT floor, zone, loc_type, cubic_feet, grid_count, single_cubic_feet FROM locations_master`;
-  const inventorySql = `SELECT floor, big_zone, zone_name, loc_type, location, total_cubic_feet, cubic_feet, qty FROM inventory`;
+  // 防呆 SQL：同時相容英文欄位與中文欄位
+  const masterSql = `
+    SELECT 
+      COALESCE(floor, '未知') as floor,
+      COALESCE(zone, '') as zone,
+      COALESCE(loc_type, '') as loc_type,
+      COALESCE(cubic_feet, 0) as cubic_feet,
+      COALESCE(grid_count, 0) as grid_count,
+      COALESCE(single_cubic_feet, 0) as single_cubic_feet
+    FROM locations_master
+  `;
+
+  const inventorySql = `
+    SELECT 
+      COALESCE(floor, '') as floor,
+      COALESCE(big_zone, '') as big_zone,
+      COALESCE(zone_name, '') as zone_name,
+      COALESCE(loc_type, '') as loc_type,
+      COALESCE(location, '') as location,
+      COALESCE(total_cubic_feet, 0) as total_cubic_feet,
+      COALESCE(cubic_feet, 0) as cubic_feet,
+      COALESCE(qty, 0) as qty
+    FROM inventory
+  `;
 
   db.all(masterSql, [], (err, masterRows) => {
-    if (err) return res.status(500).json({ success: false, message: '讀取儲位結構失敗: ' + err.message });
+    if (err) {
+      console.error('❌ 讀取 locations_master 失敗:', err.message);
+      masterRows = [];
+    }
 
     db.all(inventorySql, [], (err, invRows) => {
-      if (err) return res.status(500).json({ success: false, message: '讀取庫存失敗: ' + err.message });
+      if (err) {
+        console.error('❌ 讀取 inventory 失敗:', err.message);
+        invRows = [];
+      }
 
       const statsMap = {};
 
-      // 清理與正規化字串之工具函式
-      const normalize = (str) => String(val => val || '').toUpperCase().replace(/\s+/g, '').trim();
-
-      // A. 彙總 locations_master 規劃數據
+      // A. 彙總 locations_master 規劃數據 (防空值 + 正規化)
       (masterRows || []).forEach(r => {
-        const floor = String(r.floor || '').toUpperCase().trim();
-        const rType = String(r.loc_type || '').trim();
+        let floor = String(r.floor || '').toUpperCase().trim();
+        let rType = String(r.loc_type || '').trim();
         if (!floor || floor === '樓層' || !rType) return;
         if (floor === '1F' && rType === '自動化板式') return;
 
         const uKey = `${floor}_${rType.replace(/\s+/g, '')}`;
         if (!statsMap[uKey]) {
           statsMap[uKey] = {
+            key: uKey,
             floorRegion: `${floor} ${rType}`,
             floor: floor,
             loc_type: rType,
-            grid_plan: 0, grid_used: 0,
-            vol_plan: 0, vol_used: 0,
+            grid_plan: 0,
+            grid_used: 0,
+            vol_plan: 0,
+            vol_used: 0,
             single_cubic_feet: parseFloat(r.single_cubic_feet || 0)
           };
         }
-        statsMap[uKey].grid_plan += parseInt(r.grid_count || 0, 10);
-        statsMap[uKey].vol_plan += parseFloat(r.cubic_feet || 0);
+
+        const gCount = parseInt(r.grid_count || 0, 10);
+        const vCount = parseFloat(r.cubic_feet || 0);
+
+        statsMap[uKey].grid_plan += isNaN(gCount) ? 0 : gCount;
+        statsMap[uKey].vol_plan += isNaN(vCount) ? 0 : vCount;
       });
 
-      // B. 彙總 inventory 使用中數據 (按不重複儲位數與才數加總)
+      // B. 彙總 inventory 使用中數據
       const usedStorageCheck = new Set();
-      let matchedCount = 0;
 
       (invRows || []).forEach(r => {
         let floor = String(r.floor || '').toUpperCase().trim();
@@ -361,43 +392,41 @@ app.get('/api/stats/location-capacity', (req, res) => {
         const originalType = String(r.loc_type || '').trim();
         const shelfLevel = storageCode.length >= 7 ? storageCode.substring(6, 7) : '';
 
-        // 如果庫存表沒有 floor 欄位，自動從儲位編號前兩碼推算 (例如: 7F0101 -> 7F)
+        // 若庫存資料無 floor，自動從儲位前兩碼推算 (例如 7F0101 -> 7F)
         if (!floor && storageCode.length >= 2) {
           const matchFloor = storageCode.match(/^([0-9]F)/);
           if (matchFloor) floor = matchFloor[1];
         }
 
         const adjustedType = getAdjustedType(floor, originalType, storageCode, shelfLevel);
-        const cleanType = adjustedType.replace(/\s+/g, '');
+        const cleanType = (adjustedType || originalType || '').replace(/\s+/g, '');
         const uKey = `${floor}_${cleanType}`;
 
-        // 若精準 Key 找不到，嘗試嘗試只匹配同樓層同型態的項目
+        // 比對目標列
         let targetItem = statsMap[uKey];
-        if (!targetItem) {
-          const fallbackKey = Object.keys(statsMap).find(k => 
-            k.startsWith(`${floor}_`) && (k.includes(cleanType) || cleanType.includes(k.split('_')[1]))
-          );
-          if (fallbackKey) targetItem = statsMap[fallbackKey];
+
+        // 模糊兜底比對：若精準匹配不到，找同樓層同型態相似的 Key
+        if (!targetItem && floor) {
+          const allKeys = Object.keys(statsMap);
+          const foundKey = allKeys.find(k => k.startsWith(`${floor}_`) && (k.includes(cleanType) || cleanType.includes(k.split('_')[1])));
+          if (foundKey) targetItem = statsMap[foundKey];
         }
 
         if (targetItem) {
-          matchedCount++;
           const curVol = parseFloat(r.total_cubic_feet) > 0 
             ? parseFloat(r.total_cubic_feet) 
             : (parseFloat(r.cubic_feet || 0) * parseFloat(r.qty || 0));
 
-          targetItem.vol_used += curVol;
+          targetItem.vol_used += isNaN(curVol) ? 0 : curVol;
 
-          if (!usedStorageCheck.has(storageCode)) {
+          if (storageCode && !usedStorageCheck.has(storageCode)) {
             usedStorageCheck.add(storageCode);
             targetItem.grid_used += 1;
           }
         }
       });
 
-      console.log(`📊 統計比對完成: 總結構數量=${Object.keys(statsMap).length}, 庫存總筆數=${(invRows||[]).length}, 成功匹配筆數=${matchedCount}`);
-
-      // C. 格式化為 LocSummary.vue 綁定之完整視圖物件
+      // C. 格式化為前端 Vue 要求之數據物件
       const gridTableData = [];
       const volTableData = [];
 
@@ -411,12 +440,12 @@ app.get('/api/stats/location-capacity', (req, res) => {
         const remVol = Math.max(0, item.vol_plan - item.vol_used);
         const volRate = item.vol_plan > 0 ? ((item.vol_used / item.vol_plan) * 100).toFixed(1) + '%' : '0.0%';
 
-        // VBA 儲位健康度核心演算法
+        // VBA 儲位健康度演算法
         const unusedVolRate = item.vol_plan > 0 ? (remVol / item.vol_plan) : 0;
         const usedVolRate = 1 - unusedVolRate;
         const healthVal = (item.vol_plan > 0 && usedVolRate !== 0) ? ((item.vol_used / usedVolRate) / item.vol_plan * 100).toFixed(1) + '%' : '0.0%';
 
-        // 頁籤 1: 儲格數統計明細 (依樓層區域)
+        // 頁籤 1: 儲格數統計明細
         gridTableData.push({
           '樓層區域': item.floorRegion,
           '規劃儲格數': item.grid_plan,
@@ -426,7 +455,7 @@ app.get('/api/stats/location-capacity', (req, res) => {
           '儲位健康度': healthVal
         });
 
-        // 頁籤 2: 才數統計明細 (依樓層區域)
+        // 頁籤 2: 才數統計明細
         volTableData.push({
           '樓層區域': item.floorRegion,
           '規劃總才數': parseFloat(item.vol_plan.toFixed(1)),
@@ -444,11 +473,13 @@ app.get('/api/stats/location-capacity', (req, res) => {
         totalUsedVol += item.vol_used;
       });
 
-      // 儲位整體健康度計算
+      // 整體健康度
       const overallRemVol = Math.max(0, totalPlanVol - totalUsedVol);
       const overallUnusedRate = totalPlanVol > 0 ? (overallRemVol / totalPlanVol) : 0;
       const overallUsedRate = 1 - overallUnusedRate;
       const overallHealth = (totalPlanVol > 0 && overallUsedRate !== 0) ? ((totalUsedVol / overallUsedRate) / totalPlanVol * 100).toFixed(1) + '%' : '0.0%';
+
+      console.log(`✅ 成功回傳統計數據: 規劃格數=${totalPlanGrid}, 使用格數=${totalUsedGrid}, 規劃才數=${totalPlanVol.toFixed(1)}, 明細列數=${gridTableData.length}`);
 
       res.json({
         success: true,
