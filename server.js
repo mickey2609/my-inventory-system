@@ -152,6 +152,7 @@ db.serialize(() => {
   db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions) VALUES ('801854', '黃勝鴻', 'sys_admin', '801854', 'all');`);
 });
 
+
 // --- VBA 特殊紙抽判斷邏輯 ( GetAdjustedType ) ---
 function getAdjustedType(floor, rType, storageCode, shelfLevel) {
   floor = String(floor || '').toUpperCase().trim();
