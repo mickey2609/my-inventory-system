@@ -147,7 +147,13 @@ export default {
     },
     displayColumns() {
       if (this.columns && this.columns.length > 0) return this.columns;
-      return ['商品ID', '商品名稱', '借/採', '人工/自動', '儲位庫存數', '庫齡', '區編', '區名', '館編', '館名', '大區名', '樓層'];
+      return [
+        "商品ID", "商品名稱", "借/採", "儲位", "儲位庫存數", "庫齡", "區編", "區名", "館編", "館名",
+        "長(cm)", "寬(cm)", "高(cm)", "重量(kg)", "(近)月銷量", "(近)月-有揀貨單天數", "(近)90日銷量", "(近)90日-有揀貨單天數",
+        "供應商ID", "供應商名稱", "所屬PM", "總庫存數", "總庫存_迴轉天數", "才數", "材積別", "儲位編碼-3", "儲位編碼", "儲位編碼5",
+        "樓層", "樓層區域", "儲位型態", "大區編", "大區名", "三邊長", "最長邊", "最短邊", "儲位才數", "儲位健康度",
+        "不符合", "材積判斷", "總才數", "人工/自動", "儲位層標示", "庫齡級距", "樓層設定", "重型架判斷", "ID指定樓層", "備註"
+      ];
     },
     searchConditionText() {
       if (!this.form) return '全量無條件檢索';
@@ -207,15 +213,13 @@ export default {
         '商品ID': row['商品ID'] || row.item_id,
         '商品名稱': row['商品名稱'] || row.item_name,
         '借/採': row['借/採'] || row.borrow_proc || row.borrow_type,
+        '儲位': row['儲位'] || row.location,
         '儲位庫存數': qty,
         '庫齡': row['庫齡'] || row.age,
         '區編': row['區編'] || row.zone_id,
         '區名': row['區名'] || row.zone_name,
         '館編': row['館編'] || row.hall_id,
         '館名': row['館名'] || row.hall_name,
-        '大區名': row['大區名'] || row.big_zone,
-        '樓層': row['樓層'] || row.floor,
-        '儲位': row['儲位'] || row.location,
         '長(cm)': row['長(cm)'] || row.length,
         '寬(cm)': row['寬(cm)'] || row.width,
         '高(cm)': row['高(cm)'] || row.height,
@@ -229,18 +233,31 @@ export default {
         '所屬PM': row['所屬PM'] || row.pm,
         '總庫存數': row['總庫存數'] || row.total_qty,
         '總庫存_迴轉天數': row['總庫存_迴轉天數'] || row.turn_days_total,
-        // 🌟【精準修正】顯示單一商品才數（保持原始小數點後 4 位）
         '才數': !isNaN(singleCubicFeet) ? singleCubicFeet.toFixed(4) : (rawCubicFeet || '-'),
         '材積別': row['材積別'] || row.vol_type,
+        '儲位編碼-3': row['儲位編碼-3'] || row.loc_code_3,
+        '儲位編碼': row['儲位編碼'] || row.loc_code_full,
+        '儲位編碼5': row['儲位編碼5'] || row.loc_code_5,
+        '樓層': row['樓層'] || row.floor,
+        '樓層區域': row['樓層區域'] || row.floor_zone,
         '儲位型態': row['儲位型態'] || row.loc_type,
         '大區編': row['大區編'] || row.big_zone_id,
+        '大區名': row['大區名'] || row.big_zone,
+        '三邊長': row['三邊長'] || row.dim_sum,
+        '最長邊': row['最長邊'] || row.max_dim,
+        '最短邊': row['最短邊'] || row.min_dim,
         '儲位才數': row['儲位才數'] || row.loc_cubic_feet,
         '儲位健康度': row['儲位健康度'] || row.loc_health,
+        '不符合': row['不符合'] || row.non_compliant,
         '材積判斷': row['材積判斷'] || row.vol_check,
         '總才數': row['總才數'] || row.total_cubic_feet,
         '人工/自動': row['人工/自動'] || row.auto_type,
+        '儲位層標示': row['儲位層標示'] || row.shelf_level,
         '庫齡級距': row['庫齡級距'] || row.age_bracket,
-        '重型架判斷': row['重型架判斷'] || row.heavy_rack_check
+        '樓層設定': row['樓層設定'] || row.floor_config,
+        '重型架判斷': row['重型架判斷'] || row.heavy_rack_check,
+        'ID指定樓層': row['ID指定樓層'] || row.assigned_floor,
+        '備註': row['備註'] || row.remark
       };
 
       const val = fieldMap[colName] !== undefined ? fieldMap[colName] : row[colName];
@@ -255,8 +272,8 @@ export default {
       return val;
     },
     getColumnAlign(colName) {
-      const rightCols = ['儲位庫存數', '才數', '庫齡', '長(cm)', '寬(cm)', '高(cm)', '重量(kg)', '(近)月銷量', '(近)90日銷量', '總庫存數', '總才數'];
-      const centerCols = ['借/採', '區編', '區名', '館編', '館名', '大區編', '大區名', '樓層', '材積別', '人工/自動', '儲位型態', '庫齡級距'];
+      const rightCols = ['儲位庫存數', '才數', '庫齡', '長(cm)', '寬(cm)', '高(cm)', '重量(kg)', '(近)月銷量', '(近)90日銷量', '總庫存數', '總才數', '三邊長', '最長邊', '最短邊'];
+      const centerCols = ['借/採', '區編', '區名', '館編', '館名', '大區編', '大區名', '樓層', '材積別', '人工/自動', '儲位型態', '庫齡級距', '樓層區域', '儲位編碼-3', '儲位編碼5', '儲位層標示', '樓層設定', '重型架判斷', 'ID指定樓層', '不符合'];
       
       if (rightCols.includes(colName)) return 'right';
       if (centerCols.includes(colName)) return 'center';
@@ -281,7 +298,11 @@ export default {
         '樓層': 90,
         '供應商名稱': 200,
         '(近)月銷量': 120,
-        '(近)90日銷量': 120
+        '(近)90日銷量': 120,
+        '儲位編碼': 160,
+        '儲位編碼-3': 120,
+        '樓層區域': 120,
+        '備註': 180
       };
       return widthMap[colName] || 120;
     },

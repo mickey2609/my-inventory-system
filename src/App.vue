@@ -84,7 +84,7 @@
       </div>
     </div>
 
-    <!-- 3. 全局彈窗與抽屜組件 (包含完整的 isSysAdmin 屬性傳遞) -->
+    <!-- 3. 全局彈窗與抽屜組件 -->
     <SystemDrawer 
       v-model="showUnifiedDrawer" 
       :current-user="currentUser" 
@@ -205,8 +205,16 @@ export default {
     };
   },
   data() {
+    const full48Cols = [
+      "商品ID", "商品名稱", "借/採", "儲位", "儲位庫存數", "庫齡", "區編", "區名", "館編", "館名",
+      "長(cm)", "寬(cm)", "高(cm)", "重量(kg)", "(近)月銷量", "(近)月-有揀貨單天數", "(近)90日銷量", "(近)90日-有揀貨單天數",
+      "供應商ID", "供應商名稱", "所屬PM", "總庫存數", "總庫存_迴轉天數", "才數", "材積別", "儲位編碼-3", "儲位編碼", "儲位編碼5",
+      "樓層", "樓層區域", "儲位型態", "大區編", "大區名", "三邊長", "最長邊", "最短邊", "儲位才數", "儲位健康度",
+      "不符合", "材積判斷", "總才數", "人工/自動", "儲位層標示", "庫齡級距", "樓層設定", "重型架判斷", "ID指定樓層", "備註"
+    ];
+
     return {
-      appVersion: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'v2026.09.01',
+      appVersion: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'v2026.09.23-48COL-MATCH',
       isLoggedIn: false, currentUser: '', currentUsername: '', currentUserRole: 'user', loginLoading: false, savingConfig: false,
       savingExportConfig: false, currentUserPermissions: [],
       showUnifiedDrawer: false, showSearchModal: false, showParamMenuDialog: false, showWidthConfigDialog: false,
@@ -229,24 +237,17 @@ export default {
         { key: 'inv15', name: '⚡ 庫存查詢15' }, { key: 'turnover', name: '📈 迴轉率清單' },
         { key: 'abnormal_purchase', name: '⚠️ 不合理進貨清單' }
       ],
-      rawColumnsMaster: [
-        "商品ID", "商品名稱", "借/採", "儲位", "儲位庫存數", "庫齡", "區編", "區名", "館編", "館名",
-        "長(cm)", "寬(cm)", "高(cm)", "重量(kg)", "(近)月銷量", "(近)月-有揀貨單天數", "(近)90日銷量", "(近)90日-有揀貨單天數",
-        "供應商ID", "供應商名稱", "所屬PM", "總庫存數", "總庫存_迴轉天數", "才數", "材積別", "樓層", "儲位型態",
-        "大區編", "大區名", "儲位才數", "儲位健康度", "材積判斷", "總才數", "人工/自動", "庫齡級距", "重型架判斷"
-      ],
-      allAvailableColumns: [
-        "商品ID", "商品名稱", "借/採", "儲位", "儲位庫存數", "庫齡", "區編", "區名", "館編", "館名",
-        "長(cm)", "寬(cm)", "高(cm)", "重量(kg)", "(近)月銷量", "(近)月-有揀貨單天數", "(近)90日銷量", "(近)90日-有揀貨單天數",
-        "供應商ID", "供應商名稱", "所屬PM", "總庫存數", "總庫存_迴轉天數", "才數", "材積別", "樓層", "儲位型態",
-        "大區編", "大區名", "儲位才數", "儲位健康度", "材積判斷", "總才數", "人工/自動", "庫齡級距", "重型架判斷"
-      ],
+
+      // 🌟【精準修正】48 欄位完全體 (A ~ AV)
+      rawColumnsMaster: [...full48Cols],
+      allAvailableColumns: [...full48Cols],
+
       form: {
         search_mode: 'normal', batch_ids: '', batch_zones: '', txt_id: '', txt_name: '', cbo_big_zone: '',
         cbo_zone: '', cbo_loc_id: '', cbo_floor: '', cbo_type: '', cbo_vol_type: '', txt_age: '', txt_weight: '',
         txt_monthly_sales: '',
-        selected_columns: ["商品ID", "商品名稱", "借/採", "儲位庫存數", "庫齡", "區編", "區名", "館編", "館名", "長(cm)", "寬(cm)", "高(cm)", "重量(kg)", "大區名", "樓層", "人工/自動"],
-        chk_show_loc: false, chk_show_dim: true, cbo_sort: '商品ID', sort_order: 'desc'
+        selected_columns: [...full48Cols],
+        chk_show_loc: true, chk_show_dim: true, cbo_sort: '商品ID', sort_order: 'desc'
       },
       options: { big_zones: [], zones_map: {}, zones: [], floors: [], ap_types: [], vol_types: [] },
       summary: { total_items: 0, total_rows: 0, total_pcs: 0, total_ao: 0 },
@@ -377,10 +378,10 @@ export default {
         const res = await axios.get('/api/get-column-config?key=global_default');
         if (res.data?.success && res.data?.data) {
           const cfg = res.data.data;
-          if (cfg.selected_columns) {
+          if (cfg.selected_columns && Array.isArray(cfg.selected_columns) && cfg.selected_columns.length >= 36) {
             this.form.selected_columns = cfg.selected_columns;
           }
-          if (cfg.all_columns) {
+          if (cfg.all_columns && Array.isArray(cfg.all_columns) && cfg.all_columns.length >= 48) {
             this.allAvailableColumns = cfg.all_columns;
           }
         }
@@ -563,7 +564,7 @@ export default {
     },
     onDrop() { this.draggedIndex = null; },
     onDragEnd() { this.draggedIndex = null; },
-    selectAllCols() { this.form.selected_columns = [...this.allAvailableColumns]; },
+    selectAllCols() { this.form.selected_columns = [...this.rawColumnsMaster]; },
     unselectAllCols() { this.form.selected_columns = []; },
     openPwdDialog(row) { this.targetUser = row.username; this.editPasswordForm.new_password = ''; this.showEditPwdDialog = true; },
     openPermDialog(row) {
@@ -672,23 +673,27 @@ export default {
       }, 100);
 
       try {
-        let currentCols = [...this.form.selected_columns];
+        let currentCols = Array.isArray(this.form.selected_columns) && this.form.selected_columns.length > 0 
+          ? [...this.form.selected_columns] 
+          : [...this.rawColumnsMaster];
+
         if (this.form.chk_show_loc) {
           if (!currentCols.includes('儲位')) currentCols.push('儲位');
-        } else {
-          currentCols = currentCols.filter(c => c !== '儲位');
         }
 
         const dimCols = ['長(cm)', '寬(cm)', '高(cm)', '重量(kg)', '才數', '材積別'];
         if (this.form.chk_show_dim) {
           dimCols.forEach(col => { if (!currentCols.includes(col)) currentCols.push(col); });
-        } else {
-          currentCols = currentCols.filter(c => !dimCols.includes(c));
         }
 
-        this.columns = this.allAvailableColumns.filter(c => currentCols.includes(c));
-        const hasLocationCol = this.columns.includes('儲位');
+        // 🌟 核心過濾修正：直接以 rawColumnsMaster 為基準防呆過濾
+        const masterSet = new Set(this.rawColumnsMaster);
+        this.columns = currentCols.filter(c => masterSet.has(c));
+        if (this.columns.length === 0) {
+          this.columns = [...this.rawColumnsMaster];
+        }
 
+        const hasLocationCol = this.columns.includes('儲位');
         const mode = this.form.search_mode || 'normal';
         let batchTxt = '';
         if (mode === 'batch_id') batchTxt = this.form.batch_ids || '';
@@ -745,17 +750,29 @@ export default {
               '總庫存_迴轉天數': getAnyVal('總庫存_迴轉天數', 'turn_days_total'),
               '才數': getAnyVal('才數', 'cubic_feet'),
               '材積別': getAnyVal('材積別', 'vol_type'),
+              '儲位編碼-3': getAnyVal('儲位編碼-3', 'loc_code_3'),
+              '儲位編碼': getAnyVal('儲位編碼', 'loc_code_full'),
+              '儲位編碼5': getAnyVal('儲位編碼5', 'loc_code_5'),
               '樓層': getAnyVal('樓層', 'floor'),
+              '樓層區域': getAnyVal('樓層區域', 'floor_zone'),
               '儲位型態': getAnyVal('儲位型態', 'loc_type'),
               '大區編': getAnyVal('大區編', 'big_zone_id'),
               '大區名': getAnyVal('大區名', 'big_zone'),
+              '三邊長': getAnyVal('三邊長', 'dim_sum'),
+              '最長邊': getAnyVal('最長邊', 'max_dim'),
+              '最短邊': getAnyVal('最短邊', 'min_dim'),
               '儲位才數': getAnyVal('儲位才數', 'loc_cubic_feet'),
               '儲位健康度': getAnyVal('儲位健康度', 'loc_health'),
+              '不符合': getAnyVal('不符合', 'non_compliant'),
               '材積判斷': getAnyVal('材積判斷', 'vol_check'),
               '總才數': getAnyVal('總才數', 'total_cubic_feet'),
               '人工/自動': getAnyVal('人工/自動', 'auto_type', 'is_auto', 'autoType', 'am'),
+              '儲位層標示': getAnyVal('儲位層標示', 'shelf_level'),
               '庫齡級距': getAnyVal('庫齡級距', 'age_bracket'),
-              '重型架判斷': getAnyVal('重型架判斷', 'heavy_rack_check')
+              '樓層設定': getAnyVal('樓層設定', 'floor_config'),
+              '重型架判斷': getAnyVal('重型架判斷', 'heavy_rack_check'),
+              'ID指定樓層': getAnyVal('ID指定樓層', 'assigned_floor'),
+              '備註': getAnyVal('備註', 'remark')
             };
           });
 
@@ -830,17 +847,29 @@ export default {
               '總庫存_迴轉天數': getAnyVal('總庫存_迴轉天數', 'turn_days_total'),
               '才數': getAnyVal('才數', 'cubic_feet'),
               '材積別': getAnyVal('材積別', 'vol_type'),
+              '儲位編碼-3': getAnyVal('儲位編碼-3', 'loc_code_3'),
+              '儲位編碼': getAnyVal('儲位編碼', 'loc_code_full'),
+              '儲位編碼5': getAnyVal('儲位編碼5', 'loc_code_5'),
               '樓層': getAnyVal('樓層', 'floor'),
+              '樓層區域': getAnyVal('樓層區域', 'floor_zone'),
               '儲位型態': getAnyVal('儲位型態', 'loc_type'),
               '大區編': getAnyVal('大區編', 'big_zone_id'),
               '大區名': getAnyVal('大區名', 'big_zone'),
+              '三邊長': getAnyVal('三邊長', 'dim_sum'),
+              '最長邊': getAnyVal('最長邊', 'max_dim'),
+              '最短邊': getAnyVal('最短邊', 'min_dim'),
               '儲位才數': getAnyVal('儲位才數', 'loc_cubic_feet'),
               '儲位健康度': getAnyVal('儲位健康度', 'loc_health'),
+              '不符合': getAnyVal('不符合', 'non_compliant'),
               '材積判斷': getAnyVal('材積判斷', 'vol_check'),
               '總才數': getAnyVal('總才數', 'total_cubic_feet'),
               '人工/自動': getAnyVal('人工/自動', 'auto_type', 'is_auto', 'autoType', 'am'),
+              '儲位層標示': getAnyVal('儲位層標示', 'shelf_level'),
               '庫齡級距': getAnyVal('庫齡級距', 'age_bracket'),
-              '重型架判斷': getAnyVal('重型架判斷', 'heavy_rack_check')
+              '樓層設定': getAnyVal('樓層設定', 'floor_config'),
+              '重型架判斷': getAnyVal('重型架判斷', 'heavy_rack_check'),
+              'ID指定樓層': getAnyVal('ID指定樓層', 'assigned_floor'),
+              '備註': getAnyVal('備註', 'remark')
             };
           });
 
