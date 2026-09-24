@@ -1,3 +1,4 @@
+// src/composables/useInventorySearch.js
 import { ref } from 'vue';
 import axios from 'axios';
 import { processExportData } from '../utils/exportImportHelpers.js';
@@ -111,17 +112,29 @@ export function useInventorySearch(form, columns, customColWidths, getTabName, c
             '總庫存_迴轉天數': getAnyVal('總庫存_迴轉天數', 'turn_days_total'),
             '才數': getAnyVal('才數', 'cubic_feet'),
             '材積別': getAnyVal('材積別', 'vol_type'),
+            '儲位編碼-3': getAnyVal('儲位編碼-3', 'loc_code_3'),
+            '儲位編碼': getAnyVal('儲位編碼', 'loc_code_full'),
+            '儲位編碼5': getAnyVal('儲位編碼5', 'loc_code_5'),
             '樓層': getAnyVal('樓層', 'floor'),
+            '樓層區域': getAnyVal('樓層區域', 'floor_zone'),
             '儲位型態': getAnyVal('儲位型態', 'loc_type'),
             '大區編': getAnyVal('大區編', 'big_zone_id'),
             '大區名': getAnyVal('大區名', 'big_zone'),
+            '三邊長': getAnyVal('三邊長', 'dim_sum'),
+            '最長邊': getAnyVal('最長邊', 'max_dim'),
+            '最短邊': getAnyVal('最短邊', 'min_dim'),
             '儲位才數': getAnyVal('儲位才數', 'loc_cubic_feet'),
             '儲位健康度': getAnyVal('儲位健康度', 'loc_health'),
+            '不符合': getAnyVal('不符合', 'non_compliant'),
             '材積判斷': getAnyVal('材積判斷', 'vol_check'),
             '總才數': getAnyVal('總才數', 'total_cubic_feet'),
             '人工/自動': getAnyVal('人工/自動', 'auto_type', 'is_auto', 'autoType', 'am'),
+            '儲位層標示': getAnyVal('儲位層標示', 'shelf_level'),
             '庫齡級距': getAnyVal('庫齡級距', 'age_bracket'),
-            '重型架判斷': getAnyVal('重型架判斷', 'heavy_rack_check')
+            '樓層設定': getAnyVal('樓層設定', 'floor_config'),
+            '重型架判斷': getAnyVal('重型架判斷', 'heavy_rack_check'),
+            'ID指定樓層': getAnyVal('ID指定樓層', 'assigned_floor'),
+            '備註': getAnyVal('備註', 'remark')
           };
         });
 
@@ -214,17 +227,29 @@ export function useInventorySearch(form, columns, customColWidths, getTabName, c
             '總庫存_迴轉天數': getAnyVal('總庫存_迴轉天數', 'turn_days_total'),
             '才數': getAnyVal('才數', 'cubic_feet'),
             '材積別': getAnyVal('材積別', 'vol_type'),
+            '儲位編碼-3': getAnyVal('儲位編碼-3', 'loc_code_3'),
+            '儲位編碼': getAnyVal('儲位編碼', 'loc_code_full'),
+            '儲位編碼5': getAnyVal('儲位編碼5', 'loc_code_5'),
             '樓層': getAnyVal('樓層', 'floor'),
+            '樓層區域': getAnyVal('樓層區域', 'floor_zone'),
             '儲位型態': getAnyVal('儲位型態', 'loc_type'),
             '大區編': getAnyVal('大區編', 'big_zone_id'),
             '大區名': getAnyVal('大區名', 'big_zone'),
+            '三邊長': getAnyVal('三邊長', 'dim_sum'),
+            '最長邊': getAnyVal('最長邊', 'max_dim'),
+            '最短邊': getAnyVal('最短邊', 'min_dim'),
             '儲位才數': getAnyVal('儲位才數', 'loc_cubic_feet'),
             '儲位健康度': getAnyVal('儲位健康度', 'loc_health'),
+            '不符合': getAnyVal('不符合', 'non_compliant'),
             '材積判斷': getAnyVal('材積判斷', 'vol_check'),
             '總才數': getAnyVal('總才數', 'total_cubic_feet'),
             '人工/自動': getAnyVal('人工/自動', 'auto_type', 'is_auto', 'autoType', 'am'),
+            '儲位層標示': getAnyVal('儲位層標示', 'shelf_level'),
             '庫齡級距': getAnyVal('庫齡級距', 'age_bracket'),
-            '重型架判斷': getAnyVal('重型架判斷', 'heavy_rack_check')
+            '樓層設定': getAnyVal('樓層設定', 'floor_config'),
+            '重型架判斷': getAnyVal('重型架判斷', 'heavy_rack_check'),
+            'ID指定樓層': getAnyVal('ID指定樓層', 'assigned_floor'),
+            '備註': getAnyVal('備註', 'remark')
           };
         });
 

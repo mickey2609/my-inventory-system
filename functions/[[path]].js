@@ -1,3 +1,4 @@
+// functions/[[path]].js - Cloudflare Pages Worker (完整 48 欄位代理轉發與 D1 備用庫)
 const COLUMN_MAP = {
   '商品ID': 'item_id',
   '商品名稱': 'item_name',
@@ -24,17 +25,29 @@ const COLUMN_MAP = {
   '總庫存_迴轉天數': 'turn_days_total',
   '才數': 'cubic_feet',
   '材積別': 'vol_type',
+  '儲位編碼-3': 'loc_code_3',
+  '儲位編碼': 'loc_code_full',
+  '儲位編碼5': 'loc_code_5',
   '樓層': 'floor',
+  '樓層區域': 'floor_zone',
   '儲位型態': 'loc_type',
   '大區編': 'big_zone_id',
   '大區名': 'big_zone',
+  '三邊長': 'dim_sum',
+  '最長邊': 'max_dim',
+  '最短邊': 'min_dim',
   '儲位才數': 'loc_cubic_feet',
   '儲位健康度': 'loc_health',
+  '不符合': 'non_compliant',
   '材積判斷': 'vol_check',
   '總才數': 'total_cubic_feet',
   '人工/自動': 'auto_type',
+  '儲位層標示': 'shelf_level',
   '庫齡級距': 'age_bracket',
-  '重型架判斷': 'heavy_rack_check'
+  '樓層設定': 'floor_config',
+  '重型架判斷': 'heavy_rack_check',
+  'ID指定樓層': 'assigned_floor',
+  '備註': 'remark'
 };
 
 export async function onRequest(context) {
@@ -52,7 +65,7 @@ export async function onRequest(context) {
     return new Response(null, { headers: corsHeaders });
   }
 
-  // 1. 靜態檔案 passThrough (解決首頁與前端 CSS/JS 顯示問題)
+  // 1. 靜態檔案 passThrough
   if (url.pathname === '/' || (url.pathname.includes('.') && !url.pathname.startsWith('/api/'))) {
     return env.ASSETS ? env.ASSETS.fetch(request) : fetch(request);
   }
@@ -64,7 +77,6 @@ export async function onRequest(context) {
   if (isDeployOrLocal || isDesktopApi) {
     let targetHost = '';
     
-    // 從 JSONBin 讀取最新桌機 Tunnel 網址
     try {
       const binRes = await fetch('https://api.jsonbin.io/v3/b/6aad2ed2ac6210605adc4575/latest', {
         headers: { 'X-Master-Key': '$2a$10$GBayhoY0k2Exom4NkRzydu3CEcLJj1vior2Yld0PPsPDHsjDJG0wm' }
@@ -120,17 +132,23 @@ export async function onRequest(context) {
         length REAL, width REAL, height REAL, weight REAL,
         monthly_sales REAL, pick_days_m REAL, sales_90d REAL, pick_days_90d REAL,
         supplier_id TEXT, supplier_name TEXT, pm TEXT, total_qty REAL, turn_days_total REAL,
-        cubic_feet REAL, vol_type TEXT, floor TEXT, loc_type TEXT,
-        big_zone_id TEXT, big_zone TEXT, loc_cubic_feet REAL, loc_health TEXT,
-        vol_check TEXT, total_cubic_feet REAL, auto_type TEXT, age_bracket TEXT, heavy_rack_check TEXT
+        cubic_feet REAL, vol_type TEXT, loc_code_3 TEXT, loc_code_full TEXT, loc_code_5 TEXT,
+        floor TEXT, floor_zone TEXT, loc_type TEXT, big_zone_id TEXT, big_zone TEXT,
+        dim_sum REAL, max_dim REAL, min_dim REAL, loc_cubic_feet REAL, loc_health TEXT,
+        non_compliant TEXT, vol_check TEXT, total_cubic_feet REAL, auto_type TEXT,
+        shelf_level TEXT, age_bracket TEXT, floor_config TEXT, heavy_rack_check TEXT,
+        assigned_floor TEXT, remark TEXT
       )
     `).run();
 
     const columnsToPatch = [
       "borrow_proc TEXT", "pick_days_m REAL", "sales_90d REAL", "pick_days_90d REAL",
       "supplier_id TEXT", "supplier_name TEXT", "pm TEXT", "total_qty REAL", "turn_days_total REAL",
-      "loc_type TEXT", "big_zone_id TEXT", "loc_cubic_feet REAL", "loc_health TEXT",
-      "vol_check TEXT", "total_cubic_feet REAL", "auto_type TEXT", "age_bracket TEXT", "heavy_rack_check TEXT"
+      "loc_code_3 TEXT", "loc_code_full TEXT", "loc_code_5 TEXT", "floor_zone TEXT",
+      "loc_type TEXT", "big_zone_id TEXT", "dim_sum REAL", "max_dim REAL", "min_dim REAL",
+      "loc_cubic_feet REAL", "loc_health TEXT", "non_compliant TEXT", "vol_check TEXT",
+      "total_cubic_feet REAL", "auto_type TEXT", "shelf_level TEXT", "age_bracket TEXT",
+      "floor_config TEXT", "heavy_rack_check TEXT", "assigned_floor TEXT", "remark TEXT"
     ];
     for (const col of columnsToPatch) {
       await env.DB.prepare(`ALTER TABLE inventory ADD COLUMN ${col}`).run().catch(() => {});
@@ -263,7 +281,7 @@ export async function onRequest(context) {
       }
     }
 
-    // 5. 庫存分頁與全量匯出查詢 API (支援動態 ORDER BY)
+    // 5. 庫存分頁與全量匯出查詢 API
     if (url.pathname === '/api/search') {
       const page = parseInt(url.searchParams.get('page') || '1', 10);
       const pageSize = parseInt(url.searchParams.get('pageSize') || '1000', 10);
@@ -389,14 +407,26 @@ export async function onRequest(context) {
               MAX(pm) as pm,
               MAX(total_qty) as total_qty,
               MAX(turn_days_total) as turn_days_total,
+              MAX(loc_code_3) as loc_code_3,
+              MAX(loc_code_full) as loc_code_full,
+              MAX(loc_code_5) as loc_code_5,
+              MAX(floor_zone) as floor_zone,
               MAX(loc_type) as loc_type,
               MAX(big_zone_id) as big_zone_id,
+              MAX(dim_sum) as dim_sum,
+              MAX(max_dim) as max_dim,
+              MAX(min_dim) as min_dim,
               MAX(loc_cubic_feet) as loc_cubic_feet,
               MAX(loc_health) as loc_health,
+              MAX(non_compliant) as non_compliant,
               MAX(vol_check) as vol_check,
               MAX(total_cubic_feet) as total_cubic_feet,
+              MAX(shelf_level) as shelf_level,
               MAX(age_bracket) as age_bracket,
+              MAX(floor_config) as floor_config,
               MAX(heavy_rack_check) as heavy_rack_check,
+              MAX(assigned_floor) as assigned_floor,
+              MAX(remark) as remark,
               age,
               SUM(qty) as qty
             FROM inventory ${whereClause}
@@ -446,7 +476,7 @@ export async function onRequest(context) {
       }
     }
 
-    // 6. 批次寫入 API
+    // 6. 批次寫入 API (完整 48 欄位寫入)
     if (url.pathname === '/api/batch-insert' && request.method === 'POST') {
       try {
         const { items } = await request.json();
@@ -455,22 +485,14 @@ export async function onRequest(context) {
           const sql = `
             INSERT INTO inventory (
               item_id, item_name, borrow_proc, location, qty, age,
-              zone_id, zone_name, hall_id, hall_name,
-              length, width, height, weight,
-              monthly_sales, pick_days_m, sales_90d, pick_days_90d,
-              supplier_id, supplier_name, pm, total_qty, turn_days_total,
-              cubic_feet, vol_type, floor, loc_type,
-              big_zone_id, big_zone, loc_cubic_feet, loc_health,
-              vol_check, total_cubic_feet, auto_type, age_bracket, heavy_rack_check
+              zone_id, zone_name, hall_id, hall_name, length, width, height, weight,
+              monthly_sales, pick_days_m, sales_90d, pick_days_90d, supplier_id, supplier_name, pm,
+              total_qty, turn_days_total, cubic_feet, vol_type, loc_code_3, loc_code_full, loc_code_5,
+              floor, floor_zone, loc_type, big_zone_id, big_zone, dim_sum, max_dim, min_dim,
+              loc_cubic_feet, loc_health, non_compliant, vol_check, total_cubic_feet, auto_type,
+              shelf_level, age_bracket, floor_config, heavy_rack_check, assigned_floor, remark
             ) VALUES (
-              ?, ?, ?, ?, ?, ?,
-              ?, ?, ?, ?,
-              ?, ?, ?, ?,
-              ?, ?, ?, ?,
-              ?, ?, ?, ?, ?,
-              ?, ?, ?, ?,
-              ?, ?, ?, ?,
-              ?, ?, ?, ?, ?
+              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
             )
           `;
 
@@ -483,13 +505,12 @@ export async function onRequest(context) {
 
           const statements = items.map(i => env.DB.prepare(sql).bind(
             safeStr(i.item_id), safeStr(i.item_name), safeStr(i.borrow_proc), safeStr(i.location), safeNum(i.qty), safeNum(i.age),
-            safeStr(i.zone_id), safeStr(i.zone_name), safeStr(i.hall_id), safeStr(i.hall_name),
-            safeNum(i.length), safeNum(i.width), safeNum(i.height), safeNum(i.weight),
-            safeNum(i.monthly_sales), safeNum(i.pick_days_m), safeNum(i.sales_90d), safeNum(i.pick_days_90d),
-            safeStr(i.supplier_id), safeStr(i.supplier_name), safeStr(i.pm), safeNum(i.total_qty), safeNum(i.turn_days_total),
-            safeNum(i.cubic_feet), safeStr(i.vol_type), safeStr(i.floor), safeStr(i.loc_type),
-            safeStr(i.big_zone_id), safeStr(i.big_zone), safeNum(i.loc_cubic_feet), safeStr(i.loc_health),
-            safeStr(i.vol_check), safeNum(i.total_cubic_feet), safeStr(i.auto_type), safeStr(i.age_bracket), safeStr(i.heavy_rack_check)
+            safeStr(i.zone_id), safeStr(i.zone_name), safeStr(i.hall_id), safeStr(i.hall_name), safeNum(i.length), safeNum(i.width), safeNum(i.height), safeNum(i.weight),
+            safeNum(i.monthly_sales), safeNum(i.pick_days_m), safeNum(i.sales_90d), safeNum(i.pick_days_90d), safeStr(i.supplier_id), safeStr(i.supplier_name), safeStr(i.pm),
+            safeNum(i.total_qty), safeNum(i.turn_days_total), safeNum(i.cubic_feet), safeStr(i.vol_type), safeStr(i.loc_code_3), safeStr(i.loc_code_full), safeStr(i.loc_code_5),
+            safeStr(i.floor), safeStr(i.floor_zone), safeStr(i.loc_type), safeStr(i.big_zone_id), safeStr(i.big_zone), safeNum(i.dim_sum), safeNum(i.max_dim), safeNum(i.min_dim),
+            safeNum(i.loc_cubic_feet), safeStr(i.loc_health), safeStr(i.non_compliant), safeStr(i.vol_check), safeNum(i.total_cubic_feet), safeStr(i.auto_type),
+            safeStr(i.shelf_level), safeStr(i.age_bracket), safeStr(i.floor_config), safeStr(i.heavy_rack_check), safeStr(i.assigned_floor), safeStr(i.remark)
           ));
 
           await env.DB.batch(statements);
