@@ -1,10 +1,9 @@
 // src/utils/exportImportHelpers.js
+import Papa from 'papaparse';
 import axios from 'axios';
 
-// 輔助函式：讓 CPU 喘息，避免 HTTP 連線擠塞
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-// 安全的欄位值讀取工具函式
 const getRowValue = (row, col) => {
   if (!row) return '-';
   const val = row[col];
@@ -12,19 +11,13 @@ const getRowValue = (row, col) => {
   return '-';
 };
 
-// 1. CSV 批次寫入地端 SQLite (完整 48 欄位轉譯，絕不漏掉任何一個欄位)
+// 1. CSV 批次寫入地端 SQLite (100% 寫入 48 欄位)
 export async function processCsvUpload(file, onProgress, sendLogCallback) {
   return new Promise((resolve, reject) => {
-    const papa = window.Papa || (typeof Papa !== 'undefined' ? Papa : null);
-    if (!papa) {
-      reject(new Error('PapaParse 解析庫尚未載入完成，請重新整理頁面再試'));
-      return;
-    }
-
-    papa.parse(file, {
+    Papa.parse(file, {
       header: true,
       skipEmptyLines: 'greedy',
-      transformHeader: (header) => header.replace(/^\uFEFF/, '').trim(), // 清理 UTF-8 BOM 頭與空格
+      transformHeader: (h) => h.replace(/^\uFEFF/, '').trim(),
       complete: async (results) => {
         const allData = results.data;
         const totalRows = allData.length;
@@ -36,13 +29,13 @@ export async function processCsvUpload(file, onProgress, sendLogCallback) {
 
           if (onProgress) onProgress(0);
 
-          const batchSize = 10000;
+          const batchSize = 5000;
           let inserted = 0;
 
           for (let i = 0; i < totalRows; i += batchSize) {
             const chunk = allData.slice(i, i + batchSize);
 
-            // 🌟 完整 48 欄位精準轉譯與傳輸
+            // 精準映射 48 個欄位
             const parsedChunk = chunk.map(row => ({
               item_id: row['商品ID'] || row['item_id'] || '',
               item_name: row['商品名稱'] || row['item_name'] || '',
@@ -105,9 +98,8 @@ export async function processCsvUpload(file, onProgress, sendLogCallback) {
 
             inserted += chunk.length;
             const percent = Math.min(100, Math.round((inserted / totalRows) * 100));
-            
             if (onProgress) onProgress(percent);
-            await sleep(30);
+            await sleep(20);
           }
 
           if (sendLogCallback) sendLogCallback('資料匯入', `成功匯入 ${totalRows.toLocaleString()} 筆資料至地端 SQLite：` + file.name);
@@ -136,7 +128,6 @@ export function processExportData({ fmt, tableData, exportCols, moduleName, summ
   const safeFormat = formatNumber || (val => val || 0);
   const targetFmt = String(fmt).toLowerCase();
 
-  // A. Excel
   if (targetFmt === 'excel' || targetFmt === 'xlsx') {
     const xlsxLib = window.XLSX || (typeof XLSX !== 'undefined' ? XLSX : null);
     if (xlsxLib) {
@@ -180,7 +171,6 @@ export function processExportData({ fmt, tableData, exportCols, moduleName, summ
     }
   }
 
-  // B. CSV
   if (targetFmt === 'csv') {
     let csvContent = "\uFEFF";
     csvContent += `"${moduleName} - 庫存明細"\n`;
@@ -203,37 +193,6 @@ export function processExportData({ fmt, tableData, exportCols, moduleName, summ
     link.click();
 
     if (sendLogCallback) sendLogCallback('資料匯出', '匯出 ' + fileName + '.csv 成功');
-    return fileName;
-  }
-
-  // C. PDF
-  if (targetFmt === 'pdf') {
-    let tableRows = tableData.map(r =>
-      '<tr>' + exportCols.map(c => '<td style="border:1px solid #ddd;padding:4px;font-size:11px;">' + getRowValue(r, c) + '</td>').join('') + '</tr>'
-    ).join('');
-
-    const htmlContent = '<html><head><title>' + fileName + '</title>' +
-      '<style>body{font-family:sans-serif;padding:20px;}.summary-box{border:1px solid #333;padding:10px;margin-bottom:15px;}table{width:100%;border-collapse:collapse;margin-top:10px;}th{background:#0f172a;color:white;border:1px solid #ddd;padding:6px;font-size:12px;}</style>' +
-      '</head><body>' +
-      '<h2>📊 ' + moduleName + ' - 庫存明細</h2>' +
-      '<div class="summary-box">' +
-      '<b>總品項：</b>' + safeFormat(summary?.total_items || 0) + ' | ' +
-      '<b>總列數：</b>' + safeFormat(summary?.total_rows || 0) + ' | ' +
-      '<b>總庫存：</b>' + safeFormat(summary?.total_pcs || 0) + ' | ' +
-      '<b>總才數：</b>' + safeFormat(summary?.total_ao || 0) + ' | ' +
-      '<b>時間：</b>' + (searchTime || new Date().toLocaleString()) +
-      '</div>' +
-      '<table><thead><tr>' + exportCols.map(c => '<th>' + c + '</th>').join('') + '</tr></thead>' +
-      '<tbody>' + tableRows + '</tbody></table>' +
-      '<script>window.onload=function(){window.print();}</' + 'script>' +
-      '</body></html>';
-
-    const printWindow = window.open('', '_blank');
-    if (printWindow) {
-      printWindow.document.write(htmlContent);
-      printWindow.document.close();
-    }
-    if (sendLogCallback) sendLogCallback('資料匯出', '匯出 PDF 報表成功');
     return fileName;
   }
 }
