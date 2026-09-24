@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" href="/favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>庫存儲位管理系統</title>
+    <!-- 使用 CDN 載入 PapaParse 解析工具，免安裝 npm -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    
+    <!-- 本機環境強制監聽與修改標題腳本 -->
+    <script>
+      (function() {
+        const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        if (!isLocal) return;
+
+        function updateTitle() {
+          if (!document.title.includes('(測)')) {
+            document.title = document.title + ' (測)';
+          }
+        }
+
+        // 1. 初始化先改一次
+        updateTitle();
+
+        // 2. 建立監聽器：當 Vue 或路由改變 document.title 時自動補上 (測)
+        const observer = new MutationObserver(updateTitle);
+        window.addEventListener('DOMContentLoaded', () => {
+          const titleElement = document.querySelector('title');
+          if (titleElement) {
+            observer.observe(titleElement, { subtree: true, characterData: true, childList: true });
+          }
+        });
+      })();
+    </script>
+    <script type="module" crossorigin src="/assets/index-LjR-KJg4.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-Bc-NuOGx.css">
+  </head>
+  <body>
+    <div id="app"></div>
+  </body>
+</html>
