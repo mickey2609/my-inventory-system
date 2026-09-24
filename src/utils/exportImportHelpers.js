@@ -1,3 +1,4 @@
+// src/utils/exportImportHelpers.js
 import axios from 'axios';
 
 // 輔助函式：讓 CPU 喘息，避免 HTTP 連線擠塞
@@ -7,11 +8,11 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const getRowValue = (row, col) => {
   if (!row) return '-';
   const val = row[col];
-  if (val !== null && val !== undefined && val !== '') return val;
+  if (val !== null && val !== undefined && String(val).trim() !== '') return val;
   return '-';
 };
 
-// 1. CSV 批次寫入地端 SQLite (1:1 根據對照表轉換 36 欄位)
+// 1. CSV 批次寫入地端 SQLite (完整 48 欄位轉譯，絕不漏掉任何一個欄位)
 export async function processCsvUpload(file, onProgress, sendLogCallback) {
   return new Promise((resolve, reject) => {
     const papa = window.Papa || (typeof Papa !== 'undefined' ? Papa : null);
@@ -22,7 +23,8 @@ export async function processCsvUpload(file, onProgress, sendLogCallback) {
 
     papa.parse(file, {
       header: true,
-      skipEmptyLines: true,
+      skipEmptyLines: 'greedy',
+      transformHeader: (header) => header.replace(/^\uFEFF/, '').trim(), // 清理 UTF-8 BOM 頭與空格
       complete: async (results) => {
         const allData = results.data;
         const totalRows = allData.length;
@@ -40,7 +42,7 @@ export async function processCsvUpload(file, onProgress, sendLogCallback) {
           for (let i = 0; i < totalRows; i += batchSize) {
             const chunk = allData.slice(i, i + batchSize);
 
-            // 🌟 根據 36 欄位對照表進行精準轉譯
+            // 🌟 完整 48 欄位精準轉譯與傳輸
             const parsedChunk = chunk.map(row => ({
               item_id: row['商品ID'] || row['item_id'] || '',
               item_name: row['商品名稱'] || row['item_name'] || '',
@@ -67,17 +69,29 @@ export async function processCsvUpload(file, onProgress, sendLogCallback) {
               turn_days_total: row['總庫存_迴轉天數'] || row['turn_days_total'] || 0,
               cubic_feet: row['才數'] || row['cubic_feet'] || 0,
               vol_type: row['材積別'] || row['vol_type'] || '',
+              loc_code_3: row['儲位編碼-3'] || row['loc_code_3'] || '',
+              loc_code_full: row['儲位編碼'] || row['loc_code_full'] || '',
+              loc_code_5: row['儲位編碼5'] || row['loc_code_5'] || '',
               floor: row['樓層'] || row['floor'] || '',
+              floor_zone: row['樓層區域'] || row['floor_zone'] || '',
               loc_type: row['儲位型態'] || row['loc_type'] || '',
               big_zone_id: row['大區編'] || row['big_zone_id'] || '',
               big_zone: row['大區名'] || row['big_zone'] || '',
+              dim_sum: row['三邊長'] || row['dim_sum'] || 0,
+              max_dim: row['最長邊'] || row['max_dim'] || 0,
+              min_dim: row['最短邊'] || row['min_dim'] || 0,
               loc_cubic_feet: row['儲位才數'] || row['loc_cubic_feet'] || 0,
               loc_health: row['儲位健康度'] || row['loc_health'] || '',
+              non_compliant: row['不符合'] || row['non_compliant'] || '',
               vol_check: row['材積判斷'] || row['vol_check'] || '',
               total_cubic_feet: row['總才數'] || row['total_cubic_feet'] || 0,
               auto_type: row['人工/自動'] || row['auto_type'] || '',
+              shelf_level: row['儲位層標示'] || row['shelf_level'] || '',
               age_bracket: row['庫齡級距'] || row['age_bracket'] || '',
-              heavy_rack_check: row['重型架判斷'] || row['heavy_rack_check'] || ''
+              floor_config: row['樓層設定'] || row['floor_config'] || '',
+              heavy_rack_check: row['重型架判斷'] || row['heavy_rack_check'] || '',
+              assigned_floor: row['ID指定樓層'] || row['assigned_floor'] || '',
+              remark: row['備註'] || row['remark'] || ''
             }));
             
             const response = await axios.post('/api/upload', { 
