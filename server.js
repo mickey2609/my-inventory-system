@@ -519,7 +519,7 @@ app.get('/api/get-global-config', (req, res) => {
     success: true,
     data: {
       system_name: "庫存儲位管理系統",
-      version: "v2026.09.23-48COL-AUTO-RESET",
+      version: "v2026.09.24-48COL-ALIGNED",
       server_uptime_seconds: currentUptimeSec
     }
   });
@@ -639,7 +639,7 @@ app.post('/api/delete-user', (req, res) => {
   });
 });
 
-// [GET] 庫存查詢 API (完整 48 欄位轉譯輸出)
+// [GET] 庫存查詢 API (完整 48 欄位轉譯與強效聚合查詢)
 app.get('/api/search', (req, res) => {
   const page = parseInt(req.query.page || '1', 10);
   const pageSize = parseInt(req.query.pageSize || '500', 10);
@@ -651,6 +651,7 @@ app.get('/api/search', (req, res) => {
   const categorySmall = req.query.categorySmall || req.query.cbo_zone || '';
   const keyword = req.query.keyword || req.query.txt_id || req.query.txt_name || req.query.cbo_loc_id || '';
   const ageInput = req.query.txtAge || req.query.txt_age || req.query.age || '';
+  const aggregate = req.query.aggregate === 'true';
 
   const sortByChinese = req.query.cbo_sort || req.query.cboSort || '';
   const sortOrder = (req.query.sort_order || req.query.sortOrder || 'asc').toLowerCase() === 'desc' ? 'DESC' : 'ASC';
@@ -726,7 +727,69 @@ app.get('/api/search', (req, res) => {
     if (err) return res.status(500).json({ success: false, error: err.message });
 
     const totalCount = summaryRow ? summaryRow.total_rows : 0;
-    const querySql = `SELECT * FROM inventory ${whereClause} ORDER BY ${sortColumn} ${sortOrder} LIMIT ? OFFSET ?`;
+    
+    // 🌟 核心修復：聚合模式下顯式將 48 個欄位全部以 MAX(...) 提取出來，解決顯示為 - 的問題
+    let baseQuery = '';
+    if (aggregate) {
+      baseQuery = `
+        SELECT 
+          item_id,
+          MAX(item_name) as item_name,
+          MAX(borrow_proc) as borrow_proc,
+          MAX(location) as location,
+          MAX(big_zone) as big_zone,
+          MAX(zone_id) as zone_id,
+          MAX(zone_name) as zone_name,
+          MAX(hall_id) as hall_id,
+          MAX(hall_name) as hall_name,
+          MAX(floor) as floor,
+          MAX(auto_type) as auto_type,
+          MAX(vol_type) as vol_type,
+          MAX(cubic_feet) as cubic_feet,
+          MAX(length) as length,
+          MAX(width) as width,
+          MAX(height) as height,
+          MAX(weight) as weight,
+          MAX(monthly_sales) as monthly_sales,
+          MAX(pick_days_m) as pick_days_m,
+          MAX(sales_90d) as sales_90d,
+          MAX(pick_days_90d) as pick_days_90d,
+          MAX(supplier_id) as supplier_id,
+          MAX(supplier_name) as supplier_name,
+          MAX(pm) as pm,
+          MAX(total_qty) as total_qty,
+          MAX(turn_days_total) as turn_days_total,
+          MAX(loc_code_3) as loc_code_3,
+          MAX(loc_code_full) as loc_code_full,
+          MAX(loc_code_5) as loc_code_5,
+          MAX(floor_zone) as floor_zone,
+          MAX(loc_type) as loc_type,
+          MAX(big_zone_id) as big_zone_id,
+          MAX(dim_sum) as dim_sum,
+          MAX(max_dim) as max_dim,
+          MAX(min_dim) as min_dim,
+          MAX(loc_cubic_feet) as loc_cubic_feet,
+          MAX(loc_health) as loc_health,
+          MAX(non_compliant) as non_compliant,
+          MAX(vol_check) as vol_check,
+          MAX(total_cubic_feet) as total_cubic_feet,
+          MAX(shelf_level) as shelf_level,
+          MAX(age_bracket) as age_bracket,
+          MAX(floor_config) as floor_config,
+          MAX(heavy_rack_check) as heavy_rack_check,
+          MAX(assigned_floor) as assigned_floor,
+          MAX(remark) as remark,
+          age,
+          SUM(qty) as qty
+        FROM inventory ${whereClause}
+        GROUP BY item_id, age
+        ORDER BY ${sortColumn} ${sortOrder}
+      `;
+    } else {
+      baseQuery = `SELECT * FROM inventory ${whereClause} ORDER BY ${sortColumn} ${sortOrder}`;
+    }
+
+    const querySql = `${baseQuery} LIMIT ? OFFSET ?`;
 
     db.all(querySql, [...bindings, pageSize, offset], (err, rows) => {
       if (err) return res.status(500).json({ success: false, error: err.message });
