@@ -1,5 +1,5 @@
 // C:\my-inventory-server\server.js
-// 業務主程式 API 伺服器 (整合 48 欄位處理 + VBA 儲位才數統整 + LocSummary.vue 視圖對接 + 彈窗預覽清單 API)
+// 業務主程式 API 伺服器 (整合 48 欄位處理 + Schema 強制自動升級 + VBA 儲位才數統整)
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const cors = require('cors');
@@ -107,39 +107,35 @@ app.post('/api/system/update-server-code', (req, res) => {
 
   proxyReq.write(payload);
   proxyReq.end();
-  // ⚠️ 絕對不呼叫 process.exit()，由 system-manager 統一管理進程生命週期
 });
 
-// 2. 自動初始化資料庫 Schema
+// 2. 自動初始化與升級資料庫 Schema (強行確保 48 欄位實體存在)
 db.serialize(() => {
-  db.run(`
-    CREATE TABLE IF NOT EXISTS inventory (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      item_id TEXT, item_name TEXT, borrow_proc TEXT, location TEXT, qty REAL, age INTEGER,
-      zone_id TEXT, zone_name TEXT, hall_id TEXT, hall_name TEXT,
-      length REAL, width REAL, height REAL, weight REAL,
-      monthly_sales REAL, pick_days_m REAL, sales_90d REAL, pick_days_90d REAL,
-      supplier_id TEXT, supplier_name TEXT, pm TEXT, total_qty REAL, turn_days_total REAL,
-      cubic_feet REAL, vol_type TEXT, loc_code_3 TEXT, loc_code_full TEXT, loc_code_5 TEXT,
-      floor TEXT, floor_zone TEXT, loc_type TEXT, big_zone_id TEXT, big_zone TEXT,
-      dim_sum REAL, max_dim REAL, min_dim REAL, loc_cubic_feet REAL, loc_health TEXT,
-      non_compliant TEXT, vol_check TEXT, total_cubic_feet REAL, auto_type TEXT,
-      shelf_level TEXT, age_bracket TEXT, floor_config TEXT, heavy_rack_check TEXT,
-      assigned_floor TEXT, remark TEXT
-    );
-  `);
+  db.all("PRAGMA table_info(inventory)", [], (err, columns) => {
+    const hasLocCode3 = columns && columns.some(c => c.name === 'loc_code_3');
+    
+    // 若為舊版 Schema (缺少 loc_code_3)，自動強行刪除舊表重新建構 48 欄位資料表
+    if (!hasLocCode3 && columns && columns.length > 0) {
+      console.log('⚠️ 檢測到舊版 inventory 資料表結構，正在自動升級重建為完整 48 欄位 Schema...');
+      db.run(`DROP TABLE IF EXISTS inventory`);
+    }
 
-  // 防呆自動為舊表動態補齊新增的 12 個欄位
-  const newCols = [
-    'loc_code_3 TEXT', 'loc_code_full TEXT', 'loc_code_5 TEXT', 'floor_zone TEXT',
-    'dim_sum REAL', 'max_dim REAL', 'min_dim REAL', 'non_compliant TEXT',
-    'shelf_level TEXT', 'floor_config TEXT', 'assigned_floor TEXT', 'remark TEXT'
-  ];
-
-  newCols.forEach(colDef => {
-    db.run(`ALTER TABLE inventory ADD COLUMN ${colDef}`, (err) => {
-      // 若欄位已存在則忽略錯誤
-    });
+    db.run(`
+      CREATE TABLE IF NOT EXISTS inventory (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        item_id TEXT, item_name TEXT, borrow_proc TEXT, location TEXT, qty REAL, age INTEGER,
+        zone_id TEXT, zone_name TEXT, hall_id TEXT, hall_name TEXT,
+        length REAL, width REAL, height REAL, weight REAL,
+        monthly_sales REAL, pick_days_m REAL, sales_90d REAL, pick_days_90d REAL,
+        supplier_id TEXT, supplier_name TEXT, pm TEXT, total_qty REAL, turn_days_total REAL,
+        cubic_feet REAL, vol_type TEXT, loc_code_3 TEXT, loc_code_full TEXT, loc_code_5 TEXT,
+        floor TEXT, floor_zone TEXT, loc_type TEXT, big_zone_id TEXT, big_zone TEXT,
+        dim_sum REAL, max_dim REAL, min_dim REAL, loc_cubic_feet REAL, loc_health TEXT,
+        non_compliant TEXT, vol_check TEXT, total_cubic_feet REAL, auto_type TEXT,
+        shelf_level TEXT, age_bracket TEXT, floor_config TEXT, heavy_rack_check TEXT,
+        assigned_floor TEXT, remark TEXT
+      );
+    `);
   });
 
   db.run(`
@@ -214,7 +210,6 @@ function getAdjustedType(floor, rType, storageCode, shelfLevel) {
 // 3. API 路由設定
 // ------------------------------------------------------------------
 
-// 解析 CSV 字串之輔助函式
 function parseCsvTextToObjects(csvText) {
   const lines = csvText.split(/\r?\n/).filter(l => l.trim());
   if (lines.length <= 1) return [];
@@ -230,7 +225,6 @@ function parseCsvTextToObjects(csvText) {
   return list;
 }
 
-// [GET] 讀取 locations_master 儲位結構定義清單 (提供給 LocSummary.vue 彈窗表格顯示)
 app.get('/api/get-locations-master', (req, res) => {
   const sql = `
     SELECT 
@@ -252,7 +246,6 @@ app.get('/api/get-locations-master', (req, res) => {
   });
 });
 
-// [POST] 匯入 locations_master 資料 (全相容 FormData / CSV 原生文字 / JSON 陣列)
 app.post(['/api/import-locations-master', '/api/import-locations-master-json'], (req, res) => {
   let chunks = [];
 
@@ -519,7 +512,6 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
   });
 });
 
-// [GET] 全域系統設定 API
 app.get('/api/get-global-config', (req, res) => {
   const currentUptimeSec = Math.floor((Date.now() - SERVER_START_TIME) / 1000);
 
@@ -527,13 +519,12 @@ app.get('/api/get-global-config', (req, res) => {
     success: true,
     data: {
       system_name: "庫存儲位管理系統",
-      version: "v2026.09.23-48COL-FULL",
+      version: "v2026.09.23-48COL-AUTO-RESET",
       server_uptime_seconds: currentUptimeSec
     }
   });
 });
 
-// [GET] 取得大區分類清單
 app.get('/api/categories/large', (req, res) => {
   db.all('SELECT DISTINCT big_zone FROM inventory WHERE big_zone IS NOT NULL AND big_zone != ""', [], (err, rows) => {
     if (err) return res.status(500).json({ success: false, error: err.message });
@@ -542,7 +533,6 @@ app.get('/api/categories/large', (req, res) => {
   });
 });
 
-// [GET] 取得小區分類清單
 app.get('/api/categories/small', (req, res) => {
   const large = req.query.large || '';
   let sql = 'SELECT DISTINCT zone_name FROM inventory WHERE zone_name IS NOT NULL AND zone_name != ""';
@@ -558,7 +548,6 @@ app.get('/api/categories/small', (req, res) => {
   });
 });
 
-// [POST] 心跳保活 API
 app.post('/api/heartbeat', (req, res) => {
   const { username } = req.body;
   if (username) {
@@ -568,7 +557,6 @@ app.post('/api/heartbeat', (req, res) => {
   res.json({ success: true });
 });
 
-// [POST] 使用者登出 API
 app.post('/api/logout', (req, res) => {
   const { username } = req.body;
   if (username) {
@@ -577,7 +565,6 @@ app.post('/api/logout', (req, res) => {
   res.json({ success: true, message: '已成功登出' });
 });
 
-// [GET] 取得使用者列表 API
 app.get('/api/get-users', (req, res) => {
   db.all('SELECT username, name, role, permissions, last_active FROM users', [], (err, rows) => {
     if (err) return res.status(500).json({ success: false, error: err.message });
@@ -592,7 +579,6 @@ app.get('/api/get-users', (req, res) => {
   });
 });
 
-// [POST] 新增使用者 API
 app.post('/api/add-user', (req, res) => {
   const { username, name, role, password } = req.body;
   if (!username) return res.status(400).json({ success: false, message: '帳號名稱不可為空！' });
@@ -613,7 +599,6 @@ app.post('/api/add-user', (req, res) => {
   });
 });
 
-// [POST] 更新使用者角色 API
 app.post(['/api/update-role', '/api/update-user-role', '/api/update-user'], (req, res) => {
   const { username, target_role, role, target_name, name } = req.body;
   const newRole = role || target_role;
@@ -625,7 +610,6 @@ app.post(['/api/update-role', '/api/update-user-role', '/api/update-user'], (req
   });
 });
 
-// [POST] 更新使用者密碼 API
 app.post(['/api/update-password', '/api/update-user-password'], (req, res) => {
   const { username, new_password, password } = req.body;
   const pwd = new_password || password;
@@ -636,7 +620,6 @@ app.post(['/api/update-password', '/api/update-user-password'], (req, res) => {
   });
 });
 
-// [POST] 更新使用者權限 API
 app.post(['/api/update-permissions', '/api/update-user-permissions'], (req, res) => {
   const { username, permissions, selected_modules } = req.body;
   const targetMods = permissions || selected_modules;
@@ -648,7 +631,6 @@ app.post(['/api/update-permissions', '/api/update-user-permissions'], (req, res)
   });
 });
 
-// [POST] 刪除使用者 API
 app.post('/api/delete-user', (req, res) => {
   const { username } = req.body;
   db.run('DELETE FROM users WHERE username = ?', [username], (err) => {
@@ -824,7 +806,6 @@ app.get('/api/search', (req, res) => {
   });
 });
 
-// [POST] 儲存欄位設定
 app.post('/api/save-column-config', (req, res) => {
   const { key, config } = req.body;
   const configKey = key || 'global_default';
@@ -841,7 +822,6 @@ app.post('/api/save-column-config', (req, res) => {
   });
 });
 
-// [GET] 讀取欄位設定
 app.get('/api/get-column-config', (req, res) => {
   const key = req.query.key || 'global_default';
   db.get('SELECT config_json FROM column_config WHERE key = ?', [key], (err, row) => {
@@ -850,7 +830,6 @@ app.get('/api/get-column-config', (req, res) => {
   });
 });
 
-// [POST] 使用者登入驗證
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
   if (!username) return res.status(400).json({ success: false, message: '請輸入帳號' });
@@ -896,7 +875,6 @@ app.post('/api/login', (req, res) => {
   });
 });
 
-// [POST] 寫入操作日誌
 app.post('/api/record-log', (req, res) => {
   const { username, name, role, device, feature, action } = req.body;
   const isoTimeStr = new Date().toISOString();
@@ -911,7 +889,6 @@ app.post('/api/record-log', (req, res) => {
   );
 });
 
-// [GET] 讀取操作日誌
 app.get('/api/get-logs', (req, res) => {
   db.all('SELECT * FROM system_logs ORDER BY id DESC LIMIT 200', [], (err, rows) => {
     if (err) return res.status(500).json({ success: false, error: err.message });
@@ -1036,7 +1013,7 @@ app.post('/api/upload', (req, res) => {
           console.error('❌ Transaction Commit 失敗:', err.message);
           return res.status(500).json({ success: false, error: err.message });
         }
-        console.log(`✅ 成功極速寫入 ${items.length} 筆資料！`);
+        console.log(`✅ 成功寫入 ${items.length} 筆 48 欄位庫存資料！`);
         res.json({ success: true, count: items.length, message: '48 欄位極速寫入成功！' });
       });
     });
