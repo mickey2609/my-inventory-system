@@ -1,5 +1,5 @@
 // C:\my-inventory-server\server.js
-// 業務主程式 API 伺服器 (整合 48 欄位處理 + VBA 儲位才數統整 + LocSummary.vue 視圖對接)
+// 業務主程式 API 伺服器 (整合 48 欄位處理 + VBA 儲位才數統整 + LocSummary.vue 視圖對接 + 彈窗預覽清單 API)
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const cors = require('cors');
@@ -110,7 +110,7 @@ app.post('/api/system/update-server-code', (req, res) => {
   // ⚠️ 絕對不呼叫 process.exit()，由 system-manager 統一管理進程生命週期
 });
 
-// 2. 自動初始化資料庫 Schema (含自動擴充舊資料表至 48 欄位之 Migration)
+// 2. 自動初始化資料庫 Schema
 db.serialize(() => {
   db.run(`
     CREATE TABLE IF NOT EXISTS inventory (
@@ -129,7 +129,7 @@ db.serialize(() => {
     );
   `);
 
-  // 防呆自動為舊表動態補齊新增的 12 個欄位 (防止舊 Table 報錯 SQLITE_ERROR)
+  // 防呆自動為舊表動態補齊新增的 12 個欄位
   const newCols = [
     'loc_code_3 TEXT', 'loc_code_full TEXT', 'loc_code_5 TEXT', 'floor_zone TEXT',
     'dim_sum REAL', 'max_dim REAL', 'min_dim REAL', 'non_compliant TEXT',
@@ -137,19 +137,46 @@ db.serialize(() => {
   ];
 
   newCols.forEach(colDef => {
-    const colName = colDef.split(' ')[0];
     db.run(`ALTER TABLE inventory ADD COLUMN ${colDef}`, (err) => {
       // 若欄位已存在則忽略錯誤
     });
   });
 
-  db.run(`CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, name TEXT, role TEXT, password TEXT, permissions TEXT, last_active INTEGER);`);
-  db.run(`CREATE TABLE IF NOT EXISTS system_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, name TEXT, role TEXT, device TEXT, feature TEXT, action TEXT, created_at TEXT);`);
-  db.run(`CREATE TABLE IF NOT EXISTS column_config (key TEXT PRIMARY KEY, config_json TEXT, updated_at TEXT);`);
-  db.run(`CREATE TABLE IF NOT EXISTS locations_master (id INTEGER PRIMARY KEY AUTOINCREMENT, floor TEXT, zone TEXT, loc_type TEXT, cubic_feet REAL, grid_count INTEGER, single_cubic_feet REAL);`);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS users (
+      username TEXT PRIMARY KEY, name TEXT, role TEXT, password TEXT, permissions TEXT, last_active INTEGER
+    );
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS system_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT, name TEXT, role TEXT, device TEXT, feature TEXT, action TEXT, created_at TEXT
+    );
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS column_config (
+      key TEXT PRIMARY KEY, config_json TEXT, updated_at TEXT
+    );
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS locations_master (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      floor TEXT, zone TEXT, loc_type TEXT, cubic_feet REAL, grid_count INTEGER, single_cubic_feet REAL
+    );
+  `);
+
+  db.run(`
+    INSERT OR IGNORE INTO users (username, name, role, password, permissions) 
+    VALUES ('admin', '系統管理員', 'sys_admin', 'admin', 'all');
+  `);
   
-  db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions) VALUES ('admin', '系統管理員', 'sys_admin', 'admin', 'all');`);
-  db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions) VALUES ('801854', '黃勝鴻', 'sys_admin', '801854', 'all');`);
+  db.run(`
+    INSERT OR IGNORE INTO users (username, name, role, password, permissions) 
+    VALUES ('801854', '黃勝鴻', 'sys_admin', '801854', 'all');
+  `);
 });
 
 // --- VBA 特殊紙抽判斷邏輯 ( GetAdjustedType ) ---
@@ -239,18 +266,15 @@ app.post(['/api/import-locations-master', '/api/import-locations-master-json'], 
       const rawText = buffer.toString('utf8');
       let items = [];
 
-      // A. 若傳送 FormData multipart，從 Stream 內容提取 CSV 區塊
       if (rawText.includes('name="file"') || rawText.includes('Content-Type:')) {
         const matches = rawText.match(/\r\n\r\n([\s\S]*?)\r\n--/);
         if (matches && matches[1]) {
           items = parseCsvTextToObjects(matches[1].trim());
         }
       }
-      // B. 若直接傳送 CSV 純文字
       else if (rawText.includes(',') && !rawText.trim().startsWith('{') && !rawText.trim().startsWith('[')) {
         items = parseCsvTextToObjects(rawText.trim());
       }
-      // C. 若傳送 JSON 格式 (JSON.parse)
       else if (req.body) {
         items = req.body;
         if (items && Array.isArray(items.items)) items = items.items;
@@ -314,7 +338,7 @@ app.post(['/api/import-locations-master', '/api/import-locations-master-json'], 
   });
 });
 
-// [GET] 📊 儲位才數統整 API (同時支援 /api/calc-location-summary 與 /api/stats/location-capacity)
+// [GET] 📊 儲位才數統整 API
 app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, res) => {
   const masterSql = `
     SELECT 
@@ -349,7 +373,6 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
 
       const statsMap = {};
 
-      // A. 彙總 locations_master 規劃數據
       (masterRows || []).forEach(r => {
         let rawFloor = String(r.floor || '').trim();
         let rType = String(r.loc_type || '').trim();
@@ -379,7 +402,6 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         statsMap[uKey].vol_plan += isNaN(vCount) ? 0 : vCount;
       });
 
-      // B. 彙總 inventory 使用中數據
       const usedStorageCheck = new Set();
 
       (invRows || []).forEach(r => {
@@ -430,7 +452,6 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         }
       });
 
-      // C. 格式化為前端 Vue 要求之數據物件 (對齊 VBA 剩餘才數計算公式)
       const gridTableData = [];
       const volTableData = [];
 
@@ -441,14 +462,12 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         const remGrid = Math.max(0, item.grid_plan - item.grid_used);
         const gridRate = item.grid_plan > 0 ? ((item.grid_used / item.grid_plan) * 100).toFixed(1) + '%' : '0.0%';
 
-        // VBA 公式：剩餘才數 = 單格才數 * 剩餘儲格數
         const remVol = item.single_cubic_feet > 0 
           ? (item.single_cubic_feet * remGrid) 
           : Math.max(0, item.vol_plan - item.vol_used);
 
         const volRate = item.vol_plan > 0 ? ((item.vol_used / item.vol_plan) * 100).toFixed(1) + '%' : '0.0%';
 
-        // VBA 儲位健康度演算法
         const unusedVolRate = item.vol_plan > 0 ? (remVol / item.vol_plan) : 0;
         const usedVolRate = 1 - unusedVolRate;
         const healthVal = (item.vol_plan > 0 && usedVolRate !== 0) ? ((item.vol_used / usedVolRate) / item.vol_plan * 100).toFixed(1) + '%' : '0.0%';
@@ -508,7 +527,7 @@ app.get('/api/get-global-config', (req, res) => {
     success: true,
     data: {
       system_name: "庫存儲位管理系統",
-      version: "v2026.09.23-48COL-MATCH",
+      version: "v2026.09.23-48COL-FULL",
       server_uptime_seconds: currentUptimeSec
     }
   });
@@ -900,12 +919,16 @@ app.get('/api/get-logs', (req, res) => {
   });
 });
 
-// [POST] 批次上傳 48 欄位庫存資料
+// [POST] 批次上傳 48 欄位庫存資料 (含超級模糊 KEY 匹配防呆)
 app.post('/api/upload', (req, res) => {
   try {
     const { items, isFirstChunk } = req.body;
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ success: false, message: '上傳資料格式無效或為空陣列' });
+    }
+
+    if (isFirstChunk && items.length > 0) {
+      console.log('📦 上傳接收測試，第一筆資料 Keys 包含:', Object.keys(items[0]));
     }
 
     db.serialize(() => {
@@ -928,14 +951,29 @@ app.post('/api/upload', (req, res) => {
       `);
 
       for (const item of items) {
-        const getField = (dbKey, csvKey) => {
-          if (item[dbKey] !== undefined && item[dbKey] !== null) return item[dbKey];
-          if (item[csvKey] !== undefined && item[csvKey] !== null) return item[csvKey];
+        // 萬能欄位值擷取器 (自動無視大小寫、連字號、空格與隱形符號)
+        const getField = (...possibleKeys) => {
+          if (!item || typeof item !== 'object') return '';
+          const itemKeys = Object.keys(item);
+
+          for (const targetKey of possibleKeys) {
+            if (item[targetKey] !== undefined && item[targetKey] !== null && String(item[targetKey]).trim() !== '') {
+              return String(item[targetKey]).trim();
+            }
+
+            const cleanTarget = String(targetKey).toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]/g, '');
+            const foundKey = itemKeys.find(k => String(k).toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]/g, '') === cleanTarget);
+            
+            if (foundKey && item[foundKey] !== undefined && item[foundKey] !== null && String(item[foundKey]).trim() !== '') {
+              return String(item[foundKey]).trim();
+            }
+          }
           return '';
         };
 
-        const getNum = (dbKey, csvKey) => {
-          const val = getField(dbKey, csvKey);
+        const getNum = (...possibleKeys) => {
+          const val = getField(...possibleKeys);
+          if (!val) return 0;
           const num = parseFloat(String(val).replace(/,/g, ''));
           return isNaN(num) ? 0 : num;
         };
@@ -966,7 +1004,7 @@ app.post('/api/upload', (req, res) => {
           getNum('turn_days_total', '總庫存_迴轉天數'),
           getNum('cubic_feet', '才數'),
           getField('vol_type', '材積別'),
-          getField('loc_code_3', '儲位編碼-3'),
+          getField('loc_code_3', '儲位編碼-3', '儲位編碼3'),
           getField('loc_code_full', '儲位編碼'),
           getField('loc_code_5', '儲位編碼5'),
           getField('floor', '樓層'),
@@ -998,6 +1036,7 @@ app.post('/api/upload', (req, res) => {
           console.error('❌ Transaction Commit 失敗:', err.message);
           return res.status(500).json({ success: false, error: err.message });
         }
+        console.log(`✅ 成功極速寫入 ${items.length} 筆資料！`);
         res.json({ success: true, count: items.length, message: '48 欄位極速寫入成功！' });
       });
     });
