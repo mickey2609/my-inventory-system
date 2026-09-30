@@ -66,7 +66,8 @@
       <!-- 數據表格雙頁籤區 -->
       <div v-else class="tables-main-wrapper">
         <el-tabs type="border-card" class="dark-tabs">
-          <el-tab-pane label="📊 儲格數交叉統計表 (對齊 Excel)">
+          <!-- 1. 儲格數交叉統計表 -->
+          <el-tab-pane label="📊 儲格數交叉統計表 (對齊 Excel 圖2)">
             <el-table 
               :data="summaryGridData" 
               border 
@@ -78,6 +79,7 @@
               <el-table-column prop="floor" label="樓層" width="75" align="center" fixed="left"></el-table-column>
               <el-table-column prop="loc_type" label="儲位類型" width="130" fixed="left"></el-table-column>
 
+              <!-- 規劃 -->
               <el-table-column label="規劃" align="center">
                 <el-table-column prop="plan_A區" label="A區" width="80" align="right"></el-table-column>
                 <el-table-column prop="plan_B區" label="B區" width="80" align="right"></el-table-column>
@@ -85,6 +87,7 @@
                 <el-table-column prop="plan_D區" label="D區" width="80" align="right"></el-table-column>
               </el-table-column>
 
+              <!-- 已使用 -->
               <el-table-column label="已使用" align="center">
                 <el-table-column prop="used_A區" label="A區" width="80" align="right"></el-table-column>
                 <el-table-column prop="used_B區" label="B區" width="80" align="right"></el-table-column>
@@ -92,6 +95,7 @@
                 <el-table-column prop="used_D區" label="D區" width="80" align="right"></el-table-column>
               </el-table-column>
 
+              <!-- 未使用率 (%) -->
               <el-table-column label="未使用率 (%)" align="center">
                 <el-table-column prop="unrate_A區" label="A區" width="80" align="right"></el-table-column>
                 <el-table-column prop="unrate_B區" label="B區" width="80" align="right"></el-table-column>
@@ -99,16 +103,35 @@
                 <el-table-column prop="unrate_D區" label="D區" width="80" align="right"></el-table-column>
               </el-table-column>
 
+              <!-- 剩餘 -->
               <el-table-column label="剩餘" align="center">
                 <el-table-column prop="rem_A區" label="A區" width="80" align="right"></el-table-column>
                 <el-table-column prop="rem_B區" label="B區" width="80" align="right"></el-table-column>
                 <el-table-column prop="rem_C區" label="C區" width="80" align="right"></el-table-column>
                 <el-table-column prop="rem_D區" label="D區" width="80" align="right"></el-table-column>
               </el-table-column>
+
+              <!-- 🌟 右側新增【儲位格數彙總】(對齊 Excel 圖2) 🌟 -->
+              <el-table-column label="【儲位格數彙總】" align="center" class-name="summary-header-group">
+                <el-table-column prop="sum_plan_grid" label="規劃數" width="85" align="right">
+                  <template #default="scope"><strong>{{ formatNumber(scope.row.sum_plan_grid) }}</strong></template>
+                </el-table-column>
+                <el-table-column prop="sum_used_grid" label="已使用" width="85" align="right">
+                  <template #default="scope"><span class="text-green">{{ formatNumber(scope.row.sum_used_grid) }}</span></template>
+                </el-table-column>
+                <el-table-column prop="sum_unrate_grid" label="未使用率(%)" width="95" align="right"></el-table-column>
+                <el-table-column prop="sum_rem_grid" label="剩餘儲位數" width="95" align="right">
+                  <template #default="scope"><span class="text-orange">{{ formatNumber(scope.row.sum_rem_grid) }}</span></template>
+                </el-table-column>
+                <el-table-column prop="sum_rem_vol" label="剩餘才數" width="95" align="right">
+                  <template #default="scope"><span class="text-orange">{{ formatNumber(scope.row.sum_rem_vol) }}</span></template>
+                </el-table-column>
+              </el-table-column>
             </el-table>
           </el-tab-pane>
 
-          <el-tab-pane label="📦 才數交叉統計表 (對齊 Excel)">
+          <!-- 2. 才數交叉統計表 -->
+          <el-tab-pane label="📦 才數交叉統計表 (對齊 Excel 圖3)">
             <el-table 
               :data="summaryVolData" 
               border 
@@ -120,6 +143,7 @@
               <el-table-column prop="floor" label="樓層" width="75" align="center" fixed="left"></el-table-column>
               <el-table-column prop="loc_type" label="儲位類型" width="130" fixed="left"></el-table-column>
 
+              <!-- 規劃總才數 -->
               <el-table-column label="規劃總才數" align="center">
                 <el-table-column prop="plan_A區" label="A區" width="80" align="right"></el-table-column>
                 <el-table-column prop="plan_B區" label="B區" width="80" align="right"></el-table-column>
@@ -127,6 +151,7 @@
                 <el-table-column prop="plan_D區" label="D區" width="80" align="right"></el-table-column>
               </el-table-column>
 
+              <!-- 使用中才數 -->
               <el-table-column label="使用中才數" align="center">
                 <el-table-column prop="used_A區" label="A區" width="80" align="right"></el-table-column>
                 <el-table-column prop="used_B區" label="B區" width="80" align="right"></el-table-column>
@@ -134,11 +159,29 @@
                 <el-table-column prop="used_D區" label="D區" width="80" align="right"></el-table-column>
               </el-table-column>
 
+              <!-- 剩餘才數 -->
               <el-table-column label="剩餘才數" align="center">
                 <el-table-column prop="rem_A區" label="A區" width="80" align="right"></el-table-column>
                 <el-table-column prop="rem_B區" label="B區" width="80" align="right"></el-table-column>
                 <el-table-column prop="rem_C區" label="C區" width="80" align="right"></el-table-column>
                 <el-table-column prop="rem_D區" label="D區" width="80" align="right"></el-table-column>
+              </el-table-column>
+
+              <!-- 🌟 右側新增【才數彙總】(對齊 Excel 圖3) 🌟 -->
+              <el-table-column label="【才數彙總】" align="center" class-name="summary-header-group">
+                <el-table-column prop="sum_plan_vol" label="規劃數" width="90" align="right">
+                  <template #default="scope"><strong>{{ formatNumber(scope.row.sum_plan_vol) }}</strong></template>
+                </el-table-column>
+                <el-table-column prop="sum_used_vol" label="已使用" width="90" align="right">
+                  <template #default="scope"><span class="text-green">{{ formatNumber(scope.row.sum_used_vol) }}</span></template>
+                </el-table-column>
+                <el-table-column prop="sum_unrate_vol" label="未使用率(%)" width="95" align="right"></el-table-column>
+                <el-table-column prop="sum_rem_vol" label="剩餘才數" width="95" align="right">
+                  <template #default="scope"><span class="text-orange">{{ formatNumber(scope.row.sum_rem_vol) }}</span></template>
+                </el-table-column>
+                <el-table-column prop="sum_health_vol" label="儲位健康度" width="95" align="right">
+                  <template #default="scope"><span class="text-cyan">{{ scope.row.sum_health_vol }}</span></template>
+                </el-table-column>
               </el-table-column>
             </el-table>
           </el-tab-pane>
@@ -437,6 +480,12 @@ export default {
   text-align: center;
   border-right: 1px solid #334155 !important;
   border-bottom: 1px solid #334155 !important;
+}
+
+/* 總覽欄位區塊頭部專屬醒目背景色 */
+:deep(.pivot-table th.summary-header-group) {
+  background-color: #0284c7 !important;
+  color: #ffffff !important;
 }
 
 .config-modal-content { color: #f8fafc; }
