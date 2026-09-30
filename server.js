@@ -1,5 +1,5 @@
 // C:\my-inventory-server\server.js
-// 業務主程式 API 伺服器 (整合 48 欄位 + 強效才數保險計算 + 儲位編號萬能紙抽比對)
+// 業務主程式 API 伺服器 (整合 48 欄位 + 精準單才數相乘剩餘才數計算 + VBA 紙抽對齊)
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const cors = require('cors');
@@ -57,7 +57,7 @@ db.serialize(() => {
   db.all("PRAGMA table_info(inventory)", [], (err, columns) => {
     const hasLocCode3 = columns && columns.some(c => c.name === 'loc_code_3');
     if (!hasLocCode3 && columns && columns.length > 0) {
-      console.log('⚠️️ 自動升級重建為完整 48 欄位 Schema...');
+      console.log('⚠️ 自動升級重建為完整 48 欄位 Schema...');
       db.run(`DROP TABLE IF EXISTS inventory`);
     }
     db.run(`
@@ -215,7 +215,7 @@ app.post(['/api/import-locations-master', '/api/import-locations-master-json'], 
   });
 });
 
-// [GET] 📊 全功能 7 大卡片與樞紐表聚合 API
+// [GET] 📊 儲位才數與格數強效交叉計算 API
 app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, res) => {
   const masterSql = `SELECT COALESCE(floor, '') as floor, COALESCE(zone, '') as zone, COALESCE(loc_type, '') as loc_type, COALESCE(cubic_feet, 0) as cubic_feet, COALESCE(grid_count, 0) as grid_count, COALESCE(single_cubic_feet, 0) as single_cubic_feet FROM locations_master`;
   const inventorySql = `SELECT COALESCE(floor, '') as floor, COALESCE(floor_zone, '') as floor_zone, COALESCE(loc_type, '') as loc_type, COALESCE(heavy_rack_check, '') as heavy_rack_check, COALESCE(location, '') as location, COALESCE(shelf_level, '') as shelf_level, COALESCE(total_cubic_feet, 0) as total_cubic_feet, COALESCE(cubic_feet, 0) as cubic_feet, COALESCE(qty, 0) as qty FROM inventory`;
@@ -242,6 +242,7 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         if (!matrixMap[k]) {
           matrixMap[k] = {
             floor: f, loc_type: t,
+            single_cf: parseFloat(r.single_cubic_feet || 0),
             plan_grid: { 'A區':0, 'B區':0, 'C區':0, 'D區':0 },
             used_grid: { 'A區':0, 'B區':0, 'C區':0, 'D區':0 },
             plan_vol: { 'A區':0, 'B區':0, 'C區':0, 'D區':0 },
@@ -249,13 +250,12 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
           };
         }
         const gCnt = parseInt(r.grid_count || 0, 10);
+        const singleCf = parseFloat(r.single_cubic_feet || 0);
         
-        // 🌟 才數雙重保險：如果 cubic_feet 為 0，自動以 single_cubic_feet * grid_count 補算
         let vCnt = parseFloat(r.cubic_feet || 0);
-        if (vCnt === 0) {
-          const singleCf = parseFloat(r.single_cubic_feet || 0);
-          vCnt = singleCf * gCnt;
-        }
+        if (vCnt === 0) vCnt = singleCf * gCnt;
+
+        if (singleCf > 0) matrixMap[k].single_cf = singleCf;
 
         matrixMap[k].plan_grid[z] = (matrixMap[k].plan_grid[z] || 0) + gCnt;
         matrixMap[k].plan_vol[z] = (matrixMap[k].plan_vol[z] || 0) + vCnt;
@@ -265,7 +265,7 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
 
       // 2. 匹配 inventory 實耗才數與格數
       const usedStorageCheck = new Set();
-      let grandUsedVol = 0; // 全館使用中才數
+      let grandUsedVol = 0;
 
       invRows.forEach(r => {
         let invFloor = String(r.floor || '').trim();
@@ -288,7 +288,6 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         const adjType = getAdjustedType(invFloor, origType, code, shelfLevel, heavyCheck);
         const cleanType = (adjType || origType || '').replace(/\s+/g, '');
 
-        // 尋找對應的 Master 列
         const matchKey = Object.keys(matrixMap).find(k => {
           const m = matrixMap[k];
           
@@ -306,7 +305,6 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
           const item = matrixMap[matchKey];
           const zKey = zones.includes(invZone) ? invZone : (item.plan_grid[invZone] !== undefined ? invZone : 'A區');
           
-          // 計算實耗才數
           const curVol = parseFloat(r.total_cubic_feet) > 0 
             ? parseFloat(r.total_cubic_feet) 
             : (parseFloat(r.cubic_feet || 0) * parseFloat(r.qty || 0));
@@ -321,7 +319,7 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         }
       });
 
-      // 3. 生成對齊 Excel 的樞紐表格列
+      // 3. 生成對齊 Excel 的樞紐表格列 (含精準單才數相乘之剩餘才數)
       const gridPivotTable = [];
       const volPivotTable = [];
 
@@ -331,6 +329,8 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         plan_grid: { 'A區':0, 'B區':0, 'C區':0, 'D區':0 },
         used_grid: { 'A區':0, 'B區':0, 'C區':0, 'D區':0 }
       };
+
+      let grandRemVolReal = 0; // 🌟 真正剩餘空才數總和
 
       Object.values(matrixMap).forEach(row => {
         const t = row.loc_type;
@@ -358,17 +358,22 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
 
           const pv = row.plan_vol[z] || 0;
           const uv = row.used_vol[z] || 0;
-          const rv = Math.max(0, pv - uv);
+          
+          // 🌟 核心需求：剩餘才數 = 剩餘儲格數 (rg) × 單一儲位才數 (single_cf)
+          const singleCf = row.single_cf || (pg > 0 ? (pv / pg) : 0);
+          const rvReal = singleCf > 0 ? (rg * singleCf) : Math.max(0, pv - uv);
 
           volRow[`plan_${z}`] = pv > 0 ? parseFloat(pv.toFixed(1)) : '';
           volRow[`used_${z}`] = uv > 0 ? parseFloat(uv.toFixed(1)) : '';
-          volRow[`rem_${z}`] = rv > 0 ? parseFloat(rv.toFixed(1)) : '';
+          volRow[`rem_${z}`] = rvReal > 0 ? parseFloat(rvReal.toFixed(1)) : '';
 
           typeSubtotals[t].plan_grid[z] += pg;
           typeSubtotals[t].used_grid[z] += ug;
 
           grandTotalGrid.plan_grid[z] += pg;
           grandTotalGrid.used_grid[z] += ug;
+
+          grandRemVolReal += rvReal;
         });
 
         gridPivotTable.push(gridRow);
@@ -411,8 +416,6 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
       });
       gridPivotTable.push(totalRow);
 
-      const remVolTotal = Math.max(0, grandPlanVol - grandUsedVol);
-
       res.json({
         success: true,
         status: 'success',
@@ -422,7 +425,7 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
           total_rem_grid: Math.max(0, sumPlanG - sumUsedG),
           total_plan_vol: parseFloat(grandPlanVol.toFixed(1)),
           total_used_vol: parseFloat(grandUsedVol.toFixed(1)),
-          total_rem_vol: parseFloat(remVolTotal.toFixed(1)),
+          total_rem_vol: parseFloat(grandRemVolReal.toFixed(1)), // 🌟 真正剩餘才數
           total_health: sumPlanG > 0 ? ((sumUsedG / sumPlanG) * 100).toFixed(1) + '%' : '0.0%'
         },
         grid_summary: gridPivotTable,
@@ -517,7 +520,7 @@ app.post('/api/delete-user', (req, res) => {
   });
 });
 
-// [GET] 庫存查詢 API (完整 48 欄位轉譯與強效聚合查詢)
+// [GET] 庫存查詢 API
 app.get('/api/search', (req, res) => {
   const page = parseInt(req.query.page || '1', 10);
   const pageSize = parseInt(req.query.pageSize || '500', 10);
