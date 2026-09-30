@@ -1,5 +1,5 @@
 // C:\my-inventory-server\server.js
-// 業務主程式 API 伺服器 (整合 48 欄位處理 + VBA 紙抽邏輯 100% 對齊 + 7 大才數卡片聚合)
+// 業務主程式 API 伺服器 (整合 48 欄位 + 強效才數保險計算 + 儲位編號萬能紙抽比對)
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const cors = require('cors');
@@ -57,7 +57,7 @@ db.serialize(() => {
   db.all("PRAGMA table_info(inventory)", [], (err, columns) => {
     const hasLocCode3 = columns && columns.some(c => c.name === 'loc_code_3');
     if (!hasLocCode3 && columns && columns.length > 0) {
-      console.log('⚠️ 自動升級重建為完整 48 欄位 Schema...');
+      console.log('⚠️️ 自動升級重建為完整 48 欄位 Schema...');
       db.run(`DROP TABLE IF EXISTS inventory`);
     }
     db.run(`
@@ -80,7 +80,7 @@ db.serialize(() => {
   db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions) VALUES ('801854', '黃勝鴻', 'sys_admin', '801854', 'all');`);
 });
 
-// 🌟 精準校正儲位型態 (100% 依據 VBA 規則轉換)
+// 🌟 精準校正儲位型態 (萬能儲位編號紙抽比對)
 function getAdjustedType(floor, rType, storageCode, shelfLevel, heavyRackCheck) {
   floor = String(floor || '').toUpperCase().trim();
   rType = String(rType || '').trim();
@@ -88,35 +88,50 @@ function getAdjustedType(floor, rType, storageCode, shelfLevel, heavyRackCheck) 
   shelfLevel = String(shelfLevel || '').toUpperCase().trim();
   heavyRackCheck = String(heavyRackCheck || '').trim();
 
-  // 1. 優先依據 heavy_rack_check 判斷重型層架-低
+  // 1. 重型層架-低
   if (heavyRackCheck.includes('重型層架-低') || heavyRackCheck.includes('低') || heavyRackCheck === '重型層架-低') {
     return '重型層架-低';
   }
 
-  // 2. 擷取儲位前綴與座號 (VBA: Left(storageCode, 3) 與 Val(Mid(storageCode, 4, 3)))
+  // 2. 擷取儲位前綴 (ROW) 與 座號 (SEAT) 與 層標 (LEVEL)
   const rowTag = storageCode.length >= 3 ? storageCode.substring(0, 3) : '';
   const seatTag = storageCode.length >= 6 ? (parseInt(storageCode.substring(3, 6), 10) || 0) : 0;
+  
+  if (!shelfLevel && storageCode.length >= 7) {
+    shelfLevel = storageCode.substring(6, 7);
+  }
 
-  // 3. 7F 紙抽邏輯
-  if (floor.includes('7F')) {
+  // 3. 7F 紙抽萬能匹配 (M01~M53, seat<=56, level=B/C)
+  if (floor.includes('7F') || storageCode.startsWith('7F') || rowTag.startsWith('M')) {
     if (rowTag >= 'M01' && rowTag <= 'M53' && seatTag <= 56) {
-      if (shelfLevel === 'B' || shelfLevel === 'C') return 'AGV層架-紙抽';
-    }
-  } 
-  // 4. 6F 紙抽邏輯
-  else if (floor.includes('6F')) {
-    if (rowTag >= 'L01' && rowTag <= 'L26' && seatTag <= 60) {
-      if (shelfLevel !== '' && ['A', 'B', 'C'].includes(shelfLevel)) return 'AGV層架-紙抽';
-    } else if (rowTag >= 'L27' && rowTag <= 'L30' && seatTag <= 60) {
-      if (shelfLevel !== '' && ['A', 'B', 'C', 'D', 'E', 'F'].includes(shelfLevel)) return 'AGV層架-紙抽';
+      if (shelfLevel === 'B' || shelfLevel === 'C' || !shelfLevel) {
+        return 'AGV層架-紙抽';
+      }
     }
   }
 
-  // 5. 全域 R區紙抽邏輯 (不限樓層，包含 8F 及全樓層 R 區)
+  // 4. 6F 紙抽萬能匹配 (L01~L26 level A/B/C ; L27~L30 level A~F)
+  if (floor.includes('6F') || storageCode.startsWith('6F') || rowTag.startsWith('L')) {
+    if (rowTag >= 'L01' && rowTag <= 'L26' && seatTag <= 60) {
+      if (['A', 'B', 'C'].includes(shelfLevel) || !shelfLevel) {
+        return 'AGV層架-紙抽';
+      }
+    } else if (rowTag >= 'L27' && rowTag <= 'L30' && seatTag <= 60) {
+      if (['A', 'B', 'C', 'D', 'E', 'F'].includes(shelfLevel) || !shelfLevel) {
+        return 'AGV層架-紙抽';
+      }
+    }
+  }
+
+  // 5. 全域 R區紙抽萬能匹配 (R13~R42 A/B ; R11~R12 seat<=20 A/B)
   if (rowTag >= 'R13' && rowTag <= 'R42') {
-    if (shelfLevel === 'A' || shelfLevel === 'B') return 'AGV層架-紙抽';
+    if (shelfLevel === 'A' || shelfLevel === 'B' || !shelfLevel) {
+      return 'AGV層架-紙抽';
+    }
   } else if ((rowTag === 'R11' || rowTag === 'R12') && seatTag >= 1 && seatTag <= 20) {
-    if (shelfLevel === 'A' || shelfLevel === 'B') return 'AGV層架-紙抽';
+    if (shelfLevel === 'A' || shelfLevel === 'B' || !shelfLevel) {
+      return 'AGV層架-紙抽';
+    }
   }
 
   return rType;
@@ -200,7 +215,7 @@ app.post(['/api/import-locations-master', '/api/import-locations-master-json'], 
   });
 });
 
-// [GET] 📊 儲位才數與格數強效交叉計算 API (含 7 大卡片與精準紙抽)
+// [GET] 📊 全功能 7 大卡片與樞紐表聚合 API
 app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, res) => {
   const masterSql = `SELECT COALESCE(floor, '') as floor, COALESCE(zone, '') as zone, COALESCE(loc_type, '') as loc_type, COALESCE(cubic_feet, 0) as cubic_feet, COALESCE(grid_count, 0) as grid_count, COALESCE(single_cubic_feet, 0) as single_cubic_feet FROM locations_master`;
   const inventorySql = `SELECT COALESCE(floor, '') as floor, COALESCE(floor_zone, '') as floor_zone, COALESCE(loc_type, '') as loc_type, COALESCE(heavy_rack_check, '') as heavy_rack_check, COALESCE(location, '') as location, COALESCE(shelf_level, '') as shelf_level, COALESCE(total_cubic_feet, 0) as total_cubic_feet, COALESCE(cubic_feet, 0) as cubic_feet, COALESCE(qty, 0) as qty FROM inventory`;
@@ -215,7 +230,7 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
 
       let grandPlanVol = 0; // 全館規劃總才數
 
-      // 1. 初始化 locations_master 規劃
+      // 1. 初始化 locations_master 規劃才數與格數
       masterRows.forEach(r => {
         let f = String(r.floor || '').trim();
         let z = String(r.zone || '').trim();
@@ -234,7 +249,13 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
           };
         }
         const gCnt = parseInt(r.grid_count || 0, 10);
-        const vCnt = parseFloat(r.cubic_feet || 0);
+        
+        // 🌟 才數雙重保險：如果 cubic_feet 為 0，自動以 single_cubic_feet * grid_count 補算
+        let vCnt = parseFloat(r.cubic_feet || 0);
+        if (vCnt === 0) {
+          const singleCf = parseFloat(r.single_cubic_feet || 0);
+          vCnt = singleCf * gCnt;
+        }
 
         matrixMap[k].plan_grid[z] = (matrixMap[k].plan_grid[z] || 0) + gCnt;
         matrixMap[k].plan_vol[z] = (matrixMap[k].plan_vol[z] || 0) + vCnt;
@@ -242,7 +263,7 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         grandPlanVol += vCnt;
       });
 
-      // 2. 匹配 inventory 實耗
+      // 2. 匹配 inventory 實耗才數與格數
       const usedStorageCheck = new Set();
       let grandUsedVol = 0; // 全館使用中才數
 
@@ -267,7 +288,7 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         const adjType = getAdjustedType(invFloor, origType, code, shelfLevel, heavyCheck);
         const cleanType = (adjType || origType || '').replace(/\s+/g, '');
 
-        // 精準尋找 Master 對應項目
+        // 尋找對應的 Master 列
         const matchKey = Object.keys(matrixMap).find(k => {
           const m = matrixMap[k];
           
@@ -284,7 +305,11 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         if (matchKey) {
           const item = matrixMap[matchKey];
           const zKey = zones.includes(invZone) ? invZone : (item.plan_grid[invZone] !== undefined ? invZone : 'A區');
-          const curVol = parseFloat(r.total_cubic_feet) > 0 ? parseFloat(r.total_cubic_feet) : (parseFloat(r.cubic_feet || 0) * parseFloat(r.qty || 0));
+          
+          // 計算實耗才數
+          const curVol = parseFloat(r.total_cubic_feet) > 0 
+            ? parseFloat(r.total_cubic_feet) 
+            : (parseFloat(r.cubic_feet || 0) * parseFloat(r.qty || 0));
 
           item.used_vol[zKey] = (item.used_vol[zKey] || 0) + curVol;
           grandUsedVol += curVol;
@@ -492,7 +517,7 @@ app.post('/api/delete-user', (req, res) => {
   });
 });
 
-// [GET] 庫存查詢 API
+// [GET] 庫存查詢 API (完整 48 欄位轉譯與強效聚合查詢)
 app.get('/api/search', (req, res) => {
   const page = parseInt(req.query.page || '1', 10);
   const pageSize = parseInt(req.query.pageSize || '500', 10);
