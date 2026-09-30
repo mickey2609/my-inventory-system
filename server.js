@@ -1,5 +1,5 @@
 // C:\my-inventory-server\server.js
-// 業務主程式 API 伺服器 (精準 locations_master floor/zone 單儲位才數比對 X 剩餘儲格數)
+// 業務主程式 API 伺服器 (整合 48 欄位 + 精準才數健康度演算法 + loc_code_5 紙抽對齊)
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const cors = require('cors');
@@ -80,18 +80,16 @@ db.serialize(() => {
   db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions) VALUES ('801854', '黃勝鴻', 'sys_admin', '801854', 'all');`);
 });
 
-// 精準校正儲位型態 (改抓 loc_code_5 進行紙抽判定)
+// 精準校正儲位型態
 function getAdjustedType(floor, rType, storageCode, locCode5, shelfLevel, heavyRackCheck) {
   floor = String(floor || '').toUpperCase().trim();
   rType = String(rType || '').trim();
   heavyRackCheck = String(heavyRackCheck || '').trim();
 
-  // 1. 優先依據 heavy_rack_check 判斷重型層架-低
   if (heavyRackCheck.includes('重型層架-低') || heavyRackCheck.includes('低') || heavyRackCheck === '重型層架-低') {
     return '重型層架-低';
   }
 
-  // 2. 儲位代碼優先使用 loc_code_5，備退才用 storageCode
   let code = String(locCode5 || '').toUpperCase().trim();
   if (!code) code = String(storageCode || '').toUpperCase().trim();
 
@@ -108,14 +106,12 @@ function getAdjustedType(floor, rType, storageCode, locCode5, shelfLevel, heavyR
     level = code.substring(6, 7);
   }
 
-  // 3. 7F 紙抽邏輯
   if (floor.includes('7F') || code.startsWith('M')) {
     if (rowTag >= 'M01' && rowTag <= 'M53' && seatTag <= 56) {
       if (level === 'B' || level === 'C' || !level) return 'AGV層架-紙抽';
     }
   } 
 
-  // 4. 6F 紙抽邏輯
   if (floor.includes('6F') || code.startsWith('L')) {
     if (rowTag >= 'L01' && rowTag <= 'L26' && seatTag <= 60) {
       if (['A', 'B', 'C'].includes(level) || !level) return 'AGV層架-紙抽';
@@ -124,7 +120,6 @@ function getAdjustedType(floor, rType, storageCode, locCode5, shelfLevel, heavyR
     }
   }
 
-  // 5. 全域 R區紙抽邏輯
   if (rowTag >= 'R13' && rowTag <= 'R42') {
     if (level === 'A' || level === 'B' || !level) return 'AGV層架-紙抽';
   } else if ((rowTag === 'R11' || rowTag === 'R12') && seatTag >= 1 && seatTag <= 20) {
@@ -212,7 +207,7 @@ app.post(['/api/import-locations-master', '/api/import-locations-master-json'], 
   });
 });
 
-// [GET] 📊 儲位才數與格數強效交叉計算 API
+// [GET] 📊 儲位才數與格數強效交叉計算 API (含才數健康度新公式)
 app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, res) => {
   const masterSql = `SELECT COALESCE(floor, '') as floor, COALESCE(zone, '') as zone, COALESCE(loc_type, '') as loc_type, COALESCE(cubic_feet, 0) as cubic_feet, COALESCE(grid_count, 0) as grid_count, COALESCE(single_cubic_feet, 0) as single_cubic_feet FROM locations_master`;
   const inventorySql = `SELECT COALESCE(floor, '') as floor, COALESCE(floor_zone, '') as floor_zone, COALESCE(loc_type, '') as loc_type, COALESCE(heavy_rack_check, '') as heavy_rack_check, COALESCE(location, '') as location, COALESCE(loc_code_5, '') as loc_code_5, COALESCE(shelf_level, '') as shelf_level, COALESCE(total_cubic_feet, 0) as total_cubic_feet, COALESCE(cubic_feet, 0) as cubic_feet, COALESCE(qty, 0) as qty FROM inventory`;
@@ -227,7 +222,7 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
 
       let grandPlanVol = 0; // 全館規劃總才數
 
-      // 1. 初始化 locations_master 規劃 (依據 floor, zone, loc_type 保存單儲位才數)
+      // 1. 初始化 locations_master 規劃
       masterRows.forEach(r => {
         let f = String(r.floor || '').trim();
         let z = String(r.zone || '').trim();
@@ -239,7 +234,6 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         if (!matrixMap[k]) {
           matrixMap[k] = {
             floor: f, loc_type: t,
-            // 🌟 將每個區域專屬的單儲位才數分區域保存
             single_cf_map: { 'A區':0, 'B區':0, 'C區':0, 'D區':0 },
             plan_grid: { 'A區':0, 'B區':0, 'C區':0, 'D區':0 },
             used_grid: { 'A區':0, 'B區':0, 'C區':0, 'D區':0 },
@@ -263,7 +257,7 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         grandPlanVol += vCnt;
       });
 
-      // 2. 匹配 inventory 實耗 (使用 loc_code_5 精準判定)
+      // 2. 匹配 inventory 實耗
       const usedStorageCheck = new Set();
       let grandUsedVol = 0;
 
@@ -321,7 +315,7 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         }
       });
 
-      // 3. 生成對齊 Excel 的樞紐表格列 (剩餘才數 = 該 floor & zone 儲位定義之單儲位才數 × 剩餘儲格數)
+      // 3. 生成對齊 Excel 的樞紐表格列
       const gridPivotTable = [];
       const volPivotTable = [];
 
@@ -361,11 +355,8 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
           const pv = row.plan_vol[z] || 0;
           const uv = row.used_vol[z] || 0;
           
-          // 🌟 核心需求實現：先找 locations_master 定義的該 floor & zone 單儲位才數，再乘以剩餘儲格數 (rg)
           let singleCf = row.single_cf_map[z] || 0;
-          if (singleCf === 0 && pg > 0) {
-            singleCf = pv / pg; // 防呆推算
-          }
+          if (singleCf === 0 && pg > 0) singleCf = pv / pg;
           
           const rvReal = singleCf > 0 ? (rg * singleCf) : Math.max(0, pv - uv);
 
@@ -422,6 +413,20 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
       });
       gridPivotTable.push(totalRow);
 
+      // 🌟🌟🌟 新健康度公式計算 🌟🌟🌟
+      // 1. 未使用率 = 剩餘才數 / 儲位總才數
+      const overallUnusedRateVol = grandPlanVol > 0 ? (grandRemVolReal / grandPlanVol) : 0;
+      
+      // 2. 儲位健康度 = [ 使用才數 / (1 - 未使用率) ] / 儲位總才數
+      let overallHealthCalc = '0.0%';
+      const denominator = 1 - overallUnusedRateVol;
+
+      if (grandPlanVol > 0 && denominator > 0) {
+        const adjustedUsedVol = grandUsedVol / denominator;
+        const healthRatio = (adjustedUsedVol / grandPlanVol) * 100;
+        overallHealthCalc = healthRatio.toFixed(1) + '%';
+      }
+
       res.json({
         success: true,
         status: 'success',
@@ -432,14 +437,14 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
           total_plan_vol: parseFloat(grandPlanVol.toFixed(1)),
           total_used_vol: parseFloat(grandUsedVol.toFixed(1)),
           total_rem_vol: parseFloat(grandRemVolReal.toFixed(1)),
-          total_health: sumPlanG > 0 ? ((sumUsedG / sumPlanG) * 100).toFixed(1) + '%' : '0.0%'
+          total_health: overallHealthCalc // 🌟 新公式結果
         },
         grid_summary: gridPivotTable,
         summaryGridData: gridPivotTable,
         vol_summary: volPivotTable,
         summaryVolData: volPivotTable,
         area_grid_table: gridPivotTable,
-        area_vol_table: volPivotTable
+        area_vol_table: gridPivotTable
       });
     });
   });
