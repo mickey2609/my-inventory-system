@@ -185,11 +185,11 @@ function getAdjustedType(floor, rType, storageCode, shelfLevel) {
   const rowTag = storageCode.substring(0, 3);
   const seatTag = parseInt(storageCode.substring(3, 6), 10) || 0;
 
-  if (floor === '7F') {
+  if (floor.includes('7F')) {
     if (rowTag >= 'M01' && rowTag <= 'M53' && seatTag <= 56) {
       if (shelfLevel === 'B' || shelfLevel === 'C') return 'AGV層架-紙抽';
     }
-  } else if (floor === '6F') {
+  } else if (floor.includes('6F')) {
     if (rowTag >= 'L01' && rowTag <= 'L26' && seatTag <= 60) {
       if (['A', 'B', 'C'].includes(shelfLevel)) return 'AGV層架-紙抽';
     } else if (rowTag >= 'L27' && rowTag <= 'L30' && seatTag <= 60) {
@@ -303,7 +303,8 @@ app.post(['/api/import-locations-master', '/api/import-locations-master-json'], 
           if (!r || typeof r !== 'object') continue;
 
           const floor = String(r['樓層'] || r.floor || r.Floor || '').trim();
-          const zone = String(r['區域'] || r.zone || r.Zone || '').trim();
+          // 支援 "區域" 與 "樓層區域"
+          const zone = String(r['區域'] || r['樓層區域'] || r.zone || r.Zone || '').trim();
           const locType = String(r['儲位類型'] || r['儲位型態'] || r.loc_type || r.LocType || '').trim();
           const cubicFeet = parseNum(r['才數'] || r.cubic_feet || r.CubicFeet);
           const gridCount = parseIntNum(r['儲格數(板、層)'] || r['儲格數'] || r.grid_count || r.GridCount);
@@ -331,7 +332,7 @@ app.post(['/api/import-locations-master', '/api/import-locations-master-json'], 
   });
 });
 
-// [GET] 📊 儲位才數統整 API
+// [GET] 📊 儲位才數統整 API (相容 2F西 與 2F、B 與 B區 比對)
 app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, res) => {
   const masterSql = `
     SELECT 
@@ -347,6 +348,7 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
   const inventorySql = `
     SELECT 
       COALESCE(floor, '') as floor,
+      COALESCE(floor_zone, '') as floor_zone,
       COALESCE(big_zone, '') as big_zone,
       COALESCE(loc_type, '') as loc_type,
       COALESCE(location, '') as location,
@@ -366,19 +368,22 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
 
       const statsMap = {};
 
+      // 1. 建立 Master 基準地圖
       (masterRows || []).forEach(r => {
-        let rawFloor = String(r.floor || '').trim();
+        let rawFloor = String(r.floor || '').trim(); // 例如 "2F西"
+        let rawZone = String(r.zone || '').trim();   // 例如 "B"
         let rType = String(r.loc_type || '').trim();
         if (!rawFloor || rawFloor === '樓層' || !rType) return;
-        if (rawFloor === '1F' && rType === '自動化板式') return;
+        if (rawFloor.includes('1F') && rType === '自動化板式') return;
 
-        const uKey = `${rawFloor}_${rType.replace(/\s+/g, '')}`;
+        const uKey = `${rawFloor}_${rawZone}_${rType.replace(/\s+/g, '')}`;
 
         if (!statsMap[uKey]) {
           statsMap[uKey] = {
             key: uKey,
-            floorRegion: `${rawFloor} ${rType}`,
+            floorRegion: `${rawFloor} ${rawZone} ${rType}`,
             rawFloor: rawFloor,
+            rawZone: rawZone,
             loc_type: rType,
             grid_plan: 0,
             grid_used: 0,
@@ -397,8 +402,10 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
 
       const usedStorageCheck = new Set();
 
+      // 2. 扣對 Inventory 進行匹配 (含 2F西 ➔ 2F、B ➔ B區 模糊自動相容)
       (invRows || []).forEach(r => {
-        let invFloor = String(r.floor || '').trim();
+        let invFloor = String(r.floor || '').trim();     // 例如 "2F"
+        let invZone = String(r.floor_zone || '').trim(); // 例如 "B區"
         const storageCode = String(r.location || '').toUpperCase().trim();
         const originalType = String(r.loc_type || '').trim();
         const shelfLevel = String(r.shelf_level || (storageCode.length >= 7 ? storageCode.substring(6, 7) : '')).trim();
@@ -415,20 +422,28 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         const adjustedType = getAdjustedType(invFloor, originalType, storageCode, shelfLevel);
         const cleanType = (adjustedType || originalType || '').replace(/\s+/g, '');
 
+        // 核心對齊轉譯：提取純樓層數字與字母 (2F西 ➔ 2F / B區 ➔ B)
+        const pureInvFloor = invFloor.replace(/[^0-9F]/gi, '').toUpperCase();
+        const pureInvZone = invZone.replace(/區/g, '').trim().toUpperCase();
+
         let targetItem = null;
         const allKeys = Object.keys(statsMap);
-        const exactKey = `${invFloor}_${cleanType}`;
 
-        if (statsMap[exactKey]) {
-          targetItem = statsMap[exactKey];
-        } else {
-          const pureFloor = invFloor.replace(/[^0-9F]/gi, '');
-          const foundKey = allKeys.find(k => {
-            const [mFloor, mType] = k.split('_');
-            const mPureFloor = mFloor.replace(/[^0-9F]/gi, '');
-            return mPureFloor === pureFloor && (mType.includes(cleanType) || cleanType.includes(mType));
-          });
-          if (foundKey) targetItem = statsMap[foundKey];
+        // 進行超級模糊匹配：比較純數字樓層 + 純字母區域 + 儲位型態
+        const foundKey = allKeys.find(k => {
+          const m = statsMap[k];
+          const pureMasterFloor = m.rawFloor.replace(/[^0-9F]/gi, '').toUpperCase();
+          const pureMasterZone = m.rawZone.replace(/區/g, '').trim().toUpperCase();
+
+          const floorMatch = (pureMasterFloor === pureInvFloor) || (m.rawFloor.includes(invFloor)) || (invFloor.includes(m.rawFloor));
+          const zoneMatch = (pureMasterZone === pureInvZone) || !pureInvZone || !pureMasterZone;
+          const typeMatch = m.loc_type.includes(cleanType) || cleanType.includes(m.loc_type);
+
+          return floorMatch && zoneMatch && typeMatch;
+        });
+
+        if (foundKey) {
+          targetItem = statsMap[foundKey];
         }
 
         if (targetItem) {
@@ -728,7 +743,6 @@ app.get('/api/search', (req, res) => {
 
     const totalCount = summaryRow ? summaryRow.total_rows : 0;
     
-    // 🌟 核心修復：聚合模式下顯式將 48 個欄位全部以 MAX(...) 提取出來，解決顯示為 - 的問題
     let baseQuery = '';
     if (aggregate) {
       baseQuery = `
@@ -991,7 +1005,6 @@ app.post('/api/upload', (req, res) => {
       `);
 
       for (const item of items) {
-        // 萬能欄位值擷取器 (自動無視大小寫、連字號、空格與隱形符號)
         const getField = (...possibleKeys) => {
           if (!item || typeof item !== 'object') return '';
           const itemKeys = Object.keys(item);
