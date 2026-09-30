@@ -1,5 +1,5 @@
 // C:\my-inventory-server\server.js
-// 業務主程式 API 伺服器 (整合 48 欄位處理 + Schema 強制自動升級 + VBA 儲位才數統整)
+// 業務主程式 API 伺服器 (整合 48 欄位處理 + Schema 強制自動升級 + 對齊 Excel 樞紐交叉統計)
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const cors = require('cors');
@@ -114,7 +114,6 @@ db.serialize(() => {
   db.all("PRAGMA table_info(inventory)", [], (err, columns) => {
     const hasLocCode3 = columns && columns.some(c => c.name === 'loc_code_3');
     
-    // 若為舊版 Schema (缺少 loc_code_3)，自動強行刪除舊表重新建構 48 欄位資料表
     if (!hasLocCode3 && columns && columns.length > 0) {
       console.log('⚠️ 檢測到舊版 inventory 資料表結構，正在自動升級重建為完整 48 欄位 Schema...');
       db.run(`DROP TABLE IF EXISTS inventory`);
@@ -303,7 +302,6 @@ app.post(['/api/import-locations-master', '/api/import-locations-master-json'], 
           if (!r || typeof r !== 'object') continue;
 
           const floor = String(r['樓層'] || r.floor || r.Floor || '').trim();
-          // 支援 "區域" 與 "樓層區域"
           const zone = String(r['區域'] || r['樓層區域'] || r.zone || r.Zone || '').trim();
           const locType = String(r['儲位類型'] || r['儲位型態'] || r.loc_type || r.LocType || '').trim();
           const cubicFeet = parseNum(r['才數'] || r.cubic_feet || r.CubicFeet);
@@ -332,7 +330,7 @@ app.post(['/api/import-locations-master', '/api/import-locations-master-json'], 
   });
 });
 
-// [GET] 📊 儲位才數統整 API (相容 2F西 與 2F、B 與 B區 比對)
+// [GET] 📊 對齊 Excel 樞紐交叉表的核心計算 API
 app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, res) => {
   const masterSql = `
     SELECT 
@@ -366,175 +364,174 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
     db.all(inventorySql, [], (err, invRows) => {
       if (err) invRows = [];
 
-      const statsMap = {};
+      const matrixMap = {};
+      const zones = ['A區', 'B區', 'C區', 'D區'];
 
-      // 1. 建立 Master 基準地圖
+      // 1. 初始化 locations_master 規劃
       (masterRows || []).forEach(r => {
-        let rawFloor = String(r.floor || '').trim(); // 例如 "2F西"
-        let rawZone = String(r.zone || '').trim();   // 例如 "B"
-        let rType = String(r.loc_type || '').trim();
-        if (!rawFloor || rawFloor === '樓層' || !rType) return;
-        if (rawFloor.includes('1F') && rType === '自動化板式') return;
+        let f = String(r.floor || '').trim();
+        let z = String(r.zone || '').trim();
+        let t = String(r.loc_type || '').trim();
+        if (!f || !t || f === '樓層') return;
+        if (!z.endsWith('區')) z = z + '區';
 
-        const uKey = `${rawFloor}_${rawZone}_${rType.replace(/\s+/g, '')}`;
-
-        if (!statsMap[uKey]) {
-          statsMap[uKey] = {
-            key: uKey,
-            floorRegion: `${rawFloor} ${rawZone} ${rType}`,
-            rawFloor: rawFloor,
-            rawZone: rawZone,
-            loc_type: rType,
-            grid_plan: 0,
-            grid_used: 0,
-            vol_plan: 0,
-            vol_used: 0,
-            single_cubic_feet: parseFloat(r.single_cubic_feet || 0)
+        const k = `${f}_${t}`;
+        if (!matrixMap[k]) {
+          matrixMap[k] = {
+            floor: f, loc_type: t,
+            plan_grid: { 'A區':0, 'B區':0, 'C區':0, 'D區':0 },
+            used_grid: { 'A區':0, 'B區':0, 'C區':0, 'D區':0 },
+            plan_vol: { 'A區':0, 'B區':0, 'C區':0, 'D區':0 },
+            used_vol: { 'A區':0, 'B區':0, 'C區':0, 'D區':0 }
           };
         }
-
-        const gCount = parseInt(r.grid_count || 0, 10);
-        const vCount = parseFloat(r.cubic_feet || 0);
-
-        statsMap[uKey].grid_plan += isNaN(gCount) ? 0 : gCount;
-        statsMap[uKey].vol_plan += isNaN(vCount) ? 0 : vCount;
+        matrixMap[k].plan_grid[z] = (matrixMap[k].plan_grid[z] || 0) + parseInt(r.grid_count || 0, 10);
+        matrixMap[k].plan_vol[z] = (matrixMap[k].plan_vol[z] || 0) + parseFloat(r.cubic_feet || 0);
       });
 
+      // 2. 匹配 inventory 實耗
       const usedStorageCheck = new Set();
-
-      // 2. 扣對 Inventory 進行匹配 (含 2F西 ➔ 2F、B ➔ B區 模糊自動相容)
       (invRows || []).forEach(r => {
-        let invFloor = String(r.floor || '').trim();     // 例如 "2F"
-        let invZone = String(r.floor_zone || '').trim(); // 例如 "B區"
-        const storageCode = String(r.location || '').toUpperCase().trim();
-        const originalType = String(r.loc_type || '').trim();
-        const shelfLevel = String(r.shelf_level || (storageCode.length >= 7 ? storageCode.substring(6, 7) : '')).trim();
+        let invFloor = String(r.floor || '').trim();
+        let invZone = String(r.floor_zone || '').trim();
+        const code = String(r.location || '').toUpperCase().trim();
+        const origType = String(r.loc_type || '').trim();
+        const shelfLevel = String(r.shelf_level || (code.length >= 7 ? code.substring(6, 7) : '')).trim();
 
-        if (!invFloor && storageCode.length >= 2) {
-          const matchFloor = storageCode.match(/^([0-9]F[東西南北]?)/i);
-          if (matchFloor) invFloor = matchFloor[1].toUpperCase();
-          else {
-            const matchSimple = storageCode.match(/^([0-9]F)/i);
-            if (matchSimple) invFloor = matchSimple[1].toUpperCase();
-          }
-        }
+        if (!invZone.endsWith('區')) invZone = invZone + '區';
+        const adjType = getAdjustedType(invFloor, origType, code, shelfLevel);
+        const cleanType = (adjType || origType || '').replace(/\s+/g, '');
 
-        const adjustedType = getAdjustedType(invFloor, originalType, storageCode, shelfLevel);
-        const cleanType = (adjustedType || originalType || '').replace(/\s+/g, '');
-
-        // 核心對齊轉譯：提取純樓層數字與字母 (2F西 ➔ 2F / B區 ➔ B)
         const pureInvFloor = invFloor.replace(/[^0-9F]/gi, '').toUpperCase();
         const pureInvZone = invZone.replace(/區/g, '').trim().toUpperCase();
 
-        let targetItem = null;
-        const allKeys = Object.keys(statsMap);
-
-        // 進行超級模糊匹配：比較純數字樓層 + 純字母區域 + 儲位型態
-        const foundKey = allKeys.find(k => {
-          const m = statsMap[k];
-          const pureMasterFloor = m.rawFloor.replace(/[^0-9F]/gi, '').toUpperCase();
-          const pureMasterZone = m.rawZone.replace(/區/g, '').trim().toUpperCase();
-
-          const floorMatch = (pureMasterFloor === pureInvFloor) || (m.rawFloor.includes(invFloor)) || (invFloor.includes(m.rawFloor));
-          const zoneMatch = (pureMasterZone === pureInvZone) || !pureInvZone || !pureMasterZone;
-          const typeMatch = m.loc_type.includes(cleanType) || cleanType.includes(m.loc_type);
-
-          return floorMatch && zoneMatch && typeMatch;
+        const matchKey = Object.keys(matrixMap).find(k => {
+          const m = matrixMap[k];
+          const pureMFloor = m.floor.replace(/[^0-9F]/gi, '').toUpperCase();
+          return pureMFloor === pureInvFloor && (m.loc_type.includes(cleanType) || cleanType.includes(m.loc_type));
         });
 
-        if (foundKey) {
-          targetItem = statsMap[foundKey];
-        }
+        if (matchKey) {
+          const item = matrixMap[matchKey];
+          const zKey = zones.includes(invZone) ? invZone : 'A區';
+          const curVol = parseFloat(r.total_cubic_feet) > 0 ? parseFloat(r.total_cubic_feet) : (parseFloat(r.cubic_feet || 0) * parseFloat(r.qty || 0));
 
-        if (targetItem) {
-          const curVol = parseFloat(r.total_cubic_feet) > 0 
-            ? parseFloat(r.total_cubic_feet) 
-            : (parseFloat(r.cubic_feet || 0) * parseFloat(r.qty || 0));
-
-          targetItem.vol_used += isNaN(curVol) ? 0 : curVol;
-
-          if (storageCode && !usedStorageCheck.has(storageCode)) {
-            usedStorageCheck.add(storageCode);
-            targetItem.grid_used += 1;
+          item.used_vol[zKey] = (item.used_vol[zKey] || 0) + curVol;
+          if (code && !usedStorageCheck.has(code)) {
+            usedStorageCheck.add(code);
+            item.used_grid[zKey] = (item.used_grid[zKey] || 0) + 1;
           }
         }
       });
 
-      const gridTableData = [];
-      const volTableData = [];
+      // 3. 生成對齊 Excel 的樞紐表格列 (明細列 + 黃色小計列 + 綠色總計列)
+      const gridPivotTable = [];
+      const volPivotTable = [];
 
-      let totalPlanGrid = 0, totalUsedGrid = 0, totalRemGrid = 0;
-      let totalPlanVol = 0, totalUsedVol = 0;
+      const typeSubtotals = {};
+      const grandTotalGrid = {
+        floor: '', loc_type: '全區總計', is_total: true,
+        plan_grid: { 'A區':0, 'B區':0, 'C區':0, 'D區':0 },
+        used_grid: { 'A區':0, 'B區':0, 'C區':0, 'D區':0 }
+      };
 
-      Object.values(statsMap).forEach(item => {
-        const remGrid = Math.max(0, item.grid_plan - item.grid_used);
-        const gridRate = item.grid_plan > 0 ? ((item.grid_used / item.grid_plan) * 100).toFixed(1) + '%' : '0.0%';
+      Object.values(matrixMap).forEach(row => {
+        const t = row.loc_type;
+        if (!typeSubtotals[t]) {
+          typeSubtotals[t] = {
+            floor: '', loc_type: t, is_subtotal: true,
+            plan_grid: { 'A區':0, 'B區':0, 'C區':0, 'D區':0 },
+            used_grid: { 'A區':0, 'B區':0, 'C區':0, 'D區':0 }
+          };
+        }
 
-        const remVol = item.single_cubic_feet > 0 
-          ? (item.single_cubic_feet * remGrid) 
-          : Math.max(0, item.vol_plan - item.vol_used);
+        const gridRow = { floor: row.floor, loc_type: row.loc_type };
+        const volRow = { floor: row.floor, loc_type: row.loc_type };
 
-        const volRate = item.vol_plan > 0 ? ((item.vol_used / item.vol_plan) * 100).toFixed(1) + '%' : '0.0%';
+        zones.forEach(z => {
+          const pg = row.plan_grid[z] || 0;
+          const ug = row.used_grid[z] || 0;
+          const rg = Math.max(0, pg - ug);
+          const unrateG = pg > 0 ? ((rg / pg) * 100).toFixed(1) + '%' : '';
 
-        const unusedVolRate = item.vol_plan > 0 ? (remVol / item.vol_plan) : 0;
-        const usedVolRate = 1 - unusedVolRate;
-        const healthVal = (item.vol_plan > 0 && usedVolRate !== 0) ? ((item.vol_used / usedVolRate) / item.vol_plan * 100).toFixed(1) + '%' : '0.0%';
+          gridRow[`plan_${z}`] = pg > 0 ? pg : '';
+          gridRow[`used_${z}`] = ug > 0 ? ug : '';
+          gridRow[`unrate_${z}`] = unrateG;
+          gridRow[`rem_${z}`] = rg > 0 ? rg : '';
 
-        gridTableData.push({
-          '樓層區域': item.floorRegion,
-          '規劃儲格數': item.grid_plan,
-          '使用儲格數': item.grid_used,
-          '剩餘儲格數': remGrid,
-          '使用率': gridRate,
-          '儲位健康度': healthVal
+          const pv = row.plan_vol[z] || 0;
+          const uv = row.used_vol[z] || 0;
+          const rv = Math.max(0, pv - uv);
+
+          volRow[`plan_${z}`] = pv > 0 ? parseFloat(pv.toFixed(1)) : '';
+          volRow[`used_${z}`] = uv > 0 ? parseFloat(uv.toFixed(1)) : '';
+          volRow[`rem_${z}`] = rv > 0 ? parseFloat(rv.toFixed(1)) : '';
+
+          // 累加小計與總計
+          typeSubtotals[t].plan_grid[z] += pg;
+          typeSubtotals[t].used_grid[z] += ug;
+
+          grandTotalGrid.plan_grid[z] += pg;
+          grandTotalGrid.used_grid[z] += ug;
         });
 
-        volTableData.push({
-          '樓層區域': item.floorRegion,
-          '規劃總才數': parseFloat(item.vol_plan.toFixed(1)),
-          '使用中才數': parseFloat(item.vol_used.toFixed(1)),
-          '剩餘才數': parseFloat(remVol.toFixed(1)),
-          '才數使用率': volRate
-        });
-
-        totalPlanGrid += item.grid_plan;
-        totalUsedGrid += item.grid_used;
-        totalRemGrid += remGrid;
-
-        totalPlanVol += item.vol_plan;
-        totalUsedVol += item.vol_used;
+        gridPivotTable.push(gridRow);
+        volPivotTable.push(volRow);
       });
 
-      const overallRemVol = Math.max(0, totalPlanVol - totalUsedVol);
-      const overallUnusedRate = totalPlanVol > 0 ? (overallRemVol / totalPlanVol) : 0;
-      const overallUsedRate = 1 - overallUnusedRate;
-      const overallHealth = (totalPlanVol > 0 && overallUsedRate !== 0) ? ((totalUsedVol / overallUsedRate) / totalPlanVol * 100).toFixed(1) + '%' : '0.0%';
+      // 附加黃色小計列
+      Object.values(typeSubtotals).forEach(sub => {
+        const subRow = { floor: sub.floor, loc_type: sub.loc_type, is_subtotal: true };
+        zones.forEach(z => {
+          const pg = sub.plan_grid[z];
+          const ug = sub.used_grid[z];
+          const rg = Math.max(0, pg - ug);
+          const unrateG = pg > 0 ? ((rg / pg) * 100).toFixed(1) + '%' : '';
+
+          subRow[`plan_${z}`] = pg > 0 ? pg : '';
+          subRow[`used_${z}`] = ug > 0 ? ug : '';
+          subRow[`unrate_${z}`] = unrateG;
+          subRow[`rem_${z}`] = rg > 0 ? rg : '';
+        });
+        gridPivotTable.push(subRow);
+      });
+
+      // 附加綠色全區總計列
+      const totalRow = { floor: grandTotalGrid.floor, loc_type: grandTotalGrid.loc_type, is_total: true };
+      let sumPlanG = 0, sumUsedG = 0;
+      zones.forEach(z => {
+        const pg = grandTotalGrid.plan_grid[z];
+        const ug = grandTotalGrid.used_grid[z];
+        const rg = Math.max(0, pg - ug);
+        const unrateG = pg > 0 ? ((rg / pg) * 100).toFixed(1) + '%' : '';
+
+        totalRow[`plan_${z}`] = pg > 0 ? pg : '';
+        totalRow[`used_${z}`] = ug > 0 ? ug : '';
+        totalRow[`unrate_${z}`] = unrateG;
+        totalRow[`rem_${z}`] = rg > 0 ? rg : '';
+
+        sumPlanG += pg;
+        sumUsedG += ug;
+      });
+      gridPivotTable.push(totalRow);
 
       res.json({
         success: true,
-        status: 'success', // 🌟 補上 status 確保舊前端程式碼亦可識別
-        stats: {
-          total_plan_grid: totalPlanGrid,
-          total_used_grid: totalUsedGrid,
-          total_rem_grid: totalRemGrid,
-          total_plan_vol: parseFloat(totalPlanVol.toFixed(1)),
-          total_used_vol: parseFloat(totalUsedVol.toFixed(1)),
-          total_health: overallHealth
-        },
+        status: 'success',
         summaryStats: {
-          total_plan_grid: totalPlanGrid,
-          total_used_grid: totalUsedGrid,
-          total_rem_grid: totalRemGrid,
-          total_plan_vol: parseFloat(totalPlanVol.toFixed(1)),
-          total_used_vol: parseFloat(totalUsedVol.toFixed(1)),
-          total_health: overallHealth
+          total_plan_grid: sumPlanG,
+          total_used_grid: sumUsedG,
+          total_rem_grid: Math.max(0, sumPlanG - sumUsedG),
+          total_plan_vol: 0,
+          total_used_vol: 0,
+          total_health: sumPlanG > 0 ? ((sumUsedG / sumPlanG) * 100).toFixed(1) + '%' : '0.0%'
         },
-        grid_summary: gridTableData,
-        summaryGridData: gridTableData,
-        vol_summary: volTableData,
-        summaryVolData: volTableData,
-        area_grid_table: gridTableData,
-        area_vol_table: volTableData
+        grid_summary: gridPivotTable,
+        summaryGridData: gridPivotTable,
+        vol_summary: volPivotTable,
+        summaryVolData: volPivotTable,
+        area_grid_table: gridPivotTable,
+        area_vol_table: volPivotTable
       });
     });
   });

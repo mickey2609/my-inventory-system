@@ -3,7 +3,7 @@
     <div class="summary-container">
       <!-- 頂部操作列與設定按鈕 -->
       <div class="top-bar-actions">
-        <span class="page-title-text">📊 儲位數與才數統計概覽</span>
+        <span class="page-title-text">📊 儲位數與才數統計概覽 (跨區交叉矩陣)</span>
         <div class="btn-group">
           <el-button 
             type="primary" 
@@ -55,38 +55,123 @@
 
       <!-- 進度條面板 -->
       <div v-if="loading" class="progress-box dark-panel">
-        <div class="progress-lbl">⚡ 正在結合儲位定義進行全區域儲位才數交叉計算中...</div>
+        <div class="progress-lbl">⚡ 正在進行 A/B/C/D 區與樓層型態交叉矩陣計算中...</div>
         <el-progress :percentage="calcProgress" :color="progressColors" :stroke-width="18" striped stripe-processing></el-progress>
       </div>
 
-      <!-- 數據表格雙頁籤區 (自動彈性高自適應) -->
+      <!-- 數據表格雙頁籤區 (自動高自適應 + Excel 多重跨欄表頭) -->
       <div v-else class="tables-main-wrapper">
         <el-tabs type="border-card" class="dark-tabs">
-          <el-tab-pane label="📊 儲格數統計明細 (依樓層區域)">
-            <el-table :data="summaryGridData" border stripe height="100%" size="small" class="dark-table">
-              <el-table-column prop="樓層區域" label="樓層區域" min-width="120" fixed="left"></el-table-column>
-              <el-table-column prop="規劃儲格數" label="規劃儲格數" min-width="110" sortable></el-table-column>
-              <el-table-column prop="使用儲格數" label="使用儲格數" min-width="110" sortable></el-table-column>
-              <el-table-column prop="剩餘儲格數" label="剩餘儲格數" min-width="110" sortable></el-table-column>
-              <el-table-column prop="使用率" label="儲格使用率" min-width="110" sortable></el-table-column>
-              <el-table-column prop="儲位健康度" label="健康度" min-width="110" sortable></el-table-column>
+          <el-tab-pane label="📊 儲格數交叉統計表 (對齊 Excel)">
+            <el-table 
+              :data="summaryGridData" 
+              border 
+              height="100%" 
+              size="mini" 
+              class="dark-table pivot-table"
+              :row-class-name="tableRowClassName"
+            >
+              <!-- 固定維度欄位 -->
+              <el-table-column prop="floor" label="樓層" width="75" align="center" fixed="left"></el-table-column>
+              <el-table-column prop="loc_type" label="儲位類型" min-width="130" fixed="left"></el-table-column>
+
+              <!-- 1. 規劃區塊 -->
+              <el-table-column label="規劃" align="center">
+                <el-table-column prop="plan_A區" label="A區" width="65" align="right">
+                  <template #default="scope">{{ scope.row.plan_A區 || '' }}</template>
+                </el-table-column>
+                <el-table-column prop="plan_B區" label="B區" width="65" align="right">
+                  <template #default="scope">{{ scope.row.plan_B區 || '' }}</template>
+                </el-table-column>
+                <el-table-column prop="plan_C區" label="C區" width="65" align="right">
+                  <template #default="scope">{{ scope.row.plan_C區 || '' }}</template>
+                </el-table-column>
+                <el-table-column prop="plan_D區" label="D區" width="65" align="right">
+                  <template #default="scope">{{ scope.row.plan_D區 || '' }}</template>
+                </el-table-column>
+              </el-table-column>
+
+              <!-- 2. 已使用區塊 -->
+              <el-table-column label="已使用" align="center">
+                <el-table-column prop="used_A區" label="A區" width="65" align="right">
+                  <template #default="scope">{{ scope.row.used_A區 || '' }}</template>
+                </el-table-column>
+                <el-table-column prop="used_B區" label="B區" width="65" align="right">
+                  <template #default="scope">{{ scope.row.used_B區 || '' }}</template>
+                </el-table-column>
+                <el-table-column prop="used_C區" label="C區" width="65" align="right">
+                  <template #default="scope">{{ scope.row.used_C區 || '' }}</template>
+                </el-table-column>
+                <el-table-column prop="used_D區" label="D區" width="65" align="right">
+                  <template #default="scope">{{ scope.row.used_D區 || '' }}</template>
+                </el-table-column>
+              </el-table-column>
+
+              <!-- 3. 未使用率 (%) 區塊 -->
+              <el-table-column label="未使用率 (%)" align="center">
+                <el-table-column prop="unrate_A區" label="A區" width="75" align="right"></el-table-column>
+                <el-table-column prop="unrate_B區" label="B區" width="75" align="right"></el-table-column>
+                <el-table-column prop="unrate_C區" label="C區" width="75" align="right"></el-table-column>
+                <el-table-column prop="unrate_D區" label="D區" width="75" align="right"></el-table-column>
+              </el-table-column>
+
+              <!-- 4. 剩餘區塊 -->
+              <el-table-column label="剩餘" align="center">
+                <el-table-column prop="rem_A區" label="A區" width="65" align="right">
+                  <template #default="scope">{{ scope.row.rem_A區 || '' }}</template>
+                </el-table-column>
+                <el-table-column prop="rem_B區" label="B區" width="65" align="right">
+                  <template #default="scope">{{ scope.row.rem_B區 || '' }}</template>
+                </el-table-column>
+                <el-table-column prop="rem_C區" label="C區" width="65" align="right">
+                  <template #default="scope">{{ scope.row.rem_C區 || '' }}</template>
+                </el-table-column>
+                <el-table-column prop="rem_D區" label="D區" width="65" align="right">
+                  <template #default="scope">{{ scope.row.rem_D區 || '' }}</template>
+                </el-table-column>
+              </el-table-column>
             </el-table>
           </el-tab-pane>
 
-          <el-tab-pane label="📦 才數統計明細 (依樓層區域)">
-            <el-table :data="summaryVolData" border stripe height="100%" size="small" class="dark-table">
-              <el-table-column prop="樓層區域" label="樓層區域" min-width="120" fixed="left"></el-table-column>
-              <el-table-column prop="規劃總才數" label="規劃總才數" min-width="110" sortable></el-table-column>
-              <el-table-column prop="使用中才數" label="使用中才數" min-width="110" sortable></el-table-column>
-              <el-table-column prop="剩餘才數" label="剩餘才數" min-width="110" sortable></el-table-column>
-              <el-table-column prop="才數使用率" label="才數使用率" min-width="110" sortable></el-table-column>
+          <el-tab-pane label="📦 才數交叉統計表 (對齊 Excel)">
+            <el-table 
+              :data="summaryVolData" 
+              border 
+              height="100%" 
+              size="mini" 
+              class="dark-table pivot-table"
+              :row-class-name="tableRowClassName"
+            >
+              <el-table-column prop="floor" label="樓層" width="75" align="center" fixed="left"></el-table-column>
+              <el-table-column prop="loc_type" label="儲位類型" min-width="130" fixed="left"></el-table-column>
+
+              <el-table-column label="規劃總才數" align="center">
+                <el-table-column prop="plan_A區" label="A區" width="75" align="right"></el-table-column>
+                <el-table-column prop="plan_B區" label="B區" width="75" align="right"></el-table-column>
+                <el-table-column prop="plan_C區" label="C區" width="75" align="right"></el-table-column>
+                <el-table-column prop="plan_D區" label="D區" width="75" align="right"></el-table-column>
+              </el-table-column>
+
+              <el-table-column label="使用中才數" align="center">
+                <el-table-column prop="used_A區" label="A區" width="75" align="right"></el-table-column>
+                <el-table-column prop="used_B區" label="B區" width="75" align="right"></el-table-column>
+                <el-table-column prop="used_C區" label="C區" width="75" align="right"></el-table-column>
+                <el-table-column prop="used_D區" label="D區" width="75" align="right"></el-table-column>
+              </el-table-column>
+
+              <el-table-column label="剩餘才數" align="center">
+                <el-table-column prop="rem_A區" label="A區" width="75" align="right"></el-table-column>
+                <el-table-column prop="rem_B區" label="B區" width="75" align="right"></el-table-column>
+                <el-table-column prop="rem_C區" label="C區" width="75" align="right"></el-table-column>
+                <el-table-column prop="rem_D區" label="D區" width="75" align="right"></el-table-column>
+              </el-table-column>
             </el-table>
           </el-tab-pane>
         </el-tabs>
       </div>
     </div>
 
-    <!-- 儲位定義 CSV 匯入與參數設定 Modal -->
+    <!-- 儲位定義 Modal -->
     <el-dialog
       title="⚙️ 儲位定義參數設定"
       v-model="showConfigDialog"
@@ -124,7 +209,6 @@
 
         <el-divider content-position="left">📋 當前地端 SQLite 儲位結構定義清單</el-divider>
 
-        <!-- 儲位結構預覽表格 -->
         <el-table 
           :data="masterTableData" 
           border 
@@ -186,6 +270,11 @@ export default {
       const num = Number(String(val).replace(/,/g, ''));
       return isNaN(num) ? val : num.toLocaleString();
     },
+    tableRowClassName({ row }) {
+      if (row.is_total) return 'total-row';
+      if (row.is_subtotal) return 'subtotal-row';
+      return '';
+    },
     openConfigModal() {
       this.showConfigDialog = true;
       this.fetchLocationsMaster();
@@ -236,7 +325,7 @@ export default {
 
 <style scoped>
 .loc-summary-page {
-  padding: 15px;
+  padding: 12px;
   height: calc(100vh - 52px);
   display: flex;
   flex-direction: column;
@@ -254,7 +343,7 @@ export default {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
   flex-shrink: 0;
 }
 
@@ -272,8 +361,8 @@ export default {
 .stats-overview-grid {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
-  gap: 12px;
-  margin-bottom: 12px;
+  gap: 10px;
+  margin-bottom: 10px;
   flex-shrink: 0;
 }
 
@@ -281,13 +370,13 @@ export default {
   background: #1e293b;
   border: 1px solid #334155;
   border-radius: 8px;
-  padding: 12px 14px;
+  padding: 10px 12px;
   display: flex;
   flex-direction: column;
 }
 
 .stat-lbl { font-size: 12px; color: #94a3b8; }
-.stat-val { font-size: 18px; font-weight: bold; margin-top: 4px; }
+.stat-val { font-size: 18px; font-weight: bold; margin-top: 2px; }
 
 .text-blue { color: #38bdf8; }
 .text-green { color: #4ade80; }
@@ -332,13 +421,47 @@ export default {
 
 :deep(.dark-tabs .el-tabs__content) {
   flex: 1;
-  padding: 10px;
+  padding: 8px;
   height: calc(100% - 40px);
   min-height: 0;
 }
 
 :deep(.dark-tabs .el-tab-pane) {
   height: 100%;
+}
+
+/* 對齊 Excel 高亮配色 */
+:deep(.pivot-table .subtotal-row) {
+  background-color: #fef08a !important; /* 黃色背景小計 */
+  color: #0f172a !important;
+  font-weight: bold;
+}
+
+:deep(.pivot-table .subtotal-row td) {
+  background-color: #fef08a !important;
+  color: #0f172a !important;
+  font-weight: bold;
+}
+
+:deep(.pivot-table .total-row) {
+  background-color: #86efac !important; /* 綠色背景總計 */
+  color: #0f172a !important;
+  font-weight: bold;
+}
+
+:deep(.pivot-table .total-row td) {
+  background-color: #86efac !important;
+  color: #0f172a !important;
+  font-weight: bold;
+}
+
+:deep(.pivot-table th.el-table__cell) {
+  background-color: #0f172a !important;
+  color: #38bdf8 !important;
+  font-weight: bold;
+  text-align: center;
+  border-right: 1px solid #334155 !important;
+  border-bottom: 1px solid #334155 !important;
 }
 
 .config-modal-content {
