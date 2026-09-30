@@ -1,5 +1,5 @@
 // C:\my-inventory-server\server.js
-// 業務主程式 API 伺服器 (整合 48 欄位處理 + Schema 強制自動升級 + 對齊 Excel 樞紐交叉統計)
+// 業務主程式 API 伺服器 (整合 48 欄位處理 + Schema 強制自動升級 + 對齊 Excel 樞紐交叉統計 + 精準方位與重型架判斷)
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const cors = require('cors');
@@ -174,13 +174,20 @@ db.serialize(() => {
   `);
 });
 
-// --- VBA 特殊紙抽判斷邏輯 ( GetAdjustedType ) ---
-function getAdjustedType(floor, rType, storageCode, shelfLevel) {
+// --- VBA 特殊紙抽與重型層架-低判斷邏輯 ( GetAdjustedType ) ---
+function getAdjustedType(floor, rType, storageCode, shelfLevel, heavyRackCheck) {
   floor = String(floor || '').toUpperCase().trim();
   rType = String(rType || '').trim();
   storageCode = String(storageCode || '').toUpperCase().trim();
   shelfLevel = String(shelfLevel || '').toUpperCase().trim();
+  heavyRackCheck = String(heavyRackCheck || '').trim();
 
+  // 1. 優先判斷重型層架-低 (結合 heavy_rack_check 欄位)
+  if (heavyRackCheck.includes('重型層架-低') || heavyRackCheck.includes('低') || heavyRackCheck === '重型層架-低') {
+    return '重型層架-低';
+  }
+
+  // 2. 特殊紙抽判斷邏輯
   const rowTag = storageCode.substring(0, 3);
   const seatTag = parseInt(storageCode.substring(3, 6), 10) || 0;
 
@@ -349,6 +356,7 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
       COALESCE(floor_zone, '') as floor_zone,
       COALESCE(big_zone, '') as big_zone,
       COALESCE(loc_type, '') as loc_type,
+      COALESCE(heavy_rack_check, '') as heavy_rack_check,
       COALESCE(location, '') as location,
       COALESCE(loc_code_3, '') as loc_code_3,
       COALESCE(shelf_level, '') as shelf_level,
@@ -389,26 +397,42 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         matrixMap[k].plan_vol[z] = (matrixMap[k].plan_vol[z] || 0) + parseFloat(r.cubic_feet || 0);
       });
 
-      // 2. 匹配 inventory 實耗
+      // 2. 匹配 inventory 實耗 (精準對齊 2F西/2F東 方位與重型層架-低)
       const usedStorageCheck = new Set();
       (invRows || []).forEach(r => {
         let invFloor = String(r.floor || '').trim();
         let invZone = String(r.floor_zone || '').trim();
         const code = String(r.location || '').toUpperCase().trim();
         const origType = String(r.loc_type || '').trim();
+        const heavyCheck = String(r.heavy_rack_check || '').trim();
         const shelfLevel = String(r.shelf_level || (code.length >= 7 ? code.substring(6, 7) : '')).trim();
 
+        // 方位自動補全防呆
+        if (!invFloor && code.length >= 2) {
+          const matchFloor = code.match(/^([0-9]F[東西南北]?)/i);
+          if (matchFloor) invFloor = matchFloor[1].toUpperCase();
+          else {
+            const matchSimple = code.match(/^([0-9]F)/i);
+            if (matchSimple) invFloor = matchSimple[1].toUpperCase();
+          }
+        }
+
         if (!invZone.endsWith('區')) invZone = invZone + '區';
-        const adjType = getAdjustedType(invFloor, origType, code, shelfLevel);
+        const adjType = getAdjustedType(invFloor, origType, code, shelfLevel, heavyCheck);
         const cleanType = (adjType || origType || '').replace(/\s+/g, '');
 
-        const pureInvFloor = invFloor.replace(/[^0-9F]/gi, '').toUpperCase();
-        const pureInvZone = invZone.replace(/區/g, '').trim().toUpperCase();
-
+        // 🌟 精準比對 Key (嚴格區分 2F西 與 2F東)
         const matchKey = Object.keys(matrixMap).find(k => {
           const m = matrixMap[k];
-          const pureMFloor = m.floor.replace(/[^0-9F]/gi, '').toUpperCase();
-          return pureMFloor === pureInvFloor && (m.loc_type.includes(cleanType) || cleanType.includes(m.loc_type));
+          
+          let floorMatch = false;
+          if (m.floor === invFloor) floorMatch = true;
+          else if (m.floor.length > invFloor.length && m.floor.includes(invFloor)) floorMatch = true;
+          else if (invFloor.length > m.floor.length && invFloor.includes(m.floor)) floorMatch = true;
+
+          let typeMatch = (m.loc_type === cleanType) || (m.loc_type.replace(/\s+/g, '') === cleanType);
+
+          return floorMatch && typeMatch;
         });
 
         if (matchKey) {
