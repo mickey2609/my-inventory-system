@@ -25,7 +25,7 @@
         </div>
       </div>
 
-      <!-- 6 大數據指標卡片 -->
+      <!-- 7 大數據指標卡片 (包含剩餘空才數) -->
       <div class="stats-overview-grid">
         <div class="stat-card">
           <span class="stat-lbl">規劃總儲格數</span>
@@ -47,6 +47,10 @@
           <span class="stat-lbl">使用中才數</span>
           <span class="stat-val text-green">{{ formatNumber(summaryStats.total_used_vol) }}</span>
         </div>
+        <div class="stat-card">
+          <span class="stat-lbl">剩餘空才數</span>
+          <span class="stat-val text-orange">{{ formatNumber(summaryStats.total_rem_vol) }}</span>
+        </div>
         <div class="stat-card highlight-health">
           <span class="stat-lbl">儲位整體健康度</span>
           <span class="stat-val text-cyan">{{ summaryStats.total_health || '0.0%' }}</span>
@@ -59,7 +63,7 @@
         <el-progress :percentage="calcProgress" :color="progressColors" :stroke-width="18" striped stripe-processing></el-progress>
       </div>
 
-      <!-- 數據表格雙頁籤區 (自動高自適應 + Excel 多重跨欄表頭) -->
+      <!-- 數據表格雙頁籤區 -->
       <div v-else class="tables-main-wrapper">
         <el-tabs type="border-card" class="dark-tabs">
           <el-tab-pane label="📊 儲格數交叉統計表 (對齊 Excel)">
@@ -71,43 +75,23 @@
               class="dark-table pivot-table"
               :row-class-name="tableRowClassName"
             >
-              <!-- 固定維度欄位 -->
               <el-table-column prop="floor" label="樓層" width="75" align="center" fixed="left"></el-table-column>
               <el-table-column prop="loc_type" label="儲位類型" min-width="130" fixed="left"></el-table-column>
 
-              <!-- 1. 規劃區塊 -->
               <el-table-column label="規劃" align="center">
-                <el-table-column prop="plan_A區" label="A區" width="65" align="right">
-                  <template #default="scope">{{ scope.row.plan_A區 || '' }}</template>
-                </el-table-column>
-                <el-table-column prop="plan_B區" label="B區" width="65" align="right">
-                  <template #default="scope">{{ scope.row.plan_B區 || '' }}</template>
-                </el-table-column>
-                <el-table-column prop="plan_C區" label="C區" width="65" align="right">
-                  <template #default="scope">{{ scope.row.plan_C區 || '' }}</template>
-                </el-table-column>
-                <el-table-column prop="plan_D區" label="D區" width="65" align="right">
-                  <template #default="scope">{{ scope.row.plan_D區 || '' }}</template>
-                </el-table-column>
+                <el-table-column prop="plan_A區" label="A區" width="65" align="right"></el-table-column>
+                <el-table-column prop="plan_B區" label="B區" width="65" align="right"></el-table-column>
+                <el-table-column prop="plan_C區" label="C區" width="65" align="right"></el-table-column>
+                <el-table-column prop="plan_D區" label="D區" width="65" align="right"></el-table-column>
               </el-table-column>
 
-              <!-- 2. 已使用區塊 -->
               <el-table-column label="已使用" align="center">
-                <el-table-column prop="used_A區" label="A區" width="65" align="right">
-                  <template #default="scope">{{ scope.row.used_A區 || '' }}</template>
-                </el-table-column>
-                <el-table-column prop="used_B區" label="B區" width="65" align="right">
-                  <template #default="scope">{{ scope.row.used_B區 || '' }}</template>
-                </el-table-column>
-                <el-table-column prop="used_C區" label="C區" width="65" align="right">
-                  <template #default="scope">{{ scope.row.used_C區 || '' }}</template>
-                </el-table-column>
-                <el-table-column prop="used_D區" label="D區" width="65" align="right">
-                  <template #default="scope">{{ scope.row.used_D區 || '' }}</template>
-                </el-table-column>
+                <el-table-column prop="used_A區" label="A區" width="65" align="right"></el-table-column>
+                <el-table-column prop="used_B區" label="B區" width="65" align="right"></el-table-column>
+                <el-table-column prop="used_C區" label="C區" width="65" align="right"></el-table-column>
+                <el-table-column prop="used_D區" label="D區" width="65" align="right"></el-table-column>
               </el-table-column>
 
-              <!-- 3. 未使用率 (%) 區塊 -->
               <el-table-column label="未使用率 (%)" align="center">
                 <el-table-column prop="unrate_A區" label="A區" width="75" align="right"></el-table-column>
                 <el-table-column prop="unrate_B區" label="B區" width="75" align="right"></el-table-column>
@@ -115,20 +99,11 @@
                 <el-table-column prop="unrate_D區" label="D區" width="75" align="right"></el-table-column>
               </el-table-column>
 
-              <!-- 4. 剩餘區塊 -->
               <el-table-column label="剩餘" align="center">
-                <el-table-column prop="rem_A區" label="A區" width="65" align="right">
-                  <template #default="scope">{{ scope.row.rem_A區 || '' }}</template>
-                </el-table-column>
-                <el-table-column prop="rem_B區" label="B區" width="65" align="right">
-                  <template #default="scope">{{ scope.row.rem_B區 || '' }}</template>
-                </el-table-column>
-                <el-table-column prop="rem_C區" label="C區" width="65" align="right">
-                  <template #default="scope">{{ scope.row.rem_C區 || '' }}</template>
-                </el-table-column>
-                <el-table-column prop="rem_D區" label="D區" width="65" align="right">
-                  <template #default="scope">{{ scope.row.rem_D區 || '' }}</template>
-                </el-table-column>
+                <el-table-column prop="rem_A區" label="A區" width="65" align="right"></el-table-column>
+                <el-table-column prop="rem_B區" label="B區" width="65" align="right"></el-table-column>
+                <el-table-column prop="rem_C區" label="C區" width="65" align="right"></el-table-column>
+                <el-table-column prop="rem_D區" label="D區" width="65" align="right"></el-table-column>
               </el-table-column>
             </el-table>
           </el-tab-pane>
@@ -358,9 +333,10 @@ export default {
   gap: 8px;
 }
 
+/* 7 張卡片 */
 .stats-overview-grid {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(7, 1fr);
   gap: 10px;
   margin-bottom: 10px;
   flex-shrink: 0;
@@ -430,9 +406,8 @@ export default {
   height: 100%;
 }
 
-/* 對齊 Excel 高亮配色 */
 :deep(.pivot-table .subtotal-row) {
-  background-color: #fef08a !important; /* 黃色背景小計 */
+  background-color: #fef08a !important;
   color: #0f172a !important;
   font-weight: bold;
 }
@@ -444,7 +419,7 @@ export default {
 }
 
 :deep(.pivot-table .total-row) {
-  background-color: #86efac !important; /* 綠色背景總計 */
+  background-color: #86efac !important;
   color: #0f172a !important;
   font-weight: bold;
 }
@@ -464,44 +439,16 @@ export default {
   border-bottom: 1px solid #334155 !important;
 }
 
-.config-modal-content {
-  color: #f8fafc;
-}
+.config-modal-content { color: #f8fafc; }
+.upload-top-bar { display: flex; justify-content: space-between; align-items: center; }
+.section-title { font-size: 14px; font-weight: bold; color: #38bdf8; margin-bottom: 4px; }
+.section-desc { font-size: 12px; color: #94a3b8; line-height: 1.5; margin: 0; }
+.section-desc code { background: #0f172a; color: #f43f5e; padding: 2px 6px; border-radius: 4px; }
+.master-preview-table { margin-top: 10px; }
 
-.upload-top-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.section-title {
-  font-size: 14px;
-  font-weight: bold;
-  color: #38bdf8;
-  margin-bottom: 4px;
-}
-
-.section-desc {
-  font-size: 12px;
-  color: #94a3b8;
-  line-height: 1.5;
-  margin: 0;
-}
-
-.section-desc code {
-  background: #0f172a;
-  color: #f43f5e;
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-
-.master-preview-table {
-  margin-top: 10px;
-}
-
-@media (max-width: 1200px) {
+@media (max-width: 1400px) {
   .stats-overview-grid {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, 1fr);
   }
 }
 </style>

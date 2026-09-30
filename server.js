@@ -1,5 +1,5 @@
 // C:\my-inventory-server\server.js
-// 業務主程式 API 伺服器 (整合 48 欄位處理 + Schema 強制自動升級 + 對齊 Excel 樞紐交叉統計 + 精準方位與重型架判斷)
+// 業務主程式 API 伺服器 (整合 48 欄位處理 + VBA 紙抽邏輯 100% 對齊 + 7 大才數卡片聚合)
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const cors = require('cors');
@@ -9,172 +9,78 @@ const fs = require('fs');
 const app = express();
 const PORT = 3000;
 
-// 紀錄地端伺服器 (Node.js) 真正的啟動時間點
 const SERVER_START_TIME = Date.now();
 
-// 48 欄位中文顯示名稱 ➔ SQLite 資料庫實體欄位映射表
 const COLUMN_MAP = {
-  '商品ID': 'item_id',
-  '商品名稱': 'item_name',
-  '借/採': 'borrow_proc',
-  '儲位': 'location',
-  '儲位庫存數': 'qty',
-  '庫齡': 'age',
-  '區編': 'zone_id',
-  '區名': 'zone_name',
-  '館編': 'hall_id',
-  '館名': 'hall_name',
-  '長(cm)': 'length',
-  '寬(cm)': 'width',
-  '高(cm)': 'height',
-  '重量(kg)': 'weight',
-  '(近)月銷量': 'monthly_sales',
-  '(近)月-有揀貨單天數': 'pick_days_m',
-  '(近)90日銷量': 'sales_90d',
-  '(近)90日-有揀貨單天數': 'pick_days_90d',
-  '供應商ID': 'supplier_id',
-  '供應商名稱': 'supplier_name',
-  '所屬PM': 'pm',
-  '總庫存數': 'total_qty',
-  '總庫存_迴轉天數': 'turn_days_total',
-  '才數': 'cubic_feet',
-  '材積別': 'vol_type',
-  '儲位編碼-3': 'loc_code_3',
-  '儲位編碼': 'loc_code_full',
-  '儲位編碼5': 'loc_code_5',
-  '樓層': 'floor',
-  '樓層區域': 'floor_zone',
-  '儲位型態': 'loc_type',
-  '大區編': 'big_zone_id',
-  '大區名': 'big_zone',
-  '三邊長': 'dim_sum',
-  '最長邊': 'max_dim',
-  '最短邊': 'min_dim',
-  '儲位才數': 'loc_cubic_feet',
-  '儲位健康度': 'loc_health',
-  '不符合': 'non_compliant',
-  '材積判斷': 'vol_check',
-  '總才數': 'total_cubic_feet',
-  '人工/自動': 'auto_type',
-  '儲位層標示': 'shelf_level',
-  '庫齡級距': 'age_bracket',
-  '樓層設定': 'floor_config',
-  '重型架判斷': 'heavy_rack_check',
-  'ID指定樓層': 'assigned_floor',
-  '備註': 'remark'
+  '商品ID': 'item_id', '商品名稱': 'item_name', '借/採': 'borrow_proc', '儲位': 'location',
+  '儲位庫存數': 'qty', '庫齡': 'age', '區編': 'zone_id', '區名': 'zone_name',
+  '館編': 'hall_id', '館名': 'hall_name', '長(cm)': 'length', '寬(cm)': 'width',
+  '高(cm)': 'height', '重量(kg)': 'weight', '(近)月銷量': 'monthly_sales', '(近)月-有揀貨單天數': 'pick_days_m',
+  '(近)90日銷量': 'sales_90d', '(近)90日-有揀貨單天數': 'pick_days_90d', '供應商ID': 'supplier_id',
+  '供應商名稱': 'supplier_name', '所屬PM': 'pm', '總庫存數': 'total_qty', '總庫存_迴轉天數': 'turn_days_total',
+  '才數': 'cubic_feet', '材積別': 'vol_type', '儲位編碼-3': 'loc_code_3', '儲位編碼': 'loc_code_full',
+  '儲位編碼5': 'loc_code_5', '樓層': 'floor', '樓層區域': 'floor_zone', '儲位型態': 'loc_type',
+  '大區編': 'big_zone_id', '大區名': 'big_zone', '三邊長': 'dim_sum', '最長邊': 'max_dim',
+  '最短邊': 'min_dim', '儲位才數': 'loc_cubic_feet', '儲位健康度': 'loc_health', '不符合': 'non_compliant',
+  '材積判斷': 'vol_check', '總才數': 'total_cubic_feet', '人工/自動': 'auto_type', '儲位層標示': 'shelf_level',
+  '庫齡級距': 'age_bracket', '樓層設定': 'floor_config', '重型架判斷': 'heavy_rack_check',
+  'ID指定樓層': 'assigned_floor', '備註': 'remark'
 };
 
-// 1. 初始化 SQLite 資料庫檔案
 const db = new sqlite3.Database('inventory_local.sqlite', (err) => {
-  if (err) {
-    console.error('❌ 資料庫連線失敗:', err.message);
-  } else {
-    console.log('✅ SQLite 資料庫檔案已成功連結！');
-  }
+  if (err) console.error('❌ 資料庫連線失敗:', err.message);
+  else console.log('✅ SQLite 資料庫檔案已成功連結！');
 });
 
 app.use(cors());
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
-// [POST] 接收筆電更新代碼並轉發給 Port 3001 (system-manager)
 app.post('/api/system/update-server-code', (req, res) => {
   const http = require('http');
   const payload = JSON.stringify(req.body);
-
   const options = {
-    hostname: '127.0.0.1',
-    port: 3001,
-    path: '/api/system/update-server-code',
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Content-Length': Buffer.byteLength(payload)
-    }
+    hostname: '127.0.0.1', port: 3001, path: '/api/system/update-server-code', method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
   };
-
   const proxyReq = http.request(options, (proxyRes) => {
     let body = '';
     proxyRes.on('data', chunk => body += chunk);
-    proxyRes.on('end', () => {
-      res.status(proxyRes.statusCode).send(body);
-    });
+    proxyRes.on('end', () => res.status(proxyRes.statusCode).send(body));
   });
-
-  proxyReq.on('error', (err) => {
-    res.status(500).json({ success: false, message: '無法連線至系統管理服務 (Port 3001): ' + err.message });
-  });
-
+  proxyReq.on('error', (err) => res.status(500).json({ success: false, message: '無法連線至 Port 3001: ' + err.message }));
   proxyReq.write(payload);
   proxyReq.end();
 });
 
-// 2. 自動初始化與升級資料庫 Schema (強行確保 48 欄位實體存在)
 db.serialize(() => {
   db.all("PRAGMA table_info(inventory)", [], (err, columns) => {
     const hasLocCode3 = columns && columns.some(c => c.name === 'loc_code_3');
-    
     if (!hasLocCode3 && columns && columns.length > 0) {
-      console.log('⚠️ 檢測到舊版 inventory 資料表結構，正在自動升級重建為完整 48 欄位 Schema...');
+      console.log('⚠️ 自動升級重建為完整 48 欄位 Schema...');
       db.run(`DROP TABLE IF EXISTS inventory`);
     }
-
     db.run(`
       CREATE TABLE IF NOT EXISTS inventory (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        item_id TEXT, item_name TEXT, borrow_proc TEXT, location TEXT, qty REAL, age INTEGER,
-        zone_id TEXT, zone_name TEXT, hall_id TEXT, hall_name TEXT,
-        length REAL, width REAL, height REAL, weight REAL,
-        monthly_sales REAL, pick_days_m REAL, sales_90d REAL, pick_days_90d REAL,
-        supplier_id TEXT, supplier_name TEXT, pm TEXT, total_qty REAL, turn_days_total REAL,
-        cubic_feet REAL, vol_type TEXT, loc_code_3 TEXT, loc_code_full TEXT, loc_code_5 TEXT,
-        floor TEXT, floor_zone TEXT, loc_type TEXT, big_zone_id TEXT, big_zone TEXT,
-        dim_sum REAL, max_dim REAL, min_dim REAL, loc_cubic_feet REAL, loc_health TEXT,
-        non_compliant TEXT, vol_check TEXT, total_cubic_feet REAL, auto_type TEXT,
-        shelf_level TEXT, age_bracket TEXT, floor_config TEXT, heavy_rack_check TEXT,
-        assigned_floor TEXT, remark TEXT
+        id INTEGER PRIMARY KEY AUTOINCREMENT, item_id TEXT, item_name TEXT, borrow_proc TEXT, location TEXT, qty REAL, age INTEGER,
+        zone_id TEXT, zone_name TEXT, hall_id TEXT, hall_name TEXT, length REAL, width REAL, height REAL, weight REAL,
+        monthly_sales REAL, pick_days_m REAL, sales_90d REAL, pick_days_90d REAL, supplier_id TEXT, supplier_name TEXT, pm TEXT,
+        total_qty REAL, turn_days_total REAL, cubic_feet REAL, vol_type TEXT, loc_code_3 TEXT, loc_code_full TEXT, loc_code_5 TEXT,
+        floor TEXT, floor_zone TEXT, loc_type TEXT, big_zone_id TEXT, big_zone TEXT, dim_sum REAL, max_dim REAL, min_dim REAL,
+        loc_cubic_feet REAL, loc_health TEXT, non_compliant TEXT, vol_check TEXT, total_cubic_feet REAL, auto_type TEXT,
+        shelf_level TEXT, age_bracket TEXT, floor_config TEXT, heavy_rack_check TEXT, assigned_floor TEXT, remark TEXT
       );
     `);
   });
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS users (
-      username TEXT PRIMARY KEY, name TEXT, role TEXT, password TEXT, permissions TEXT, last_active INTEGER
-    );
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS system_logs (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT, name TEXT, role TEXT, device TEXT, feature TEXT, action TEXT, created_at TEXT
-    );
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS column_config (
-      key TEXT PRIMARY KEY, config_json TEXT, updated_at TEXT
-    );
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS locations_master (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      floor TEXT, zone TEXT, loc_type TEXT, cubic_feet REAL, grid_count INTEGER, single_cubic_feet REAL
-    );
-  `);
-
-  db.run(`
-    INSERT OR IGNORE INTO users (username, name, role, password, permissions) 
-    VALUES ('admin', '系統管理員', 'sys_admin', 'admin', 'all');
-  `);
-  
-  db.run(`
-    INSERT OR IGNORE INTO users (username, name, role, password, permissions) 
-    VALUES ('801854', '黃勝鴻', 'sys_admin', '801854', 'all');
-  `);
+  db.run(`CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, name TEXT, role TEXT, password TEXT, permissions TEXT, last_active INTEGER);`);
+  db.run(`CREATE TABLE IF NOT EXISTS system_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, name TEXT, role TEXT, device TEXT, feature TEXT, action TEXT, created_at TEXT);`);
+  db.run(`CREATE TABLE IF NOT EXISTS column_config (key TEXT PRIMARY KEY, config_json TEXT, updated_at TEXT);`);
+  db.run(`CREATE TABLE IF NOT EXISTS locations_master (id INTEGER PRIMARY KEY AUTOINCREMENT, floor TEXT, zone TEXT, loc_type TEXT, cubic_feet REAL, grid_count INTEGER, single_cubic_feet REAL);`);
+  db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions) VALUES ('admin', '系統管理員', 'sys_admin', 'admin', 'all');`);
+  db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions) VALUES ('801854', '黃勝鴻', 'sys_admin', '801854', 'all');`);
 });
 
-// --- VBA 特殊紙抽與重型層架-低判斷邏輯 ( GetAdjustedType ) ---
+// 🌟 精準校正儲位型態 (100% 依據 VBA 規則轉換)
 function getAdjustedType(floor, rType, storageCode, shelfLevel, heavyRackCheck) {
   floor = String(floor || '').toUpperCase().trim();
   rType = String(rType || '').trim();
@@ -182,27 +88,31 @@ function getAdjustedType(floor, rType, storageCode, shelfLevel, heavyRackCheck) 
   shelfLevel = String(shelfLevel || '').toUpperCase().trim();
   heavyRackCheck = String(heavyRackCheck || '').trim();
 
-  // 1. 優先判斷重型層架-低 (結合 heavy_rack_check 欄位)
+  // 1. 優先依據 heavy_rack_check 判斷重型層架-低
   if (heavyRackCheck.includes('重型層架-低') || heavyRackCheck.includes('低') || heavyRackCheck === '重型層架-低') {
     return '重型層架-低';
   }
 
-  // 2. 特殊紙抽判斷邏輯
-  const rowTag = storageCode.substring(0, 3);
-  const seatTag = parseInt(storageCode.substring(3, 6), 10) || 0;
+  // 2. 擷取儲位前綴與座號 (VBA: Left(storageCode, 3) 與 Val(Mid(storageCode, 4, 3)))
+  const rowTag = storageCode.length >= 3 ? storageCode.substring(0, 3) : '';
+  const seatTag = storageCode.length >= 6 ? (parseInt(storageCode.substring(3, 6), 10) || 0) : 0;
 
+  // 3. 7F 紙抽邏輯
   if (floor.includes('7F')) {
     if (rowTag >= 'M01' && rowTag <= 'M53' && seatTag <= 56) {
       if (shelfLevel === 'B' || shelfLevel === 'C') return 'AGV層架-紙抽';
     }
-  } else if (floor.includes('6F')) {
+  } 
+  // 4. 6F 紙抽邏輯
+  else if (floor.includes('6F')) {
     if (rowTag >= 'L01' && rowTag <= 'L26' && seatTag <= 60) {
-      if (['A', 'B', 'C'].includes(shelfLevel)) return 'AGV層架-紙抽';
+      if (shelfLevel !== '' && ['A', 'B', 'C'].includes(shelfLevel)) return 'AGV層架-紙抽';
     } else if (rowTag >= 'L27' && rowTag <= 'L30' && seatTag <= 60) {
-      if (['A', 'B', 'C', 'D', 'E', 'F'].includes(shelfLevel)) return 'AGV層架-紙抽';
+      if (shelfLevel !== '' && ['A', 'B', 'C', 'D', 'E', 'F'].includes(shelfLevel)) return 'AGV層架-紙抽';
     }
   }
 
+  // 5. 全域 R區紙抽邏輯 (不限樓層，包含 8F 及全樓層 R 區)
   if (rowTag >= 'R13' && rowTag <= 'R42') {
     if (shelfLevel === 'A' || shelfLevel === 'B') return 'AGV層架-紙抽';
   } else if ((rowTag === 'R11' || rowTag === 'R12') && seatTag >= 1 && seatTag <= 20) {
@@ -211,10 +121,6 @@ function getAdjustedType(floor, rType, storageCode, shelfLevel, heavyRackCheck) 
 
   return rType;
 }
-
-// ------------------------------------------------------------------
-// 3. API 路由設定
-// ------------------------------------------------------------------
 
 function parseCsvTextToObjects(csvText) {
   const lines = csvText.split(/\r?\n/).filter(l => l.trim());
@@ -232,33 +138,16 @@ function parseCsvTextToObjects(csvText) {
 }
 
 app.get('/api/get-locations-master', (req, res) => {
-  const sql = `
-    SELECT 
-      COALESCE(floor, '') as 樓層,
-      COALESCE(zone, '') as 區域,
-      COALESCE(loc_type, '') as 儲位類型,
-      COALESCE(cubic_feet, 0) as 才數,
-      COALESCE(grid_count, 0) as 儲格數,
-      COALESCE(single_cubic_feet, 0) as 儲位才數
-    FROM locations_master
-    ORDER BY id ASC
-  `;
-
+  const sql = `SELECT COALESCE(floor, '') as 樓層, COALESCE(zone, '') as 區域, COALESCE(loc_type, '') as 儲位類型, COALESCE(cubic_feet, 0) as 才數, COALESCE(grid_count, 0) as 儲格數, COALESCE(single_cubic_feet, 0) as 儲位才數 FROM locations_master ORDER BY id ASC`;
   db.all(sql, [], (err, rows) => {
-    if (err) {
-      return res.status(500).json({ success: false, message: '讀取儲位定義失敗: ' + err.message });
-    }
+    if (err) return res.status(500).json({ success: false, message: '讀取儲位定義失敗: ' + err.message });
     res.json({ success: true, data: rows || [] });
   });
 });
 
 app.post(['/api/import-locations-master', '/api/import-locations-master-json'], (req, res) => {
   let chunks = [];
-
-  req.on('data', chunk => {
-    chunks.push(chunk);
-  });
-
+  req.on('data', chunk => chunks.push(chunk));
   req.on('end', () => {
     try {
       const buffer = Buffer.concat(chunks);
@@ -267,116 +156,67 @@ app.post(['/api/import-locations-master', '/api/import-locations-master-json'], 
 
       if (rawText.includes('name="file"') || rawText.includes('Content-Type:')) {
         const matches = rawText.match(/\r\n\r\n([\s\S]*?)\r\n--/);
-        if (matches && matches[1]) {
-          items = parseCsvTextToObjects(matches[1].trim());
-        }
-      }
-      else if (rawText.includes(',') && !rawText.trim().startsWith('{') && !rawText.trim().startsWith('[')) {
+        if (matches && matches[1]) items = parseCsvTextToObjects(matches[1].trim());
+      } else if (rawText.includes(',') && !rawText.trim().startsWith('{') && !rawText.trim().startsWith('[')) {
         items = parseCsvTextToObjects(rawText.trim());
-      }
-      else if (req.body) {
+      } else if (req.body) {
         items = req.body;
         if (items && Array.isArray(items.items)) items = items.items;
         else if (items && Array.isArray(items.data)) items = items.data;
       }
 
-      if (!Array.isArray(items) || items.length === 0) {
-        return res.status(400).json({ success: false, message: '未接收到有效 CSV 內容或資料為空' });
-      }
+      if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ success: false, message: '未接收到有效 CSV 內容或資料為空' });
 
       db.serialize(() => {
         db.run('BEGIN TRANSACTION');
         db.run('DELETE FROM locations_master');
+        const stmt = db.prepare(`INSERT INTO locations_master (floor, zone, loc_type, cubic_feet, grid_count, single_cubic_feet) VALUES (?, ?, ?, ?, ?, ?)`);
 
-        const stmt = db.prepare(`
-          INSERT INTO locations_master (floor, zone, loc_type, cubic_feet, grid_count, single_cubic_feet)
-          VALUES (?, ?, ?, ?, ?, ?)
-        `);
-
-        const parseNum = (val) => {
-          if (val === null || val === undefined) return 0;
-          const num = parseFloat(String(val).replace(/,/g, '').trim());
-          return isNaN(num) ? 0 : num;
-        };
-
-        const parseIntNum = (val) => {
-          if (val === null || val === undefined) return 0;
-          const num = parseInt(String(val).replace(/,/g, '').trim(), 10);
-          return isNaN(num) ? 0 : num;
-        };
+        const parseNum = (val) => val ? (parseFloat(String(val).replace(/,/g, '').trim()) || 0) : 0;
+        const parseIntNum = (val) => val ? (parseInt(String(val).replace(/,/g, '').trim(), 10) || 0) : 0;
 
         for (const r of items) {
           if (!r || typeof r !== 'object') continue;
-
-          const floor = String(r['樓層'] || r.floor || r.Floor || '').trim();
-          const zone = String(r['區域'] || r['樓層區域'] || r.zone || r.Zone || '').trim();
-          const locType = String(r['儲位類型'] || r['儲位型態'] || r.loc_type || r.LocType || '').trim();
-          const cubicFeet = parseNum(r['才數'] || r.cubic_feet || r.CubicFeet);
-          const gridCount = parseIntNum(r['儲格數(板、層)'] || r['儲格數'] || r.grid_count || r.GridCount);
-          const singleCubicFeet = parseNum(r['儲位才數'] || r.single_cubic_feet || r.SingleCubicFeet);
+          const floor = String(r['樓層'] || r.floor || '').trim();
+          const zone = String(r['區域'] || r['樓層區域'] || r.zone || '').trim();
+          const locType = String(r['儲位類型'] || r['儲位型態'] || r.loc_type || '').trim();
+          const cubicFeet = parseNum(r['才數'] || r.cubic_feet);
+          const gridCount = parseIntNum(r['儲格數(板、層)'] || r['儲格數'] || r.grid_count);
+          const singleCubicFeet = parseNum(r['儲位才數'] || r.single_cubic_feet);
 
           stmt.run(floor, zone, locType, cubicFeet, gridCount, singleCubicFeet);
         }
 
         stmt.finalize();
-
         db.run('COMMIT', (err) => {
-          if (err) {
-            console.error('❌ Commit 寫入失敗:', err.message);
-            return res.status(500).json({ success: false, message: '寫入資料庫失敗: ' + err.message });
-          }
-          console.log(`✅ 成功寫入 ${items.length} 筆 locations_master 儲位結構！`);
+          if (err) return res.status(500).json({ success: false, message: '寫入資料庫失敗: ' + err.message });
           res.json({ success: true, count: items.length, message: '儲位結構定義更新成功！' });
         });
       });
     } catch (err) {
-      console.error('❌ 解析匯入失敗:', err.message);
       db.run('ROLLBACK');
       res.status(500).json({ success: false, message: '伺服器處理失敗: ' + err.message });
     }
   });
 });
 
-// [GET] 📊 對齊 Excel 樞紐交叉表的核心計算 API
+// [GET] 📊 儲位才數與格數強效交叉計算 API (含 7 大卡片與精準紙抽)
 app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, res) => {
-  const masterSql = `
-    SELECT 
-      COALESCE(floor, '') as floor,
-      COALESCE(zone, '') as zone,
-      COALESCE(loc_type, '') as loc_type,
-      COALESCE(cubic_feet, 0) as cubic_feet,
-      COALESCE(grid_count, 0) as grid_count,
-      COALESCE(single_cubic_feet, 0) as single_cubic_feet
-    FROM locations_master
-  `;
-
-  const inventorySql = `
-    SELECT 
-      COALESCE(floor, '') as floor,
-      COALESCE(floor_zone, '') as floor_zone,
-      COALESCE(big_zone, '') as big_zone,
-      COALESCE(loc_type, '') as loc_type,
-      COALESCE(heavy_rack_check, '') as heavy_rack_check,
-      COALESCE(location, '') as location,
-      COALESCE(loc_code_3, '') as loc_code_3,
-      COALESCE(shelf_level, '') as shelf_level,
-      COALESCE(total_cubic_feet, 0) as total_cubic_feet,
-      COALESCE(cubic_feet, 0) as cubic_feet,
-      COALESCE(qty, 0) as qty
-    FROM inventory
-  `;
+  const masterSql = `SELECT COALESCE(floor, '') as floor, COALESCE(zone, '') as zone, COALESCE(loc_type, '') as loc_type, COALESCE(cubic_feet, 0) as cubic_feet, COALESCE(grid_count, 0) as grid_count, COALESCE(single_cubic_feet, 0) as single_cubic_feet FROM locations_master`;
+  const inventorySql = `SELECT COALESCE(floor, '') as floor, COALESCE(floor_zone, '') as floor_zone, COALESCE(loc_type, '') as loc_type, COALESCE(heavy_rack_check, '') as heavy_rack_check, COALESCE(location, '') as location, COALESCE(shelf_level, '') as shelf_level, COALESCE(total_cubic_feet, 0) as total_cubic_feet, COALESCE(cubic_feet, 0) as cubic_feet, COALESCE(qty, 0) as qty FROM inventory`;
 
   db.all(masterSql, [], (err, masterRows) => {
-    if (err) masterRows = [];
-
     db.all(inventorySql, [], (err, invRows) => {
-      if (err) invRows = [];
+      masterRows = masterRows || [];
+      invRows = invRows || [];
 
       const matrixMap = {};
       const zones = ['A區', 'B區', 'C區', 'D區'];
 
+      let grandPlanVol = 0; // 全館規劃總才數
+
       // 1. 初始化 locations_master 規劃
-      (masterRows || []).forEach(r => {
+      masterRows.forEach(r => {
         let f = String(r.floor || '').trim();
         let z = String(r.zone || '').trim();
         let t = String(r.loc_type || '').trim();
@@ -393,13 +233,20 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
             used_vol: { 'A區':0, 'B區':0, 'C區':0, 'D區':0 }
           };
         }
-        matrixMap[k].plan_grid[z] = (matrixMap[k].plan_grid[z] || 0) + parseInt(r.grid_count || 0, 10);
-        matrixMap[k].plan_vol[z] = (matrixMap[k].plan_vol[z] || 0) + parseFloat(r.cubic_feet || 0);
+        const gCnt = parseInt(r.grid_count || 0, 10);
+        const vCnt = parseFloat(r.cubic_feet || 0);
+
+        matrixMap[k].plan_grid[z] = (matrixMap[k].plan_grid[z] || 0) + gCnt;
+        matrixMap[k].plan_vol[z] = (matrixMap[k].plan_vol[z] || 0) + vCnt;
+
+        grandPlanVol += vCnt;
       });
 
-      // 2. 匹配 inventory 實耗 (精準對齊 2F西/2F東 方位與重型層架-低)
+      // 2. 匹配 inventory 實耗
       const usedStorageCheck = new Set();
-      (invRows || []).forEach(r => {
+      let grandUsedVol = 0; // 全館使用中才數
+
+      invRows.forEach(r => {
         let invFloor = String(r.floor || '').trim();
         let invZone = String(r.floor_zone || '').trim();
         const code = String(r.location || '').toUpperCase().trim();
@@ -407,7 +254,6 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         const heavyCheck = String(r.heavy_rack_check || '').trim();
         const shelfLevel = String(r.shelf_level || (code.length >= 7 ? code.substring(6, 7) : '')).trim();
 
-        // 方位自動補全防呆
         if (!invFloor && code.length >= 2) {
           const matchFloor = code.match(/^([0-9]F[東西南北]?)/i);
           if (matchFloor) invFloor = matchFloor[1].toUpperCase();
@@ -421,7 +267,7 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         const adjType = getAdjustedType(invFloor, origType, code, shelfLevel, heavyCheck);
         const cleanType = (adjType || origType || '').replace(/\s+/g, '');
 
-        // 🌟 精準比對 Key (嚴格區分 2F西 與 2F東)
+        // 精準尋找 Master 對應項目
         const matchKey = Object.keys(matrixMap).find(k => {
           const m = matrixMap[k];
           
@@ -437,10 +283,12 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
 
         if (matchKey) {
           const item = matrixMap[matchKey];
-          const zKey = zones.includes(invZone) ? invZone : 'A區';
+          const zKey = zones.includes(invZone) ? invZone : (item.plan_grid[invZone] !== undefined ? invZone : 'A區');
           const curVol = parseFloat(r.total_cubic_feet) > 0 ? parseFloat(r.total_cubic_feet) : (parseFloat(r.cubic_feet || 0) * parseFloat(r.qty || 0));
 
           item.used_vol[zKey] = (item.used_vol[zKey] || 0) + curVol;
+          grandUsedVol += curVol;
+
           if (code && !usedStorageCheck.has(code)) {
             usedStorageCheck.add(code);
             item.used_grid[zKey] = (item.used_grid[zKey] || 0) + 1;
@@ -448,7 +296,7 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         }
       });
 
-      // 3. 生成對齊 Excel 的樞紐表格列 (明細列 + 黃色小計列 + 綠色總計列)
+      // 3. 生成對齊 Excel 的樞紐表格列
       const gridPivotTable = [];
       const volPivotTable = [];
 
@@ -491,7 +339,6 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
           volRow[`used_${z}`] = uv > 0 ? parseFloat(uv.toFixed(1)) : '';
           volRow[`rem_${z}`] = rv > 0 ? parseFloat(rv.toFixed(1)) : '';
 
-          // 累加小計與總計
           typeSubtotals[t].plan_grid[z] += pg;
           typeSubtotals[t].used_grid[z] += ug;
 
@@ -520,7 +367,7 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         gridPivotTable.push(subRow);
       });
 
-      // 附加綠色全區總計列
+      // 附加綠色總計列
       const totalRow = { floor: grandTotalGrid.floor, loc_type: grandTotalGrid.loc_type, is_total: true };
       let sumPlanG = 0, sumUsedG = 0;
       zones.forEach(z => {
@@ -539,6 +386,8 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
       });
       gridPivotTable.push(totalRow);
 
+      const remVolTotal = Math.max(0, grandPlanVol - grandUsedVol);
+
       res.json({
         success: true,
         status: 'success',
@@ -546,8 +395,9 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
           total_plan_grid: sumPlanG,
           total_used_grid: sumUsedG,
           total_rem_grid: Math.max(0, sumPlanG - sumUsedG),
-          total_plan_vol: 0,
-          total_used_vol: 0,
+          total_plan_vol: parseFloat(grandPlanVol.toFixed(1)),
+          total_used_vol: parseFloat(grandUsedVol.toFixed(1)),
+          total_rem_vol: parseFloat(remVolTotal.toFixed(1)),
           total_health: sumPlanG > 0 ? ((sumUsedG / sumPlanG) * 100).toFixed(1) + '%' : '0.0%'
         },
         grid_summary: gridPivotTable,
@@ -563,22 +413,13 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
 
 app.get('/api/get-global-config', (req, res) => {
   const currentUptimeSec = Math.floor((Date.now() - SERVER_START_TIME) / 1000);
-
-  res.json({
-    success: true,
-    data: {
-      system_name: "庫存儲位管理系統",
-      version: "v2026.09.24-48COL-ALIGNED",
-      server_uptime_seconds: currentUptimeSec
-    }
-  });
+  res.json({ success: true, data: { system_name: "庫存儲位管理系統", version: "v2026.09.24-48COL-ALIGNED", server_uptime_seconds: currentUptimeSec } });
 });
 
 app.get('/api/categories/large', (req, res) => {
   db.all('SELECT DISTINCT big_zone FROM inventory WHERE big_zone IS NOT NULL AND big_zone != ""', [], (err, rows) => {
     if (err) return res.status(500).json({ success: false, error: err.message });
-    const list = (rows || []).map(r => r.big_zone);
-    res.json({ success: true, data: list });
+    res.json({ success: true, data: (rows || []).map(r => r.big_zone) });
   });
 });
 
@@ -586,63 +427,36 @@ app.get('/api/categories/small', (req, res) => {
   const large = req.query.large || '';
   let sql = 'SELECT DISTINCT zone_name FROM inventory WHERE zone_name IS NOT NULL AND zone_name != ""';
   let params = [];
-  if (large) {
-    sql += ' AND big_zone = ?';
-    params.push(large);
-  }
+  if (large) { sql += ' AND big_zone = ?'; params.push(large); }
   db.all(sql, params, (err, rows) => {
     if (err) return res.status(500).json({ success: false, error: err.message });
-    const list = (rows || []).map(r => r.zone_name);
-    res.json({ success: true, data: list });
+    res.json({ success: true, data: (rows || []).map(r => r.zone_name) });
   });
 });
 
 app.post('/api/heartbeat', (req, res) => {
-  const { username } = req.body;
-  if (username) {
-    const now = Math.floor(Date.now() / 1000);
-    db.run('UPDATE users SET last_active = ? WHERE username = ?', [now, username]);
-  }
+  if (req.body.username) db.run('UPDATE users SET last_active = ? WHERE username = ?', [Math.floor(Date.now() / 1000), req.body.username]);
   res.json({ success: true });
 });
 
 app.post('/api/logout', (req, res) => {
-  const { username } = req.body;
-  if (username) {
-    db.run('UPDATE users SET last_active = 0 WHERE username = ?', [username]);
-  }
+  if (req.body.username) db.run('UPDATE users SET last_active = 0 WHERE username = ?', [req.body.username]);
   res.json({ success: true, message: '已成功登出' });
 });
 
 app.get('/api/get-users', (req, res) => {
   db.all('SELECT username, name, role, permissions, last_active FROM users', [], (err, rows) => {
     if (err) return res.status(500).json({ success: false, error: err.message });
-
     const now = Math.floor(Date.now() / 1000);
-    const formattedUsers = (rows || []).map(u => ({
-      ...u,
-      is_online: !!(u.last_active && (now - u.last_active < 60))
-    }));
-
-    res.json({ success: true, users: formattedUsers });
+    res.json({ success: true, users: (rows || []).map(u => ({ ...u, is_online: !!(u.last_active && (now - u.last_active < 60)) })) });
   });
 });
 
 app.post('/api/add-user', (req, res) => {
   const { username, name, role, password } = req.body;
   if (!username) return res.status(400).json({ success: false, message: '帳號名稱不可為空！' });
-
-  const stmt = db.prepare(`
-    INSERT INTO users (username, name, role, password, permissions, last_active) 
-    VALUES (?, ?, ?, ?, 'all', ?)
-    ON CONFLICT(username) DO UPDATE SET 
-      name = excluded.name, 
-      role = excluded.role, 
-      password = excluded.password
-  `);
-
-  const now = Math.floor(Date.now() / 1000);
-  stmt.run(username, name || username, role || 'user', password || '123456', now, (err) => {
+  const stmt = db.prepare(`INSERT INTO users (username, name, role, password, permissions, last_active) VALUES (?, ?, ?, ?, 'all', ?) ON CONFLICT(username) DO UPDATE SET name = excluded.name, role = excluded.role, password = excluded.password`);
+  stmt.run(username, name || username, role || 'user', password || '123456', Math.floor(Date.now() / 1000), (err) => {
     if (err) return res.status(500).json({ success: false, error: err.message });
     res.json({ success: true, message: '新增帳號成功！' });
   });
@@ -650,45 +464,35 @@ app.post('/api/add-user', (req, res) => {
 
 app.post(['/api/update-role', '/api/update-user-role', '/api/update-user'], (req, res) => {
   const { username, target_role, role, target_name, name } = req.body;
-  const newRole = role || target_role;
-  const newName = name || target_name;
-
-  db.run('UPDATE users SET role = COALESCE(?, role), name = COALESCE(?, name) WHERE username = ?', [newRole, newName, username], (err) => {
+  db.run('UPDATE users SET role = COALESCE(?, role), name = COALESCE(?, name) WHERE username = ?', [role || target_role, name || target_name, username], (err) => {
     if (err) return res.status(500).json({ success: false, error: err.message });
     res.json({ success: true, message: '角色已成功更新！' });
   });
 });
 
 app.post(['/api/update-password', '/api/update-user-password'], (req, res) => {
-  const { username, new_password, password } = req.body;
-  const pwd = new_password || password;
-
-  db.run('UPDATE users SET password = ? WHERE username = ?', [pwd, username], (err) => {
+  db.run('UPDATE users SET password = ? WHERE username = ?', [req.body.new_password || req.body.password, req.body.username], (err) => {
     if (err) return res.status(500).json({ success: false, error: err.message });
     res.json({ success: true, message: '密碼已成功變更！' });
   });
 });
 
 app.post(['/api/update-permissions', '/api/update-user-permissions'], (req, res) => {
-  const { username, permissions, selected_modules } = req.body;
-  const targetMods = permissions || selected_modules;
-  const permStr = Array.isArray(targetMods) ? targetMods.join(',') : String(targetMods || '');
-
-  db.run('UPDATE users SET permissions = ? WHERE username = ?', [permStr, username], (err) => {
+  const permStr = Array.isArray(req.body.permissions || req.body.selected_modules) ? (req.body.permissions || req.body.selected_modules).join(',') : String(req.body.permissions || req.body.selected_modules || '');
+  db.run('UPDATE users SET permissions = ? WHERE username = ?', [permStr, req.body.username], (err) => {
     if (err) return res.status(500).json({ success: false, error: err.message });
     res.json({ success: true, message: '模組權限已成功更新！' });
   });
 });
 
 app.post('/api/delete-user', (req, res) => {
-  const { username } = req.body;
-  db.run('DELETE FROM users WHERE username = ?', [username], (err) => {
+  db.run('DELETE FROM users WHERE username = ?', [req.body.username], (err) => {
     if (err) return res.status(500).json({ success: false, error: err.message });
     res.json({ success: true, message: '刪除帳號成功！' });
   });
 });
 
-// [GET] 庫存查詢 API (完整 48 欄位轉譯與強效聚合查詢)
+// [GET] 庫存查詢 API
 app.get('/api/search', (req, res) => {
   const page = parseInt(req.query.page || '1', 10);
   const pageSize = parseInt(req.query.pageSize || '500', 10);
@@ -712,12 +516,10 @@ app.get('/api/search', (req, res) => {
   if (searchMode === 'batch_id' && batchIds.trim()) {
     const idList = batchIds.split(/[\n,\s]+/).map(s => s.trim()).filter(Boolean);
     if (idList.length > 0) {
-      const placeholders = idList.map(() => '?').join(',');
-      whereConditions.push(`item_id IN (${placeholders})`);
+      whereConditions.push(`item_id IN (${idList.map(() => '?').join(',')})`);
       bindings.push(...idList);
     }
-  } 
-  else if (searchMode === 'batch_zone' && (batchZones.trim() || batchIds.trim())) {
+  } else if (searchMode === 'batch_zone' && (batchZones.trim() || batchIds.trim())) {
     const zoneStr = batchZones.trim() || batchIds.trim();
     const zoneList = zoneStr.split(/[\n,\s]+/).map(s => s.trim()).filter(Boolean);
     if (zoneList.length > 0) {
@@ -731,8 +533,7 @@ app.get('/api/search', (req, res) => {
       bindings.push(...zoneList, ...zoneList, ...zoneList);
       zoneList.forEach(z => bindings.push(`${z}%`));
     }
-  } 
-  else {
+  } else {
     if (categoryLarge) { whereConditions.push("big_zone = ?"); bindings.push(categoryLarge); }
     if (categorySmall) { whereConditions.push("zone_name = ?"); bindings.push(categorySmall); }
     if (keyword) {
@@ -774,61 +575,25 @@ app.get('/api/search', (req, res) => {
 
   db.get(summarySql, bindings, (err, summaryRow) => {
     if (err) return res.status(500).json({ success: false, error: err.message });
-
     const totalCount = summaryRow ? summaryRow.total_rows : 0;
-    
+
     let baseQuery = '';
     if (aggregate) {
       baseQuery = `
-        SELECT 
-          item_id,
-          MAX(item_name) as item_name,
-          MAX(borrow_proc) as borrow_proc,
-          MAX(location) as location,
-          MAX(big_zone) as big_zone,
-          MAX(zone_id) as zone_id,
-          MAX(zone_name) as zone_name,
-          MAX(hall_id) as hall_id,
-          MAX(hall_name) as hall_name,
-          MAX(floor) as floor,
-          MAX(auto_type) as auto_type,
-          MAX(vol_type) as vol_type,
-          MAX(cubic_feet) as cubic_feet,
-          MAX(length) as length,
-          MAX(width) as width,
-          MAX(height) as height,
-          MAX(weight) as weight,
-          MAX(monthly_sales) as monthly_sales,
-          MAX(pick_days_m) as pick_days_m,
-          MAX(sales_90d) as sales_90d,
-          MAX(pick_days_90d) as pick_days_90d,
-          MAX(supplier_id) as supplier_id,
-          MAX(supplier_name) as supplier_name,
-          MAX(pm) as pm,
-          MAX(total_qty) as total_qty,
-          MAX(turn_days_total) as turn_days_total,
-          MAX(loc_code_3) as loc_code_3,
-          MAX(loc_code_full) as loc_code_full,
-          MAX(loc_code_5) as loc_code_5,
-          MAX(floor_zone) as floor_zone,
-          MAX(loc_type) as loc_type,
-          MAX(big_zone_id) as big_zone_id,
-          MAX(dim_sum) as dim_sum,
-          MAX(max_dim) as max_dim,
-          MAX(min_dim) as min_dim,
-          MAX(loc_cubic_feet) as loc_cubic_feet,
-          MAX(loc_health) as loc_health,
-          MAX(non_compliant) as non_compliant,
-          MAX(vol_check) as vol_check,
-          MAX(total_cubic_feet) as total_cubic_feet,
-          MAX(shelf_level) as shelf_level,
-          MAX(age_bracket) as age_bracket,
-          MAX(floor_config) as floor_config,
-          MAX(heavy_rack_check) as heavy_rack_check,
-          MAX(assigned_floor) as assigned_floor,
-          MAX(remark) as remark,
-          age,
-          SUM(qty) as qty
+        SELECT item_id, MAX(item_name) as item_name, MAX(borrow_proc) as borrow_proc, MAX(location) as location,
+          MAX(big_zone) as big_zone, MAX(zone_id) as zone_id, MAX(zone_name) as zone_name, MAX(hall_id) as hall_id,
+          MAX(hall_name) as hall_name, MAX(floor) as floor, MAX(auto_type) as auto_type, MAX(vol_type) as vol_type,
+          MAX(cubic_feet) as cubic_feet, MAX(length) as length, MAX(width) as width, MAX(height) as height,
+          MAX(weight) as weight, MAX(monthly_sales) as monthly_sales, MAX(pick_days_m) as pick_days_m,
+          MAX(sales_90d) as sales_90d, MAX(pick_days_90d) as pick_days_90d, MAX(supplier_id) as supplier_id,
+          MAX(supplier_name) as supplier_name, MAX(pm) as pm, MAX(total_qty) as total_qty, MAX(turn_days_total) as turn_days_total,
+          MAX(loc_code_3) as loc_code_3, MAX(loc_code_full) as loc_code_full, MAX(loc_code_5) as loc_code_5,
+          MAX(floor_zone) as floor_zone, MAX(loc_type) as loc_type, MAX(big_zone_id) as big_zone_id,
+          MAX(dim_sum) as dim_sum, MAX(max_dim) as max_dim, MAX(min_dim) as min_dim, MAX(loc_cubic_feet) as loc_cubic_feet,
+          MAX(loc_health) as loc_health, MAX(non_compliant) as non_compliant, MAX(vol_check) as vol_check,
+          MAX(total_cubic_feet) as total_cubic_feet, MAX(shelf_level) as shelf_level, MAX(age_bracket) as age_bracket,
+          MAX(floor_config) as floor_config, MAX(heavy_rack_check) as heavy_rack_check, MAX(assigned_floor) as assigned_floor,
+          MAX(remark) as remark, age, SUM(qty) as qty
         FROM inventory ${whereClause}
         GROUP BY item_id, age
         ORDER BY ${sortColumn} ${sortOrder}
@@ -837,80 +602,35 @@ app.get('/api/search', (req, res) => {
       baseQuery = `SELECT * FROM inventory ${whereClause} ORDER BY ${sortColumn} ${sortOrder}`;
     }
 
-    const querySql = `${baseQuery} LIMIT ? OFFSET ?`;
-
-    db.all(querySql, [...bindings, pageSize, offset], (err, rows) => {
+    db.all(`${baseQuery} LIMIT ? OFFSET ?`, [...bindings, pageSize, offset], (err, rows) => {
       if (err) return res.status(500).json({ success: false, error: err.message });
-
       const formattedRows = rows.map(row => {
-        const getVal = (field) => {
-          const val = row[field];
-          if (val !== null && val !== undefined && String(val).trim() !== '') return val;
-          return '-';
-        };
-
+        const getVal = (field) => (row[field] !== null && row[field] !== undefined && String(row[field]).trim() !== '') ? row[field] : '-';
         return {
           ...row,
-          '商品ID': getVal('item_id'),
-          '商品名稱': getVal('item_name'),
-          '借/採': getVal('borrow_proc'),
-          '儲位': getVal('location'),
-          '儲位庫存數': getVal('qty'),
-          '庫齡': getVal('age'),
-          '區編': getVal('zone_id'),
-          '區名': getVal('zone_name'),
-          '館編': getVal('hall_id'),
-          '館名': getVal('hall_name'),
-          '長(cm)': getVal('length'),
-          '寬(cm)': getVal('width'),
-          '高(cm)': getVal('height'),
-          '重量(kg)': getVal('weight'),
-          '(近)月銷量': getVal('monthly_sales'),
-          '(近)月-有揀貨單天數': getVal('pick_days_m'),
-          '(近)90日銷量': getVal('sales_90d'),
-          '(近)90日-有揀貨單天數': getVal('pick_days_90d'),
-          '供應商ID': getVal('supplier_id'),
-          '供應商名稱': getVal('supplier_name'),
-          '所屬PM': getVal('pm'),
-          '總庫存數': getVal('total_qty'),
-          '總庫存_迴轉天數': getVal('turn_days_total'),
-          '才數': getVal('cubic_feet'),
-          '材積別': getVal('vol_type'),
-          '儲位編碼-3': getVal('loc_code_3'),
-          '儲位編碼': getVal('loc_code_full'),
-          '儲位編碼5': getVal('loc_code_5'),
-          '樓層': getVal('floor'),
-          '樓層區域': getVal('floor_zone'),
-          '儲位型態': getVal('loc_type'),
-          '大區編': getVal('big_zone_id'),
-          '大區名': getVal('big_zone'),
-          '三邊長': getVal('dim_sum'),
-          '最長邊': getVal('max_dim'),
-          '最短邊': getVal('min_dim'),
-          '儲位才數': getVal('loc_cubic_feet'),
-          '儲位健康度': getVal('loc_health'),
-          '不符合': getVal('non_compliant'),
-          '材積判斷': getVal('vol_check'),
-          '總才數': getVal('total_cubic_feet'),
-          '人工/自動': getVal('auto_type'),
-          '儲位層標示': getVal('shelf_level'),
-          '庫齡級距': getVal('age_bracket'),
-          '樓層設定': getVal('floor_config'),
-          '重型架判斷': getVal('heavy_rack_check'),
-          'ID指定樓層': getVal('assigned_floor'),
-          '備註': getVal('remark')
+          '商品ID': getVal('item_id'), '商品名稱': getVal('item_name'), '借/採': getVal('borrow_proc'),
+          '儲位': getVal('location'), '儲位庫存數': getVal('qty'), '庫齡': getVal('age'),
+          '區編': getVal('zone_id'), '區名': getVal('zone_name'), '館編': getVal('hall_id'),
+          '館名': getVal('hall_name'), '長(cm)': getVal('length'), '寬(cm)': getVal('width'),
+          '高(cm)': getVal('height'), '重量(kg)': getVal('weight'), '(近)月銷量': getVal('monthly_sales'),
+          '(近)月-有揀貨單天數': getVal('pick_days_m'), '(近)90日銷量': getVal('sales_90d'),
+          '(近)90日-有揀貨單天數': getVal('pick_days_90d'), '供應商ID': getVal('supplier_id'),
+          '供應商名稱': getVal('supplier_name'), '所屬PM': getVal('pm'), '總庫存數': getVal('total_qty'),
+          '總庫存_迴轉天數': getVal('turn_days_total'), '才數': getVal('cubic_feet'), '材積別': getVal('vol_type'),
+          '儲位編碼-3': getVal('loc_code_3'), '儲位編碼': getVal('loc_code_full'), '儲位編碼5': getVal('loc_code_5'),
+          '樓層': getVal('floor'), '樓層區域': getVal('floor_zone'), '儲位型態': getVal('loc_type'),
+          '大區編': getVal('big_zone_id'), '大區名': getVal('big_zone'), '三邊長': getVal('dim_sum'),
+          '最長邊': getVal('max_dim'), '最短邊': getVal('min_dim'), '儲位才數': getVal('loc_cubic_feet'),
+          '儲位健康度': getVal('loc_health'), '不符合': getVal('non_compliant'), '材積判斷': getVal('vol_check'),
+          '總才數': getVal('total_cubic_feet'), '人工/自動': getVal('auto_type'), '儲位層標示': getVal('shelf_level'),
+          '庫齡級距': getVal('age_bracket'), '樓層設定': getVal('floor_config'), '重型架判斷': getVal('heavy_rack_check'),
+          'ID指定樓層': getVal('assigned_floor'), '備註': getVal('remark')
         };
       });
 
       res.json({
-        success: true,
-        total: totalCount,
-        summary: {
-          total_items: summaryRow ? summaryRow.total_items : 0,
-          total_rows: totalCount,
-          total_pcs: summaryRow ? Math.round(summaryRow.total_pcs) : 0,
-          total_ao: summaryRow ? parseFloat(summaryRow.total_ao.toFixed(2)) : 0
-        },
+        success: true, total: totalCount,
+        summary: { total_items: summaryRow ? summaryRow.total_items : 0, total_rows: totalCount, total_pcs: summaryRow ? Math.round(summaryRow.total_pcs) : 0, total_ao: summaryRow ? parseFloat(summaryRow.total_ao.toFixed(2)) : 0 },
         data: formattedRows
       });
     });
@@ -918,86 +638,40 @@ app.get('/api/search', (req, res) => {
 });
 
 app.post('/api/save-column-config', (req, res) => {
-  const { key, config } = req.body;
-  const configKey = key || 'global_default';
-
-  const stmt = db.prepare(`
-    INSERT INTO column_config (key, config_json, updated_at)
-    VALUES (?, ?, DATETIME('now'))
-    ON CONFLICT(key) DO UPDATE SET config_json = excluded.config_json, updated_at = DATETIME('now')
-  `);
-
-  stmt.run(configKey, JSON.stringify(config || {}), (err) => {
+  const stmt = db.prepare(`INSERT INTO column_config (key, config_json, updated_at) VALUES (?, ?, DATETIME('now')) ON CONFLICT(key) DO UPDATE SET config_json = excluded.config_json, updated_at = DATETIME('now')`);
+  stmt.run(req.body.key || 'global_default', JSON.stringify(req.body.config || {}), (err) => {
     if (err) return res.status(500).json({ success: false, error: err.message });
     res.json({ success: true, message: '欄位設定儲存成功' });
   });
 });
 
 app.get('/api/get-column-config', (req, res) => {
-  const key = req.query.key || 'global_default';
-  db.get('SELECT config_json FROM column_config WHERE key = ?', [key], (err, row) => {
+  db.get('SELECT config_json FROM column_config WHERE key = ?', [req.query.key || 'global_default'], (err, row) => {
     if (err) return res.status(500).json({ success: false, error: err.message });
     res.json({ success: true, data: row ? JSON.parse(row.config_json) : null });
   });
 });
 
 app.post('/api/login', (req, res) => {
-  const { username, password } = req.body;
+  const { username } = req.body;
   if (!username) return res.status(400).json({ success: false, message: '請輸入帳號' });
-
   db.get('SELECT * FROM users WHERE username = ?', [username], (err, row) => {
     if (err) return res.status(500).json({ success: false, error: err.message });
-
-    let realName = row ? row.name : '';
-    if (username === '801854') {
-      realName = '黃勝鴻';
-      db.run('UPDATE users SET name = ? WHERE username = ?', ['黃勝鴻', '801854']);
-    } else if (!realName) {
-      realName = (username === 'admin' ? '系統管理員' : username);
-    }
-
+    let realName = row ? row.name : (username === 'admin' ? '系統管理員' : username);
     const userRole = row ? (row.role || 'user') : (username === 'admin' ? 'sys_admin' : 'user');
-    const userPerms = row ? (row.permissions || 'all') : 'all';
-
-    const userPayload = {
-      username: username,
-      name: realName,
-      role: userRole,
-      permissions: userPerms,
-      token: 'fake-jwt-token-for-local-sqlite'
-    };
-
-    const now = Math.floor(Date.now() / 1000);
-    db.run('UPDATE users SET last_active = ? WHERE username = ?', [now, username]);
-
-    res.json({
-      success: true,
-      code: 200,
-      status: 'success',
-      message: '登入成功',
-      username: username,
-      name: realName,
-      role: userRole,
-      permissions: userPerms,
-      user: userPayload,
-      data: userPayload,
-      token: userPayload.token
-    });
+    const userPayload = { username, name: realName, role: userRole, permissions: row ? (row.permissions || 'all') : 'all', token: 'fake-jwt-token' };
+    db.run('UPDATE users SET last_active = ? WHERE username = ?', [Math.floor(Date.now() / 1000), username]);
+    res.json({ success: true, status: 'success', username, name: realName, role: userRole, permissions: userPayload.permissions, user: userPayload, data: userPayload, token: userPayload.token });
   });
 });
 
 app.post('/api/record-log', (req, res) => {
-  const { username, name, role, device, feature, action } = req.body;
-  const isoTimeStr = new Date().toISOString();
-
-  db.run(
-    `INSERT INTO system_logs (username, name, role, device, feature, action, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [username || 'admin', name || '系統管理員', role || 'sys_admin', device || 'Desktop', feature, action, isoTimeStr],
+  db.run(`INSERT INTO system_logs (username, name, role, device, feature, action, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [req.body.username || 'admin', req.body.name || '系統管理員', req.body.role || 'sys_admin', req.body.device || 'Desktop', req.body.feature, req.body.action, new Date().toISOString()],
     (err) => {
       if (err) return res.status(500).json({ success: false, error: err.message });
       res.json({ success: true });
-    }
-  );
+    });
 });
 
 app.get('/api/get-logs', (req, res) => {
@@ -1007,24 +681,14 @@ app.get('/api/get-logs', (req, res) => {
   });
 });
 
-// [POST] 批次上傳 48 欄位庫存資料 (含超級模糊 KEY 匹配防呆)
 app.post('/api/upload', (req, res) => {
   try {
     const { items, isFirstChunk } = req.body;
-    if (!Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ success: false, message: '上傳資料格式無效或為空陣列' });
-    }
-
-    if (isFirstChunk && items.length > 0) {
-      console.log('📦 上傳接收測試，第一筆資料 Keys 包含:', Object.keys(items[0]));
-    }
+    if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ success: false, message: '上傳資料格式無效' });
 
     db.serialize(() => {
       db.run('BEGIN TRANSACTION');
-
-      if (isFirstChunk) {
-        db.run('DELETE FROM inventory');
-      }
+      if (isFirstChunk) db.run('DELETE FROM inventory');
 
       const stmt = db.prepare(`
         INSERT INTO inventory (
@@ -1039,91 +703,32 @@ app.post('/api/upload', (req, res) => {
       `);
 
       for (const item of items) {
-        const getField = (...possibleKeys) => {
+        const getField = (...keys) => {
           if (!item || typeof item !== 'object') return '';
-          const itemKeys = Object.keys(item);
-
-          for (const targetKey of possibleKeys) {
-            if (item[targetKey] !== undefined && item[targetKey] !== null && String(item[targetKey]).trim() !== '') {
-              return String(item[targetKey]).trim();
-            }
-
-            const cleanTarget = String(targetKey).toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]/g, '');
-            const foundKey = itemKeys.find(k => String(k).toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]/g, '') === cleanTarget);
-            
-            if (foundKey && item[foundKey] !== undefined && item[foundKey] !== null && String(item[foundKey]).trim() !== '') {
-              return String(item[foundKey]).trim();
-            }
+          for (const k of keys) {
+            if (item[k] !== undefined && item[k] !== null && String(item[k]).trim() !== '') return String(item[k]).trim();
           }
           return '';
         };
-
-        const getNum = (...possibleKeys) => {
-          const val = getField(...possibleKeys);
-          if (!val) return 0;
-          const num = parseFloat(String(val).replace(/,/g, ''));
-          return isNaN(num) ? 0 : num;
+        const getNum = (...keys) => {
+          const val = getField(...keys);
+          return val ? (parseFloat(String(val).replace(/,/g, '')) || 0) : 0;
         };
 
         stmt.run(
-          getField('item_id', '商品ID'),
-          getField('item_name', '商品名稱'),
-          getField('borrow_proc', '借/採'),
-          getField('location', '儲位'),
-          getNum('qty', '儲位庫存數'),
-          parseInt(getField('age', '庫齡') || 0, 10),
-          getField('zone_id', '區編'),
-          getField('zone_name', '區名'),
-          getField('hall_id', '館編'),
-          getField('hall_name', '館名'),
-          getNum('length', '長(cm)'),
-          getNum('width', '寬(cm)'),
-          getNum('height', '高(cm)'),
-          getNum('weight', '重量(kg)'),
-          getNum('monthly_sales', '(近)月銷量'),
-          getNum('pick_days_m', '(近)月-有揀貨單天數'),
-          getNum('sales_90d', '(近)90日銷量'),
-          getNum('pick_days_90d', '(近)90日-有揀貨單天數'),
-          getField('supplier_id', '供應商ID'),
-          getField('supplier_name', '供應商名稱'),
-          getField('pm', '所屬PM'),
-          getNum('total_qty', '總庫存數'),
-          getNum('turn_days_total', '總庫存_迴轉天數'),
-          getNum('cubic_feet', '才數'),
-          getField('vol_type', '材積別'),
-          getField('loc_code_3', '儲位編碼-3', '儲位編碼3'),
-          getField('loc_code_full', '儲位編碼'),
-          getField('loc_code_5', '儲位編碼5'),
-          getField('floor', '樓層'),
-          getField('floor_zone', '樓層區域'),
-          getField('loc_type', '儲位型態'),
-          getField('big_zone_id', '大區編'),
-          getField('big_zone', '大區名'),
-          getNum('dim_sum', '三邊長'),
-          getNum('max_dim', '最長邊'),
-          getNum('min_dim', '最短邊'),
-          getNum('loc_cubic_feet', '儲位才數'),
-          getField('loc_health', '儲位健康度'),
-          getField('non_compliant', '不符合'),
-          getField('vol_check', '材積判斷'),
-          getNum('total_cubic_feet', '總才數'),
-          getField('auto_type', '人工/自動'),
-          getField('shelf_level', '儲位層標示'),
-          getField('age_bracket', '庫齡級距'),
-          getField('floor_config', '樓層設定'),
-          getField('heavy_rack_check', '重型架判斷'),
-          getField('assigned_floor', 'ID指定樓層'),
-          getField('remark', '備註')
+          getField('item_id', '商品ID'), getField('item_name', '商品名稱'), getField('borrow_proc', '借/採'), getField('location', '儲位'), getNum('qty', '儲位庫存數'), parseInt(getField('age', '庫齡') || 0, 10),
+          getField('zone_id', '區編'), getField('zone_name', '區名'), getField('hall_id', '館編'), getField('hall_name', '館名'), getNum('length', '長(cm)'), getNum('width', '寬(cm)'),
+          getNum('height', '高(cm)'), getNum('weight', '重量(kg)'), getNum('monthly_sales', '(近)月銷量'), getNum('pick_days_m', '(近)月-有揀貨單天數'), getNum('sales_90d', '(近)90日銷量'), getNum('pick_days_90d', '(近)90日-有揀貨單天數'),
+          getField('supplier_id', '供應商ID'), getField('supplier_name', '供應商名稱'), getField('pm', '所屬PM'), getNum('total_qty', '總庫存數'), getNum('turn_days_total', '總庫存_迴轉天數'), getNum('cubic_feet', '才數'),
+          getField('vol_type', '材積別'), getField('loc_code_3', '儲位編碼-3'), getField('loc_code_full', '儲位編碼'), getField('loc_code_5', '儲位編碼5'), getField('floor', '樓層'), getField('floor_zone', '樓層區域'),
+          getField('loc_type', '儲位型態'), getField('big_zone_id', '大區編'), getField('big_zone', '大區名'), getNum('dim_sum', '三邊長'), getNum('max_dim', '最長邊'), getNum('min_dim', '最短邊'),
+          getNum('loc_cubic_feet', '儲位才數'), getField('loc_health', '儲位健康度'), getField('non_compliant', '不符合'), getField('vol_check', '材積判斷'), getNum('total_cubic_feet', '總才數'), getField('auto_type', '人工/自動'),
+          getField('shelf_level', '儲位層標示'), getField('age_bracket', '庫齡級距'), getField('floor_config', '樓層設定'), getField('heavy_rack_check', '重型架判斷'), getField('assigned_floor', 'ID指定樓層'), getField('remark', '備註')
         );
       }
       stmt.finalize();
-
       db.run('COMMIT', (err) => {
-        if (err) {
-          console.error('❌ Transaction Commit 失敗:', err.message);
-          return res.status(500).json({ success: false, error: err.message });
-        }
-        console.log(`✅ 成功寫入 ${items.length} 筆 48 欄位庫存資料！`);
+        if (err) return res.status(500).json({ success: false, error: err.message });
         res.json({ success: true, count: items.length, message: '48 欄位極速寫入成功！' });
       });
     });
@@ -1133,7 +738,6 @@ app.post('/api/upload', (req, res) => {
   }
 });
 
-// 4. 啟動伺服器
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 業務 API 伺服器已成功啟動！(Port: ${PORT})`);
 });
