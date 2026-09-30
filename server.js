@@ -511,32 +511,31 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
       const overallHealth = (totalPlanVol > 0 && overallUsedRate !== 0) ? ((totalUsedVol / overallUsedRate) / totalPlanVol * 100).toFixed(1) + '%' : '0.0%';
 
       res.json({
-  success: true,
-  // 統計數據 (兩邊 Key 都給)
-  stats: {
-    total_plan_grid: totalPlanGrid,
-    total_used_grid: totalUsedGrid,
-    total_rem_grid: totalRemGrid,
-    total_plan_vol: parseFloat(totalPlanVol.toFixed(1)),
-    total_used_vol: parseFloat(totalUsedVol.toFixed(1)),
-    total_health: overallHealth
-  },
-  summaryStats: {
-    total_plan_grid: totalPlanGrid,
-    total_used_grid: totalUsedGrid,
-    total_rem_grid: totalRemGrid,
-    total_plan_vol: parseFloat(totalPlanVol.toFixed(1)),
-    total_used_vol: parseFloat(totalUsedVol.toFixed(1)),
-    total_health: overallHealth
-  },
-  // 表格資料 (雙向 Key 確保前端 100% 抓得到)
-  grid_summary: gridTableData,
-  summaryGridData: gridTableData,
-  vol_summary: volTableData,
-  summaryVolData: volTableData,
-  area_grid_table: gridTableData,
-  area_vol_table: volTableData
-     });
+        success: true,
+        status: 'success', // 🌟 補上 status 確保舊前端程式碼亦可識別
+        stats: {
+          total_plan_grid: totalPlanGrid,
+          total_used_grid: totalUsedGrid,
+          total_rem_grid: totalRemGrid,
+          total_plan_vol: parseFloat(totalPlanVol.toFixed(1)),
+          total_used_vol: parseFloat(totalUsedVol.toFixed(1)),
+          total_health: overallHealth
+        },
+        summaryStats: {
+          total_plan_grid: totalPlanGrid,
+          total_used_grid: totalUsedGrid,
+          total_rem_grid: totalRemGrid,
+          total_plan_vol: parseFloat(totalPlanVol.toFixed(1)),
+          total_used_vol: parseFloat(totalUsedVol.toFixed(1)),
+          total_health: overallHealth
+        },
+        grid_summary: gridTableData,
+        summaryGridData: gridTableData,
+        vol_summary: volTableData,
+        summaryVolData: volTableData,
+        area_grid_table: gridTableData,
+        area_vol_table: volTableData
+      });
     });
   });
 });

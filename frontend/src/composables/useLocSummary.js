@@ -1,3 +1,4 @@
+// frontend/src/composables/useLocSummary.js
 import { ref } from 'vue';
 import axios from 'axios';
 
@@ -47,20 +48,25 @@ export function useLocSummary(sendCurrentLog) {
 
     try {
       const res = await axios.get('/api/calc-location-summary');
-      if (res.data && res.data.status === 'success') {
+      // 🌟 修正點：相容 res.data.success 與 res.data.status === 'success'
+      if (res.data && (res.data.success || res.data.status === 'success')) {
         finishProgressSimulation();
         setTimeout(() => {
-          summaryGridData.value = [...(res.data.grid_summary || [])];
-          summaryVolData.value = [...(res.data.vol_summary || [])];
-          areaGridTable.value = [...(res.data.area_grid_table || [])];
-          areaVolTable.value = [...(res.data.area_vol_table || [])];
-          summaryStats.value = res.data.stats || {};
-          sendCurrentLog('儲位數才數統整', '執行全流程統整計算成功');
+          // 雙向相容取值，確保拿到數組
+          summaryGridData.value = [...(res.data.summaryGridData || res.data.grid_summary || [])];
+          summaryVolData.value = [...(res.data.summaryVolData || res.data.vol_summary || [])];
+          areaGridTable.value = [...(res.data.area_grid_table || res.data.summaryGridData || [])];
+          areaVolTable.value = [...(res.data.area_vol_table || res.data.summaryVolData || [])];
+          summaryStats.value = res.data.summaryStats || res.data.stats || {};
+          
+          if (sendCurrentLog) sendCurrentLog('儲位數才數統整', '執行全流程統整計算成功');
         }, 300);
+      } else {
+        finishProgressSimulation();
       }
     } catch (e) {
       finishProgressSimulation();
-      sendCurrentLog('儲位數才數統整', '⚠️ 計算連線失敗: ' + e.message);
+      if (sendCurrentLog) sendCurrentLog('儲位數才數統整', '⚠️ 計算連線失敗: ' + e.message);
     } finally {
       setTimeout(() => { loading.value = false; }, 300);
     }
