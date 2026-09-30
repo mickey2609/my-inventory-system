@@ -76,34 +76,34 @@
               :row-class-name="tableRowClassName"
             >
               <el-table-column prop="floor" label="樓層" width="75" align="center" fixed="left"></el-table-column>
-              <el-table-column prop="loc_type" label="儲位類型" min-width="130" fixed="left"></el-table-column>
+              <el-table-column prop="loc_type" label="儲位類型" width="75" fixed="left"></el-table-column>
 
               <el-table-column label="規劃" align="center">
-                <el-table-column prop="plan_A區" label="A區" width="65" align="right"></el-table-column>
-                <el-table-column prop="plan_B區" label="B區" width="65" align="right"></el-table-column>
-                <el-table-column prop="plan_C區" label="C區" width="65" align="right"></el-table-column>
-                <el-table-column prop="plan_D區" label="D區" width="65" align="right"></el-table-column>
+                <el-table-column prop="plan_A區" label="A區" width="80" align="right"></el-table-column>
+                <el-table-column prop="plan_B區" label="B區" width="80" align="right"></el-table-column>
+                <el-table-column prop="plan_C區" label="C區" width="80" align="right"></el-table-column>
+                <el-table-column prop="plan_D區" label="D區" width="80" align="right"></el-table-column>
               </el-table-column>
 
               <el-table-column label="已使用" align="center">
-                <el-table-column prop="used_A區" label="A區" width="65" align="right"></el-table-column>
-                <el-table-column prop="used_B區" label="B區" width="65" align="right"></el-table-column>
-                <el-table-column prop="used_C區" label="C區" width="65" align="right"></el-table-column>
-                <el-table-column prop="used_D區" label="D區" width="65" align="right"></el-table-column>
+                <el-table-column prop="used_A區" label="A區" width="80" align="right"></el-table-column>
+                <el-table-column prop="used_B區" label="B區" width="80" align="right"></el-table-column>
+                <el-table-column prop="used_C區" label="C區" width="80" align="right"></el-table-column>
+                <el-table-column prop="used_D區" label="D區" width="80" align="right"></el-table-column>
               </el-table-column>
 
               <el-table-column label="未使用率 (%)" align="center">
-                <el-table-column prop="unrate_A區" label="A區" width="75" align="right"></el-table-column>
-                <el-table-column prop="unrate_B區" label="B區" width="75" align="right"></el-table-column>
-                <el-table-column prop="unrate_C區" label="C區" width="75" align="right"></el-table-column>
-                <el-table-column prop="unrate_D區" label="D區" width="75" align="right"></el-table-column>
+                <el-table-column prop="unrate_A區" label="A區" width="80" align="right"></el-table-column>
+                <el-table-column prop="unrate_B區" label="B區" width="80" align="right"></el-table-column>
+                <el-table-column prop="unrate_C區" label="C區" width="80" align="right"></el-table-column>
+                <el-table-column prop="unrate_D區" label="D區" width="80" align="right"></el-table-column>
               </el-table-column>
 
               <el-table-column label="剩餘" align="center">
-                <el-table-column prop="rem_A區" label="A區" width="65" align="right"></el-table-column>
-                <el-table-column prop="rem_B區" label="B區" width="65" align="right"></el-table-column>
-                <el-table-column prop="rem_C區" label="C區" width="65" align="right"></el-table-column>
-                <el-table-column prop="rem_D區" label="D區" width="65" align="right"></el-table-column>
+                <el-table-column prop="rem_A區" label="A區" width="80" align="right"></el-table-column>
+                <el-table-column prop="rem_B區" label="B區" width="80" align="right"></el-table-column>
+                <el-table-column prop="rem_C區" label="C區" width="80" align="right"></el-table-column>
+                <el-table-column prop="rem_D區" label="D區" width="80" align="right"></el-table-column>
               </el-table-column>
             </el-table>
           </el-tab-pane>
@@ -118,27 +118,27 @@
               :row-class-name="tableRowClassName"
             >
               <el-table-column prop="floor" label="樓層" width="75" align="center" fixed="left"></el-table-column>
-              <el-table-column prop="loc_type" label="儲位類型" min-width="130" fixed="left"></el-table-column>
+              <el-table-column prop="loc_type" label="儲位類型" width="75" fixed="left"></el-table-column>
 
               <el-table-column label="規劃總才數" align="center">
-                <el-table-column prop="plan_A區" label="A區" width="75" align="right"></el-table-column>
-                <el-table-column prop="plan_B區" label="B區" width="75" align="right"></el-table-column>
-                <el-table-column prop="plan_C區" label="C區" width="75" align="right"></el-table-column>
-                <el-table-column prop="plan_D區" label="D區" width="75" align="right"></el-table-column>
+                <el-table-column prop="plan_A區" label="A區" width="80" align="right"></el-table-column>
+                <el-table-column prop="plan_B區" label="B區" width="80" align="right"></el-table-column>
+                <el-table-column prop="plan_C區" label="C區" width="80" align="right"></el-table-column>
+                <el-table-column prop="plan_D區" label="D區" width="80" align="right"></el-table-column>
               </el-table-column>
 
               <el-table-column label="使用中才數" align="center">
-                <el-table-column prop="used_A區" label="A區" width="75" align="right"></el-table-column>
-                <el-table-column prop="used_B區" label="B區" width="75" align="right"></el-table-column>
-                <el-table-column prop="used_C區" label="C區" width="75" align="right"></el-table-column>
-                <el-table-column prop="used_D區" label="D區" width="75" align="right"></el-table-column>
+                <el-table-column prop="used_A區" label="A區" width="80" align="right"></el-table-column>
+                <el-table-column prop="used_B區" label="B區" width="80" align="right"></el-table-column>
+                <el-table-column prop="used_C區" label="C區" width="80" align="right"></el-table-column>
+                <el-table-column prop="used_D區" label="D區" width="80" align="right"></el-table-column>
               </el-table-column>
 
               <el-table-column label="剩餘才數" align="center">
-                <el-table-column prop="rem_A區" label="A區" width="75" align="right"></el-table-column>
-                <el-table-column prop="rem_B區" label="B區" width="75" align="right"></el-table-column>
-                <el-table-column prop="rem_C區" label="C區" width="75" align="right"></el-table-column>
-                <el-table-column prop="rem_D區" label="D區" width="75" align="right"></el-table-column>
+                <el-table-column prop="rem_A區" label="A區" width="80" align="right"></el-table-column>
+                <el-table-column prop="rem_B區" label="B區" width="80" align="right"></el-table-column>
+                <el-table-column prop="rem_C區" label="C區" width="80" align="right"></el-table-column>
+                <el-table-column prop="rem_D區" label="D區" width="80" align="right"></el-table-column>
               </el-table-column>
             </el-table>
           </el-tab-pane>
