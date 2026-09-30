@@ -59,11 +59,11 @@
         <el-progress :percentage="calcProgress" :color="progressColors" :stroke-width="18" striped stripe-processing></el-progress>
       </div>
 
-      <!-- 數據表格雙頁籤區 -->
+      <!-- 數據表格雙頁籤區 (自動彈性高自適應) -->
       <div v-else class="tables-main-wrapper">
         <el-tabs type="border-card" class="dark-tabs">
           <el-tab-pane label="📊 儲格數統計明細 (依樓層區域)">
-            <el-table :data="summaryGridData" border stripe height="500px" size="small" class="dark-table">
+            <el-table :data="summaryGridData" border stripe height="100%" size="small" class="dark-table">
               <el-table-column prop="樓層區域" label="樓層區域" min-width="120" fixed="left"></el-table-column>
               <el-table-column prop="規劃儲格數" label="規劃儲格數" min-width="110" sortable></el-table-column>
               <el-table-column prop="使用儲格數" label="使用儲格數" min-width="110" sortable></el-table-column>
@@ -74,7 +74,7 @@
           </el-tab-pane>
 
           <el-tab-pane label="📦 才數統計明細 (依樓層區域)">
-            <el-table :data="summaryVolData" border stripe height="500px" size="small" class="dark-table">
+            <el-table :data="summaryVolData" border stripe height="100%" size="small" class="dark-table">
               <el-table-column prop="樓層區域" label="樓層區域" min-width="120" fixed="left"></el-table-column>
               <el-table-column prop="規劃總才數" label="規劃總才數" min-width="110" sortable></el-table-column>
               <el-table-column prop="使用中才數" label="使用中才數" min-width="110" sortable></el-table-column>
@@ -86,7 +86,7 @@
       </div>
     </div>
 
-    <!-- 🌟 儲位定義 CSV 匯入與參數設定 Modal (含圖2同款預覽表格) -->
+    <!-- 儲位定義 CSV 匯入與參數設定 Modal -->
     <el-dialog
       title="⚙️ 儲位定義參數設定"
       v-model="showConfigDialog"
@@ -124,7 +124,7 @@
 
         <el-divider content-position="left">📋 當前地端 SQLite 儲位結構定義清單</el-divider>
 
-        <!-- 圖 2 格式之儲位結構預覽表格 -->
+        <!-- 儲位結構預覽表格 -->
         <el-table 
           :data="masterTableData" 
           border 
@@ -238,7 +238,16 @@ export default {
 .loc-summary-page {
   padding: 15px;
   height: calc(100vh - 52px);
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.summary-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
 }
 
 .top-bar-actions {
@@ -246,6 +255,7 @@ export default {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 12px;
+  flex-shrink: 0;
 }
 
 .page-title-text {
@@ -263,7 +273,8 @@ export default {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
   gap: 12px;
-  margin-bottom: 15px;
+  margin-bottom: 12px;
+  flex-shrink: 0;
 }
 
 .stat-card {
@@ -304,7 +315,30 @@ export default {
 }
 
 .tables-main-wrapper {
-  margin-top: 10px;
+  margin-top: 5px;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+:deep(.dark-tabs) {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background-color: #1e293b !important;
+  border-color: #334155 !important;
+}
+
+:deep(.dark-tabs .el-tabs__content) {
+  flex: 1;
+  padding: 10px;
+  height: calc(100% - 40px);
+  min-height: 0;
+}
+
+:deep(.dark-tabs .el-tab-pane) {
+  height: 100%;
 }
 
 .config-modal-content {
