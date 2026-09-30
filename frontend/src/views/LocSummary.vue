@@ -76,7 +76,7 @@
               :row-class-name="tableRowClassName"
             >
               <el-table-column prop="floor" label="樓層" width="75" align="center" fixed="left"></el-table-column>
-              <el-table-column prop="loc_type" label="儲位類型" width="100" fixed="left"></el-table-column>
+              <el-table-column prop="loc_type" label="儲位類型" width="130" fixed="left"></el-table-column>
 
               <el-table-column label="規劃" align="center">
                 <el-table-column prop="plan_A區" label="A區" width="80" align="right"></el-table-column>
@@ -118,7 +118,7 @@
               :row-class-name="tableRowClassName"
             >
               <el-table-column prop="floor" label="樓層" width="75" align="center" fixed="left"></el-table-column>
-              <el-table-column prop="loc_type" label="儲位類型" width="100" fixed="left"></el-table-column>
+              <el-table-column prop="loc_type" label="儲位類型" width="130" fixed="left"></el-table-column>
 
               <el-table-column label="規劃總才數" align="center">
                 <el-table-column prop="plan_A區" label="A區" width="80" align="right"></el-table-column>
