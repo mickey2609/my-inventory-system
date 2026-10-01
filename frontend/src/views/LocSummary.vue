@@ -18,7 +18,7 @@
             📊 匯出 xlsx (3工作表)
           </el-button>
 
-          <!-- 🌟 匯出 PDF 按鈕 (依權限控制顯示，目前預設關閉) 🌟 -->
+          <!-- 🌟 匯出 PDF 按鈕 (依權限控制顯示，預設關閉) 🌟 -->
           <el-button 
             v-if="exportPerms.pdf"
             type="danger" 
@@ -31,22 +31,12 @@
             🖨️ 匯出 PDF (3頁)
           </el-button>
 
-          <!-- 重新計算即時統計按鈕 -->
+          <!-- 🌟 儲位定義設定按鈕 (只有系統管理員 sys_admin 看的到) 🌟 -->
           <el-button 
-            type="primary" 
-            icon="el-icon-refresh" 
-            size="small" 
-            :loading="loading" 
-            @click="$emit('refresh-summary')"
-          >
-            🔄 重新計算即時統計
-          </el-button>
-
-          <!-- 儲位定義設定按鈕 -->
-          <el-button 
+            v-if="isAdmin"
             type="warning" 
-            icon="el-icon-setting" 
             size="small" 
+            icon="el-icon-setting" 
             @click="openConfigModal"
           >
             ⚙️ 儲位定義設定 (匯入/檢視 CSV)
@@ -308,7 +298,7 @@
       </div>
     </div>
 
-    <!-- ⚙️ 儲位定義 Modal (已整合匯出權限勾選設定區塊) -->
+    <!-- ⚙️ 儲位定義 Modal -->
     <el-dialog
       title="⚙️ 儲位定義參數與權限設定"
       v-model="showConfigDialog"
@@ -370,7 +360,7 @@
           </el-table-column>
         </el-table>
 
-        <!-- 🌟 2. 對齊「庫存查詢 80」的匯出權限設定區塊 🌟 -->
+        <!-- 2. 匯出權限設定區塊 -->
         <el-divider content-position="left">🔒 開放儲位統計匯出功能權限</el-divider>
 
         <div class="perm-config-card">
@@ -424,7 +414,7 @@ export default {
       exportingXlsx: false,
       exportingPdf: false,
 
-      // 🌟 匯出功能權限控制 (預設 PDF 關閉) 🌟
+      // 🌟 匯出功能權限控制
       exportPerms: {
         xlsx: true,
         pdf: false
@@ -432,6 +422,17 @@ export default {
     }
   },
   computed: {
+    // 🌟🌟🌟 判斷當前登入者是否為「系統管理員」sys_admin 🌟🌟🌟
+    isAdmin() {
+      try {
+        const userStr = localStorage.getItem('user') || localStorage.getItem('loginUser');
+        if (userStr) {
+          const u = JSON.parse(userStr);
+          return u.role === 'sys_admin' || u.role === 'admin' || u.username === 'admin';
+        }
+      } catch (e) {}
+      return false;
+    },
     filteredGridData() {
       if (!this.summaryGridData) return [];
       return this.summaryGridData.filter(r => !r.is_subtotal && !r.is_total);
@@ -520,7 +521,6 @@ export default {
       const num = Number(String(val).replace(/,/g, ''));
       return isNaN(num) ? val : num.toLocaleString();
     },
-    // 🌟 讀取與儲存匯出權限設定 🌟
     loadExportPerms() {
       const saved = localStorage.getItem('loc_summary_export_perms');
       if (saved) {
@@ -530,7 +530,7 @@ export default {
           this.exportPerms = { xlsx: true, pdf: false };
         }
       } else {
-        this.exportPerms = { xlsx: true, pdf: false }; // 預設 PDF 關閉
+        this.exportPerms = { xlsx: true, pdf: false };
       }
     },
     saveExportPerms() {
@@ -651,7 +651,7 @@ export default {
       }
     },
 
-    // 匯出 XLSX (1個檔案，3工作表)
+    // 匯出 XLSX
     async exportFullXlsx() {
       if (!this.exportPerms.xlsx) {
         return this.$message.warning('權限受限：管理者尚未開放匯出 xlsx 功能');
@@ -1031,7 +1031,7 @@ export default {
 .section-desc code { background: #0f172a; color: #f43f5e; padding: 2px 6px; border-radius: 4px; }
 .master-preview-table { margin-top: 10px; }
 
-/* 🔒 權限設定卡片專屬樣式 (對齊庫存查詢 80 介面) */
+/* 🔒 權限設定卡片專屬樣式 */
 .perm-config-card {
   background: #0f172a;
   border: 1px solid #334155;
