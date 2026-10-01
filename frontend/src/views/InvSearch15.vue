@@ -1,13 +1,12 @@
 <template>
   <div class="inv-query-container">
-    <!-- 1. 上方操作按鈕列 (與 80 庫 1:1 對齊) -->
+    <!-- 1. 上方操作按鈕列 -->
     <div class="top-action-bar">
       <div class="left-btn-group">
         <el-button type="primary" icon="el-icon-search" size="small" @click="$emit('open-search')">
           🔍 設定搜尋條件與檢索
         </el-button>
 
-        <!-- 🌟 匯出按鈕 (受 exportConfig 控制) -->
         <el-button 
           v-if="canExport('xlsx')" 
           type="success" 
@@ -40,7 +39,7 @@
       </div>
     </div>
 
-    <!-- 2. 統計卡片列 (與 80 庫 1:1 對齊) -->
+    <!-- 2. 統計卡片列 -->
     <div class="summary-cards-wrapper" v-if="hasSearched">
       <div class="summary-card">
         <div class="card-title">總品項</div>
@@ -64,11 +63,11 @@
       </div>
     </div>
 
-    <!-- 3. 下方表格數據明細區 (與 80 庫 1:1 對齊) -->
+    <!-- 3. 下方表格數據明細區 -->
     <div class="table-section" v-loading="loading">
       <div class="table-header-info" v-if="hasSearched">
         <div class="table-header-title">
-          <span>📊 庫存 15 明細</span>
+          <span>📦 庫存 15 明細</span>
           <span v-if="searchConditionText" class="search-condition-tag">
             (查詢條件：{{ searchConditionText }})
           </span>
@@ -107,7 +106,6 @@
         </el-table-column>
       </el-table>
 
-      <!-- 分頁列 (與 80 庫 1:1 對齊) -->
       <div class="pagination-wrapper" v-if="hasSearched && totalRowsCount > 0">
         <el-pagination
           background
@@ -142,7 +140,6 @@ export default {
     exportConfig: { type: Object, default: () => ({ xlsx: true, csv: true, pdf: true }) },
     isSysAdmin: Boolean
   },
-  emits: ['open-search', 'export-data', 'page-change', 'size-change', 'refresh-metrics'],
   computed: {
     computedSummary() {
       return this.summary || { total_items: 0, total_rows: 0, total_pcs: 0, total_ao: 0 };
@@ -153,35 +150,25 @@ export default {
     },
     searchConditionText() {
       if (!this.form) return '全量無條件檢索';
-
       const mode = this.form.search_mode || 'normal';
-
       if (mode === 'batch_id') {
         const count = (this.form.batch_ids || '').split('\n').map(s => s.trim()).filter(Boolean).length;
         return `批次商品 ID (${count} 筆)`;
       }
-
       if (mode === 'batch_zone') {
         const count = (this.form.batch_zones || '').split('\n').map(s => s.trim()).filter(Boolean).length;
         return `批次大區 (${count} 筆)`;
       }
-
       const conds = [];
       if (this.form.txt_id) conds.push(`商品ID: ${this.form.txt_id}`);
       if (this.form.txt_name) conds.push(`名稱: ${this.form.txt_name}`);
       if (this.form.cbo_big_zone) conds.push(`大區: ${this.form.cbo_big_zone}`);
       if (this.form.cbo_zone) conds.push(`區名: ${this.form.cbo_zone}`);
       if (this.form.cbo_floor) conds.push(`樓層: ${this.form.cbo_floor}`);
-      
       if (this.form.txt_age) {
         const ageVal = String(this.form.txt_age).trim();
-        if (ageVal.includes('~') || ageVal.includes('-')) {
-          conds.push(`庫齡: ${ageVal}`);
-        } else {
-          conds.push(`庫齡 >= ${ageVal}`);
-        }
+        conds.push(ageVal.includes('~') || ageVal.includes('-') ? `庫齡: ${ageVal}` : `庫齡 >= ${ageVal}`);
       }
-
       return conds.length > 0 ? conds.join(' | ') : '全量無條件檢索';
     }
   },
@@ -202,7 +189,6 @@ export default {
     },
     getValueByColName(row, colName) {
       if (!row) return '-';
-
       const qty = parseFloat(row.qty !== undefined ? row.qty : (row.stock_qty || row['儲位庫存數'] || 0));
       const rawCubicFeet = row.cubic_feet !== undefined ? row.cubic_feet : row['才數'];
       const singleCubicFeet = parseFloat(rawCubicFeet);
@@ -236,182 +222,48 @@ export default {
 
       const val = fieldMap[colName] !== undefined ? fieldMap[colName] : row[colName];
       if (val === undefined || val === null || val === '') return '-';
-
       return this.formatSpecialValue(colName, val);
     },
     formatSpecialValue(colName, val) {
-      if (['儲位庫存數', '庫齡', '總庫存數'].includes(colName)) {
-        return this.formatNumber(val);
-      }
+      if (['儲位庫存數', '庫齡', '總庫存數'].includes(colName)) return this.formatNumber(val);
       return val;
     },
     getColumnAlign(colName) {
       const rightCols = ['儲位庫存數', '才數', '庫齡', '長(cm)', '寬(cm)', '高(cm)', '重量(kg)', '(近)月銷量', '(近)90日銷量', '總庫存數', '總才數'];
       const centerCols = ['借/採', '區編', '區名', '館編', '館名', '大區編', '大區名', '樓層', '材積別', '人工/自動', '儲位型態', '庫齡級距'];
-      
       if (rightCols.includes(colName)) return 'right';
       if (centerCols.includes(colName)) return 'center';
       return 'left';
     },
     getColumnWidth(colName) {
-      if (this.customWidths && this.customWidths[colName]) {
-        return this.customWidths[colName];
-      }
-      const widthMap = {
-        '商品ID': 180,
-        '商品名稱': 280,
-        '借/採': 90,
-        '人工/自動': 100,
-        '儲位庫存數': 110,
-        '庫齡': 90,
-        '區編': 100,
-        '區名': 130,
-        '館編': 100,
-        '館名': 130,
-        '大區名': 130,
-        '樓層': 90,
-        '供應商名稱': 200,
-        '(近)月銷量': 120,
-        '(近)90日銷量': 120
-      };
+      if (this.customWidths && this.customWidths[colName]) return this.customWidths[colName];
+      const widthMap = { '商品ID': 180, '商品名稱': 280, '借/採': 90, '人工/自動': 100, '儲位庫存數': 110, '庫齡': 90, '區編': 100, '區名': 130, '館編': 100, '館名': 130, '大區名': 130, '樓層': 90, '供應商名稱': 200, '(近)月銷量': 120, '(近)90日銷量': 120 };
       return widthMap[colName] || 120;
     },
-    onPageChange(page) {
-      this.$emit('page-change', page);
-    },
-    onSizeChange(size) {
-      this.$emit('size-change', size);
-    }
+    onPageChange(page) { this.$emit('page-change', page); },
+    onSizeChange(size) { this.$emit('size-change', size); }
   }
 };
 </script>
 
 <style scoped>
-.inv-query-container {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  height: 100%;
-  padding: 12px;
-  box-sizing: border-box;
-}
-
-.top-action-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.left-btn-group {
-  display: flex;
-  gap: 8px;
-}
-
-.summary-cards-wrapper {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.summary-card {
-  background-color: #1e293b;
-  border: 1px solid #334155;
-  border-radius: 6px;
-  padding: 8px 16px;
-  min-width: 140px;
-  flex: 1;
-}
-
-.card-title {
-  font-size: 12px;
-  color: #94a3b8;
-  margin-bottom: 4px;
-}
-
-.card-value {
-  font-size: 18px;
-  font-weight: bold;
-  color: #38bdf8;
-}
-
-.time-card {
-  min-width: 260px;
-  flex: 1.5;
-}
-
-.time-value {
-  font-size: 13px;
-  color: #f8fafc;
-  line-height: 24px;
-}
-
-.table-section {
-  background-color: #1e293b;
-  border: 1px solid #334155;
-  border-radius: 6px;
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  flex: 1;
-  min-height: 0;
-}
-
-.table-header-info {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  color: #f8fafc;
-  font-weight: bold;
-  font-size: 14px;
-}
-
-.table-header-title {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.search-condition-tag {
-  font-size: 13px;
-  color: #38bdf8;
-  background-color: rgba(56, 189, 248, 0.12);
-  padding: 2px 10px;
-  border-radius: 6px;
-  border: 1px solid rgba(56, 189, 248, 0.3);
-  font-weight: normal;
-}
-
-.page-tip {
-  font-size: 12px;
-  color: #38bdf8;
-  font-weight: normal;
-}
-
-.pagination-wrapper {
-  display: flex;
-  justify-content: flex-end;
-  padding-top: 8px;
-}
-
-:deep(.custom-dark-table) {
-  background-color: #1e293b !important;
-}
-
-:deep(.custom-dark-table th.el-table__cell) {
-  background-color: #0f172a !important;
-  color: #38bdf8 !important;
-  font-weight: bold;
-  border-bottom: 1px solid #334155 !important;
-}
-
-:deep(.custom-dark-table td.el-table__cell) {
-  background-color: #1e293b !important;
-  color: #f8fafc !important;
-  border-bottom: 1px solid #334155 !important;
-}
-
-:deep(.custom-dark-table--enable-row-hover .el-table__body tr:hover > td.el-table__cell) {
-  background-color: #334155 !important;
-}
+.inv-query-container { display: flex; flex-direction: column; gap: 12px; height: 100%; padding: 12px; box-sizing: border-box; }
+.top-action-bar { display: flex; align-items: center; justify-content: space-between; }
+.left-btn-group { display: flex; gap: 8px; }
+.summary-cards-wrapper { display: flex; gap: 12px; flex-wrap: wrap; }
+.summary-card { background-color: #1e293b; border: 1px solid #334155; border-radius: 6px; padding: 8px 16px; min-width: 140px; flex: 1; }
+.card-title { font-size: 12px; color: #94a3b8; margin-bottom: 4px; }
+.card-value { font-size: 18px; font-weight: bold; color: #38bdf8; }
+.time-card { min-width: 260px; flex: 1.5; }
+.time-value { font-size: 13px; color: #f8fafc; line-height: 24px; }
+.table-section { background-color: #1e293b; border: 1px solid #334155; border-radius: 6px; padding: 12px; display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; }
+.table-header-info { display: flex; justify-content: space-between; align-items: center; color: #f8fafc; font-weight: bold; font-size: 14px; }
+.table-header-title { display: flex; align-items: center; gap: 10px; }
+.search-condition-tag { font-size: 13px; color: #38bdf8; background-color: rgba(56, 189, 248, 0.12); padding: 2px 10px; border-radius: 6px; border: 1px solid rgba(56, 189, 248, 0.3); font-weight: normal; }
+.page-tip { font-size: 12px; color: #38bdf8; font-weight: normal; }
+.pagination-wrapper { display: flex; justify-content: flex-end; padding-top: 8px; }
+:deep(.custom-dark-table) { background-color: #1e293b !important; }
+:deep(.custom-dark-table th.el-table__cell) { background-color: #0f172a !important; color: #38bdf8 !important; font-weight: bold; border-bottom: 1px solid #334155 !important; }
+:deep(.custom-dark-table td.el-table__cell) { background-color: #1e293b !important; color: #f8fafc !important; border-bottom: 1px solid #334155 !important; }
+:deep(.custom-dark-table--enable-row-hover .el-table__body tr:hover > td.el-table__cell) { background-color: #334155 !important; }
 </style>

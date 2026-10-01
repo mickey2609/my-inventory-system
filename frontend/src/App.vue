@@ -46,29 +46,30 @@
             @refresh-summary="handleSummaryCalc"
           />
 
+          <!-- 🌟 80 庫專屬隔離數據 🌟 -->
           <InvQuery80 
             v-else-if="currentTab === 'inv80'" key="inv80"
-            :has-searched="hasSearched" :summary="summary" :search-time="searchTime"
-            :loading="loading" :table-data="tableData" :columns="columns"
-            :current-page="currentPage" :page-size="pageSize" :total-rows-count="totalRowsCount"
-            :custom-widths="customColWidths" :form="form"
-            :export-config="exportConfig"
+            :has-searched="hasSearched80" :summary="summary80" :search-time="searchTime80"
+            :loading="loading" :table-data="tableData80" :columns="columns80"
+            :current-page="currentPage80" :page-size="pageSize80" :total-rows-count="totalRowsCount80"
+            :custom-widths="customColWidths80" :form="form80"
+            :export-config="exportConfig80"
             :is-sys-admin="isSysAdmin"
-            @open-search="openSearchModal" @export-data="exportData" @page-change="handlePageChange"
-            @size-change="handlePageSizeChange"
+            @open-search="openSearchModal" @export-data="exportData" @page-change="p => handlePageChange(p, 'inv80')"
+            @size-change="s => handlePageSizeChange(s, 'inv80')"
           />
 
-          <!-- 🌟 補齊：15 庫事件與資料綁定，含全域數據刷新觸發 🌟 -->
+          <!-- 🌟 15 庫專屬隔離數據 🌟 -->
           <InvSearch15 
             v-else-if="currentTab === 'inv15'" key="inv15"
-            :has-searched="hasSearched" :summary="summary" :search-time="searchTime"
-            :loading="loading" :table-data="tableData" :columns="columns"
-            :current-page="currentPage" :page-size="pageSize" :total-rows-count="totalRowsCount"
-            :custom-widths="customColWidths" :form="form"
-            :export-config="exportConfig"
+            :has-searched="hasSearched15" :summary="summary15" :search-time="searchTime15"
+            :loading="loading" :table-data="tableData15" :columns="columns15"
+            :current-page="currentPage15" :page-size="pageSize15" :total-rows-count="totalRowsCount15"
+            :custom-widths="customColWidths15" :form="form15"
+            :export-config="exportConfig15"
             :is-sys-admin="isSysAdmin"
-            @open-search="openSearchModal" @export-data="exportData" @page-change="handlePageChange"
-            @size-change="handlePageSizeChange"
+            @open-search="openSearchModal" @export-data="exportData" @page-change="p => handlePageChange(p, 'inv15')"
+            @size-change="s => handlePageSizeChange(s, 'inv15')"
             @refresh-metrics="fetchDashboardMetrics"
           />
 
@@ -116,7 +117,7 @@
 
     <ColConfigModal 
       v-model="showColSettingDialog" :is-admin="isSysAdmin" :all-available-columns="allAvailableColumns"
-      :selected-columns="form.selected_columns" :dragged-index="draggedIndex" :saving-config="savingConfig"
+      :selected-columns="currentForm.selected_columns" :dragged-index="draggedIndex" :saving-config="savingConfig"
       :raw-columns-master="rawColumnsMaster" @select-all="selectAllCols" @unselect-all="unselectAllCols"
       @drag-start="onDragStart" @drag-over="onDragOver" @drag-drop="onDrop" @drag-end="onDragEnd"
       @toggle-col="toggleColumnSelection" @save-config="saveColumnConfig"
@@ -124,10 +125,11 @@
 
     <ParamMenuModal 
       v-model="showParamMenuDialog"
-      :form="form"
-      :export-config="exportConfig"
+      :form="currentForm"
+      :current-tab="currentTab"
+      :export-config="currentExportConfig"
       :saving="savingExportConfig"
-      @update-export-config="exportConfig = $event"
+      @update-export-config="updateCurrentExportConfig"
       @save-export-config="saveExportConfig"
       @open-import-inventory="showParamMenuDialog = false; showInventoryImportTipDialog = true;"
       @open-col-setting="showParamMenuDialog = false; showColSettingDialog = true;"
@@ -137,7 +139,7 @@
 
     <WidthConfigModal 
       v-model:show-width-config="showWidthConfigDialog" v-model:show-export-width-config="showExportWidthConfigDialog"
-      :selected-columns="form.selected_columns" :custom-col-widths="customColWidths" :custom-export-col-widths="customExportColWidths"
+      :selected-columns="currentForm.selected_columns" :custom-col-widths="currentCustomColWidths" :custom-export-col-widths="currentCustomExportWidths"
     />
 
     <ImportTipModal 
@@ -156,7 +158,7 @@
     />
 
     <InventorySearchModal 
-      v-model="showSearchModal" :form="form" :options="options" :loading="loading" :search-elapsed-sec="searchElapsedSec"
+      v-model="showSearchModal" :form="currentForm" :options="options" :loading="loading" :search-elapsed-sec="searchElapsedSec"
       :is-sys-admin="isSysAdmin" :enable-sort-config="false"
       @open-param-menu="showParamMenuDialog = true" @big-zone-change="onBigZoneChange" @submit-search="handleSearch"
     />
@@ -240,16 +242,32 @@ export default {
       currentTab: 'home', openedTabs: ['home'], 
       
       dbMetrics: { totalRows80: 0, totalRows15: 0, serverUptimeSec: 0 },
+      logTab: 'normal', loading: false, draggedIndex: null,
 
-      logTab: 'normal', loading: false, draggedIndex: null, hasSearched: false, searchTime: '',
-      currentPage: 1, 
-      pageSize: 500,
-      totalRowsCount: 0, showColSettingDialog: false,
-      
-      exportConfig: { xlsx: true, csv: true, pdf: true },
+      // 🌟 庫存 80 專屬隔離狀態 🌟
+      hasSearched80: false, searchTime80: '', currentPage80: 1, pageSize80: 500, totalRowsCount80: 0,
+      tableData80: [], columns80: [], summary80: { total_items: 0, total_rows: 0, total_pcs: 0, total_ao: 0 },
+      exportConfig80: { xlsx: true, csv: true, pdf: true },
+      customColWidths80: { '商品ID': 180, '商品名稱': 300, '儲位': 130 },
+      customExportColWidths80: { '商品ID': 25, '商品名稱': 40, '儲位': 15 },
+      form80: {
+        search_mode: 'normal', batch_ids: '', batch_zones: '', txt_id: '', txt_name: '', cbo_big_zone: '',
+        cbo_zone: '', cbo_loc_id: '', cbo_floor: '', cbo_type: '', cbo_vol_type: '', txt_age: '', txt_weight: '',
+        txt_monthly_sales: '', selected_columns: [...full48Cols], chk_show_loc: true, chk_show_dim: true, cbo_sort: '商品ID', sort_order: 'desc'
+      },
 
-      customColWidths: { '商品ID': 180, '商品名稱': 300, '儲位': 130 },
-      customExportColWidths: { '商品ID': 25, '商品名稱': 40, '儲位': 15 },
+      // 🌟 庫存 15 專屬隔離狀態 🌟
+      hasSearched15: false, searchTime15: '', currentPage15: 1, pageSize15: 500, totalRowsCount15: 0,
+      tableData15: [], columns15: [], summary15: { total_items: 0, total_rows: 0, total_pcs: 0, total_ao: 0 },
+      exportConfig15: { xlsx: true, csv: true, pdf: true },
+      customColWidths15: { '商品ID': 180, '商品名稱': 300, '儲位': 130 },
+      customExportColWidths15: { '商品ID': 25, '商品名稱': 40, '儲位': 15 },
+      form15: {
+        search_mode: 'normal', batch_ids: '', batch_zones: '', txt_id: '', txt_name: '', cbo_big_zone: '',
+        cbo_zone: '', cbo_loc_id: '', cbo_floor: '', cbo_type: '', cbo_vol_type: '', txt_age: '', txt_weight: '',
+        txt_monthly_sales: '', selected_columns: [...full48Cols], chk_show_loc: true, chk_show_dim: true, cbo_sort: '商品ID', sort_order: 'desc'
+      },
+
       availableModules: [
         { key: 'loc_summary', name: '📊 儲位數才數統整' }, { key: 'inv80', name: '🔍 庫存查詢80' },
         { key: 'inv15', name: '📦 庫存查詢15' }, { key: 'turnover', name: '📈 迴轉率清單' },
@@ -258,26 +276,17 @@ export default {
 
       rawColumnsMaster: [...full48Cols],
       allAvailableColumns: [...full48Cols],
-
-      form: {
-        search_mode: 'normal', batch_ids: '', batch_zones: '', txt_id: '', txt_name: '', cbo_big_zone: '',
-        cbo_zone: '', cbo_loc_id: '', cbo_floor: '', cbo_type: '', cbo_vol_type: '', txt_age: '', txt_weight: '',
-        txt_monthly_sales: '',
-        selected_columns: [...full48Cols],
-        chk_show_loc: true, chk_show_dim: true, cbo_sort: '商品ID', sort_order: 'desc'
-      },
       options: { big_zones: [], zones_map: {}, zones: [], floors: [], ap_types: [], vol_types: [] },
-      summary: { total_items: 0, total_rows: 0, total_pcs: 0, total_ao: 0 },
-      columns: [], tableData: [], logsList: []
+      logsList: []
     }
   },
   computed: {
-    isSysAdmin() { 
-      return this.currentUsername === 'admin' || this.currentUserRole === 'sys_admin'; 
-    },
-    isAdmin() { 
-      return this.isSysAdmin || this.currentUserRole === 'admin'; 
-    }
+    isSysAdmin() { return this.currentUsername === 'admin' || this.currentUserRole === 'sys_admin'; },
+    isAdmin() { return this.isSysAdmin || this.currentUserRole === 'admin'; },
+    currentForm() { return this.currentTab === 'inv15' ? this.form15 : this.form80; },
+    currentExportConfig() { return this.currentTab === 'inv15' ? this.exportConfig15 : this.exportConfig80; },
+    currentCustomColWidths() { return this.currentTab === 'inv15' ? this.customColWidths15 : this.customColWidths80; },
+    currentCustomExportWidths() { return this.currentTab === 'inv15' ? this.customExportColWidths15 : this.customExportColWidths80; }
   },
   async mounted() {
     const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
@@ -332,6 +341,10 @@ export default {
     window.removeEventListener('inventory-updated', this.fetchDashboardMetrics);
   },
   methods: {
+    updateCurrentExportConfig(newCfg) {
+      if (this.currentTab === 'inv15') this.exportConfig15 = newCfg;
+      else this.exportConfig80 = newCfg;
+    },
     startHeartbeat() {
       this.stopHeartbeat();
       this.sendHeartbeat();
@@ -377,32 +390,30 @@ export default {
     },
 
     hasModulePermission(tabKey) {
-      if (this.isSysAdmin || tabKey === 'home' || tabKey === 'settings_perm' || tabKey === 'settings_log') {
-        return true;
-      }
+      if (this.isSysAdmin || tabKey === 'home' || tabKey === 'settings_perm' || tabKey === 'settings_log') return true;
       const perms = this.currentUserPermissions;
       if (!perms || perms === 'all' || perms === 'all,') return true;
-
-      if (Array.isArray(perms)) {
-        return perms.includes(tabKey);
-      }
-      if (typeof perms === 'string') {
-        return perms.split(',').map(s => s.trim()).includes(tabKey);
-      }
+      if (Array.isArray(perms)) return perms.includes(tabKey);
+      if (typeof perms === 'string') return perms.split(',').map(s => s.trim()).includes(tabKey);
       return false;
     },
 
+    // 🌟 80 庫與 15 庫設定檔精準拆分 🌟
     async fetchGlobalConfig() {
       try {
-        const res = await axios.get('/api/get-column-config?key=global_default');
-        if (res.data?.success && res.data?.data) {
-          const cfg = res.data.data;
-          if (cfg.selected_columns && Array.isArray(cfg.selected_columns) && cfg.selected_columns.length >= 36) {
-            this.form.selected_columns = cfg.selected_columns;
-          }
-          if (cfg.all_columns && Array.isArray(cfg.all_columns) && cfg.all_columns.length >= 48) {
-            this.allAvailableColumns = cfg.all_columns;
-          }
+        const key80 = 'global_default_80';
+        const key15 = 'global_default_15';
+
+        const res80 = await axios.get(`/api/get-column-config?key=${key80}`);
+        if (res80.data?.success && res80.data?.data) {
+          const cfg = res80.data.data;
+          if (cfg.selected_columns) this.form80.selected_columns = cfg.selected_columns;
+        }
+
+        const res15 = await axios.get(`/api/get-column-config?key=${key15}`);
+        if (res15.data?.success && res15.data?.data) {
+          const cfg = res15.data.data;
+          if (cfg.selected_columns) this.form15.selected_columns = cfg.selected_columns;
         }
       } catch (e) {}
     },
@@ -411,19 +422,17 @@ export default {
       if (!this.isSysAdmin) return;
       this.savingExportConfig = true;
       try {
+        const key = this.currentTab === 'inv15' ? 'export_config_15' : 'export_config_80';
         const res = await axios.post('/api/save-column-config', {
-          key: 'export_config',
-          config: this.exportConfig
+          key: key,
+          config: this.currentExportConfig
         });
         if (res.data?.success) {
-          localStorage.setItem('global_export_config', JSON.stringify(this.exportConfig));
-          this.$message.success('🎉 成功！匯出權限設定已同步至全公司所有帳號。');
+          this.$message.success(`🎉 成功！${this.currentTab === 'inv15' ? '庫存15' : '庫存80'} 匯出設定已同步！`);
           this.showParamMenuDialog = false;
-        } else {
-          this.$message.error('儲存失敗：' + (res.data?.message || '位置錯誤'));
         }
       } catch (e) {
-        this.$message.error('儲存連線失敗：' + e.message);
+        this.$message.error('儲存失敗：' + e.message);
       } finally {
         this.savingExportConfig = false;
       }
@@ -436,14 +445,10 @@ export default {
     async fetchDashboardMetrics() {
       try {
         const res80 = await axios.get('/api/search?page=1&pageSize=1');
-        if (res80.data?.success) {
-          this.dbMetrics.totalRows80 = res80.data.total || 0;
-        }
+        if (res80.data?.success) this.dbMetrics.totalRows80 = res80.data.total || 0;
 
         const res15 = await axios.get('/api/inventory15/search?page=1&pageSize=1');
-        if (res15.data?.success) {
-          this.dbMetrics.totalRows15 = res15.data.total || 0;
-        }
+        if (res15.data?.success) this.dbMetrics.totalRows15 = res15.data.total || 0;
 
         const resConfig = await axios.get('/api/get-global-config');
         if (resConfig.data?.success && resConfig.data?.data) {
@@ -451,12 +456,8 @@ export default {
         }
 
         const resCat = await axios.get('/api/categories/large');
-        if (resCat.data?.success) {
-          this.options.big_zones = resCat.data.data || [];
-        }
-      } catch (e) {
-        console.error('抓取儀表板指標失敗', e);
-      }
+        if (resCat.data?.success) this.options.big_zones = resCat.data.data || [];
+      } catch (e) {}
     },
 
     openNewTab(tabKey) {
@@ -464,17 +465,12 @@ export default {
         this.$message.warning('⚠️ 您尚未取得【' + this.getTabName(tabKey) + '】模組的操作權限！');
         return;
       }
-
       if (!this.openedTabs.includes(tabKey)) this.openedTabs.push(tabKey);
       localStorage.setItem('opened_tabs', JSON.stringify(this.openedTabs));
       this.switchTab(tabKey);
     },
     switchTab(tabKey) {
-      if (!this.hasModulePermission(tabKey)) {
-        this.$message.warning('⚠️ 您無權存取該功能模組！');
-        return;
-      }
-
+      if (!this.hasModulePermission(tabKey)) return this.$message.warning('⚠️ 您無權存取該功能模組！');
       this.currentTab = tabKey;
       localStorage.setItem('current_tab', tabKey);
       localStorage.setItem('opened_tabs', JSON.stringify(this.openedTabs));
@@ -484,7 +480,7 @@ export default {
 
       if (tabKey === 'home') this.fetchDashboardMetrics();
       else if (tabKey === 'loc_summary' && this.summaryGridData.length === 0) this.handleSummaryCalc();
-      else if (tabKey === 'inv80' && !this.options.big_zones.length) this.fetchInitData();
+      else if ((tabKey === 'inv80' || tabKey === 'inv15') && !this.options.big_zones.length) this.fetchInitData();
       else if (tabKey === 'settings_perm') this.fetchUsers();
       else if (tabKey === 'settings_log') this.fetchLogs();
     },
@@ -498,28 +494,72 @@ export default {
         }
       }
     },
-    handlePageChange(page) {
-      this.currentPage = page;
+    handlePageChange(page, targetModule = 'inv80') {
+      if (targetModule === 'inv15') this.currentPage15 = page;
+      else this.currentPage80 = page;
       this.handleSearch();
     },
-    handlePageSizeChange(newSize) {
-      this.pageSize = newSize;
-      this.currentPage = 1;
+    handlePageSizeChange(newSize, targetModule = 'inv80') {
+      if (targetModule === 'inv15') { this.pageSize15 = newSize; this.currentPage15 = 1; }
+      else { this.pageSize80 = newSize; this.currentPage80 = 1; }
       this.handleSearch();
     },
+
     triggerSelectInventoryFile() { this.$refs.inventoryFileInput.click(); },
+
+    // 🌟 動態上傳分流：根據當前頁籤分流至 80 庫或 15 庫 🌟
     async handleInventoryUpload(event) {
       const file = event.target.files[0];
       if (!file) return;
       this.isUploading = true;
-      try {
-        const totalRows = await processCsvUpload(file, p => { this.uploadPercent = p; }, (f, a) => this.sendCurrentLog(f, a));
-        this.$message.success(`🎉 成功寫入 ${totalRows.toLocaleString()} 筆庫存資料！`);
-        this.showInventoryImportTipDialog = false;
-        this.fetchDashboardMetrics();
-      } catch (e) { this.$message.error('上傳失敗：' + e.message); }
-      finally { this.isUploading = false; event.target.value = ''; }
+
+      if (this.currentTab === 'inv15') {
+        const loadingMsg = this.$message.info({ message: '⚡ 正在進行 15 庫存分塊處理與寫入中...', duration: 0 });
+        try {
+          const text = await file.text();
+          const lines = text.split(/\r?\n/).filter(l => l.trim());
+          if (lines.length <= 1) { loadingMsg.close(); return this.$message.error('檔案格式無效'); }
+
+          const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+          let currentBatch = [];
+          let uploadedCount = 0;
+          let isFirstChunk = true;
+
+          for (let i = 1; i < lines.length; i++) {
+            const rowVals = lines[i].split(',').map(v => v.trim().replace(/^"|"$/g, ''));
+            if (rowVals.length >= headers.length) {
+              const rowObj = {};
+              headers.forEach((h, idx) => rowObj[h] = rowVals[idx]);
+              const itemId = rowObj['商品ID'] || rowObj['item_id'] || '';
+              if (itemId.trim() !== '') currentBatch.push(rowObj);
+            }
+
+            if (currentBatch.length >= 10000 || i === lines.length - 1) {
+              if (currentBatch.length > 0) {
+                await axios.post('/api/inventory15/upload', { items: currentBatch, isFirstChunk: isFirstChunk });
+                uploadedCount += currentBatch.length;
+                isFirstChunk = false;
+                currentBatch = [];
+              }
+            }
+          }
+          loadingMsg.close();
+          this.$message.success(`🎉 成功寫入 ${uploadedCount.toLocaleString()} 筆有效資料至 庫存15！`);
+          this.showInventoryImportTipDialog = false;
+          this.fetchDashboardMetrics();
+        } catch (e) { loadingMsg.close(); this.$message.error('匯入 15 庫失敗：' + e.message); }
+        finally { this.isUploading = false; event.target.value = ''; }
+      } else {
+        try {
+          const totalRows = await processCsvUpload(file, p => { this.uploadPercent = p; }, (f, a) => this.sendCurrentLog(f, a));
+          this.$message.success(`🎉 成功寫入 ${totalRows.toLocaleString()} 筆資料至 庫存80！`);
+          this.showInventoryImportTipDialog = false;
+          this.fetchDashboardMetrics();
+        } catch (e) { this.$message.error('上傳 80 庫失敗：' + e.message); }
+        finally { this.isUploading = false; event.target.value = ''; }
+      }
     },
+
     formatNumber(val) {
       if (!val) return '0';
       const num = Number(String(val).replace(/,/g, ''));
@@ -560,25 +600,25 @@ export default {
         this.$message.success('已成功匯出帳號與權限清單！');
       } catch (e) { this.$message.error('匯出帳號清單失敗！'); }
     },
+
     async saveColumnConfig() {
       if (!this.isSysAdmin) return;
       this.savingConfig = true;
       try {
+        const key = this.currentTab === 'inv15' ? 'global_default_15' : 'global_default_80';
         const res = await axios.post('/api/save-column-config', {
-          key: 'global_default',
+          key: key,
           config: {
             all_columns: this.allAvailableColumns,
-            selected_columns: this.form.selected_columns
+            selected_columns: this.currentForm.selected_columns
           }
         });
         if (res.data?.success) {
-          this.$message.success('🎉 欄位預設順序已成功同步全公司！'); 
+          this.$message.success(`🎉 ${this.currentTab === 'inv15' ? '庫存15' : '庫存80'} 欄位順序已儲存！`); 
           this.showColSettingDialog = false;
-        } else {
-          this.$message.error('儲存失敗：' + (res.data?.error || '位置錯誤'));
         }
       } catch (e) { 
-        this.$message.error('儲存失敗：' + (e.response?.data?.error || e.message)); 
+        this.$message.error('儲存失敗：' + e.message); 
       } finally { 
         this.savingConfig = false; 
       }
@@ -586,9 +626,9 @@ export default {
 
     async openSearchModal() { this.showSearchModal = true; await this.fetchInitData(); },
     toggleColumnSelection(colName) {
-      const idx = this.form.selected_columns.indexOf(colName);
-      if (idx >= 0) this.form.selected_columns.splice(idx, 1);
-      else this.form.selected_columns.push(colName);
+      const idx = this.currentForm.selected_columns.indexOf(colName);
+      if (idx >= 0) this.currentForm.selected_columns.splice(idx, 1);
+      else this.currentForm.selected_columns.push(colName);
     },
     onDragStart(e, idx) { this.draggedIndex = idx; },
     onDragOver(e, idx) {
@@ -599,12 +639,11 @@ export default {
     },
     onDrop() { this.draggedIndex = null; },
     onDragEnd() { this.draggedIndex = null; },
-    selectAllCols() { this.form.selected_columns = [...this.rawColumnsMaster]; },
-    unselectAllCols() { this.form.selected_columns = []; },
+    selectAllCols() { this.currentForm.selected_columns = [...this.rawColumnsMaster]; },
+    unselectAllCols() { this.currentForm.selected_columns = []; },
     openPwdDialog(row) { this.targetUser = row.username; this.editPasswordForm.new_password = ''; this.showEditPwdDialog = true; },
     openPermDialog(row) {
       this.targetUser = row.username;
-      
       if (Array.isArray(row.permissions)) {
         this.editPermForm.selected_modules = [...row.permissions];
       } else if (typeof row.permissions === 'string' && row.permissions.trim() !== '') {
@@ -616,7 +655,6 @@ export default {
       } else {
         this.editPermForm.selected_modules = this.availableModules.map(m => m.key);
       }
-      
       this.showEditPermDialog = true;
     },
     async fetchLogs() { try { const res = await axios.get('/api/get-logs'); if (res.data?.logs) this.logsList = res.data.logs; } catch (e) {} },
@@ -628,24 +666,16 @@ export default {
         const res = await axios.post('/api/login', { username: this.loginForm.username, password: this.loginForm.password, device: this.getDeviceType() });
         if (res.data?.status === 'success' || res.data?.success) {
           const userData = res.data.user || res.data.data || {};
-
           this.isLoggedIn = true; 
           this.currentUsername = res.data.username || userData.username || this.loginForm.username; 
-          
           this.currentUser = res.data.name || userData.name || this.currentUsername;
           this.currentUserRole = res.data.role || userData.role || (this.currentUsername === 'admin' ? 'sys_admin' : 'user');
           this.currentUserPermissions = res.data.permissions || userData.permissions || 'all';
-          
           this.loginTimestamp = Date.now();
           this.timeoutMessage = '';
 
-          if (typeof this.saveOrClearCredentials === 'function') {
-            this.saveOrClearCredentials(this.loginForm);
-          }
-
-          if (typeof this.saveSession === 'function') {
-            this.saveSession(this.currentUsername, this.currentUser, this.currentUserRole, this.currentUserPermissions);
-          }
+          if (typeof this.saveOrClearCredentials === 'function') this.saveOrClearCredentials(this.loginForm);
+          if (typeof this.saveSession === 'function') this.saveSession(this.currentUsername, this.currentUser, this.currentUserRole, this.currentUserPermissions);
 
           this.currentTab = 'home'; 
           this.openedTabs = ['home'];
@@ -671,16 +701,9 @@ export default {
     },
 
     async handleLogout() {
-      try {
-        if (this.currentUsername) {
-          await axios.post('/api/logout', { username: this.currentUsername });
-        }
-      } catch (e) {}
-
+      try { if (this.currentUsername) await axios.post('/api/logout', { username: this.currentUsername }); } catch (e) {}
       this.stopHeartbeat();
-      if (typeof this.clearSession === 'function') {
-        this.clearSession();
-      }
+      if (typeof this.clearSession === 'function') this.clearSession();
       this.stopTimers();
       this.isLoggedIn = false; 
       this.currentUser = ''; 
@@ -691,23 +714,16 @@ export default {
       this.$message.info('已成功登出');
     },
     getTabName(k) {
-      const names = { 
-        'home': '🏠 系統首頁', 
-        'inv80': '🔍 庫存查詢80', 
-        'inv15': '📦 庫存查詢15', 
-        'loc_summary': '📊 儲位數才數統整', 
-        'turnover': '📈 迴轉率清單', 
-        'abnormal_purchase': '⚠️ 不合理進貨清單', 
-        'settings_perm': '⚙️ 權限管理', 
-        'settings_log': '📜 日誌歷程查詢' 
-      };
+      const names = { 'home': '🏠 系統首頁', 'inv80': '🔍 庫存查詢80', 'inv15': '📦 庫存查詢15', 'loc_summary': '📊 儲位數才數統整', 'turnover': '📈 迴轉率清單', 'abnormal_purchase': '⚠️ 不合理進貨清單', 'settings_perm': '⚙️ 權限管理', 'settings_log': '📜 日誌歷程查詢' };
       return names[k] || '系統模組';
     },
     async fetchInitData() { try { const res = await axios.get('/api/categories/large'); if (res.data?.success) this.options.big_zones = res.data.data; } catch (e) {} },
     async onBigZoneChange(val) {
-      this.form.cbo_zone = ''; this.options.zones = []; if (!val) return;
+      this.currentForm.cbo_zone = ''; this.options.zones = []; if (!val) return;
       try { const res = await axios.get('/api/categories/small?large=' + encodeURIComponent(val)); if (res.data?.success) this.options.zones = res.data.data; } catch (e) {}
     },
+
+    // 🌟 獨立處理 80 與 15 的搜尋結果 🌟
     async handleSearch() {
       this.loading = true;
       this.searchElapsedSec = 0;
@@ -717,51 +733,49 @@ export default {
       }, 100);
 
       try {
-        let currentCols = Array.isArray(this.form.selected_columns) && this.form.selected_columns.length > 0 
-          ? [...this.form.selected_columns] 
+        const formObj = this.currentForm;
+        let currentCols = Array.isArray(formObj.selected_columns) && formObj.selected_columns.length > 0 
+          ? [...formObj.selected_columns] 
           : [...this.rawColumnsMaster];
 
-        if (this.form.chk_show_loc) {
+        if (formObj.chk_show_loc) {
           if (!currentCols.includes('儲位')) currentCols.push('儲位');
         }
 
         const dimCols = ['長(cm)', '寬(cm)', '高(cm)', '重量(kg)', '才數', '材積別'];
-        if (this.form.chk_show_dim) {
+        if (formObj.chk_show_dim) {
           dimCols.forEach(col => { if (!currentCols.includes(col)) currentCols.push(col); });
         }
 
         const masterSet = new Set(this.rawColumnsMaster);
-        this.columns = currentCols.filter(c => masterSet.has(c));
-        if (this.columns.length === 0) {
-          this.columns = [...this.rawColumnsMaster];
-        }
+        const filteredCols = currentCols.filter(c => masterSet.has(c));
 
-        const hasLocationCol = this.columns.includes('儲位');
-        const mode = this.form.search_mode || 'normal';
-        let batchTxt = '';
-        if (mode === 'batch_id') batchTxt = this.form.batch_ids || '';
-        else if (mode === 'batch_zone') batchTxt = this.form.batch_zones || '';
+        const hasLocationCol = filteredCols.includes('儲位');
+        const mode = formObj.search_mode || 'normal';
+        let batchTxt = mode === 'batch_id' ? (formObj.batch_ids || '') : (mode === 'batch_zone' ? (formObj.batch_zones || '') : '');
+
+        const curPage = this.currentTab === 'inv15' ? this.currentPage15 : this.currentPage80;
+        const curPageSize = this.currentTab === 'inv15' ? this.pageSize15 : this.pageSize80;
 
         const params = new URLSearchParams({
-          page: this.currentPage,
-          pageSize: this.pageSize,
+          page: curPage,
+          pageSize: curPageSize,
           searchMode: mode,
           batchIds: batchTxt,
-          categoryLarge: this.form.cbo_big_zone || '',
-          categorySmall: this.form.cbo_zone || '',
-          keyword: this.form.txt_id || this.form.txt_name || '',
-          txtAge: this.form.txt_age || '',
+          categoryLarge: formObj.cbo_big_zone || '',
+          categorySmall: formObj.cbo_zone || '',
+          keyword: formObj.txt_id || formObj.txt_name || '',
+          txtAge: formObj.txt_age || '',
           aggregate: hasLocationCol ? 'false' : 'true'
         });
 
-        // 🌟 依據當前頁籤分流至對應的 API 端點
         const searchApiUrl = this.currentTab === 'inv15' ? `/api/inventory15/search?${params.toString()}` : `/api/search?${params.toString()}`;
 
         const res = await axios.get(searchApiUrl);
         if (res.data?.success) {
-          this.totalRowsCount = res.data.total || 0;
+          const totalCount = res.data.total || 0;
           const rawData = res.data.data || [];
-          this.tableData = rawData.map(row => {
+          const formattedRows = rawData.map(row => {
             const getAnyVal = (...keys) => {
               for (const k of keys) {
                 if (row[k] !== null && row[k] !== undefined && String(row[k]).trim() !== '') return row[k];
@@ -786,146 +800,76 @@ export default {
               '高(cm)': getAnyVal('高(cm)', 'height'),
               '重量(kg)': getAnyVal('重量(kg)', 'weight'),
               '(近)月銷量': getAnyVal('(近)月銷量', 'monthly_sales'),
-              '(近)月-有揀貨單天數': getAnyVal('(近)月-有揀貨單天數', 'pick_days_m'),
               '(近)90日銷量': getAnyVal('(近)90日銷量', 'sales_90d'),
-              '(近)90日-有揀貨單天數': getAnyVal('(近)90日-有揀貨單天數', 'pick_days_90d'),
-              '供應商ID': getAnyVal('供應商ID', 'supplier_id'),
               '供應商名稱': getAnyVal('供應商名稱', 'supplier_name'),
-              '所屬PM': getAnyVal('所屬PM', 'pm'),
               '總庫存數': getAnyVal('總庫存數', 'total_qty'),
-              '總庫存_迴轉天數': getAnyVal('總庫存_迴轉天數', 'turn_days_total'),
               '才數': getAnyVal('才數', 'cubic_feet'),
               '材積別': getAnyVal('材積別', 'vol_type'),
-              '儲位編碼-3': getAnyVal('儲位編碼-3', 'loc_code_3'),
-              '儲位編碼': getAnyVal('儲位編碼', 'loc_code_full'),
-              '儲位編碼5': getAnyVal('儲位編碼5', 'loc_code_5'),
               '樓層': getAnyVal('樓層', 'floor'),
-              '樓層區域': getAnyVal('樓層區域', 'floor_zone'),
               '儲位型態': getAnyVal('儲位型態', 'loc_type'),
-              '大區編': getAnyVal('大區編', 'big_zone_id'),
               '大區名': getAnyVal('大區名', 'big_zone'),
-              '三邊長': getAnyVal('三邊長', 'dim_sum'),
-              '最長邊': getAnyVal('最長邊', 'max_dim'),
-              '最短邊': getAnyVal('最短邊', 'min_dim'),
-              '儲位才數': getAnyVal('儲位才數', 'loc_cubic_feet'),
-              '儲位健康度': getAnyVal('儲位健康度', 'loc_health'),
-              '不符合': getAnyVal('不符合', 'non_compliant'),
-              '材積判斷': getAnyVal('材積判斷', 'vol_check'),
-              '總才數': getAnyVal('總才數', 'total_cubic_feet'),
-              '人工/自動': getAnyVal('人工/自動', 'auto_type', 'is_auto', 'autoType', 'am'),
-              '儲位層標示': getAnyVal('儲位層標示', 'shelf_level'),
-              '庫齡級距': getAnyVal('庫齡級距', 'age_bracket'),
-              '樓層設定': getAnyVal('樓層設定', 'floor_config'),
-              '重型架判斷': getAnyVal('重型架判斷', 'heavy_rack_check'),
-              'ID指定樓層': getAnyVal('ID指定樓層', 'assigned_floor'),
-              '備註': getAnyVal('備註', 'remark')
+              '人工/自動': getAnyVal('人工/自動', 'auto_type')
             };
           });
 
-          this.hasSearched = true;
-          if (res.data.summary) this.summary = res.data.summary;
-          this.searchTime = new Date().toLocaleString() + ' (耗時 ' + this.searchElapsedSec + ' 秒)';
+          const timeStr = new Date().toLocaleString() + ' (耗時 ' + this.searchElapsedSec + ' 秒)';
+
+          // 🌟 寫回各自獨立狀態 🌟
+          if (this.currentTab === 'inv15') {
+            this.tableData15 = formattedRows;
+            this.columns15 = filteredCols;
+            this.totalRowsCount15 = totalCount;
+            this.summary15 = res.data.summary || {};
+            this.searchTime15 = timeStr;
+            this.hasSearched15 = true;
+          } else {
+            this.tableData80 = formattedRows;
+            this.columns80 = filteredCols;
+            this.totalRowsCount80 = totalCount;
+            this.summary80 = res.data.summary || {};
+            this.searchTime80 = timeStr;
+            this.hasSearched80 = true;
+          }
+
           this.showSearchModal = false;
-        } else {
-          this.tableData = [];
-          this.$message.error('搜尋失敗：' + (res.data?.error || '無資料'));
         }
       } catch (e) {
-        this.tableData = [];
-        this.$message.error('搜尋連線失敗：' + e.message);
+        this.$message.error('搜尋失敗：' + e.message);
       } finally {
         if (this.searchTimer) clearInterval(this.searchTimer);
         this.loading = false;
       }
     },
+
     async exportData(fmt) {
-      if (!this.hasSearched) return this.$message.warning('請先執行檢索再進行匯出！');
+      const is15 = this.currentTab === 'inv15';
+      const hasSearched = is15 ? this.hasSearched15 : this.hasSearched80;
+      if (!hasSearched) return this.$message.warning('請先執行檢索再進行匯出！');
+
       const loadingMsg = this.$message.info({ message: `⚡ 打包全量庫存資料中...`, duration: 0 });
       try {
-        const hasLocationCol = this.columns.includes('儲位') || this.form.chk_show_loc;
-        const mode = this.form.search_mode || 'normal';
-        let batchTxt = '';
-        if (mode === 'batch_id') batchTxt = this.form.batch_ids || '';
-        else if (mode === 'batch_zone') batchTxt = this.form.batch_zones || '';
+        const formObj = this.currentForm;
+        const curCols = is15 ? this.columns15 : this.columns80;
+        const mode = formObj.search_mode || 'normal';
+        let batchTxt = mode === 'batch_id' ? (formObj.batch_ids || '') : (mode === 'batch_zone' ? (formObj.batch_zones || '') : '');
 
         const params = new URLSearchParams({
-          searchMode: mode, batchIds: batchTxt, categoryLarge: this.form.cbo_big_zone || '',
-          categorySmall: this.form.cbo_zone || '', keyword: this.form.txt_id || this.form.txt_name || '',
-          txtAge: this.form.txt_age || '',
-          aggregate: hasLocationCol ? 'false' : 'true', exportAll: 'true'
+          searchMode: mode, batchIds: batchTxt, categoryLarge: formObj.cbo_big_zone || '',
+          categorySmall: formObj.cbo_zone || '', keyword: formObj.txt_id || formObj.txt_name || '',
+          txtAge: formObj.txt_age || '', aggregate: curCols.includes('儲位') ? 'false' : 'true', exportAll: 'true'
         });
 
-        const searchApiUrl = this.currentTab === 'inv15' ? `/api/inventory15/search?${params.toString()}` : `/api/search?${params.toString()}`;
-
+        const searchApiUrl = is15 ? `/api/inventory15/search?${params.toString()}` : `/api/search?${params.toString()}`;
         const res = await axios.get(searchApiUrl);
         loadingMsg.close();
+
         if (res.data?.success && res.data.data) {
           const rawList = res.data.data;
-          const exportList = rawList.map(row => {
-            const getAnyVal = (...keys) => {
-              for (const k of keys) {
-                if (row[k] !== null && row[k] !== undefined && String(row[k]).trim() !== '') return row[k];
-              }
-              return '-';
-            };
-            return {
-              ...row,
-              '商品ID': getAnyVal('商品ID', 'item_id'),
-              '商品名稱': getAnyVal('商品名稱', 'item_name'),
-              '借/採': getAnyVal('借/採', 'borrow_proc', 'borrow_type', 'proc_type', 'borrowProc', 'bp'),
-              '儲位': getAnyVal('儲位', 'location', 'loc'),
-              '儲位庫存數': getAnyVal('儲位庫存數', 'qty', 'loc_qty'),
-              '庫齡': getAnyVal('庫齡', 'age'),
-              '區編': getAnyVal('區編', 'zone_id'),
-              '區名': getAnyVal('區名', 'zone_name'),
-              '館編': getAnyVal('館編', 'hall_id'),
-              '館名': getAnyVal('館名', 'hall_name'),
-              '長(cm)': getAnyVal('長(cm)', 'length'),
-              '寬(cm)': getAnyVal('寬(cm)', 'width'),
-              '高(cm)': getAnyVal('高(cm)', 'height'),
-              '重量(kg)': getAnyVal('重量(kg)', 'weight'),
-              '(近)月銷量': getAnyVal('(近)月銷量', 'monthly_sales'),
-              '(近)月-有揀貨單天數': getAnyVal('(近)月-有揀貨單天數', 'pick_days_m'),
-              '(近)90日銷量': getAnyVal('(近)90日銷量', 'sales_90d'),
-              '(近)90日-有揀貨單天數': getAnyVal('(近)90日-有揀貨單天數', 'pick_days_90d'),
-              '供應商ID': getAnyVal('供應商ID', 'supplier_id'),
-              '供應商名稱': getAnyVal('供應商名稱', 'supplier_name'),
-              '所屬PM': getAnyVal('所屬PM', 'pm'),
-              '總庫存數': getAnyVal('總庫存數', 'total_qty'),
-              '總庫存_迴轉天數': getAnyVal('總庫存_迴轉天數', 'turn_days_total'),
-              '才數': getAnyVal('才數', 'cubic_feet'),
-              '材積別': getAnyVal('材積別', 'vol_type'),
-              '儲位編碼-3': getAnyVal('儲位編碼-3', 'loc_code_3'),
-              '儲位編碼': getAnyVal('儲位編碼', 'loc_code_full'),
-              '儲位編碼5': getAnyVal('儲位編碼5', 'loc_code_5'),
-              '樓層': getAnyVal('樓層', 'floor'),
-              '樓層區域': getAnyVal('樓層區域', 'floor_zone'),
-              '儲位型態': getAnyVal('儲位型態', 'loc_type'),
-              '大區編': getAnyVal('大區編', 'big_zone_id'),
-              '大區名': getAnyVal('大區名', 'big_zone'),
-              '三邊長': getAnyVal('三邊長', 'dim_sum'),
-              '最長邊': getAnyVal('最長邊', 'max_dim'),
-              '最短邊': getAnyVal('最短邊', 'min_dim'),
-              '儲位才數': getAnyVal('儲位才數', 'loc_cubic_feet'),
-              '儲位健康度': getAnyVal('儲位健康度', 'loc_health'),
-              '不符合': getAnyVal('不符合', 'non_compliant'),
-              '材積判斷': getAnyVal('材積判斷', 'vol_check'),
-              '總才數': getAnyVal('總才數', 'total_cubic_feet'),
-              '人工/自動': getAnyVal('人工/自動', 'auto_type', 'is_auto', 'autoType', 'am'),
-              '儲位層標示': getAnyVal('儲位層標示', 'shelf_level'),
-              '庫齡級距': getAnyVal('庫齡級距', 'age_bracket'),
-              '樓層設定': getAnyVal('樓層設定', 'floor_config'),
-              '重型架判斷': getAnyVal('重型架判斷', 'heavy_rack_check'),
-              'ID指定樓層': getAnyVal('ID指定樓層', 'assigned_floor'),
-              '備註': getAnyVal('備註', 'remark')
-            };
-          });
-
           processExportData({
-            fmt, tableData: exportList, exportCols: this.columns, moduleName: this.getTabName(this.currentTab),
-            summary: this.summary, searchTime: this.searchTime, sendLogCallback: (f, a) => this.sendCurrentLog(f, a), formatNumber: this.formatNumber
+            fmt, tableData: rawList, exportCols: curCols, moduleName: this.getTabName(this.currentTab),
+            summary: is15 ? this.summary15 : this.summary80, searchTime: is15 ? this.searchTime15 : this.searchTime80, sendLogCallback: (f, a) => this.sendCurrentLog(f, a), formatNumber: this.formatNumber
           });
-          this.$message.success(`🎉 成功匯出 ${exportList.length.toLocaleString()} 筆資料！`);
+          this.$message.success(`🎉 成功匯出 ${rawList.length.toLocaleString()} 筆資料！`);
         }
       } catch (e) { loadingMsg.close(); this.$message.error('匯出失敗：' + e.message); }
     }

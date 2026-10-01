@@ -1,15 +1,15 @@
 <template>
   <el-dialog 
-    title="⚙️ 參數設定選項" 
+    :title="`⚙️ ${currentTab === 'inv15' ? '庫存 15' : '庫存 80'} 參數設定選項`" 
     :model-value="modelValue" 
-    @update:model-value="$emit('update:modelValue', $event)" 
+    @update:model-value="$emit('update:modelValue',$event)" 
     width="480px" 
     class="dark-dialog"
   >
     <div class="param-dialog-body">
       <!-- 1. 匯入庫存按鈕 -->
       <button class="aligned-btn btn-purple" @click="$emit('open-import-inventory')">
-        📥 匯入最新庫存 CSV 資料
+        📥 匯入最新 {{ currentTab === 'inv15' ? '庫存 15 (latest_inventory15.csv)' : '庫存 80' }} 資料
       </button>
 
       <!-- 2. 欄位與欄寬設定 -->
@@ -25,7 +25,7 @@
         3. 庫存明細匯出欄寬設定
       </button>
 
-      <!-- 🌟 3. 新增：庫存清單預設排序設定 -->
+      <!-- 3. 預設排序設定 -->
       <div class="param-box">
         <div class="box-title">📊 4. 庫存清單預設排序設定</div>
         <div class="sort-config-row">
@@ -48,28 +48,28 @@
       <!-- 4. 三種匯出格式權限控制區塊 -->
       <div class="export-toggle-box">
         <div class="toggle-header">
-          <span class="toggle-title">🔒 開放庫存查詢 80 匯出功能權限</span>
+          <span class="toggle-title">🔒 開放 {{ currentTab === 'inv15' ? '庫存 15' : '庫存 80' }} 匯出功能權限</span>
           <span class="toggle-sub">未勾選之項目，一般管理員與一般人員將無法看見該匯出按鈕</span>
         </div>
 
         <div class="checkbox-group flex-col">
           <el-checkbox 
             :model-value="exportConfig.xlsx" 
-            @change="$emit('update-export-config', { ...exportConfig, xlsx: $event })"
+            @change="$emit('update-export-config', { ...exportConfig, xlsx:$event })"
           >
             📊 開放 <b>匯出 xlsx</b> 按鈕
           </el-checkbox>
 
           <el-checkbox 
             :model-value="exportConfig.csv" 
-            @change="$emit('update-export-config', { ...exportConfig, csv: $event })"
+            @change="$emit('update-export-config', { ...exportConfig, csv:$event })"
           >
             📄 開放 <b>匯出 CSV</b> 按鈕
           </el-checkbox>
 
           <el-checkbox 
             :model-value="exportConfig.pdf" 
-            @change="$emit('update-export-config', { ...exportConfig, pdf: $event })"
+            @change="$emit('update-export-config', { ...exportConfig, pdf:$event })"
           >
             🖨️ 開放 <b>匯出 PDF</b> 按鈕
           </el-checkbox>
@@ -95,6 +95,7 @@ export default {
     modelValue: { type: Boolean, default: false },
     saving: { type: Boolean, default: false },
     form: { type: Object, required: true },
+    currentTab: { type: String, default: 'inv80' },
     exportConfig: {
       type: Object,
       default: () => ({ xlsx: true, csv: true, pdf: true })
@@ -124,14 +125,7 @@ export default {
 .aligned-btn.btn-orange { background-color: #d97706; }
 .aligned-btn.btn-orange:hover { background-color: #b45309; }
 
-/* 🌟 排序設定 Box 樣式 */
-.param-box, .export-toggle-box {
-  background-color: #0f172a;
-  border: 1px solid #334155;
-  border-radius: 6px;
-  padding: 14px;
-}
-
+.param-box, .export-toggle-box { background-color: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 14px; }
 .box-title { color: #f8fafc; font-size: 14px; font-weight: bold; margin-bottom: 10px; }
 .sort-config-row { display: flex; gap: 15px; align-items: flex-end; }
 .sort-select { flex: 1; }
@@ -142,17 +136,8 @@ export default {
 .toggle-title { color: #f8fafc; font-size: 14px; font-weight: bold; }
 .toggle-sub { color: #94a3b8; font-size: 11px; }
 
-.checkbox-group.flex-col {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding-left: 5px;
-}
-
+.checkbox-group.flex-col { display: flex; flex-direction: column; gap: 10px; padding-left: 5px; }
 .dialog-footer { display: flex; justify-content: flex-end; gap: 10px; }
 
-:deep(.el-checkbox__label), :deep(.el-radio__label) {
-  color: #cbd5e1 !important;
-  font-size: 13px;
-}
+:deep(.el-checkbox__label), :deep(.el-radio__label) { color: #cbd5e1 !important; font-size: 13px; }
 </style>
