@@ -1,324 +1,416 @@
 <template>
-  <div class="main-layout dark-bg inv-search15-page">
-    <div class="search-container">
-      <!-- 頂部標題與操作區 -->
-      <div class="top-bar-actions">
-        <span class="page-title-text">📦 庫存明細查詢 15 (大數據 30~40萬筆處理)</span>
-        <div class="btn-group">
-          <!-- 上傳按鈕 -->
-          <input 
-            type="file" 
-            ref="csvFileInput15" 
-            accept=".csv" 
-            style="display: none;" 
-            @change="handleCsvUpload15" 
-          />
-          <el-button 
-            type="success" 
-            icon="el-icon-upload2" 
-            size="small"
-            :loading="isUploading"
-            @click="$refs.csvFileInput15.click()"
-          >
-            📥 匯入最新庫存 CSV (latest_inventory15.csv)
-          </el-button>
+  <div class="inv-query-container">
+    <!-- 1. 上方操作按鈕列 (與 80 庫 1:1 對齊) -->
+    <div class="top-action-bar">
+      <div class="left-btn-group">
+        <el-button type="primary" icon="el-icon-search" size="small" @click="$emit('open-search')">
+          🔍 設定搜尋條件與檢索
+        </el-button>
 
-          <el-button 
-            type="primary" 
-            icon="el-icon-search" 
-            size="small" 
-            :loading="loading" 
-            @click="fetchData(1)"
-          >
-            🔍 執行查詢
-          </el-button>
+        <!-- 🌟 匯出按鈕 (受 exportConfig 控制) -->
+        <el-button 
+          v-if="canExport('xlsx')" 
+          type="success" 
+          icon="el-icon-download" 
+          size="small" 
+          @click="$emit('export-data', 'xlsx')"
+        >
+          📊 匯出 xlsx
+        </el-button>
+
+        <el-button 
+          v-if="canExport('csv')" 
+          type="info" 
+          icon="el-icon-document" 
+          size="small" 
+          @click="$emit('export-data', 'csv')"
+        >
+          📄 匯出 CSV
+        </el-button>
+
+        <el-button 
+          v-if="canExport('pdf')" 
+          type="danger" 
+          icon="el-icon-printer" 
+          size="small" 
+          @click="$emit('export-data', 'pdf')"
+        >
+          🖨️ 匯出 PDF
+        </el-button>
+      </div>
+    </div>
+
+    <!-- 2. 統計卡片列 (與 80 庫 1:1 對齊) -->
+    <div class="summary-cards-wrapper" v-if="hasSearched">
+      <div class="summary-card">
+        <div class="card-title">總品項</div>
+        <div class="card-value">{{ formatNumber(computedSummary.total_items) }}</div>
+      </div>
+      <div class="summary-card">
+        <div class="card-title">總列數</div>
+        <div class="card-value">{{ formatNumber(computedSummary.total_rows) }}</div>
+      </div>
+      <div class="summary-card">
+        <div class="card-title">總庫存</div>
+        <div class="card-value">{{ formatNumber(computedSummary.total_pcs) }}</div>
+      </div>
+      <div class="summary-card">
+        <div class="card-title">總才數</div>
+        <div class="card-value">{{ formatNumber(computedSummary.total_ao) }}</div>
+      </div>
+      <div class="summary-card time-card">
+        <div class="card-title">查詢時間</div>
+        <div class="card-value time-value">{{ searchTime || '-' }}</div>
+      </div>
+    </div>
+
+    <!-- 3. 下方表格數據明細區 (與 80 庫 1:1 對齊) -->
+    <div class="table-section" v-loading="loading">
+      <div class="table-header-info" v-if="hasSearched">
+        <div class="table-header-title">
+          <span>📊 庫存 15 明細</span>
+          <span v-if="searchConditionText" class="search-condition-tag">
+            (查詢條件：{{ searchConditionText }})
+          </span>
         </div>
+        <span class="page-tip">每頁顯示 {{ formatNumber(pageSize) }} 筆資料</span>
       </div>
 
-      <!-- 篩選列 -->
-      <div class="filter-panel dark-panel">
-        <el-form :inline="true" size="small" class="dark-form">
-          <el-form-item label="關鍵字搜尋:">
-            <el-input 
-              v-model="query.keyword" 
-              placeholder="搜尋商品ID / 名稱 / 儲位" 
-              clearable 
-              @keyup.enter="fetchData(1)"
-              style="width: 240px;"
-            ></el-input>
-          </el-form-item>
+      <el-table
+        :data="tableData"
+        border
+        stripe
+        height="calc(100vh - 280px)"
+        style="width: 100%"
+        class="custom-dark-table"
+      >
+        <el-table-column
+          label="序號"
+          type="index"
+          :index="indexMethod"
+          width="70"
+          align="center"
+          fixed="left"
+        />
 
-          <el-form-item label="大區名:">
-            <el-input v-model="query.categoryLarge" placeholder="輸入大區名" clearable style="width: 150px;"></el-input>
-          </el-form-item>
-
-          <el-form-item label="區名:">
-            <el-input v-model="query.categorySmall" placeholder="輸入區名" clearable style="width: 150px;"></el-input>
-          </el-form-item>
-        </el-form>
-      </div>
-
-      <!-- 上傳進度條 (當上傳大檔案時顯示) -->
-      <div v-if="isUploading" class="upload-progress-box dark-panel">
-        <div class="progress-text">⚡ 正在進行分塊寫入 SQLite 中 (已處理: {{ uploadedCount.toLocaleString() }} 筆)...</div>
-        <el-progress :percentage="uploadPercentage" :stroke-width="16" striped stripe-processing></el-progress>
-      </div>
-
-      <!-- 數據表格區 -->
-      <div class="table-wrapper">
-        <el-table 
-          :data="tableData" 
-          border 
-          height="100%" 
-          size="mini" 
-          v-loading="loading" 
-          class="dark-table"
+        <el-table-column
+          v-for="col in displayColumns"
+          :key="col"
+          :label="col"
+          :min-width="getColumnWidth(col)"
+          :align="getColumnAlign(col)"
+          show-overflow-tooltip
         >
-          <el-table-column prop="item_id" label="商品ID" width="130" fixed="left"></el-table-column>
-          <el-table-column prop="item_name" label="商品名稱" min-width="200" show-overflow-tooltip></el-table-column>
-          <el-table-column prop="location" label="儲位" width="120" align="center"></el-table-column>
-          <el-table-column prop="qty" label="儲位庫存數" width="100" align="right">
-            <template #default="scope">{{ formatNumber(scope.row.qty) }}</template>
-          </el-table-column>
-          <el-table-column prop="age" label="庫齡" width="80" align="right"></el-table-column>
-          <el-table-column prop="big_zone" label="大區名" width="120"></el-table-column>
-          <el-table-column prop="zone_name" label="區名" width="120"></el-table-column>
-          <el-table-column prop="floor" label="樓層" width="80" align="center"></el-table-column>
-          <el-table-column prop="loc_type" label="儲位型態" width="130"></el-table-column>
-        </el-table>
-      </div>
+          <template #default="scope">
+            <span>{{ getValueByColName(scope.row, col) }}</span>
+          </template>
+        </el-table-column>
+      </el-table>
 
-      <!-- 分頁列 -->
-      <div class="pagination-bar dark-panel">
-        <span class="total-text">📊 總筆數：<strong>{{ total.toLocaleString() }}</strong> 筆 | 總數量：<strong>{{ totalPcs.toLocaleString() }}</strong> PCS</span>
+      <!-- 分頁列 (與 80 庫 1:1 對齊) -->
+      <div class="pagination-wrapper" v-if="hasSearched && totalRowsCount > 0">
         <el-pagination
-          v-model:current-page="page"
-          v-model:page-size="pageSize"
-          :page-sizes="[100, 500, 1000, 2000]"
-          layout="sizes, prev, pager, next, jumper"
-          :total="total"
-          @size-change="fetchData(1)"
-          @current-change="fetchData"
           background
-        >
-        </el-pagination>
+          layout="total, sizes, prev, pager, next, jumper"
+          :page-sizes="[100, 200, 500, 1000]"
+          :current-page="currentPage"
+          :page-size="pageSize"
+          :total="totalRowsCount"
+          @size-change="onSizeChange"
+          @current-change="onPageChange"
+        />
       </div>
     </div>
   </div>
 </template>
 
 <script>
-import axios from 'axios'
-
 export default {
   name: 'InvSearch15',
-  data() {
-    return {
-      loading: false,
-      isUploading: false,
-      uploadedCount: 0,
-      uploadPercentage: 0,
-      page: 1,
-      pageSize: 500,
-      total: 0,
-      totalPcs: 0,
-      tableData: [],
-      query: {
-        keyword: '',
-        categoryLarge: '',
-        categorySmall: ''
+  props: {
+    hasSearched: { type: Boolean, default: false },
+    summary: { type: Object, default: () => ({ total_items: 0, total_rows: 0, total_pcs: 0, total_ao: 0 }) },
+    searchTime: { type: String, default: '' },
+    loading: { type: Boolean, default: false },
+    tableData: { type: Array, default: () => [] },
+    columns: { type: Array, default: () => [] },
+    currentPage: { type: Number, default: 1 },
+    pageSize: { type: Number, default: 500 },
+    totalRowsCount: { type: Number, default: 0 },
+    customWidths: { type: Object, default: () => ({}) },
+    form: { type: Object, default: () => ({}) },
+    exportConfig: { type: Object, default: () => ({ xlsx: true, csv: true, pdf: true }) },
+    isSysAdmin: Boolean
+  },
+  computed: {
+    computedSummary() {
+      return this.summary || { total_items: 0, total_rows: 0, total_pcs: 0, total_ao: 0 };
+    },
+    displayColumns() {
+      if (this.columns && this.columns.length > 0) return this.columns;
+      return ['商品ID', '商品名稱', '借/採', '人工/自動', '儲位庫存數', '庫齡', '區編', '區名', '館編', '館名', '大區名', '樓層'];
+    },
+    searchConditionText() {
+      if (!this.form) return '全量無條件檢索';
+
+      const mode = this.form.search_mode || 'normal';
+
+      if (mode === 'batch_id') {
+        const count = (this.form.batch_ids || '').split('\n').map(s => s.trim()).filter(Boolean).length;
+        return `批次商品 ID (${count} 筆)`;
       }
+
+      if (mode === 'batch_zone') {
+        const count = (this.form.batch_zones || '').split('\n').map(s => s.trim()).filter(Boolean).length;
+        return `批次大區 (${count} 筆)`;
+      }
+
+      const conds = [];
+      if (this.form.txt_id) conds.push(`商品ID: ${this.form.txt_id}`);
+      if (this.form.txt_name) conds.push(`名稱: ${this.form.txt_name}`);
+      if (this.form.cbo_big_zone) conds.push(`大區: ${this.form.cbo_big_zone}`);
+      if (this.form.cbo_zone) conds.push(`區名: ${this.form.cbo_zone}`);
+      if (this.form.cbo_floor) conds.push(`樓層: ${this.form.cbo_floor}`);
+      
+      if (this.form.txt_age) {
+        const ageVal = String(this.form.txt_age).trim();
+        if (ageVal.includes('~') || ageVal.includes('-')) {
+          conds.push(`庫齡: ${ageVal}`);
+        } else {
+          conds.push(`庫齡 >= ${ageVal}`);
+        }
+      }
+
+      return conds.length > 0 ? conds.join(' | ') : '全量無條件檢索';
     }
   },
-  mounted() {
-    this.fetchData(1);
-  },
   methods: {
+    canExport(type) {
+      if (this.isSysAdmin) return true;
+      if (!this.exportConfig) return true;
+      const val = this.exportConfig[type];
+      return val === true || val === 'true' || val === 1 || val === undefined;
+    },
+    indexMethod(index) {
+      return (this.currentPage - 1) * this.pageSize + index + 1;
+    },
     formatNumber(val) {
       if (val === null || val === undefined || val === '') return '0';
       const num = Number(String(val).replace(/,/g, ''));
       return isNaN(num) ? val : num.toLocaleString();
     },
-    async fetchData(targetPage = this.page) {
-      this.page = targetPage;
-      this.loading = true;
-      try {
-        const res = await axios.get('/api/inventory15/search', {
-          params: {
-            page: this.page,
-            pageSize: this.pageSize,
-            keyword: this.query.keyword,
-            categoryLarge: this.query.categoryLarge,
-            categorySmall: this.query.categorySmall
-          }
-        });
+    getValueByColName(row, colName) {
+      if (!row) return '-';
 
-        if (res.data?.success) {
-          this.tableData = res.data.data || [];
-          this.total = res.data.total || 0;
-          this.totalPcs = res.data.summary?.total_pcs || 0;
-        }
-      } catch (err) {
-        this.$message.error('讀取庫存 15 資料失敗：' + (err.response?.data?.message || err.message));
-      } finally {
-        this.loading = false;
-      }
+      const qty = parseFloat(row.qty !== undefined ? row.qty : (row.stock_qty || row['儲位庫存數'] || 0));
+      const rawCubicFeet = row.cubic_feet !== undefined ? row.cubic_feet : row['才數'];
+      const singleCubicFeet = parseFloat(rawCubicFeet);
+
+      const fieldMap = {
+        '商品ID': row['商品ID'] || row.item_id,
+        '商品名稱': row['商品名稱'] || row.item_name,
+        '借/採': row['借/採'] || row.borrow_proc || row.borrow_type,
+        '儲位庫存數': qty,
+        '庫齡': row['庫齡'] || row.age,
+        '區編': row['區編'] || row.zone_id,
+        '區名': row['區名'] || row.zone_name,
+        '館編': row['館編'] || row.hall_id,
+        '館名': row['館名'] || row.hall_name,
+        '大區名': row['大區名'] || row.big_zone,
+        '樓層': row['樓層'] || row.floor,
+        '儲位': row['儲位'] || row.location,
+        '長(cm)': row['長(cm)'] || row.length,
+        '寬(cm)': row['寬(cm)'] || row.width,
+        '高(cm)': row['高(cm)'] || row.height,
+        '重量(kg)': row['重量(kg)'] || row.weight,
+        '(近)月銷量': row['(近)月銷量'] || row.monthly_sales,
+        '(近)90日銷量': row['(近)90日銷量'] || row.sales_90d,
+        '供應商名稱': row['供應商名稱'] || row.supplier_name,
+        '總庫存數': row['總庫存數'] || row.total_qty,
+        '才數': !isNaN(singleCubicFeet) ? singleCubicFeet.toFixed(4) : (rawCubicFeet || '-'),
+        '材積別': row['材積別'] || row.vol_type,
+        '儲位型態': row['儲位型態'] || row.loc_type,
+        '人工/自動': row['人工/自動'] || row.auto_type
+      };
+
+      const val = fieldMap[colName] !== undefined ? fieldMap[colName] : row[colName];
+      if (val === undefined || val === null || val === '') return '-';
+
+      return this.formatSpecialValue(colName, val);
     },
-
-    // 🌟 大檔案 CSV 分塊讀取與上傳處理 (已加入空白列自動剔除)
-async handleCsvUpload15(event) {
-  const file = event.target.files[0];
-  if (!file) return;
-
-  this.isUploading = true;
-  this.uploadedCount = 0;
-  this.uploadPercentage = 0;
-
-  const chunkSize = 10000;
-  let isFirstChunk = true;
-
-  try {
-    const text = await file.text();
-    const lines = text.split(/\r?\n/).filter(l => l.trim());
-    if (lines.length <= 1) {
-      this.$message.error('檔案格式無效或無資料');
-      this.isUploading = false;
-      return;
-    }
-
-    const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
-    let currentBatch = [];
-
-    // 🌟 先過濾出有效資料行（必須包含有效內容，且非純逗號）
-    const validLines = [];
-    for (let i = 1; i < lines.length; i++) {
-      const lineStr = lines[i].replace(/,/g, '').trim();
-      if (lineStr.length > 0) {
-        validLines.push(lines[i]);
+    formatSpecialValue(colName, val) {
+      if (['儲位庫存數', '庫齡', '總庫存數'].includes(colName)) {
+        return this.formatNumber(val);
       }
-    }
-
-    const totalLines = validLines.length;
-
-    for (let i = 0; i < totalLines; i++) {
-      const rowVals = validLines[i].split(',').map(v => v.trim().replace(/^"|"$/g, ''));
-      if (rowVals.length >= headers.length) {
-        const rowObj = {};
-        headers.forEach((h, idx) => rowObj[h] = rowVals[idx]);
-
-        // 🌟 關鍵過濾：確認 商品ID 或 儲位 不為空
-        const itemId = rowObj['商品ID'] || rowObj['item_id'] || '';
-        if (itemId.trim() !== '') {
-          currentBatch.push(rowObj);
-        }
+      return val;
+    },
+    getColumnAlign(colName) {
+      const rightCols = ['儲位庫存數', '才數', '庫齡', '長(cm)', '寬(cm)', '高(cm)', '重量(kg)', '(近)月銷量', '(近)90日銷量', '總庫存數', '總才數'];
+      const centerCols = ['借/採', '區編', '區名', '館編', '館名', '大區編', '大區名', '樓層', '材積別', '人工/自動', '儲位型態', '庫齡級距'];
+      
+      if (rightCols.includes(colName)) return 'right';
+      if (centerCols.includes(colName)) return 'center';
+      return 'left';
+    },
+    getColumnWidth(colName) {
+      if (this.customWidths && this.customWidths[colName]) {
+        return this.customWidths[colName];
       }
-
-      if (currentBatch.length >= chunkSize || i === totalLines - 1) {
-        if (currentBatch.length > 0) {
-          await axios.post('/api/inventory15/upload', {
-            items: currentBatch,
-            isFirstChunk: isFirstChunk
-          });
-
-          this.uploadedCount += currentBatch.length;
-          this.uploadPercentage = Math.round((i / totalLines) * 100);
-          isFirstChunk = false;
-          currentBatch = [];
-        }
-      }
+      const widthMap = {
+        '商品ID': 180,
+        '商品名稱': 280,
+        '借/採': 90,
+        '人工/自動': 100,
+        '儲位庫存數': 110,
+        '庫齡': 90,
+        '區編': 100,
+        '區名': 130,
+        '館編': 100,
+        '館名': 130,
+        '大區名': 130,
+        '樓層': 90,
+        '供應商名稱': 200,
+        '(近)月銷量': 120,
+        '(近)90日銷量': 120
+      };
+      return widthMap[colName] || 120;
+    },
+    onPageChange(page) {
+      this.$emit('page-change', page);
+    },
+    onSizeChange(size) {
+      this.$emit('size-change', size);
     }
-
-    this.$message.success(`🎉 成功過濾並匯入 ${this.uploadedCount.toLocaleString()} 筆有效資料至 庫存15！`);
-    this.fetchData(1);
-  } catch (err) {
-    this.$message.error('匯入過程發生錯誤：' + (err.response?.data?.message || err.message));
-  } finally {
-    this.isUploading = false;
-    event.target.value = '';
   }
-}
-  }
-}
+};
 </script>
 
 <style scoped>
-.inv-search15-page {
-  padding: 12px;
-  height: calc(100vh - 52px);
+.inv-query-container {
   display: flex;
   flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  padding: 12px;
   box-sizing: border-box;
 }
 
-.search-container {
+.top-action-bar {
   display: flex;
-  flex-direction: column;
-  height: 100%;
-}
-
-.top-bar-actions {
-  display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 8px;
+  justify-content: space-between;
 }
 
-.page-title-text {
-  font-size: 15px;
-  font-weight: bold;
-  color: #38bdf8;
-}
-
-.btn-group {
+.left-btn-group {
   display: flex;
   gap: 8px;
 }
 
-.filter-panel {
-  background: #1e293b;
-  padding: 10px 14px 2px 14px;
-  border-radius: 6px;
+.summary-cards-wrapper {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.summary-card {
+  background-color: #1e293b;
   border: 1px solid #334155;
-  margin-bottom: 8px;
-}
-
-.upload-progress-box {
-  background: #1e293b;
-  padding: 12px 16px;
   border-radius: 6px;
-  border: 1px solid #38bdf8;
-  margin-bottom: 8px;
+  padding: 8px 16px;
+  min-width: 140px;
+  flex: 1;
 }
 
-.progress-text {
-  color: #38bdf8;
-  font-size: 13px;
+.card-title {
+  font-size: 12px;
+  color: #94a3b8;
+  margin-bottom: 4px;
+}
+
+.card-value {
+  font-size: 18px;
   font-weight: bold;
-  margin-bottom: 6px;
+  color: #38bdf8;
 }
 
-.table-wrapper {
+.time-card {
+  min-width: 260px;
+  flex: 1.5;
+}
+
+.time-value {
+  font-size: 13px;
+  color: #f8fafc;
+  line-height: 24px;
+}
+
+.table-section {
+  background-color: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   flex: 1;
   min-height: 0;
-  margin-bottom: 8px;
 }
 
-.pagination-bar {
-  background: #1e293b;
-  padding: 8px 14px;
-  border-radius: 6px;
-  border: 1px solid #334155;
+.table-header-info {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  color: #f8fafc;
+  font-weight: bold;
+  font-size: 14px;
 }
 
-.total-text {
-  color: #94a3b8;
+.table-header-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.search-condition-tag {
   font-size: 13px;
+  color: #38bdf8;
+  background-color: rgba(56, 189, 248, 0.12);
+  padding: 2px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  font-weight: normal;
 }
 
-.total-text strong {
+.page-tip {
+  font-size: 12px;
   color: #38bdf8;
+  font-weight: normal;
+}
+
+.pagination-wrapper {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 8px;
+}
+
+:deep(.custom-dark-table) {
+  background-color: #1e293b !important;
+}
+
+:deep(.custom-dark-table th.el-table__cell) {
+  background-color: #0f172a !important;
+  color: #38bdf8 !important;
+  font-weight: bold;
+  border-bottom: 1px solid #334155 !important;
+}
+
+:deep(.custom-dark-table td.el-table__cell) {
+  background-color: #1e293b !important;
+  color: #f8fafc !important;
+  border-bottom: 1px solid #334155 !important;
+}
+
+:deep(.custom-dark-table--enable-row-hover .el-table__body tr:hover > td.el-table__cell) {
+  background-color: #334155 !important;
 }
 </style>
