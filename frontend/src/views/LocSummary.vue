@@ -804,8 +804,7 @@ async exportFullPdf() {
     this.exportingPdf = false;
   }
 }
-  }
-}
+
 </script>
 
 <style scoped>
