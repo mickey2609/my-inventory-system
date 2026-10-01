@@ -1,8 +1,0 @@
-import InvSearch15 from '../views/InvSearch15.vue'
-
-// 在 routes 陣列中加入：
-{
-  path: '/inv-search-15',
-  name: 'InvSearch15',
-  component: InvSearch15
-}
