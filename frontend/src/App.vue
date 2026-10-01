@@ -423,30 +423,35 @@ export default {
       await this.sendLog(this.currentUsername || 'unknown', feature, action);
     },
 
-    // 🌟🌟🌟 同步抓取 80庫 與 15庫 的總筆數 🌟🌟🌟
     async fetchDashboardMetrics() {
-      try {
-        // 1. 撈取 80庫筆數
-        const res80 = await axios.get('/api/search?page=1&pageSize=1');
-        if (res80.data?.success) {
-          this.dbMetrics.totalRows80 = res80.data.total || 0;
-        }
+  try {
+    // 1. 撈取 80 庫總筆數
+    const res80 = await axios.get('/api/search?page=1&pageSize=1');
+    if (res80.data?.success) {
+      this.dbMetrics.totalRows80 = res80.data.total || 0;
+    }
 
-        // 2. 撈取 15庫筆數
-        const res15 = await axios.get('/api/inventory15/search?page=1&pageSize=1');
-        if (res15.data?.success) {
-          this.dbMetrics.totalRows15 = res15.data.total || 0;
-        }
+    // 2. 撈取 15 庫總筆數
+    const res15 = await axios.get('/api/inventory15/search?page=1&pageSize=1');
+    if (res15.data?.success) {
+      this.dbMetrics.totalRows15 = res15.data.total || 0;
+    }
 
-        // 3. 大區選單選項
-        const resCat = await axios.get('/api/categories/large');
-        if (resCat.data?.success) {
-          this.options.big_zones = resCat.data.data || [];
-        }
-      } catch (e) {
-        console.error('抓取指標失敗', e);
-      }
-    },
+    // 3. 撈取伺服器啟動計時秒數 (server_uptime_seconds)
+    const resConfig = await axios.get('/api/get-global-config');
+    if (resConfig.data?.success && resConfig.data?.data) {
+      this.dbMetrics.serverUptimeSec = resConfig.data.data.server_uptime_seconds || 0;
+    }
+
+    // 4. 大區選單選項
+    const resCat = await axios.get('/api/categories/large');
+    if (resCat.data?.success) {
+      this.options.big_zones = resCat.data.data || [];
+    }
+  } catch (e) {
+    console.error('抓取儀表板指標失敗', e);
+  }
+}
 
     openNewTab(tabKey) {
       if (!this.hasModulePermission(tabKey)) {

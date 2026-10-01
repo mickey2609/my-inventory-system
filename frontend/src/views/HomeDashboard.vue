@@ -10,7 +10,7 @@
       </div>
     </div>
 
-    <!-- 數據指標卡片區 (呈現 80庫 與 15庫 筆數) -->
+    <!-- 數據指標卡片區 (80庫筆數 + 15庫筆數 + 伺服器運行計時) -->
     <div class="metrics-grid">
       <div class="metric-card">
         <div class="card-icon blue-bg">📦</div>
@@ -33,9 +33,20 @@
           </div>
         </div>
       </div>
+
+      <!-- 🌟 補回：伺服器運作計時小卡 🌟 -->
+      <div class="metric-card">
+        <div class="card-icon orange-bg">⏱️</div>
+        <div class="card-info">
+          <span class="card-title">伺服器連續運作時間</span>
+          <div class="card-value-group">
+            <span class="card-value text-orange">{{ serverUptimeStr }}</span>
+          </div>
+        </div>
+      </div>
     </div>
 
-    <!-- 快捷功能區 (完整 6 大模組) -->
+    <!-- 快捷功能區 -->
     <div class="quick-actions-panel">
       <h3 class="panel-title">⚡ 系統功能快捷入口</h3>
       <div class="actions-grid">
@@ -87,14 +98,58 @@ export default {
     isSysAdmin: { type: Boolean, default: false },
     dbMetrics: {
       type: Object,
-      default: () => ({ totalRows80: 0, totalRows15: 0 })
+      default: () => ({ totalRows80: 0, totalRows15: 0, serverUptimeSec: 0 })
     }
+  },
+  data() {
+    return {
+      localUptimeSec: 0,
+      uptimeTimer: null
+    }
+  },
+  computed: {
+    serverUptimeStr() {
+      const totalSec = this.localUptimeSec || this.dbMetrics.serverUptimeSec || 0;
+      const days = Math.floor(totalSec / 86400);
+      const hours = Math.floor((totalSec % 86400) / 3600);
+      const mins = Math.floor((totalSec % 3600) / 60);
+      const secs = totalSec % 60;
+
+      let result = '';
+      if (days > 0) result += `${days}天 `;
+      result += `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+      return result;
+    }
+  },
+  watch: {
+    'dbMetrics.serverUptimeSec': {
+      immediate: true,
+      handler(newVal) {
+        if (newVal) {
+          this.localUptimeSec = newVal;
+          this.startUptimeTimer();
+        }
+      }
+    }
+  },
+  mounted() {
+    this.localUptimeSec = this.dbMetrics.serverUptimeSec || 0;
+    this.startUptimeTimer();
+  },
+  beforeUnmount() {
+    if (this.uptimeTimer) clearInterval(this.uptimeTimer);
   },
   methods: {
     formatNumber(val) {
       if (!val) return '0';
       const num = Number(String(val).replace(/,/g, ''));
       return isNaN(num) ? val : num.toLocaleString();
+    },
+    startUptimeTimer() {
+      if (this.uptimeTimer) clearInterval(this.uptimeTimer);
+      this.uptimeTimer = setInterval(() => {
+        this.localUptimeSec += 1;
+      }, 1000);
     }
   }
 }
@@ -138,7 +193,7 @@ export default {
 
 .metrics-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 16px;
   margin-bottom: 24px;
 }
@@ -165,6 +220,7 @@ export default {
 
 .blue-bg { background: rgba(56, 189, 248, 0.15); }
 .green-bg { background: rgba(74, 222, 128, 0.15); }
+.orange-bg { background: rgba(251, 191, 36, 0.15); }
 
 .card-info {
   display: flex;
@@ -184,12 +240,13 @@ export default {
 }
 
 .card-value {
-  font-size: 24px;
+  font-size: 22px;
   font-weight: bold;
 }
 
 .text-blue { color: #38bdf8; }
 .text-green { color: #4ade80; }
+.text-orange { color: #fbbf24; }
 
 .card-unit {
   font-size: 12px;
@@ -245,5 +302,11 @@ export default {
   font-size: 12px;
   color: #94a3b8;
   line-height: 1.4;
+}
+
+@media (max-width: 1200px) {
+  .metrics-grid {
+    grid-template-columns: repeat(1, 1fr);
+  }
 }
 </style>
