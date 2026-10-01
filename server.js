@@ -1,5 +1,5 @@
 // C:\my-inventory-server\server.js
-// 業務主程式 API 伺服器 (補齊彙總欄位 Key + 48 欄位完全體)
+// 業務主程式 API 伺服器 (整合 48 欄位 + 完全對齊圖1/2/3 彙總欄位與新算式)
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const cors = require('cors');
@@ -311,7 +311,6 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         }
       });
 
-      // 3. 生成對齊 Excel 的樞紐表格列 (含雙重 Key 映射確保前端 100% 讀到數字)
       const gridPivotTable = [];
       const volPivotTable = [];
 
@@ -383,16 +382,11 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         });
 
         const rowUnrateG = rowPlanG > 0 ? (((rowPlanG - rowUsedG) / rowPlanG) * 100).toFixed(1) + '%' : '0.0%';
-        gridRow['sum_plan_grid'] = rowPlanG;
-        gridRow['sumPlanGrid'] = rowPlanG;
-        gridRow['sum_used_grid'] = rowUsedG;
-        gridRow['sumUsedGrid'] = rowUsedG;
-        gridRow['sum_unrate_grid'] = rowUnrateG;
-        gridRow['sumUnrateGrid'] = rowUnrateG;
-        gridRow['sum_rem_grid'] = rowRemG;
-        gridRow['sumRemGrid'] = rowRemG;
-        gridRow['sum_rem_vol'] = parseFloat(rowRemV.toFixed(1));
-        gridRow['sumRemVol'] = parseFloat(rowRemV.toFixed(1));
+        gridRow['sum_plan_grid'] = rowPlanG; gridRow['sumPlanGrid'] = rowPlanG;
+        gridRow['sum_used_grid'] = rowUsedG; gridRow['sumUsedGrid'] = rowUsedG;
+        gridRow['sum_unrate_grid'] = rowUnrateG; gridRow['sumUnrateGrid'] = rowUnrateG;
+        gridRow['sum_rem_grid'] = rowRemG; gridRow['sumRemGrid'] = rowRemG;
+        gridRow['sum_rem_vol'] = parseFloat(rowRemV.toFixed(1)); gridRow['sumRemVol'] = parseFloat(rowRemV.toFixed(1));
 
         const rowUnrateV = rowPlanV > 0 ? (rowRemV / rowPlanV) : 0;
         let rowHealthV = '0.0%';
@@ -400,16 +394,11 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
           rowHealthV = (((rowUsedV / (1 - rowUnrateV)) / rowPlanV) * 100).toFixed(1) + '%';
         }
 
-        volRow['sum_plan_vol'] = parseFloat(rowPlanV.toFixed(1));
-        volRow['sumPlanVol'] = parseFloat(rowPlanV.toFixed(1));
-        volRow['sum_used_vol'] = parseFloat(rowUsedV.toFixed(1));
-        volRow['sumUsedVol'] = parseFloat(rowUsedV.toFixed(1));
-        volRow['sum_unrate_vol'] = (rowUnrateV * 100).toFixed(1) + '%';
-        volRow['sumUnrateVol'] = (rowUnrateV * 100).toFixed(1) + '%';
-        volRow['sum_rem_vol'] = parseFloat(rowRemV.toFixed(1));
-        volRow['sumRemVol'] = parseFloat(rowRemV.toFixed(1));
-        volRow['sum_health_vol'] = rowHealthV;
-        volRow['sumHealthVol'] = rowHealthV;
+        volRow['sum_plan_vol'] = parseFloat(rowPlanV.toFixed(1)); volRow['sumPlanVol'] = parseFloat(rowPlanV.toFixed(1));
+        volRow['sum_used_vol'] = parseFloat(rowUsedV.toFixed(1)); volRow['sumUsedVol'] = parseFloat(rowUsedV.toFixed(1));
+        volRow['sum_unrate_vol'] = (rowUnrateV * 100).toFixed(1) + '%'; volRow['sumUnrateVol'] = (rowUnrateV * 100).toFixed(1) + '%';
+        volRow['sum_rem_vol'] = parseFloat(rowRemV.toFixed(1)); volRow['sumRemVol'] = parseFloat(rowRemV.toFixed(1));
+        volRow['sum_health_vol'] = rowHealthV; volRow['sumHealthVol'] = rowHealthV;
 
         gridPivotTable.push(gridRow);
         volPivotTable.push(volRow);
