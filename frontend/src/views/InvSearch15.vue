@@ -165,62 +165,78 @@ export default {
       }
     },
 
-    // 🌟 大檔案 CSV 分塊讀取與上傳處理 (每 10,000 筆一個 Chunk)
-    async handleCsvUpload15(event) {
-      const file = event.target.files[0];
-      if (!file) return;
+    // 🌟 大檔案 CSV 分塊讀取與上傳處理 (已加入空白列自動剔除)
+async handleCsvUpload15(event) {
+  const file = event.target.files[0];
+  if (!file) return;
 
-      this.isUploading = true;
-      this.uploadedCount = 0;
-      this.uploadPercentage = 0;
+  this.isUploading = true;
+  this.uploadedCount = 0;
+  this.uploadPercentage = 0;
 
-      const chunkSize = 10000;
-      let isFirstChunk = true;
+  const chunkSize = 10000;
+  let isFirstChunk = true;
 
-      try {
-        const text = await file.text();
-        const lines = text.split(/\r?\n/).filter(l => l.trim());
-        if (lines.length <= 1) {
-          this.$message.error('檔案格式無效或無資料');
-          this.isUploading = false;
-          return;
-        }
+  try {
+    const text = await file.text();
+    const lines = text.split(/\r?\n/).filter(l => l.trim());
+    if (lines.length <= 1) {
+      this.$message.error('檔案格式無效或無資料');
+      this.isUploading = false;
+      return;
+    }
 
-        const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
-        const totalLines = lines.length - 1;
+    const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+    let currentBatch = [];
 
-        let currentBatch = [];
-
-        for (let i = 1; i <= totalLines; i++) {
-          const rowVals = lines[i].split(',').map(v => v.trim().replace(/^"|"$/g, ''));
-          if (rowVals.length >= headers.length) {
-            const rowObj = {};
-            headers.forEach((h, idx) => rowObj[h] = rowVals[idx]);
-            currentBatch.push(rowObj);
-          }
-
-          if (currentBatch.length >= chunkSize || i === totalLines) {
-            await axios.post('/api/inventory15/upload', {
-              items: currentBatch,
-              isFirstChunk: isFirstChunk
-            });
-
-            this.uploadedCount += currentBatch.length;
-            this.uploadPercentage = Math.round((this.uploadedCount / totalLines) * 100);
-            isFirstChunk = false;
-            currentBatch = [];
-          }
-        }
-
-        this.$message.success(`🎉 成功分塊匯入 ${this.uploadedCount.toLocaleString()} 筆資料至 庫存15！`);
-        this.fetchData(1);
-      } catch (err) {
-        this.$message.error('匯入過程發生錯誤：' + (err.response?.data?.message || err.message));
-      } finally {
-        this.isUploading = false;
-        event.target.value = '';
+    // 🌟 先過濾出有效資料行（必須包含有效內容，且非純逗號）
+    const validLines = [];
+    for (let i = 1; i < lines.length; i++) {
+      const lineStr = lines[i].replace(/,/g, '').trim();
+      if (lineStr.length > 0) {
+        validLines.push(lines[i]);
       }
     }
+
+    const totalLines = validLines.length;
+
+    for (let i = 0; i < totalLines; i++) {
+      const rowVals = validLines[i].split(',').map(v => v.trim().replace(/^"|"$/g, ''));
+      if (rowVals.length >= headers.length) {
+        const rowObj = {};
+        headers.forEach((h, idx) => rowObj[h] = rowVals[idx]);
+
+        // 🌟 關鍵過濾：確認 商品ID 或 儲位 不為空
+        const itemId = rowObj['商品ID'] || rowObj['item_id'] || '';
+        if (itemId.trim() !== '') {
+          currentBatch.push(rowObj);
+        }
+      }
+
+      if (currentBatch.length >= chunkSize || i === totalLines - 1) {
+        if (currentBatch.length > 0) {
+          await axios.post('/api/inventory15/upload', {
+            items: currentBatch,
+            isFirstChunk: isFirstChunk
+          });
+
+          this.uploadedCount += currentBatch.length;
+          this.uploadPercentage = Math.round((i / totalLines) * 100);
+          isFirstChunk = false;
+          currentBatch = [];
+        }
+      }
+    }
+
+    this.$message.success(`🎉 成功過濾並匯入 ${this.uploadedCount.toLocaleString()} 筆有效資料至 庫存15！`);
+    this.fetchData(1);
+  } catch (err) {
+    this.$message.error('匯入過程發生錯誤：' + (err.response?.data?.message || err.message));
+  } finally {
+    this.isUploading = false;
+    event.target.value = '';
+  }
+}
   }
 }
 </script>
