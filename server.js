@@ -1,5 +1,5 @@
 // C:\my-inventory-server\server.js
-// 業務主程式 API 伺服器 (修復小計列與總計列之才數同步累加)
+// 業務主程式 API 伺服器 (整合 48 欄位 + inventory_15 模組掛載)
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const cors = require('cors');
@@ -32,9 +32,15 @@ const db = new sqlite3.Database('inventory_local.sqlite', (err) => {
   else console.log('✅ SQLite 資料庫檔案已成功連結！');
 });
 
+// 🌟 引入庫存 15 大數據專屬路由模組
+const inventory15Module = require('./routes/inventory15');
+
 app.use(cors());
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
+
+// 🌟 掛載 /api/inventory15 相關路由
+app.use('/api/inventory15', inventory15Module(db));
 
 app.post('/api/system/update-server-code', (req, res) => {
   const http = require('http');
@@ -370,7 +376,6 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
 
           rowPlanV += pv; rowUsedV += uv; rowRemV += rvReal;
 
-          // 🌟 關鍵修復：把「才數 (Volume)」同步加總到小計物件與總計物件
           typeSubtotals[t].plan_grid[z] += pg;
           typeSubtotals[t].used_grid[z] += ug;
           typeSubtotals[t].plan_vol[z] += pv;
@@ -407,7 +412,7 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         volPivotTable.push(volRow);
       });
 
-      // 附加黃色小計列 (🌟 完美精準小計計算 🌟)
+      // 附加黃色小計列
       Object.values(typeSubtotals).forEach(sub => {
         const subGridRow = { floor: sub.floor, loc_type: sub.loc_type, is_subtotal: true };
         const subVolRow = { floor: sub.floor, loc_type: sub.loc_type, is_subtotal: true };
@@ -446,7 +451,6 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         subGridRow['sum_rem_grid'] = subRG; subGridRow['sumRemGrid'] = subRG;
         subGridRow['sum_rem_vol'] = parseFloat(subRV.toFixed(1)); subGridRow['sumRemVol'] = parseFloat(subRV.toFixed(1));
 
-        // 🌟 小計才數計算（解決圖 5 小計才數全為 0 的死角）🌟
         const subUnrateV = subPV > 0 ? (subRV / subPV) : 0;
         let subHealthV = '0.0%';
         if (subPV > 0 && (1 - subUnrateV) > 0) {
@@ -467,7 +471,7 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         volPivotTable.push(subVolRow);
       });
 
-      // 附加綠色總計列 (🌟 全區總計才數完美計算 🌟)
+      // 附加綠色總計列
       const totalGridRow = { floor: grandTotalGrid.floor, loc_type: grandTotalGrid.loc_type, is_total: true };
       const totalVolRow = { floor: grandTotalGrid.floor, loc_type: grandTotalGrid.loc_type, is_total: true };
 
@@ -620,7 +624,7 @@ app.post('/api/delete-user', (req, res) => {
   });
 });
 
-// [GET] 庫存查詢 API
+// [GET] 庫存查詢 API (庫存 80)
 app.get('/api/search', (req, res) => {
   const page = parseInt(req.query.page || '1', 10);
   const pageSize = parseInt(req.query.pageSize || '500', 10);
