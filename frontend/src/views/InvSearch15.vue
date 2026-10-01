@@ -142,6 +142,7 @@ export default {
     exportConfig: { type: Object, default: () => ({ xlsx: true, csv: true, pdf: true }) },
     isSysAdmin: Boolean
   },
+  emits: ['open-search', 'export-data', 'page-change', 'size-change', 'refresh-metrics'],
   computed: {
     computedSummary() {
       return this.summary || { total_items: 0, total_rows: 0, total_pcs: 0, total_ao: 0 };

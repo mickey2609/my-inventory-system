@@ -58,7 +58,7 @@
             @size-change="handlePageSizeChange"
           />
 
-          <!-- 🌟 補齊：庫存 15 頁面屬性傳遞與按鈕觸發事件綁定 🌟 -->
+          <!-- 🌟 補齊：15 庫事件與資料綁定，含全域數據刷新觸發 🌟 -->
           <InvSearch15 
             v-else-if="currentTab === 'inv15'" key="inv15"
             :has-searched="hasSearched" :summary="summary" :search-time="searchTime"
@@ -69,6 +69,7 @@
             :is-sys-admin="isSysAdmin"
             @open-search="openSearchModal" @export-data="exportData" @page-change="handlePageChange"
             @size-change="handlePageSizeChange"
+            @refresh-metrics="fetchDashboardMetrics"
           />
 
           <SettingsLog 
@@ -322,11 +323,13 @@ export default {
     }
 
     window.addEventListener('focus', this.reloadCurrentUserPermissions);
+    window.addEventListener('inventory-updated', this.fetchDashboardMetrics);
     this.fetchUsers();
   },
   beforeUnmount() {
     this.stopHeartbeat();
     window.removeEventListener('focus', this.reloadCurrentUserPermissions);
+    window.removeEventListener('inventory-updated', this.fetchDashboardMetrics);
   },
   methods: {
     startHeartbeat() {
@@ -751,7 +754,7 @@ export default {
           aggregate: hasLocationCol ? 'false' : 'true'
         });
 
-        // 🌟 關鍵修正：依據當前頁籤分流至對應的 API 端點
+        // 🌟 依據當前頁籤分流至對應的 API 端點
         const searchApiUrl = this.currentTab === 'inv15' ? `/api/inventory15/search?${params.toString()}` : `/api/search?${params.toString()}`;
 
         const res = await axios.get(searchApiUrl);
