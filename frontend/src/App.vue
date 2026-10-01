@@ -58,8 +58,17 @@
             @size-change="handlePageSizeChange"
           />
 
+          <!-- 🌟 補齊：庫存 15 頁面屬性傳遞與按鈕觸發事件綁定 🌟 -->
           <InvSearch15 
             v-else-if="currentTab === 'inv15'" key="inv15"
+            :has-searched="hasSearched" :summary="summary" :search-time="searchTime"
+            :loading="loading" :table-data="tableData" :columns="columns"
+            :current-page="currentPage" :page-size="pageSize" :total-rows-count="totalRowsCount"
+            :custom-widths="customColWidths" :form="form"
+            :export-config="exportConfig"
+            :is-sys-admin="isSysAdmin"
+            @open-search="openSearchModal" @export-data="exportData" @page-change="handlePageChange"
+            @size-change="handlePageSizeChange"
           />
 
           <SettingsLog 
@@ -229,7 +238,6 @@ export default {
       loginForm: { username: '', password: '', rememberMe: true },
       currentTab: 'home', openedTabs: ['home'], 
       
-      // 統計指標：80庫筆數、15庫筆數與運作時間
       dbMetrics: { totalRows80: 0, totalRows15: 0, serverUptimeSec: 0 },
 
       logTab: 'normal', loading: false, draggedIndex: null, hasSearched: false, searchTime: '',
@@ -743,7 +751,10 @@ export default {
           aggregate: hasLocationCol ? 'false' : 'true'
         });
 
-        const res = await axios.get(`/api/search?${params.toString()}`);
+        // 🌟 關鍵修正：依據當前頁籤分流至對應的 API 端點
+        const searchApiUrl = this.currentTab === 'inv15' ? `/api/inventory15/search?${params.toString()}` : `/api/search?${params.toString()}`;
+
+        const res = await axios.get(searchApiUrl);
         if (res.data?.success) {
           this.totalRowsCount = res.data.total || 0;
           const rawData = res.data.data || [];
@@ -841,7 +852,9 @@ export default {
           aggregate: hasLocationCol ? 'false' : 'true', exportAll: 'true'
         });
 
-        const res = await axios.get(`/api/search?${params.toString()}`);
+        const searchApiUrl = this.currentTab === 'inv15' ? `/api/inventory15/search?${params.toString()}` : `/api/search?${params.toString()}`;
+
+        const res = await axios.get(searchApiUrl);
         loadingMsg.close();
         if (res.data?.success && res.data.data) {
           const rawList = res.data.data;
