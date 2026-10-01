@@ -1,5 +1,5 @@
 // C:\my-inventory-server\server.js
-// 業務主程式 API 伺服器 (整合 48 欄位 + 完全對齊樓層明細與小計/總計列)
+// 業務主程式 API 伺服器 (修復小計列與總計列之才數同步累加)
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const cors = require('cors');
@@ -207,7 +207,7 @@ app.post(['/api/import-locations-master', '/api/import-locations-master-json'], 
   });
 });
 
-// [GET] 📊 儲位才數與格數交叉計算 API
+// [GET] 📊 儲位才數與格數強效交叉計算 API (修復小計才數累加)
 app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, res) => {
   const masterSql = `SELECT COALESCE(floor, '') as floor, COALESCE(zone, '') as zone, COALESCE(loc_type, '') as loc_type, COALESCE(cubic_feet, 0) as cubic_feet, COALESCE(grid_count, 0) as grid_count, COALESCE(single_cubic_feet, 0) as single_cubic_feet FROM locations_master`;
   const inventorySql = `SELECT COALESCE(floor, '') as floor, COALESCE(floor_zone, '') as floor_zone, COALESCE(loc_type, '') as loc_type, COALESCE(heavy_rack_check, '') as heavy_rack_check, COALESCE(location, '') as location, COALESCE(loc_code_5, '') as loc_code_5, COALESCE(shelf_level, '') as shelf_level, COALESCE(total_cubic_feet, 0) as total_cubic_feet, COALESCE(cubic_feet, 0) as cubic_feet, COALESCE(qty, 0) as qty FROM inventory`;
@@ -370,6 +370,7 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
 
           rowPlanV += pv; rowUsedV += uv; rowRemV += rvReal;
 
+          // 🌟 關鍵修復：把「才數 (Volume)」同步加總到小計物件與總計物件
           typeSubtotals[t].plan_grid[z] += pg;
           typeSubtotals[t].used_grid[z] += ug;
           typeSubtotals[t].plan_vol[z] += pv;
@@ -377,6 +378,8 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
 
           grandTotalGrid.plan_grid[z] += pg;
           grandTotalGrid.used_grid[z] += ug;
+          grandTotalGrid.plan_vol[z] += pv;
+          grandTotalGrid.used_vol[z] += uv;
 
           grandRemVolReal += rvReal;
         });
@@ -404,7 +407,7 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         volPivotTable.push(volRow);
       });
 
-      // 附加黃色小計列 (供全頁面共用)
+      // 附加黃色小計列 (🌟 完美精準小計計算 🌟)
       Object.values(typeSubtotals).forEach(sub => {
         const subGridRow = { floor: sub.floor, loc_type: sub.loc_type, is_subtotal: true };
         const subVolRow = { floor: sub.floor, loc_type: sub.loc_type, is_subtotal: true };
@@ -413,8 +416,8 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         let subPV = 0, subUV = 0, subRV = 0;
 
         zones.forEach(z => {
-          const pg = sub.plan_grid[z];
-          const ug = sub.used_grid[z];
+          const pg = sub.plan_grid[z] || 0;
+          const ug = sub.used_grid[z] || 0;
           const rg = Math.max(0, pg - ug);
           const unrateG = pg > 0 ? ((rg / pg) * 100).toFixed(1) + '%' : '';
 
@@ -425,8 +428,8 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
 
           subPG += pg; subUG += ug; subRG += rg;
 
-          const pv = sub.plan_vol[z];
-          const uv = sub.used_vol[z];
+          const pv = sub.plan_vol[z] || 0;
+          const uv = sub.used_vol[z] || 0;
           const rv = Math.max(0, pv - uv);
 
           subVolRow[`plan_${z}`] = pv > 0 ? parseFloat(pv.toFixed(1)) : '';
@@ -443,11 +446,16 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         subGridRow['sum_rem_grid'] = subRG; subGridRow['sumRemGrid'] = subRG;
         subGridRow['sum_rem_vol'] = parseFloat(subRV.toFixed(1)); subGridRow['sumRemVol'] = parseFloat(subRV.toFixed(1));
 
+        // 🌟 小計才數計算（解決圖 5 小計才數全為 0 的死角）🌟
         const subUnrateV = subPV > 0 ? (subRV / subPV) : 0;
         let subHealthV = '0.0%';
         if (subPV > 0 && (1 - subUnrateV) > 0) {
           subHealthV = (((subUV / (1 - subUnrateV)) / subPV) * 100).toFixed(1) + '%';
         }
+
+        subGridRow['sum_plan_vol'] = parseFloat(subPV.toFixed(1)); subGridRow['sumPlanVol'] = parseFloat(subPV.toFixed(1));
+        subGridRow['sum_used_vol'] = parseFloat(subUV.toFixed(1)); subGridRow['sumUsedVol'] = parseFloat(subUV.toFixed(1));
+        subGridRow['sum_unrate_vol'] = (subUnrateV * 100).toFixed(1) + '%'; subGridRow['sumUnrateVol'] = (subUnrateV * 100).toFixed(1) + '%';
 
         subVolRow['sum_plan_vol'] = parseFloat(subPV.toFixed(1)); subVolRow['sumPlanVol'] = parseFloat(subPV.toFixed(1));
         subVolRow['sum_used_vol'] = parseFloat(subUV.toFixed(1)); subVolRow['sumUsedVol'] = parseFloat(subUV.toFixed(1));
@@ -459,7 +467,7 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         volPivotTable.push(subVolRow);
       });
 
-      // 附加綠色總計列
+      // 附加綠色總計列 (🌟 全區總計才數完美計算 🌟)
       const totalGridRow = { floor: grandTotalGrid.floor, loc_type: grandTotalGrid.loc_type, is_total: true };
       const totalVolRow = { floor: grandTotalGrid.floor, loc_type: grandTotalGrid.loc_type, is_total: true };
 
@@ -486,6 +494,8 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
       totalGridRow['sum_used_grid'] = sumUsedG; totalGridRow['sumUsedGrid'] = sumUsedG;
       totalGridRow['sum_unrate_grid'] = totalUnrateG; totalGridRow['sumUnrateGrid'] = totalUnrateG;
       totalGridRow['sum_rem_grid'] = totalRemG; totalGridRow['sumRemGrid'] = totalRemG;
+      totalGridRow['sum_plan_vol'] = parseFloat(grandPlanVol.toFixed(1)); totalGridRow['sumPlanVol'] = parseFloat(grandPlanVol.toFixed(1));
+      totalGridRow['sum_used_vol'] = parseFloat(grandUsedVol.toFixed(1)); totalGridRow['sumUsedVol'] = parseFloat(grandUsedVol.toFixed(1));
       totalGridRow['sum_rem_vol'] = parseFloat(grandRemVolReal.toFixed(1)); totalGridRow['sumRemVol'] = parseFloat(grandRemVolReal.toFixed(1));
 
       const overallUnusedRateVol = grandPlanVol > 0 ? (grandRemVolReal / grandPlanVol) : 0;
