@@ -25,7 +25,7 @@
         </div>
       </div>
 
-      <!-- 7 大數據指標卡片 (包含剩餘空才數) -->
+      <!-- 7 大數據指標卡片 -->
       <div class="stats-overview-grid">
         <div class="stat-card">
           <span class="stat-lbl">規劃總儲格數</span>
@@ -77,54 +77,66 @@
               :row-class-name="tableRowClassName"
             >
               <el-table-column prop="floor" label="樓層" width="75" align="center" fixed="left"></el-table-column>
-              <el-table-column prop="loc_type" label="儲位類型" width="130" fixed="left"></el-table-column>
+              <el-table-column prop="loc_type" label="儲位類型" width="130" fixed="left" class-name="section-border-right"></el-table-column>
 
               <!-- 規劃 -->
-              <el-table-column label="規劃" align="center">
+              <el-table-column label="規劃" align="center" class-name="section-border-right">
                 <el-table-column prop="plan_A區" label="A區" width="80" align="right"></el-table-column>
                 <el-table-column prop="plan_B區" label="B區" width="80" align="right"></el-table-column>
                 <el-table-column prop="plan_C區" label="C區" width="80" align="right"></el-table-column>
-                <el-table-column prop="plan_D區" label="D區" width="80" align="right"></el-table-column>
+                <el-table-column prop="plan_D區" label="D區" width="80" align="right" class-name="section-border-right"></el-table-column>
               </el-table-column>
 
               <!-- 已使用 -->
-              <el-table-column label="已使用" align="center">
+              <el-table-column label="已使用" align="center" class-name="section-border-right">
                 <el-table-column prop="used_A區" label="A區" width="80" align="right"></el-table-column>
                 <el-table-column prop="used_B區" label="B區" width="80" align="right"></el-table-column>
                 <el-table-column prop="used_C區" label="C區" width="80" align="right"></el-table-column>
-                <el-table-column prop="used_D區" label="D區" width="80" align="right"></el-table-column>
+                <el-table-column prop="used_D區" label="D區" width="80" align="right" class-name="section-border-right"></el-table-column>
               </el-table-column>
 
               <!-- 未使用率 (%) -->
-              <el-table-column label="未使用率 (%)" align="center">
+              <el-table-column label="未使用率 (%)" align="center" class-name="section-border-right">
                 <el-table-column prop="unrate_A區" label="A區" width="80" align="right"></el-table-column>
                 <el-table-column prop="unrate_B區" label="B區" width="80" align="right"></el-table-column>
                 <el-table-column prop="unrate_C區" label="C區" width="80" align="right"></el-table-column>
-                <el-table-column prop="unrate_D區" label="D區" width="80" align="right"></el-table-column>
+                <el-table-column prop="unrate_D區" label="D區" width="80" align="right" class-name="section-border-right"></el-table-column>
               </el-table-column>
 
               <!-- 剩餘 -->
-              <el-table-column label="剩餘" align="center">
+              <el-table-column label="剩餘" align="center" class-name="section-border-right">
                 <el-table-column prop="rem_A區" label="A區" width="80" align="right"></el-table-column>
                 <el-table-column prop="rem_B區" label="B區" width="80" align="right"></el-table-column>
                 <el-table-column prop="rem_C區" label="C區" width="80" align="right"></el-table-column>
-                <el-table-column prop="rem_D區" label="D區" width="80" align="right"></el-table-column>
+                <el-table-column prop="rem_D區" label="D區" width="80" align="right" class-name="section-border-right"></el-table-column>
               </el-table-column>
 
-              <!-- 🌟 右側新增【儲位格數彙總】(對齊 Excel 圖2) 🌟 -->
+              <!-- 🌟【儲位格數彙總】(具備前端即時計算防呆，絕不為 0) 🌟 -->
               <el-table-column label="【儲位格數彙總】" align="center" class-name="summary-header-group">
-                <el-table-column prop="sum_plan_grid" label="規劃數" width="85" align="right">
-                  <template #default="scope"><strong>{{ formatNumber(scope.row.sum_plan_grid) }}</strong></template>
+                <el-table-column label="規劃數" width="90" align="right">
+                  <template #default="scope">
+                    <strong>{{ formatNumber(getSumVal(scope.row, 'sum_plan_grid', ['plan_A區','plan_B區','plan_C區','plan_D區'])) }}</strong>
+                  </template>
                 </el-table-column>
-                <el-table-column prop="sum_used_grid" label="已使用" width="85" align="right">
-                  <template #default="scope"><span class="text-green">{{ formatNumber(scope.row.sum_used_grid) }}</span></template>
+                <el-table-column label="已使用" width="90" align="right">
+                  <template #default="scope">
+                    <span class="text-green">{{ formatNumber(getSumVal(scope.row, 'sum_used_grid', ['used_A區','used_B區','used_C區','used_D區'])) }}</span>
+                  </template>
                 </el-table-column>
-                <el-table-column prop="sum_unrate_grid" label="未使用率(%)" width="95" align="right"></el-table-column>
-                <el-table-column prop="sum_rem_grid" label="剩餘儲位數" width="95" align="right">
-                  <template #default="scope"><span class="text-orange">{{ formatNumber(scope.row.sum_rem_grid) }}</span></template>
+                <el-table-column label="未使用率(%)" width="95" align="right">
+                  <template #default="scope">
+                    {{ getUnrateVal(scope.row, 'sum_unrate_grid', 'sum_plan_grid', 'sum_used_grid') }}
+                  </template>
                 </el-table-column>
-                <el-table-column prop="sum_rem_vol" label="剩餘才數" width="95" align="right">
-                  <template #default="scope"><span class="text-orange">{{ formatNumber(scope.row.sum_rem_vol) }}</span></template>
+                <el-table-column label="剩餘儲位數" width="95" align="right">
+                  <template #default="scope">
+                    <span class="text-orange">{{ formatNumber(getSumVal(scope.row, 'sum_rem_grid', ['rem_A區','rem_B區','rem_C區','rem_D區'])) }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="剩餘才數" width="95" align="right">
+                  <template #default="scope">
+                    <span class="text-orange">{{ formatNumber(scope.row.sum_rem_vol || scope.row.sumRemVol || 0) }}</span>
+                  </template>
                 </el-table-column>
               </el-table-column>
             </el-table>
@@ -141,46 +153,58 @@
               :row-class-name="tableRowClassName"
             >
               <el-table-column prop="floor" label="樓層" width="75" align="center" fixed="left"></el-table-column>
-              <el-table-column prop="loc_type" label="儲位類型" width="130" fixed="left"></el-table-column>
+              <el-table-column prop="loc_type" label="儲位類型" width="130" fixed="left" class-name="section-border-right"></el-table-column>
 
               <!-- 規劃總才數 -->
-              <el-table-column label="規劃總才數" align="center">
+              <el-table-column label="規劃總才數" align="center" class-name="section-border-right">
                 <el-table-column prop="plan_A區" label="A區" width="80" align="right"></el-table-column>
                 <el-table-column prop="plan_B區" label="B區" width="80" align="right"></el-table-column>
                 <el-table-column prop="plan_C區" label="C區" width="80" align="right"></el-table-column>
-                <el-table-column prop="plan_D區" label="D區" width="80" align="right"></el-table-column>
+                <el-table-column prop="plan_D區" label="D區" width="80" align="right" class-name="section-border-right"></el-table-column>
               </el-table-column>
 
               <!-- 使用中才數 -->
-              <el-table-column label="使用中才數" align="center">
+              <el-table-column label="使用中才數" align="center" class-name="section-border-right">
                 <el-table-column prop="used_A區" label="A區" width="80" align="right"></el-table-column>
                 <el-table-column prop="used_B區" label="B區" width="80" align="right"></el-table-column>
                 <el-table-column prop="used_C區" label="C區" width="80" align="right"></el-table-column>
-                <el-table-column prop="used_D區" label="D區" width="80" align="right"></el-table-column>
+                <el-table-column prop="used_D區" label="D區" width="80" align="right" class-name="section-border-right"></el-table-column>
               </el-table-column>
 
               <!-- 剩餘才數 -->
-              <el-table-column label="剩餘才數" align="center">
+              <el-table-column label="剩餘才數" align="center" class-name="section-border-right">
                 <el-table-column prop="rem_A區" label="A區" width="80" align="right"></el-table-column>
                 <el-table-column prop="rem_B區" label="B區" width="80" align="right"></el-table-column>
                 <el-table-column prop="rem_C區" label="C區" width="80" align="right"></el-table-column>
-                <el-table-column prop="rem_D區" label="D區" width="80" align="right"></el-table-column>
+                <el-table-column prop="rem_D區" label="D區" width="80" align="right" class-name="section-border-right"></el-table-column>
               </el-table-column>
 
-              <!-- 🌟 右側新增【才數彙總】(對齊 Excel 圖3) 🌟 -->
+              <!-- 🌟【才數彙總】(具備前端即時計算防呆，絕不為 0) 🌟 -->
               <el-table-column label="【才數彙總】" align="center" class-name="summary-header-group">
-                <el-table-column prop="sum_plan_vol" label="規劃數" width="90" align="right">
-                  <template #default="scope"><strong>{{ formatNumber(scope.row.sum_plan_vol) }}</strong></template>
+                <el-table-column label="規劃數" width="90" align="right">
+                  <template #default="scope">
+                    <strong>{{ formatNumber(getSumVal(scope.row, 'sum_plan_vol', ['plan_A區','plan_B區','plan_C區','plan_D區'])) }}</strong>
+                  </template>
                 </el-table-column>
-                <el-table-column prop="sum_used_vol" label="已使用" width="90" align="right">
-                  <template #default="scope"><span class="text-green">{{ formatNumber(scope.row.sum_used_vol) }}</span></template>
+                <el-table-column label="已使用" width="90" align="right">
+                  <template #default="scope">
+                    <span class="text-green">{{ formatNumber(getSumVal(scope.row, 'sum_used_vol', ['used_A區','used_B區','used_C區','used_D區'])) }}</span>
+                  </template>
                 </el-table-column>
-                <el-table-column prop="sum_unrate_vol" label="未使用率(%)" width="95" align="right"></el-table-column>
-                <el-table-column prop="sum_rem_vol" label="剩餘才數" width="95" align="right">
-                  <template #default="scope"><span class="text-orange">{{ formatNumber(scope.row.sum_rem_vol) }}</span></template>
+                <el-table-column label="未使用率(%)" width="95" align="right">
+                  <template #default="scope">
+                    {{ getUnrateVal(scope.row, 'sum_unrate_vol', 'sum_plan_vol', 'sum_used_vol', true) }}
+                  </template>
                 </el-table-column>
-                <el-table-column prop="sum_health_vol" label="儲位健康度" width="95" align="right">
-                  <template #default="scope"><span class="text-cyan">{{ scope.row.sum_health_vol }}</span></template>
+                <el-table-column label="剩餘才數" width="95" align="right">
+                  <template #default="scope">
+                    <span class="text-orange">{{ formatNumber(getSumVal(scope.row, 'sum_rem_vol', ['rem_A區','rem_B區','rem_C區','rem_D區'])) }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="儲位健康度" width="95" align="right">
+                  <template #default="scope">
+                    <span class="text-cyan">{{ scope.row.sum_health_vol || scope.row.sumHealthVol || '0.0%' }}</span>
+                  </template>
                 </el-table-column>
               </el-table-column>
             </el-table>
@@ -288,6 +312,33 @@ export default {
       const num = Number(String(val).replace(/,/g, ''));
       return isNaN(num) ? val : num.toLocaleString();
     },
+    // 🌟 總覽數字雙重防呆取值
+    getSumVal(row, primaryKey, subKeys) {
+      if (row[primaryKey] !== undefined && row[primaryKey] !== null && row[primaryKey] !== '') {
+        return row[primaryKey];
+      }
+      // 防呆：後端若傳遞駱駝命名 (e.g., sumPlanGrid)
+      const camelKey = primaryKey.replace(/_([a-z])/g, g => g[1].toUpperCase());
+      if (row[camelKey] !== undefined && row[camelKey] !== null && row[camelKey] !== '') {
+        return row[camelKey];
+      }
+      // 萬能備退：前端自動將 A, B, C, D 區小計進行加總
+      let sum = 0;
+      subKeys.forEach(k => {
+        const val = Number(String(row[k] || 0).replace(/,/g, ''));
+        if (!isNaN(val)) sum += val;
+      });
+      return sum;
+    },
+    // 未使用率取值計算
+    getUnrateVal(row, unrateKey, planKey, usedKey, isVol = false) {
+      if (row[unrateKey]) return row[unrateKey];
+      const plan = Number(this.getSumVal(row, planKey, isVol ? ['plan_A區','plan_B區','plan_C區','plan_D區'] : ['plan_A區','plan_B區','plan_C區','plan_D區']));
+      const used = Number(this.getSumVal(row, usedKey, isVol ? ['used_A區','used_B區','used_C區','used_D區'] : ['used_A區','used_B區','used_C區','used_D區']));
+      if (plan <= 0) return '0.0%';
+      const rem = Math.max(0, plan - used);
+      return ((rem / plan) * 100).toFixed(1) + '%';
+    },
     tableRowClassName({ row }) {
       if (row.is_total) return 'total-row';
       if (row.is_subtotal) return 'subtotal-row';
@@ -376,7 +427,6 @@ export default {
   gap: 8px;
 }
 
-/* 7 張卡片 */
 .stats-overview-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
@@ -482,10 +532,16 @@ export default {
   border-bottom: 1px solid #334155 !important;
 }
 
-/* 總覽欄位區塊頭部專屬醒目背景色 */
+/* 🌟🌟🌟 五大區塊粗框分隔線 (關鍵加強粗邊框) 🌟🌟🌟 */
+:deep(.pivot-table .section-border-right) {
+  border-right: 3px solid #38bdf8 !important;
+}
+
+/* 總覽欄位區塊頭部專屬醒目藍色背景色 */
 :deep(.pivot-table th.summary-header-group) {
   background-color: #0284c7 !important;
   color: #ffffff !important;
+  border-left: 3px solid #38bdf8 !important;
 }
 
 .config-modal-content { color: #f8fafc; }

@@ -1,5 +1,5 @@
 // C:\my-inventory-server\server.js
-// 業務主程式 API 伺服器 (整合 48 欄位 + Excel 橫向總覽欄位計算 + 精準才數健康度演算法)
+// 業務主程式 API 伺服器 (補齊彙總欄位 Key + 48 欄位完全體)
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const cors = require('cors');
@@ -207,7 +207,7 @@ app.post(['/api/import-locations-master', '/api/import-locations-master-json'], 
   });
 });
 
-// [GET] 📊 儲位才數與格數強效交叉計算 API (包含橫向【儲位格數彙總】與【才數彙總】欄位)
+// [GET] 📊 儲位才數與格數強效交叉計算 API
 app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, res) => {
   const masterSql = `SELECT COALESCE(floor, '') as floor, COALESCE(zone, '') as zone, COALESCE(loc_type, '') as loc_type, COALESCE(cubic_feet, 0) as cubic_feet, COALESCE(grid_count, 0) as grid_count, COALESCE(single_cubic_feet, 0) as single_cubic_feet FROM locations_master`;
   const inventorySql = `SELECT COALESCE(floor, '') as floor, COALESCE(floor_zone, '') as floor_zone, COALESCE(loc_type, '') as loc_type, COALESCE(heavy_rack_check, '') as heavy_rack_check, COALESCE(location, '') as location, COALESCE(loc_code_5, '') as loc_code_5, COALESCE(shelf_level, '') as shelf_level, COALESCE(total_cubic_feet, 0) as total_cubic_feet, COALESCE(cubic_feet, 0) as cubic_feet, COALESCE(qty, 0) as qty FROM inventory`;
@@ -246,9 +246,7 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         let vCnt = parseFloat(r.cubic_feet || 0);
         if (vCnt === 0) vCnt = singleCf * gCnt;
 
-        if (singleCf > 0) {
-          matrixMap[k].single_cf_map[z] = singleCf;
-        }
+        if (singleCf > 0) matrixMap[k].single_cf_map[z] = singleCf;
 
         matrixMap[k].plan_grid[z] = (matrixMap[k].plan_grid[z] || 0) + gCnt;
         matrixMap[k].plan_vol[z] = (matrixMap[k].plan_vol[z] || 0) + vCnt;
@@ -313,7 +311,7 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         }
       });
 
-      // 3. 生成對齊 Excel 圖2與圖3的總覽列
+      // 3. 生成對齊 Excel 的樞紐表格列 (含雙重 Key 映射確保前端 100% 讀到數字)
       const gridPivotTable = [];
       const volPivotTable = [];
 
@@ -321,7 +319,9 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
       const grandTotalGrid = {
         floor: '', loc_type: '全區總計', is_total: true,
         plan_grid: { 'A區':0, 'B區':0, 'C區':0, 'D區':0 },
-        used_grid: { 'A區':0, 'B區':0, 'C區':0, 'D區':0 }
+        used_grid: { 'A區':0, 'B區':0, 'C區':0, 'D區':0 },
+        plan_vol: { 'A區':0, 'B區':0, 'C區':0, 'D區':0 },
+        used_vol: { 'A區':0, 'B區':0, 'C區':0, 'D區':0 }
       };
 
       let grandRemVolReal = 0;
@@ -355,9 +355,7 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
           gridRow[`unrate_${z}`] = unrateG;
           gridRow[`rem_${z}`] = rg > 0 ? rg : '';
 
-          rowPlanG += pg;
-          rowUsedG += ug;
-          rowRemG += rg;
+          rowPlanG += pg; rowUsedG += ug; rowRemG += rg;
 
           const pv = row.plan_vol[z] || 0;
           const uv = row.used_vol[z] || 0;
@@ -371,9 +369,7 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
           volRow[`used_${z}`] = uv > 0 ? parseFloat(uv.toFixed(1)) : '';
           volRow[`rem_${z}`] = rvReal > 0 ? parseFloat(rvReal.toFixed(1)) : '';
 
-          rowPlanV += pv;
-          rowUsedV += uv;
-          rowRemV += rvReal;
+          rowPlanV += pv; rowUsedV += uv; rowRemV += rvReal;
 
           typeSubtotals[t].plan_grid[z] += pg;
           typeSubtotals[t].used_grid[z] += ug;
@@ -386,26 +382,34 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
           grandRemVolReal += rvReal;
         });
 
-        // 🌟 試算表橫向總覽計算 (圖2【儲位格數彙總】)
         const rowUnrateG = rowPlanG > 0 ? (((rowPlanG - rowUsedG) / rowPlanG) * 100).toFixed(1) + '%' : '0.0%';
-        gridRow['sum_plan_grid'] = rowPlanG > 0 ? rowPlanG : '';
-        gridRow['sum_used_grid'] = rowUsedG > 0 ? rowUsedG : '';
+        gridRow['sum_plan_grid'] = rowPlanG;
+        gridRow['sumPlanGrid'] = rowPlanG;
+        gridRow['sum_used_grid'] = rowUsedG;
+        gridRow['sumUsedGrid'] = rowUsedG;
         gridRow['sum_unrate_grid'] = rowUnrateG;
-        gridRow['sum_rem_grid'] = rowRemG > 0 ? rowRemG : '';
-        gridRow['sum_rem_vol'] = rowRemV > 0 ? parseFloat(rowRemV.toFixed(1)) : '';
+        gridRow['sumUnrateGrid'] = rowUnrateG;
+        gridRow['sum_rem_grid'] = rowRemG;
+        gridRow['sumRemGrid'] = rowRemG;
+        gridRow['sum_rem_vol'] = parseFloat(rowRemV.toFixed(1));
+        gridRow['sumRemVol'] = parseFloat(rowRemV.toFixed(1));
 
-        // 🌟 試算表橫向總覽計算 (圖3【才數彙總】)
         const rowUnrateV = rowPlanV > 0 ? (rowRemV / rowPlanV) : 0;
         let rowHealthV = '0.0%';
         if (rowPlanV > 0 && (1 - rowUnrateV) > 0) {
           rowHealthV = (((rowUsedV / (1 - rowUnrateV)) / rowPlanV) * 100).toFixed(1) + '%';
         }
 
-        volRow['sum_plan_vol'] = rowPlanV > 0 ? parseFloat(rowPlanV.toFixed(1)) : '';
-        volRow['sum_used_vol'] = rowUsedV > 0 ? parseFloat(rowUsedV.toFixed(1)) : '';
+        volRow['sum_plan_vol'] = parseFloat(rowPlanV.toFixed(1));
+        volRow['sumPlanVol'] = parseFloat(rowPlanV.toFixed(1));
+        volRow['sum_used_vol'] = parseFloat(rowUsedV.toFixed(1));
+        volRow['sumUsedVol'] = parseFloat(rowUsedV.toFixed(1));
         volRow['sum_unrate_vol'] = (rowUnrateV * 100).toFixed(1) + '%';
-        volRow['sum_rem_vol'] = rowRemV > 0 ? parseFloat(rowRemV.toFixed(1)) : '';
+        volRow['sumUnrateVol'] = (rowUnrateV * 100).toFixed(1) + '%';
+        volRow['sum_rem_vol'] = parseFloat(rowRemV.toFixed(1));
+        volRow['sumRemVol'] = parseFloat(rowRemV.toFixed(1));
         volRow['sum_health_vol'] = rowHealthV;
+        volRow['sumHealthVol'] = rowHealthV;
 
         gridPivotTable.push(gridRow);
         volPivotTable.push(volRow);
@@ -444,11 +448,11 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         });
 
         const subUnrateG = subPG > 0 ? (((subPG - subUG) / subPG) * 100).toFixed(1) + '%' : '0.0%';
-        subGridRow['sum_plan_grid'] = subPG;
-        subGridRow['sum_used_grid'] = subUG;
-        subGridRow['sum_unrate_grid'] = subUnrateG;
-        subGridRow['sum_rem_grid'] = subRG;
-        subGridRow['sum_rem_vol'] = parseFloat(subRV.toFixed(1));
+        subGridRow['sum_plan_grid'] = subPG; subGridRow['sumPlanGrid'] = subPG;
+        subGridRow['sum_used_grid'] = subUG; subGridRow['sumUsedGrid'] = subUG;
+        subGridRow['sum_unrate_grid'] = subUnrateG; subGridRow['sumUnrateGrid'] = subUnrateG;
+        subGridRow['sum_rem_grid'] = subRG; subGridRow['sumRemGrid'] = subRG;
+        subGridRow['sum_rem_vol'] = parseFloat(subRV.toFixed(1)); subGridRow['sumRemVol'] = parseFloat(subRV.toFixed(1));
 
         const subUnrateV = subPV > 0 ? (subRV / subPV) : 0;
         let subHealthV = '0.0%';
@@ -456,11 +460,11 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
           subHealthV = (((subUV / (1 - subUnrateV)) / subPV) * 100).toFixed(1) + '%';
         }
 
-        subVolRow['sum_plan_vol'] = parseFloat(subPV.toFixed(1));
-        subVolRow['sum_used_vol'] = parseFloat(subUV.toFixed(1));
-        subVolRow['sum_unrate_vol'] = (subUnrateV * 100).toFixed(1) + '%';
-        subVolRow['sum_rem_vol'] = parseFloat(subRV.toFixed(1));
-        subVolRow['sum_health_vol'] = subHealthV;
+        subVolRow['sum_plan_vol'] = parseFloat(subPV.toFixed(1)); subVolRow['sumPlanVol'] = parseFloat(subPV.toFixed(1));
+        subVolRow['sum_used_vol'] = parseFloat(subUV.toFixed(1)); subVolRow['sumUsedVol'] = parseFloat(subUV.toFixed(1));
+        subVolRow['sum_unrate_vol'] = (subUnrateV * 100).toFixed(1) + '%'; subVolRow['sumUnrateVol'] = (subUnrateV * 100).toFixed(1) + '%';
+        subVolRow['sum_rem_vol'] = parseFloat(subRV.toFixed(1)); subVolRow['sumRemVol'] = parseFloat(subRV.toFixed(1));
+        subVolRow['sum_health_vol'] = subHealthV; subVolRow['sumHealthVol'] = subHealthV;
 
         gridPivotTable.push(subGridRow);
         volPivotTable.push(subVolRow);
@@ -489,11 +493,11 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
       const totalRemG = Math.max(0, sumPlanG - sumUsedG);
       const totalUnrateG = sumPlanG > 0 ? ((totalRemG / sumPlanG) * 100).toFixed(1) + '%' : '0.0%';
 
-      totalGridRow['sum_plan_grid'] = sumPlanG;
-      totalGridRow['sum_used_grid'] = sumUsedG;
-      totalGridRow['sum_unrate_grid'] = totalUnrateG;
-      totalGridRow['sum_rem_grid'] = totalRemG;
-      totalGridRow['sum_rem_vol'] = parseFloat(grandRemVolReal.toFixed(1));
+      totalGridRow['sum_plan_grid'] = sumPlanG; totalGridRow['sumPlanGrid'] = sumPlanG;
+      totalGridRow['sum_used_grid'] = sumUsedG; totalGridRow['sumUsedGrid'] = sumUsedG;
+      totalGridRow['sum_unrate_grid'] = totalUnrateG; totalGridRow['sumUnrateGrid'] = totalUnrateG;
+      totalGridRow['sum_rem_grid'] = totalRemG; totalGridRow['sumRemGrid'] = totalRemG;
+      totalGridRow['sum_rem_vol'] = parseFloat(grandRemVolReal.toFixed(1)); totalGridRow['sumRemVol'] = parseFloat(grandRemVolReal.toFixed(1));
 
       const overallUnusedRateVol = grandPlanVol > 0 ? (grandRemVolReal / grandPlanVol) : 0;
       let overallHealthCalc = '0.0%';
@@ -504,11 +508,11 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         overallHealthCalc = ((adjustedUsedVol / grandPlanVol) * 100).toFixed(1) + '%';
       }
 
-      totalVolRow['sum_plan_vol'] = parseFloat(grandPlanVol.toFixed(1));
-      totalVolRow['sum_used_vol'] = parseFloat(grandUsedVol.toFixed(1));
-      totalVolRow['sum_unrate_vol'] = (overallUnusedRateVol * 100).toFixed(1) + '%';
-      totalVolRow['sum_rem_vol'] = parseFloat(grandRemVolReal.toFixed(1));
-      totalVolRow['sum_health_vol'] = overallHealthCalc;
+      totalVolRow['sum_plan_vol'] = parseFloat(grandPlanVol.toFixed(1)); totalVolRow['sumPlanVol'] = parseFloat(grandPlanVol.toFixed(1));
+      totalVolRow['sum_used_vol'] = parseFloat(grandUsedVol.toFixed(1)); totalVolRow['sumUsedVol'] = parseFloat(grandUsedVol.toFixed(1));
+      totalVolRow['sum_unrate_vol'] = (overallUnusedRateVol * 100).toFixed(1) + '%'; totalVolRow['sumUnrateVol'] = (overallUnusedRateVol * 100).toFixed(1) + '%';
+      totalVolRow['sum_rem_vol'] = parseFloat(grandRemVolReal.toFixed(1)); totalVolRow['sumRemVol'] = parseFloat(grandRemVolReal.toFixed(1));
+      totalVolRow['sum_health_vol'] = overallHealthCalc; totalVolRow['sumHealthVol'] = overallHealthCalc;
 
       volPivotTable.push(totalVolRow);
       gridPivotTable.push(totalGridRow);
@@ -530,7 +534,7 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         vol_summary: volPivotTable,
         summaryVolData: volPivotTable,
         area_grid_table: gridPivotTable,
-        area_vol_table: volPivotTable
+        area_vol_table: gridPivotTable
       });
     });
   });
