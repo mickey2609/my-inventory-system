@@ -1,5 +1,5 @@
 // C:\my-inventory-server\server.js
-// 業務主程式 API 伺服器 (移除多餘總計小計列 + 輸出綜合總覽專用獨立數據集)
+// 業務主程式 API 伺服器 (整合 48 欄位 + 完全對齊樓層明細與小計/總計列)
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const cors = require('cors');
@@ -313,7 +313,6 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
 
       const gridPivotTable = [];
       const volPivotTable = [];
-      const typeMergedList = []; // 🌟 圖2：綜合總覽專用獨立數據集
 
       const typeSubtotals = {};
       const grandTotalGrid = {
@@ -401,56 +400,94 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         volRow['sum_rem_vol'] = parseFloat(rowRemV.toFixed(1)); volRow['sumRemVol'] = parseFloat(rowRemV.toFixed(1));
         volRow['sum_health_vol'] = rowHealthV; volRow['sumHealthVol'] = rowHealthV;
 
-        // 🌟 純明細列（不含總計與小計）放入分頁 1 與分頁 2 表格
         gridPivotTable.push(gridRow);
         volPivotTable.push(volRow);
       });
 
-      // 🌟🌟🌟 計算圖 2 (第三頁籤)：儲位型態獨立彙總清單 (對齊 Excel 圖2與圖3右半部) 🌟🌟🌟
+      // 附加黃色小計列 (供全頁面共用)
       Object.values(typeSubtotals).forEach(sub => {
+        const subGridRow = { floor: sub.floor, loc_type: sub.loc_type, is_subtotal: true };
+        const subVolRow = { floor: sub.floor, loc_type: sub.loc_type, is_subtotal: true };
+
         let subPG = 0, subUG = 0, subRG = 0;
         let subPV = 0, subUV = 0, subRV = 0;
 
         zones.forEach(z => {
-          const pg = sub.plan_grid[z] || 0;
-          const ug = sub.used_grid[z] || 0;
+          const pg = sub.plan_grid[z];
+          const ug = sub.used_grid[z];
           const rg = Math.max(0, pg - ug);
+          const unrateG = pg > 0 ? ((rg / pg) * 100).toFixed(1) + '%' : '';
+
+          subGridRow[`plan_${z}`] = pg > 0 ? pg : '';
+          subGridRow[`used_${z}`] = ug > 0 ? ug : '';
+          subGridRow[`unrate_${z}`] = unrateG;
+          subGridRow[`rem_${z}`] = rg > 0 ? rg : '';
+
           subPG += pg; subUG += ug; subRG += rg;
 
-          const pv = sub.plan_vol[z] || 0;
-          const uv = sub.used_vol[z] || 0;
+          const pv = sub.plan_vol[z];
+          const uv = sub.used_vol[z];
           const rv = Math.max(0, pv - uv);
+
+          subVolRow[`plan_${z}`] = pv > 0 ? parseFloat(pv.toFixed(1)) : '';
+          subVolRow[`used_${z}`] = uv > 0 ? parseFloat(uv.toFixed(1)) : '';
+          subVolRow[`rem_${z}`] = rv > 0 ? parseFloat(rv.toFixed(1)) : '';
+
           subPV += pv; subUV += uv; subRV += rv;
         });
 
         const subUnrateG = subPG > 0 ? (((subPG - subUG) / subPG) * 100).toFixed(1) + '%' : '0.0%';
+        subGridRow['sum_plan_grid'] = subPG; subGridRow['sumPlanGrid'] = subPG;
+        subGridRow['sum_used_grid'] = subUG; subGridRow['sumUsedGrid'] = subUG;
+        subGridRow['sum_unrate_grid'] = subUnrateG; subGridRow['sumUnrateGrid'] = subUnrateG;
+        subGridRow['sum_rem_grid'] = subRG; subGridRow['sumRemGrid'] = subRG;
+        subGridRow['sum_rem_vol'] = parseFloat(subRV.toFixed(1)); subGridRow['sumRemVol'] = parseFloat(subRV.toFixed(1));
+
         const subUnrateV = subPV > 0 ? (subRV / subPV) : 0;
         let subHealthV = '0.0%';
         if (subPV > 0 && (1 - subUnrateV) > 0) {
           subHealthV = (((subUV / (1 - subUnrateV)) / subPV) * 100).toFixed(1) + '%';
         }
 
-        typeMergedList.push({
-          loc_type: sub.loc_type,
-          sum_plan_grid: subPG,
-          sum_used_grid: subUG,
-          sum_unrate_grid: subUnrateG,
-          sum_rem_grid: subRG,
-          sum_plan_vol: parseFloat(subPV.toFixed(1)),
-          sum_used_vol: parseFloat(subUV.toFixed(1)),
-          sum_unrate_vol: (subUnrateV * 100).toFixed(1) + '%',
-          sum_rem_vol: parseFloat(subRV.toFixed(1)),
-          sum_health_vol: subHealthV
-        });
+        subVolRow['sum_plan_vol'] = parseFloat(subPV.toFixed(1)); subVolRow['sumPlanVol'] = parseFloat(subPV.toFixed(1));
+        subVolRow['sum_used_vol'] = parseFloat(subUV.toFixed(1)); subVolRow['sumUsedVol'] = parseFloat(subUV.toFixed(1));
+        subVolRow['sum_unrate_vol'] = (subUnrateV * 100).toFixed(1) + '%'; subVolRow['sumUnrateVol'] = (subUnrateV * 100).toFixed(1) + '%';
+        subVolRow['sum_rem_vol'] = parseFloat(subRV.toFixed(1)); subVolRow['sumRemVol'] = parseFloat(subRV.toFixed(1));
+        subVolRow['sum_health_vol'] = subHealthV; subVolRow['sumHealthVol'] = subHealthV;
+
+        gridPivotTable.push(subGridRow);
+        volPivotTable.push(subVolRow);
       });
+
+      // 附加綠色總計列
+      const totalGridRow = { floor: grandTotalGrid.floor, loc_type: grandTotalGrid.loc_type, is_total: true };
+      const totalVolRow = { floor: grandTotalGrid.floor, loc_type: grandTotalGrid.loc_type, is_total: true };
 
       let sumPlanG = 0, sumUsedG = 0;
       zones.forEach(z => {
-        sumPlanG += grandTotalGrid.plan_grid[z];
-        sumUsedG += grandTotalGrid.used_grid[z];
+        const pg = grandTotalGrid.plan_grid[z];
+        const ug = grandTotalGrid.used_grid[z];
+        const rg = Math.max(0, pg - ug);
+        const unrateG = pg > 0 ? ((rg / pg) * 100).toFixed(1) + '%' : '';
+
+        totalGridRow[`plan_${z}`] = pg > 0 ? pg : '';
+        totalGridRow[`used_${z}`] = ug > 0 ? ug : '';
+        totalGridRow[`unrate_${z}`] = unrateG;
+        totalGridRow[`rem_${z}`] = rg > 0 ? rg : '';
+
+        sumPlanG += pg;
+        sumUsedG += ug;
       });
 
       const totalRemG = Math.max(0, sumPlanG - sumUsedG);
+      const totalUnrateG = sumPlanG > 0 ? ((totalRemG / sumPlanG) * 100).toFixed(1) + '%' : '0.0%';
+
+      totalGridRow['sum_plan_grid'] = sumPlanG; totalGridRow['sumPlanGrid'] = sumPlanG;
+      totalGridRow['sum_used_grid'] = sumUsedG; totalGridRow['sumUsedGrid'] = sumUsedG;
+      totalGridRow['sum_unrate_grid'] = totalUnrateG; totalGridRow['sumUnrateGrid'] = totalUnrateG;
+      totalGridRow['sum_rem_grid'] = totalRemG; totalGridRow['sumRemGrid'] = totalRemG;
+      totalGridRow['sum_rem_vol'] = parseFloat(grandRemVolReal.toFixed(1)); totalGridRow['sumRemVol'] = parseFloat(grandRemVolReal.toFixed(1));
+
       const overallUnusedRateVol = grandPlanVol > 0 ? (grandRemVolReal / grandPlanVol) : 0;
       let overallHealthCalc = '0.0%';
       const denominator = 1 - overallUnusedRateVol;
@@ -460,20 +497,14 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         overallHealthCalc = ((adjustedUsedVol / grandPlanVol) * 100).toFixed(1) + '%';
       }
 
-      // 全區總計列放入第三頁籤末尾
-      typeMergedList.push({
-        loc_type: '全區總計',
-        is_total: true,
-        sum_plan_grid: sumPlanG,
-        sum_used_grid: sumUsedG,
-        sum_unrate_grid: sumPlanG > 0 ? ((totalRemG / sumPlanG) * 100).toFixed(1) + '%' : '0.0%',
-        sum_rem_grid: totalRemG,
-        sum_plan_vol: parseFloat(grandPlanVol.toFixed(1)),
-        sum_used_vol: parseFloat(grandUsedVol.toFixed(1)),
-        sum_unrate_vol: (overallUnusedRateVol * 100).toFixed(1) + '%',
-        sum_rem_vol: parseFloat(grandRemVolReal.toFixed(1)),
-        sum_health_vol: overallHealthCalc
-      });
+      totalVolRow['sum_plan_vol'] = parseFloat(grandPlanVol.toFixed(1)); totalVolRow['sumPlanVol'] = parseFloat(grandPlanVol.toFixed(1));
+      totalVolRow['sum_used_vol'] = parseFloat(grandUsedVol.toFixed(1)); totalVolRow['sumUsedVol'] = parseFloat(grandUsedVol.toFixed(1));
+      totalVolRow['sum_unrate_vol'] = (overallUnusedRateVol * 100).toFixed(1) + '%'; totalVolRow['sumUnrateVol'] = (overallUnusedRateVol * 100).toFixed(1) + '%';
+      totalVolRow['sum_rem_vol'] = parseFloat(grandRemVolReal.toFixed(1)); totalVolRow['sumRemVol'] = parseFloat(grandRemVolReal.toFixed(1));
+      totalVolRow['sum_health_vol'] = overallHealthCalc; totalVolRow['sumHealthVol'] = overallHealthCalc;
+
+      volPivotTable.push(totalVolRow);
+      gridPivotTable.push(totalGridRow);
 
       res.json({
         success: true,
@@ -491,7 +522,6 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         summaryGridData: gridPivotTable,
         vol_summary: volPivotTable,
         summaryVolData: volPivotTable,
-        typeMergedData: typeMergedList, // 🌟 圖2專用獨立總覽清單
         area_grid_table: gridPivotTable,
         area_vol_table: volPivotTable
       });
@@ -528,7 +558,7 @@ app.post('/api/heartbeat', (req, res) => {
 });
 
 app.post('/api/logout', (req, res) => {
-  if (req.body.username) db.run('UPDATE users SET last_active = 0 WHERE username = ?', [req.body.username]);
+  if (req.body.username) db.run('UPDATE users SET last_active = 0 WHERE username = ?', [Math.floor(Date.now() / 1000), req.body.username]);
   res.json({ success: true, message: '已成功登出' });
 });
 
