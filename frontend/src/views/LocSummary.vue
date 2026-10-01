@@ -1,7 +1,7 @@
 <template>
   <div class="main-layout dark-bg loc-summary-page">
     <div class="summary-container">
-      <!-- 頂部操作列與設定按鈕 (匯出按鈕已搬移至重新計算即時統計左側) -->
+      <!-- 頂部操作列與設定按鈕 -->
       <div class="top-bar-actions">
         <span class="page-title-text">📊 儲位數與才數統計概覽 (跨區交叉矩陣)</span>
         <div class="btn-group">
@@ -92,16 +92,16 @@
 
       <!-- 數據表格三頁籤區 -->
       <div v-else class="tables-main-wrapper">
-        <el-tabs type="border-card" class="dark-tabs">
+        <el-tabs type="border-card" class="dark-tabs" v-model="activeTab">
           <!-- 頁籤 1：儲格數交叉統計表 -->
-          <el-tab-pane label="📊 儲格數交叉統計表">
+          <el-tab-pane label="📊 儲格數交叉統計表" name="grid">
             <el-table 
               ref="gridTable"
               :data="summaryGridData" 
               border 
               height="100%" 
               size="mini" 
-              class="dark-table pivot-table print-target-1"
+              class="dark-table pivot-table print-target-grid"
               :row-class-name="tableRowClassName"
               :span-method="arraySpanMethod"
             >
@@ -172,14 +172,14 @@
           </el-tab-pane>
 
           <!-- 頁籤 2：才數交叉統計表 -->
-          <el-tab-pane label="📦 才數交叉統計表">
+          <el-tab-pane label="📦 才數交叉統計表" name="vol">
             <el-table 
               ref="volTable"
               :data="summaryVolData" 
               border 
               height="100%" 
               size="mini" 
-              class="dark-table pivot-table print-target-2"
+              class="dark-table pivot-table print-target-vol"
               :row-class-name="tableRowClassName"
               :span-method="arraySpanMethod"
             >
@@ -242,14 +242,14 @@
           </el-tab-pane>
 
           <!-- 頁籤 3：📋 儲位與才數綜合總覽表 -->
-          <el-tab-pane label="📋 儲位與才數綜合總覽表">
+          <el-tab-pane label="📋 儲位與才數綜合總覽表" name="combined">
             <el-table 
               ref="combinedTable"
               :data="combinedTableData" 
               border 
               height="100%" 
               size="mini" 
-              class="dark-table pivot-table print-target-3"
+              class="dark-table pivot-table print-target-combined"
               :row-class-name="tableRowClassName"
               :span-method="arraySpanMethod"
             >
@@ -396,6 +396,7 @@ export default {
   ],
   data() {
     return {
+      activeTab: 'grid',
       showConfigDialog: false,
       isUploading: false,
       masterLoading: false,
@@ -560,92 +561,91 @@ export default {
       }
     },
 
-    // 匯入 XLSX (1個檔案，3個工作表)
+    // 🌟🌟🌟 核心功能 1：匯出雙層高畫質格式 XLSX 🌟🌟🌟
     async exportFullXlsx() {
       this.exportingXlsx = true;
       try {
         const wb = XLSX.utils.book_new();
 
-        const formatDataset = (data, isVol = false) => {
-          return data.map(r => {
-            const item = {
-              '樓層': r.floor || (r.is_total ? '全區總計' : (r.is_subtotal ? r.loc_type : '')),
-              '儲位類型': r.loc_type || ''
-            };
-
-            if (!isVol) {
-              item['規劃_A區'] = r.plan_A區 || '';
-              item['規劃_B區'] = r.plan_B區 || '';
-              item['規劃_C區'] = r.plan_C區 || '';
-              item['規劃_D區'] = r.plan_D區 || '';
-              item['已使用_A區'] = r.used_A區 || '';
-              item['已使用_B區'] = r.used_B區 || '';
-              item['已使用_C區'] = r.used_C區 || '';
-              item['已使用_D區'] = r.used_D區 || '';
-              item['未使用率_A區'] = r.unrate_A區 || '';
-              item['未使用率_B區'] = r.unrate_B區 || '';
-              item['未使用率_C區'] = r.unrate_C區 || '';
-              item['未使用率_D區'] = r.unrate_D區 || '';
-              item['剩餘_A區'] = r.rem_A區 || '';
-              item['剩餘_B區'] = r.rem_B區 || '';
-              item['剩餘_C區'] = r.rem_C區 || '';
-              item['剩餘_D區'] = r.rem_D區 || '';
-              item['【格數彙總】規劃數'] = this.getSumVal(r, 'sum_plan_grid', ['plan_A區','plan_B區','plan_C區','plan_D區']);
-              item['【格數彙總】已使用'] = this.getSumVal(r, 'sum_used_grid', ['used_A區','used_B區','used_C區','used_D區']);
-              item['【格數彙總】未使用率(%)'] = this.getUnrateVal(r, 'sum_unrate_grid', 'sum_plan_grid', 'sum_used_grid');
-              item['【格數彙總】剩餘儲位數'] = this.getSumVal(r, 'sum_rem_grid', ['rem_A區','rem_B區','rem_C區','rem_D區']);
-              item['【格數彙總】剩餘才數'] = this.getRemVolForGridTable(r);
-            } else {
-              item['規劃總才數_A區'] = r.plan_A區 || '';
-              item['規劃總才數_B區'] = r.plan_B區 || '';
-              item['規劃總才數_C區'] = r.plan_C區 || '';
-              item['規劃總才數_D區'] = r.plan_D區 || '';
-              item['使用中才數_A區'] = r.used_A區 || '';
-              item['使用中才數_B區'] = r.used_B區 || '';
-              item['使用中才數_C區'] = r.used_C區 || '';
-              item['使用中才數_D區'] = r.used_D區 || '';
-              item['剩餘才數_A區'] = r.rem_A區 || '';
-              item['剩餘才數_B區'] = r.rem_B區 || '';
-              item['剩餘才數_C區'] = r.rem_C區 || '';
-              item['剩餘才數_D區'] = r.rem_D區 || '';
-              item['【才數彙總】規劃數'] = this.getSumVal(r, 'sum_plan_vol', ['plan_A區','plan_B區','plan_C區','plan_D區']);
-              item['【才數彙總】已使用'] = this.getSumVal(r, 'sum_used_vol', ['used_A區','used_B區','used_C區','used_D區']);
-              item['【才數彙總】未使用率(%)'] = this.getUnrateVal(r, 'sum_unrate_vol', 'sum_plan_vol', 'sum_used_vol', true);
-              item['【才數彙總】剩餘才數'] = this.getSumVal(r, 'sum_rem_vol', ['rem_A區','rem_B區','rem_C區','rem_D區']);
-              item['【才數彙總】儲位健康度'] = this.getRowHealthVol(r);
-            }
-            return item;
-          });
-        };
-
-        const ws1Data = formatDataset(this.summaryGridData, false);
-        const ws1 = XLSX.utils.json_to_sheet(ws1Data);
+        // 1. 儲格數工作表
+        const gridAOA = [
+          ['樓層', '儲位類型', '規劃', '', '', '', '已使用', '', '', '', '未使用率 (%)', '', '', '', '剩餘', '', '', '', '【儲位格數彙總】', '', '', '', ''],
+          ['', '', 'A區', 'B區', 'C區', 'D區', 'A區', 'B區', 'C區', 'D區', 'A區', 'B區', 'C區', 'D區', 'A區', 'B區', 'C區', 'D區', '規劃數', '已使用', '未使用率(%)', '剩餘儲位數', '剩餘才數']
+        ];
+        this.summaryGridData.forEach(r => {
+          gridAOA.push([
+            r.floor || (r.is_total ? '全區總計' : (r.is_subtotal ? r.loc_type : '')),
+            r.loc_type || '',
+            r.plan_A區 || 0, r.plan_B區 || 0, r.plan_C區 || 0, r.plan_D區 || 0,
+            r.used_A區 || 0, r.used_B區 || 0, r.used_C區 || 0, r.used_D區 || 0,
+            r.unrate_A區 || '', r.unrate_B區 || '', r.unrate_C區 || '', r.unrate_D區 || '',
+            r.rem_A區 || 0, r.rem_B區 || 0, r.rem_C區 || 0, r.rem_D區 || 0,
+            this.getSumVal(r, 'sum_plan_grid', ['plan_A區','plan_B區','plan_C區','plan_D區']),
+            this.getSumVal(r, 'sum_used_grid', ['used_A區','used_B區','used_C區','used_D區']),
+            this.getUnrateVal(r, 'sum_unrate_grid', 'sum_plan_grid', 'sum_used_grid'),
+            this.getSumVal(r, 'sum_rem_grid', ['rem_A區','rem_B區','rem_C區','rem_D區']),
+            this.getRemVolForGridTable(r)
+          ]);
+        });
+        const ws1 = XLSX.utils.aoa_to_sheet(gridAOA);
+        ws1['!merges'] = [
+          { s: { r: 0, c: 0 }, e: { r: 1, c: 0 } }, { s: { r: 0, c: 1 }, e: { r: 1, c: 1 } },
+          { s: { r: 0, c: 2 }, e: { r: 0, c: 5 } }, { s: { r: 0, c: 6 }, e: { r: 0, c: 9 } },
+          { s: { r: 0, c: 10 }, e: { r: 0, c: 13 } }, { s: { r: 0, c: 14 }, e: { r: 0, c: 17 } },
+          { s: { r: 0, c: 18 }, e: { r: 0, c: 22 } }
+        ];
         XLSX.utils.book_append_sheet(wb, ws1, "儲格數交叉統計表");
 
-        const ws2Data = formatDataset(this.summaryVolData, true);
-        const ws2 = XLSX.utils.json_to_sheet(ws2Data);
+        // 2. 才數工作表
+        const volAOA = [
+          ['樓層', '儲位類型', '規劃總才數', '', '', '', '使用中才數', '', '', '', '剩餘才數', '', '', '', '【才數彙總】', '', '', '', ''],
+          ['', '', 'A區', 'B區', 'C區', 'D區', 'A區', 'B區', 'C區', 'D區', 'A區', 'B區', 'C區', 'D區', '規劃數', '已使用', '未使用率(%)', '剩餘才數', '儲位健康度']
+        ];
+        this.summaryVolData.forEach(r => {
+          volAOA.push([
+            r.floor || (r.is_total ? '全區總計' : (r.is_subtotal ? r.loc_type : '')),
+            r.loc_type || '',
+            r.plan_A區 || 0, r.plan_B區 || 0, r.plan_C區 || 0, r.plan_D區 || 0,
+            r.used_A區 || 0, r.used_B區 || 0, r.used_C區 || 0, r.used_D區 || 0,
+            r.rem_A區 || 0, r.rem_B區 || 0, r.rem_C區 || 0, r.rem_D區 || 0,
+            this.getSumVal(r, 'sum_plan_vol', ['plan_A區','plan_B區','plan_C區','plan_D區']),
+            this.getSumVal(r, 'sum_used_vol', ['used_A區','used_B區','used_C區','used_D區']),
+            this.getUnrateVal(r, 'sum_unrate_vol', 'sum_plan_vol', 'sum_used_vol', true),
+            this.getSumVal(r, 'sum_rem_vol', ['rem_A區','rem_B區','rem_C區','rem_D區']),
+            this.getRowHealthVol(r)
+          ]);
+        });
+        const ws2 = XLSX.utils.aoa_to_sheet(volAOA);
+        ws2['!merges'] = [
+          { s: { r: 0, c: 0 }, e: { r: 1, c: 0 } }, { s: { r: 0, c: 1 }, e: { r: 1, c: 1 } },
+          { s: { r: 0, c: 2 }, e: { r: 0, c: 5 } }, { s: { r: 0, c: 6 }, e: { r: 0, c: 9 } },
+          { s: { r: 0, c: 10 }, e: { r: 0, c: 13 } }, { s: { r: 0, c: 14 }, e: { r: 0, c: 18 } }
+        ];
         XLSX.utils.book_append_sheet(wb, ws2, "才數交叉統計表");
 
-        const ws3Data = this.combinedTableData.map(r => ({
-          '樓層': r.floor || (r.is_total ? '全區總計' : (r.is_subtotal ? r.loc_type : '')),
-          '儲位類型': r.loc_type || '',
-          '【儲位格數彙總】規劃數': r.sum_plan_grid,
-          '【儲位格數彙總】已使用': r.sum_used_grid,
-          '【儲位格數彙總】未使用率(%)': r.sum_unrate_grid,
-          '【儲位格數彙總】剩餘儲位數': r.sum_rem_grid,
-          '【儲位格數彙總】剩餘才數': r.sum_rem_vol,
-          '【才數彙總】規劃數': r.sum_plan_vol,
-          '【才數彙總】已使用': r.sum_used_vol,
-          '【才數彙總】未使用率(%)': r.sum_unrate_vol,
-          '【才數彙總】剩餘才數': r.sum_rem_vol,
-          '【才數彙總】儲位健康度': r.sum_health_vol
-        }));
-        const ws3 = XLSX.utils.json_to_sheet(ws3Data);
+        // 3. 綜合總覽工作表
+        const combAOA = [
+          ['樓層', '儲位類型', '【儲位格數彙總】', '', '', '', '', '【才數彙總】', '', '', '', ''],
+          ['', '', '規劃數', '已使用', '未使用率(%)', '剩餘儲位數', '剩餘才數', '規劃數', '已使用', '未使用率(%)', '剩餘才數', '儲位健康度']
+        ];
+        this.combinedTableData.forEach(r => {
+          combAOA.push([
+            r.floor || (r.is_total ? '全區總計' : (r.is_subtotal ? r.loc_type : '')),
+            r.loc_type || '',
+            r.sum_plan_grid, r.sum_used_grid, r.sum_unrate_grid, r.sum_rem_grid, r.sum_rem_vol,
+            r.sum_plan_vol, r.sum_used_vol, r.sum_unrate_vol, r.sum_rem_vol, r.sum_health_vol
+          ]);
+        });
+        const ws3 = XLSX.utils.aoa_to_sheet(combAOA);
+        ws3['!merges'] = [
+          { s: { r: 0, c: 0 }, e: { r: 1, c: 0 } }, { s: { r: 0, c: 1 }, e: { r: 1, c: 1 } },
+          { s: { r: 0, c: 2 }, e: { r: 0, c: 6 } }, { s: { r: 0, c: 7 }, e: { r: 0, c: 11 } }
+        ];
         XLSX.utils.book_append_sheet(wb, ws3, "儲位與才數綜合總覽表");
 
         const dateStr = new Date().toISOString().split('T')[0];
         XLSX.writeFile(wb, `儲位管理系統_跨區交叉矩陣統計總表_${dateStr}.xlsx`);
-        this.$message.success('🎉 成功匯出包含 3 個工作表的 Excel 檔案！');
+        this.$message.success('🎉 成功匯出包含雙層標題排版的 3 工作表 Excel！');
       } catch (err) {
         this.$message.error('匯出 XLSX 失敗：' + err.message);
       } finally {
@@ -653,26 +653,32 @@ export default {
       }
     },
 
-    // 匯出 PDF (精準 3 頁 A4 橫向)
+    // 🌟🌟🌟 核心功能 2：匯出高相容性 JPEG 3 頁 PDF 🌟🌟🌟
     async exportFullPdf() {
       this.exportingPdf = true;
       this.$message.info('⚡ 正在渲染高畫質 PDF 3 頁報表中，請稍候...');
+
+      const originalTab = this.activeTab;
 
       try {
         const pdf = new jsPDF('landscape', 'pt', 'a4');
         const pdfWidth = pdf.internal.pageSize.getWidth();
         const pdfHeight = pdf.internal.pageSize.getHeight();
 
-        const targets = [
-          { selector: '.print-target-1', title: '📊 儲格數交叉統計表' },
-          { selector: '.print-target-2', title: '📦 才數交叉統計表' },
-          { selector: '.print-target-3', title: '📋 儲位與才數綜合總覽表' }
+        const tabList = [
+          { name: 'grid', selector: '.print-target-grid', title: '📊 儲格數交叉統計表' },
+          { name: 'vol', selector: '.print-target-vol', title: '📦 才數交叉統計表' },
+          { name: 'combined', selector: '.print-target-combined', title: '📋 儲位與才數綜合總覽表' }
         ];
 
-        for (let i = 0; i < targets.length; i++) {
+        for (let i = 0; i < tabList.length; i++) {
+          this.activeTab = tabList[i].name;
+          await this.$nextTick();
+          await new Promise(r => setTimeout(r, 400)); // 等待切換 DOM 穩定
+
           if (i > 0) pdf.addPage();
 
-          const el = document.querySelector(targets[i].selector);
+          const el = document.querySelector(tabList[i].selector);
           if (el) {
             const canvas = await html2canvas(el, {
               scale: 2,
@@ -680,7 +686,8 @@ export default {
               backgroundColor: '#0f172a'
             });
 
-            const imgData = canvas.toDataURL('image/png');
+            // 使用相容性最高、不會有 wrong PNG signature 錯誤的 JPEG 格式
+            const imgData = canvas.toDataURL('image/jpeg', 0.95);
             const imgWidth = pdfWidth - 40;
             const imgHeight = (canvas.height * imgWidth) / canvas.width;
 
@@ -689,11 +696,11 @@ export default {
 
             pdf.setFontSize(14);
             pdf.setTextColor(56, 189, 248);
-            pdf.text(targets[i].title, 20, 30);
+            pdf.text(tabList[i].title, 20, 30);
 
             const yPos = 45;
             const finalImgHeight = Math.min(imgHeight, pdfHeight - 60);
-            pdf.addImage(imgData, 'PNG', 20, yPos, imgWidth, finalImgHeight);
+            pdf.addImage(imgData, 'JPEG', 20, yPos, imgWidth, finalImgHeight);
           }
         }
 
@@ -703,6 +710,7 @@ export default {
       } catch (err) {
         this.$message.error('匯出 PDF 失敗：' + err.message);
       } finally {
+        this.activeTab = originalTab;
         this.exportingPdf = false;
       }
     }
