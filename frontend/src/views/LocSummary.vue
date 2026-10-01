@@ -66,7 +66,7 @@
       <!-- 數據表格三頁籤區 -->
       <div v-else class="tables-main-wrapper">
         <el-tabs type="border-card" class="dark-tabs">
-          <!-- 頁籤 1：儲格數交叉統計表 -->
+          <!-- 頁籤 1：儲格數交叉統計表 (無底部重複總計列) -->
           <el-tab-pane label="📊 儲格數交叉統計表">
             <el-table 
               :data="summaryGridData" 
@@ -142,7 +142,7 @@
             </el-table>
           </el-tab-pane>
 
-          <!-- 頁籤 2：才數交叉統計表 -->
+          <!-- 頁籤 2：才數交叉統計表 (無底部重複總計列) -->
           <el-tab-pane label="📦 才數交叉統計表">
             <el-table 
               :data="summaryVolData" 
@@ -210,73 +210,71 @@
             </el-table>
           </el-tab-pane>
 
-          <!-- 🌟🌟🌟 新增頁籤 3：📋 儲位與才數綜合總覽表 🌟🌟🌟 -->
+          <!-- 🌟🌟🌟 頁籤 3：📋 儲位與才數綜合總覽表 (圖 2 合併儲位型態 + 數據全帶出) 🌟🌟🌟 -->
           <el-tab-pane label="📋 儲位與才數綜合總覽表">
             <el-table 
-              :data="summaryGridData" 
+              :data="mergedTableData" 
               border 
               height="100%" 
               size="mini" 
               class="dark-table pivot-table"
               :row-class-name="tableRowClassName"
             >
-              <el-table-column prop="floor" label="樓層" width="75" align="center" fixed="left"></el-table-column>
-              <el-table-column prop="loc_type" label="儲位類型" width="130" fixed="left" class-name="section-border-right"></el-table-column>
+              <!-- 合併標題欄 -->
+              <el-table-column label="【儲位型態彙總】" align="center" fixed="left" class-name="section-border-right">
+                <el-table-column prop="loc_type" label="儲位型態" width="160" align="center" fixed="left" class-name="section-border-right">
+                  <template #default="scope">
+                    <strong>{{ scope.row.loc_type }}</strong>
+                  </template>
+                </el-table-column>
+              </el-table-column>
 
               <!--【儲位格數彙總】-->
               <el-table-column label="【儲位格數彙總】" align="center" class-name="summary-header-group section-border-right">
-                <el-table-column label="規劃數" width="90" align="right">
+                <el-table-column label="規劃數" width="110" align="right">
                   <template #default="scope">
-                    <strong>{{ formatNumber(getSumVal(scope.row, 'sum_plan_grid', ['plan_A區','plan_B區','plan_C區','plan_D區'])) }}</strong>
+                    <strong>{{ formatNumber(scope.row.sum_plan_grid) }}</strong>
                   </template>
                 </el-table-column>
-                <el-table-column label="已使用" width="90" align="right">
+                <el-table-column label="已使用" width="110" align="right">
                   <template #default="scope">
-                    <span class="text-green">{{ formatNumber(getSumVal(scope.row, 'sum_used_grid', ['used_A區','used_B區','used_C區','used_D區'])) }}</span>
+                    <span class="text-green">{{ formatNumber(scope.row.sum_used_grid) }}</span>
                   </template>
                 </el-table-column>
-                <el-table-column label="未使用率(%)" width="95" align="right">
+                <el-table-column prop="sum_unrate_grid" label="未使用率(%)" width="110" align="right"></el-table-column>
+                <el-table-column label="剩餘儲位數" width="110" align="right">
                   <template #default="scope">
-                    {{ getUnrateVal(scope.row, 'sum_unrate_grid', 'sum_plan_grid', 'sum_used_grid') }}
+                    <span class="text-orange">{{ formatNumber(scope.row.sum_rem_grid) }}</span>
                   </template>
                 </el-table-column>
-                <el-table-column label="剩餘儲位數" width="95" align="right">
+                <el-table-column label="剩餘才數" width="110" align="right" class-name="section-border-right">
                   <template #default="scope">
-                    <span class="text-orange">{{ formatNumber(getSumVal(scope.row, 'sum_rem_grid', ['rem_A區','rem_B區','rem_C區','rem_D區'])) }}</span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="剩餘才數" width="95" align="right" class-name="section-border-right">
-                  <template #default="scope">
-                    <span class="text-orange">{{ formatNumber(getRemVolForGridTable(scope.row)) }}</span>
+                    <span class="text-orange">{{ formatNumber(scope.row.sum_rem_vol) }}</span>
                   </template>
                 </el-table-column>
               </el-table-column>
 
               <!--【才數彙總】-->
               <el-table-column label="【才數彙總】" align="center" class-name="summary-header-group-vol">
-                <el-table-column label="規劃數" width="100" align="right">
+                <el-table-column label="規劃數" width="110" align="right">
                   <template #default="scope">
-                    <strong>{{ formatNumber(getMatchedVolRowVal(scope.$index, 'sum_plan_vol', ['plan_A區','plan_B區','plan_C區','plan_D區'])) }}</strong>
+                    <strong>{{ formatNumber(scope.row.sum_plan_vol) }}</strong>
                   </template>
                 </el-table-column>
-                <el-table-column label="已使用" width="100" align="right">
+                <el-table-column label="已使用" width="110" align="right">
                   <template #default="scope">
-                    <span class="text-green">{{ formatNumber(getMatchedVolRowVal(scope.$index, 'sum_used_vol', ['used_A區','used_B區','used_C區','used_D區'])) }}</span>
+                    <span class="text-green">{{ formatNumber(scope.row.sum_used_vol) }}</span>
                   </template>
                 </el-table-column>
-                <el-table-column label="未使用率(%)" width="95" align="right">
+                <el-table-column prop="sum_unrate_vol" label="未使用率(%)" width="110" align="right"></el-table-column>
+                <el-table-column label="剩餘才數" width="110" align="right">
                   <template #default="scope">
-                    {{ getMatchedVolUnrate(scope.$index) }}
+                    <span class="text-orange">{{ formatNumber(scope.row.sum_rem_vol) }}</span>
                   </template>
                 </el-table-column>
-                <el-table-column label="剩餘才數" width="100" align="right">
+                <el-table-column prop="sum_health_vol" label="儲位健康度" width="110" align="right">
                   <template #default="scope">
-                    <span class="text-orange">{{ formatNumber(getMatchedVolRowVal(scope.$index, 'sum_rem_vol', ['rem_A區','rem_B區','rem_C區','rem_D區'])) }}</span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="儲位健康度" width="95" align="right">
-                  <template #default="scope">
-                    <span class="text-cyan">{{ getMatchedVolHealth(scope.$index) }}</span>
+                    <span class="text-cyan">{{ scope.row.sum_health_vol || '0.0%' }}</span>
                   </template>
                 </el-table-column>
               </el-table-column>
@@ -364,7 +362,7 @@ export default {
   name: 'LocSummary',
   props: [
     'loading', 'calcProgress', 'progressColors', 'summaryStats', 
-    'summaryGridData', 'summaryVolData', 'areaGridTable', 'areaVolTable'
+    'summaryGridData', 'summaryVolData', 'typeMergedData', 'areaGridTable', 'areaVolTable'
   ],
   data() {
     return {
@@ -372,6 +370,96 @@ export default {
       isUploading: false,
       masterLoading: false,
       masterTableData: []
+    }
+  },
+  computed: {
+    // 🌟 圖 2 (頁籤 3) 數據源：若後端未傳給 typeMergedData，前端自動從明細列做儲位型態 Group By 加總
+    mergedTableData() {
+      if (this.typeMergedData && this.typeMergedData.length > 0) {
+        return this.typeMergedData;
+      }
+      if (!this.summaryGridData || this.summaryGridData.length === 0) return [];
+
+      const map = {};
+      this.summaryGridData.forEach((row, idx) => {
+        const t = row.loc_type;
+        if (!t) return;
+        if (!map[t]) {
+          map[t] = {
+            loc_type: t,
+            sum_plan_grid: 0, sum_used_grid: 0, sum_rem_grid: 0,
+            sum_plan_vol: 0, sum_used_vol: 0, sum_rem_vol: 0
+          };
+        }
+        const volRow = (this.summaryVolData && this.summaryVolData[idx]) ? this.summaryVolData[idx] : {};
+
+        const pg = Number(this.getSumVal(row, 'sum_plan_grid', ['plan_A區','plan_B區','plan_C區','plan_D區']));
+        const ug = Number(this.getSumVal(row, 'sum_used_grid', ['used_A區','used_B區','used_C區','used_D區']));
+        const rg = Number(this.getSumVal(row, 'sum_rem_grid', ['rem_A區','rem_B區','rem_C區','rem_D區']));
+
+        const pv = Number(this.getSumVal(volRow, 'sum_plan_vol', ['plan_A區','plan_B區','plan_C區','plan_D區']));
+        const uv = Number(this.getSumVal(volRow, 'sum_used_vol', ['used_A區','used_B區','used_C區','used_D區']));
+        const rv = Number(this.getSumVal(volRow, 'sum_rem_vol', ['rem_A區','rem_B區','rem_C區','rem_D區']));
+
+        map[t].sum_plan_grid += pg;
+        map[t].sum_used_grid += ug;
+        map[t].sum_rem_grid += rg;
+
+        map[t].sum_plan_vol += pv;
+        map[t].sum_used_vol += uv;
+        map[t].sum_rem_vol += rv;
+      });
+
+      const result = [];
+      let totPG = 0, totUG = 0, totRG = 0;
+      let totPV = 0, totUV = 0, totRV = 0;
+
+      Object.values(map).forEach(m => {
+        const unG = m.sum_plan_grid > 0 ? (((m.sum_plan_grid - m.sum_used_grid) / m.sum_plan_grid) * 100).toFixed(1) + '%' : '0.0%';
+        const unV = m.sum_plan_vol > 0 ? (m.sum_rem_vol / m.sum_plan_vol) : 0;
+        let hV = '0.0%';
+        if (m.sum_plan_vol > 0 && (1 - unV) > 0) {
+          hV = (((m.sum_used_vol / (1 - unV)) / m.sum_plan_vol) * 100).toFixed(1) + '%';
+        }
+
+        totPG += m.sum_plan_grid; totUG += m.sum_used_grid; totRG += m.sum_rem_grid;
+        totPV += m.sum_plan_vol; totUV += m.sum_used_vol; totRV += m.sum_rem_vol;
+
+        result.push({
+          loc_type: m.loc_type,
+          sum_plan_grid: m.sum_plan_grid,
+          sum_used_grid: m.sum_used_grid,
+          sum_unrate_grid: unG,
+          sum_rem_grid: m.sum_rem_grid,
+          sum_plan_vol: parseFloat(m.sum_plan_vol.toFixed(1)),
+          sum_used_vol: parseFloat(m.sum_used_vol.toFixed(1)),
+          sum_unrate_vol: (unV * 100).toFixed(1) + '%',
+          sum_rem_vol: parseFloat(m.sum_rem_vol.toFixed(1)),
+          sum_health_vol: hV
+        });
+      });
+
+      const totUnV = totPV > 0 ? (totRV / totPV) : 0;
+      let totHV = '0.0%';
+      if (totPV > 0 && (1 - totUnV) > 0) {
+        totHV = (((totUV / (1 - totUnV)) / totPV) * 100).toFixed(1) + '%';
+      }
+
+      result.push({
+        loc_type: '全區總計',
+        is_total: true,
+        sum_plan_grid: totPG,
+        sum_used_grid: totUG,
+        sum_unrate_grid: totPG > 0 ? (((totPG - totUG) / totPG) * 100).toFixed(1) + '%' : '0.0%',
+        sum_rem_grid: totRG,
+        sum_plan_vol: parseFloat(totPV.toFixed(1)),
+        sum_used_vol: parseFloat(totUV.toFixed(1)),
+        sum_unrate_vol: (totUnV * 100).toFixed(1) + '%',
+        sum_rem_vol: parseFloat(totRV.toFixed(1)),
+        sum_health_vol: totHV
+      });
+
+      return result;
     }
   },
   mounted() {
@@ -385,7 +473,6 @@ export default {
       const num = Number(String(val).replace(/,/g, ''));
       return isNaN(num) ? val : num.toLocaleString();
     },
-    // 總覽數字雙重防呆取值
     getSumVal(row, primaryKey, subKeys) {
       if (!row) return 0;
       if (row[primaryKey] !== undefined && row[primaryKey] !== null && row[primaryKey] !== '') {
@@ -404,7 +491,6 @@ export default {
       }
       return sum;
     },
-    // 格數頁籤計算剩餘才數 (圖1修復)
     getRemVolForGridTable(row) {
       if (!row) return 0;
       if (row.sum_rem_vol) return row.sum_rem_vol;
@@ -416,7 +502,6 @@ export default {
       }
       return 0;
     },
-    // 每列才數健康度加權算式 (圖2修復)
     getRowHealthVol(row) {
       if (!row) return '0.0%';
       if (row.sum_health_vol && row.sum_health_vol !== '0.0%') return row.sum_health_vol;
@@ -434,7 +519,6 @@ export default {
       const adjustedUsed = used / denom;
       return ((adjustedUsed / plan) * 100).toFixed(1) + '%';
     },
-    // 未使用率取值計算
     getUnrateVal(row, unrateKey, planKey, usedKey, isVol = false) {
       if (!row) return '0.0%';
       if (row[unrateKey]) return row[unrateKey];
@@ -443,25 +527,6 @@ export default {
       if (plan <= 0) return '0.0%';
       const rem = Math.max(0, plan - used);
       return ((rem / plan) * 100).toFixed(1) + '%';
-    },
-    // 第三頁籤對應才數資料列數值取值
-    getMatchedVolRowVal(index, primaryKey, subKeys) {
-      if (this.summaryVolData && this.summaryVolData[index]) {
-        return this.getSumVal(this.summaryVolData[index], primaryKey, subKeys);
-      }
-      return 0;
-    },
-    getMatchedVolUnrate(index) {
-      if (this.summaryVolData && this.summaryVolData[index]) {
-        return this.getUnrateVal(this.summaryVolData[index], 'sum_unrate_vol', 'sum_plan_vol', 'sum_used_vol', true);
-      }
-      return '0.0%';
-    },
-    getMatchedVolHealth(index) {
-      if (this.summaryVolData && this.summaryVolData[index]) {
-        return this.getRowHealthVol(this.summaryVolData[index]);
-      }
-      return '0.0%';
     },
     tableRowClassName({ row }) {
       if (row.is_total) return 'total-row';
@@ -551,7 +616,6 @@ export default {
   gap: 8px;
 }
 
-/* 7 張卡片 */
 .stats-overview-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
@@ -657,7 +721,7 @@ export default {
   border-bottom: 1px solid #334155 !important;
 }
 
-/* 🌟五大區塊粗框分隔線 🌟 */
+/* 🌟 五大區塊粗框分隔線 🌟 */
 :deep(.pivot-table .section-border-right) {
   border-right: 3px solid #38bdf8 !important;
 }
