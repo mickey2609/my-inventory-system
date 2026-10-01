@@ -35,7 +35,7 @@
       </div>
     </div>
 
-    <!-- 快捷功能區 -->
+    <!-- 快捷功能區 (完整 6 大模組) -->
     <div class="quick-actions-panel">
       <h3 class="panel-title">⚡ 系統功能快捷入口</h3>
       <div class="actions-grid">
@@ -55,6 +55,18 @@
           <div class="action-icon">📊</div>
           <div class="action-title">儲位數才數統整</div>
           <div class="action-desc">A/B/C/D 區與樓層型態跨區交叉矩陣統計</div>
+        </div>
+
+        <div class="action-card" @click="$emit('open-tab', 'turnover')">
+          <div class="action-icon">📈</div>
+          <div class="action-title">迴轉率清單</div>
+          <div class="action-desc">品項動態迴轉天數與庫存週轉率分析 (籌備中)</div>
+        </div>
+
+        <div class="action-card" @click="$emit('open-tab', 'abnormal_purchase')">
+          <div class="action-icon">⚠️</div>
+          <div class="action-title">不合理進貨清單</div>
+          <div class="action-desc">進貨材積、滯銷評估與庫齡預警分析 (籌備中)</div>
         </div>
 
         <div class="action-card" v-if="isSysAdmin" @click="$emit('open-tab', 'settings_perm')">
