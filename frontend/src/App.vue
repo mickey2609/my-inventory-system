@@ -58,7 +58,6 @@
             @size-change="handlePageSizeChange"
           />
 
-          <!-- 🌟🌟🌟 新增：庫存查詢 15 頁面掛載 🌟🌟🌟 -->
           <InvSearch15 
             v-else-if="currentTab === 'inv15'" key="inv15"
           />
@@ -168,7 +167,7 @@ import InventorySearchModal from './components/InventorySearchModal.vue'
 import HomeDashboard from './views/HomeDashboard.vue'
 import LoginOverlay from './views/LoginOverlay.vue'
 import InvQuery80 from './views/InvQuery80.vue'
-import InvSearch15 from './views/InvSearch15.vue' // 🌟 新增匯入 InvSearch15
+import InvSearch15 from './views/InvSearch15.vue'
 import LocSummary from './views/LocSummary.vue'
 import SettingsPerm from './views/SettingsPerm.vue'
 import SettingsLog from './views/SettingsLog.vue'
@@ -184,7 +183,7 @@ export default {
   components: {
     TopNavbar, SystemDrawer, ColConfigModal, ParamMenuModal, WidthConfigModal,
     ImportTipModal, UserManagementModals, InventorySearchModal, HomeDashboard,
-    LoginOverlay, InvQuery80, InvSearch15, LocSummary, SettingsPerm, SettingsLog // 🌟 註冊 InvSearch15
+    LoginOverlay, InvQuery80, InvSearch15, LocSummary, SettingsPerm, SettingsLog
   },
   setup() {
     const { sendLog, getDeviceType, setupAxiosInterceptor } = useSystemLogs();
@@ -228,7 +227,11 @@ export default {
       isUploading: false, uploadPercent: 0, timeoutMessage: '', searchTimer: null, searchElapsedSec: 0,
       heartbeatTimer: null,
       loginForm: { username: '', password: '', rememberMe: true },
-      currentTab: 'home', openedTabs: ['home'], dbMetrics: { totalRows: 0, totalCategories: 0 },
+      currentTab: 'home', openedTabs: ['home'], 
+      
+      // 🌟 統計 80庫 與 15庫 的筆數指標 🌟
+      dbMetrics: { totalRows80: 0, totalRows15: 0 },
+
       logTab: 'normal', loading: false, draggedIndex: null, hasSearched: false, searchTime: '',
       currentPage: 1, 
       pageSize: 500,
@@ -419,17 +422,32 @@ export default {
     async sendCurrentLog(feature, action) {
       await this.sendLog(this.currentUsername || 'unknown', feature, action);
     },
+
+    // 🌟🌟🌟 同步抓取 80庫 與 15庫 的總筆數 🌟🌟🌟
     async fetchDashboardMetrics() {
       try {
-        const resSearch = await axios.get('/api/search?page=1&pageSize=1');
-        if (resSearch.data?.success) this.dbMetrics.totalRows = resSearch.data.total || 0;
+        // 1. 撈取 80庫筆數
+        const res80 = await axios.get('/api/search?page=1&pageSize=1');
+        if (res80.data?.success) {
+          this.dbMetrics.totalRows80 = res80.data.total || 0;
+        }
+
+        // 2. 撈取 15庫筆數
+        const res15 = await axios.get('/api/inventory15/search?page=1&pageSize=1');
+        if (res15.data?.success) {
+          this.dbMetrics.totalRows15 = res15.data.total || 0;
+        }
+
+        // 3. 大區選單選項
         const resCat = await axios.get('/api/categories/large');
         if (resCat.data?.success) {
-          this.dbMetrics.totalCategories = (resCat.data.data || []).length;
           this.options.big_zones = resCat.data.data || [];
         }
-      } catch (e) {}
+      } catch (e) {
+        console.error('抓取指標失敗', e);
+      }
     },
+
     openNewTab(tabKey) {
       if (!this.hasModulePermission(tabKey)) {
         this.$message.warning('⚠️ 您尚未取得【' + this.getTabName(tabKey) + '】模組的操作權限！');
@@ -665,7 +683,7 @@ export default {
       const names = { 
         'home': '🏠 系統首頁', 
         'inv80': '🔍 庫存查詢80', 
-        'inv15': '📦 庫存查詢15', // 🌟 補全名稱
+        'inv15': '📦 庫存查詢15', 
         'loc_summary': '📊 儲位數才數統整', 
         'turnover': '📈 迴轉率清單', 
         'abnormal_purchase': '⚠️ 不合理進貨清單', 
