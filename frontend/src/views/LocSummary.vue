@@ -1,10 +1,35 @@
 <template>
   <div class="main-layout dark-bg loc-summary-page">
     <div class="summary-container">
-      <!-- 頂部操作列與設定按鈕 -->
+      <!-- 頂部操作列與設定按鈕 (匯出按鈕已搬移至重新計算即時統計左側) -->
       <div class="top-bar-actions">
         <span class="page-title-text">📊 儲位數與才數統計概覽 (跨區交叉矩陣)</span>
         <div class="btn-group">
+          <!-- 🌟 匯出 XLSX 按鈕 🌟 -->
+          <el-button 
+            type="success" 
+            size="small" 
+            icon="el-icon-document" 
+            :loading="exportingXlsx"
+            @click="exportFullXlsx"
+            class="export-top-btn btn-xlsx"
+          >
+            📊 匯出 xlsx (3工作表)
+          </el-button>
+
+          <!-- 🌟 匯出 PDF 按鈕 🌟 -->
+          <el-button 
+            type="danger" 
+            size="small" 
+            icon="el-icon-printer" 
+            :loading="exportingPdf"
+            @click="exportFullPdf"
+            class="export-top-btn btn-pdf"
+          >
+            🖨️ 匯出 PDF (3頁)
+          </el-button>
+
+          <!-- 重新計算即時統計按鈕 -->
           <el-button 
             type="primary" 
             icon="el-icon-refresh" 
@@ -14,6 +39,8 @@
           >
             🔄 重新計算即時統計
           </el-button>
+
+          <!-- 儲位定義設定按鈕 -->
           <el-button 
             type="warning" 
             icon="el-icon-setting" 
@@ -63,7 +90,7 @@
         <el-progress :percentage="calcProgress" :color="progressColors" :stroke-width="18" striped stripe-processing></el-progress>
       </div>
 
-      <!-- 數據表格三頁籤區 (含右側匯出按鈕) -->
+      <!-- 數據表格三頁籤區 -->
       <div v-else class="tables-main-wrapper">
         <el-tabs type="border-card" class="dark-tabs">
           <!-- 頁籤 1：儲格數交叉統計表 -->
@@ -280,32 +307,6 @@
               </el-table-column>
             </el-table>
           </el-tab-pane>
-
-          <!-- 🌟🌟🌟 頂部頁籤列右側專屬匯出按鈕區 (圖2樣式) 🌟🌟🌟 -->
-          <template #add>
-            <div class="tabs-export-bar">
-              <el-button 
-                type="success" 
-                size="mini" 
-                icon="el-icon-document" 
-                :loading="exportingXlsx"
-                @click="exportFullXlsx"
-                class="export-btn btn-xlsx"
-              >
-                📊 匯出 xlsx (3工作表)
-              </el-button>
-              <el-button 
-                type="danger" 
-                size="mini" 
-                icon="el-icon-printer" 
-                :loading="exportingPdf"
-                @click="exportFullPdf"
-                class="export-btn btn-pdf"
-              >
-                🖨️ 匯出 PDF (3頁)
-              </el-button>
-            </div>
-          </template>
         </el-tabs>
       </div>
     </div>
@@ -559,13 +560,12 @@ export default {
       }
     },
 
-    // 🌟🌟🌟 核心功能 1：匯入 XLSX (1個檔案，3個工作表 Sheet) 🌟🌟🌟
+    // 匯入 XLSX (1個檔案，3個工作表)
     async exportFullXlsx() {
       this.exportingXlsx = true;
       try {
         const wb = XLSX.utils.book_new();
 
-        // 格式化資料提取輔助函數
         const formatDataset = (data, isVol = false) => {
           return data.map(r => {
             const item = {
@@ -618,17 +618,14 @@ export default {
           });
         };
 
-        // Sheet 1: 儲格數交叉統計表
         const ws1Data = formatDataset(this.summaryGridData, false);
         const ws1 = XLSX.utils.json_to_sheet(ws1Data);
         XLSX.utils.book_append_sheet(wb, ws1, "儲格數交叉統計表");
 
-        // Sheet 2: 才數交叉統計表
         const ws2Data = formatDataset(this.summaryVolData, true);
         const ws2 = XLSX.utils.json_to_sheet(ws2Data);
         XLSX.utils.book_append_sheet(wb, ws2, "才數交叉統計表");
 
-        // Sheet 3: 儲位與才數綜合總覽表
         const ws3Data = this.combinedTableData.map(r => ({
           '樓層': r.floor || (r.is_total ? '全區總計' : (r.is_subtotal ? r.loc_type : '')),
           '儲位類型': r.loc_type || '',
@@ -646,7 +643,6 @@ export default {
         const ws3 = XLSX.utils.json_to_sheet(ws3Data);
         XLSX.utils.book_append_sheet(wb, ws3, "儲位與才數綜合總覽表");
 
-        // 下載匯出檔
         const dateStr = new Date().toISOString().split('T')[0];
         XLSX.writeFile(wb, `儲位管理系統_跨區交叉矩陣統計總表_${dateStr}.xlsx`);
         this.$message.success('🎉 成功匯出包含 3 個工作表的 Excel 檔案！');
@@ -657,7 +653,7 @@ export default {
       }
     },
 
-    // 🌟🌟🌟 核心功能 2：匯出 PDF (精準 3 頁 A4 橫向 PDF 報表) 🌟🌟🌟
+    // 匯出 PDF (精準 3 頁 A4 橫向)
     async exportFullPdf() {
       this.exportingPdf = true;
       this.$message.info('⚡ 正在渲染高畫質 PDF 3 頁報表中，請稍候...');
@@ -688,7 +684,6 @@ export default {
             const imgWidth = pdfWidth - 40;
             const imgHeight = (canvas.height * imgWidth) / canvas.width;
 
-            // 標題列
             pdf.setFillColor(15, 23, 42);
             pdf.rect(0, 0, pdfWidth, pdfHeight, 'F');
 
@@ -696,7 +691,6 @@ export default {
             pdf.setTextColor(56, 189, 248);
             pdf.text(targets[i].title, 20, 30);
 
-            // 報表圖片居中渲染
             const yPos = 45;
             const finalImgHeight = Math.min(imgHeight, pdfHeight - 60);
             pdf.addImage(imgData, 'PNG', 20, yPos, imgWidth, finalImgHeight);
@@ -749,6 +743,24 @@ export default {
 .btn-group {
   display: flex;
   gap: 8px;
+  align-items: center;
+}
+
+.export-top-btn {
+  font-weight: bold;
+  border-radius: 4px;
+}
+
+.btn-xlsx {
+  background-color: #65a30d !important;
+  border-color: #4d7c0f !important;
+  color: #ffffff !important;
+}
+
+.btn-pdf {
+  background-color: #f43f5e !important;
+  border-color: #e11d48 !important;
+  color: #ffffff !important;
 }
 
 .stats-overview-grid {
@@ -802,52 +814,14 @@ export default {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  position: relative;
 }
 
-/* 🌟🌟🌟 頂部頁籤右側匯出按鈕專屬定位 CSS 🌟🌟🌟 */
 :deep(.dark-tabs) {
   height: 100%;
   display: flex;
   flex-direction: column;
   background-color: #1e293b !important;
   border-color: #334155 !important;
-  position: relative;
-}
-
-:deep(.dark-tabs .el-tabs__header) {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding-right: 12px;
-}
-
-.tabs-export-bar {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  position: absolute;
-  right: 12px;
-  top: 4px;
-  z-index: 10;
-}
-
-.export-btn {
-  font-weight: bold;
-  border-radius: 6px;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-}
-
-.btn-xlsx {
-  background-color: #65a30d !important;
-  border-color: #4d7c0f !important;
-  color: #ffffff !important;
-}
-
-.btn-pdf {
-  background-color: #f43f5e !important;
-  border-color: #e11d48 !important;
-  color: #ffffff !important;
 }
 
 :deep(.dark-tabs .el-tabs__content) {
