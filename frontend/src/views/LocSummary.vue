@@ -5,7 +5,7 @@
       <div class="top-bar-actions">
         <span class="page-title-text">📊 儲位數與才數統計概覽 (跨區交叉矩陣)</span>
         <div class="btn-group">
-          <!-- 🌟 匯出 XLSX 按鈕 🌟 -->
+          <!-- 匯出 XLSX 按鈕 -->
           <el-button 
             type="success" 
             size="small" 
@@ -17,7 +17,7 @@
             📊 匯出 xlsx (3工作表)
           </el-button>
 
-          <!-- 🌟 匯出 PDF 按鈕 🌟 -->
+          <!-- 匯出 PDF 按鈕 -->
           <el-button 
             type="danger" 
             size="small" 
@@ -239,7 +239,7 @@
             </el-table>
           </el-tab-pane>
 
-          <!-- 🌟 頁籤 3：📋 儲位與才數綜合總覽表 (圖 2 邊框加粗特化) 🌟 -->
+          <!-- 頁籤 3：📋 儲位與才數綜合總覽表 (全暗色背景底色) -->
           <el-tab-pane label="📋 儲位與才數綜合總覽表" name="combined">
             <el-table 
               id="combined-table-dom"
@@ -256,23 +256,23 @@
 
               <!--【儲位格數彙總】-->
               <el-table-column label="【儲位格數彙總】" align="center" class-name="summary-header-group section-border-right">
-                <el-table-column label="規劃數" width="110" align="right">
+                <el-table-column label="規劃數" width="100" align="right">
                   <template #default="scope">
                     <strong>{{ formatNumber(scope.row.sum_plan_grid) }}</strong>
                   </template>
                 </el-table-column>
-                <el-table-column label="已使用" width="110" align="right">
+                <el-table-column label="已使用" width="100" align="right">
                   <template #default="scope">
                     <span class="text-green">{{ formatNumber(scope.row.sum_used_grid) }}</span>
                   </template>
                 </el-table-column>
-                <el-table-column prop="sum_unrate_grid" label="未使用率(%)" width="110" align="right"></el-table-column>
-                <el-table-column label="剩餘儲位數" width="110" align="right">
+                <el-table-column prop="sum_unrate_grid" label="未使用率(%)" width="100" align="right"></el-table-column>
+                <el-table-column label="剩餘儲位數" width="100" align="right">
                   <template #default="scope">
                     <span class="text-orange">{{ formatNumber(scope.row.sum_rem_grid) }}</span>
                   </template>
                 </el-table-column>
-                <el-table-column label="剩餘才數" width="110" align="right" class-name="section-border-right">
+                <el-table-column label="剩餘才數" width="105" align="right" class-name="section-border-right">
                   <template #default="scope">
                     <span class="text-orange">{{ formatNumber(scope.row.sum_rem_vol) }}</span>
                   </template>
@@ -404,17 +404,14 @@ export default {
     }
   },
   computed: {
-    // 拿掉頁籤 1 的小計與總計列
     filteredGridData() {
       if (!this.summaryGridData) return [];
       return this.summaryGridData.filter(r => !r.is_subtotal && !r.is_total);
     },
-    // 拿掉頁籤 2 的小計與總計列
     filteredVolData() {
       if (!this.summaryVolData) return [];
       return this.summaryVolData.filter(r => !r.is_subtotal && !r.is_total);
     },
-    // 頁籤 3 綜合總覽表數據源 (全數小計才數精準計算)
     combinedTableData() {
       if (!this.summaryGridData || this.summaryGridData.length === 0) return [];
       
@@ -606,7 +603,7 @@ export default {
       }
     },
 
-    // 🌟 匯出 XLSX 🌟
+    // 匯出 XLSX
     async exportFullXlsx() {
       this.exportingXlsx = true;
       try {
@@ -693,7 +690,7 @@ export default {
       }
     },
 
-    // 🌟🌟🌟 核心修復：使用 DOM 滿版展開高解析 Canvas 轉換為 PDF (解決亂碼與截斷) 🌟🌟🌟
+    // 🌟 匯出高畫質滿版 PDF 🌟
     async exportFullPdf() {
       this.exportingPdf = true;
       this.$message.info('⚡ 正在生成滿版高清 PDF 3 頁報表中...');
@@ -720,7 +717,6 @@ export default {
 
           const tableEl = document.querySelector(tabList[i].domId);
           if (tableEl) {
-            // 暫時展開完整 DOM，防止被滾動條截斷
             const bodyWrapper = tableEl.querySelector('.el-table__body-wrapper');
             const origHeight = bodyWrapper ? bodyWrapper.style.height : '';
             if (bodyWrapper) bodyWrapper.style.height = 'auto';
@@ -890,17 +886,17 @@ export default {
   height: 100%;
 }
 
-/* 🌟🌟🌟 圖 2 要求：小計列頂部加粗水平加強邊框 🌟🌟🌟 */
+/* 🌟🌟🌟 小計與總計列改為暗色底系，文字亮顯，頂部藍粗線 🌟🌟🌟 */
 :deep(.pivot-table tr.subtotal-row td) {
-  background-color: #fef08a !important;
-  color: #0f172a !important;
+  background-color: #1e293b !important;
+  color: #f8fafc !important;
   font-weight: bold;
-  border-top: 3px solid #38bdf8 !important;
+  border-top: 2px solid #38bdf8 !important;
 }
 
 :deep(.pivot-table tr.total-row td) {
-  background-color: #86efac !important;
-  color: #0f172a !important;
+  background-color: #0f172a !important;
+  color: #38bdf8 !important;
   font-weight: bold;
   border-top: 3px solid #38bdf8 !important;
 }
@@ -914,19 +910,19 @@ export default {
   border-bottom: 1px solid #334155 !important;
 }
 
-/* 🌟🌟🌟 圖 2 要求：三大垂直核心邊框加粗 (粗藍框) 🌟🌟🌟 */
+/* 五大區塊藍色粗框分隔線 */
 :deep(.pivot-table .section-border-right) {
   border-right: 3px solid #38bdf8 !important;
 }
 
-/* 儲位格數總覽頭部醒目藍色 + 垂直左粗邊框 */
+/* 儲位格數總覽頭部醒目藍色 */
 :deep(.pivot-table th.summary-header-group) {
   background-color: #0284c7 !important;
   color: #ffffff !important;
   border-left: 3px solid #38bdf8 !important;
 }
 
-/* 才數總覽頭部醒目紫深藍色 + 垂直左粗邊框 */
+/* 才數總覽頭部醒目紫深藍色 */
 :deep(.pivot-table th.summary-header-group-vol) {
   background-color: #4338ca !important;
   color: #ffffff !important;
