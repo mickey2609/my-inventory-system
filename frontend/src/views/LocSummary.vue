@@ -5,8 +5,9 @@
       <div class="top-bar-actions">
         <span class="page-title-text">📊 儲位數與才數統計概覽 (跨區交叉矩陣)</span>
         <div class="btn-group">
-          <!-- 🌟 匯出 XLSX 按鈕 🌟 -->
+          <!-- 🌟 匯出 XLSX 按鈕 (依權限控制顯示) 🌟 -->
           <el-button 
+            v-if="exportPerms.xlsx"
             type="success" 
             size="small" 
             icon="el-icon-document" 
@@ -17,8 +18,9 @@
             📊 匯出 xlsx (3工作表)
           </el-button>
 
-          <!-- 🌟 匯出 PDF 按鈕 🌟 -->
+          <!-- 🌟 匯出 PDF 按鈕 (依權限控制顯示，目前預設關閉) 🌟 -->
           <el-button 
+            v-if="exportPerms.pdf"
             type="danger" 
             size="small" 
             icon="el-icon-printer" 
@@ -237,7 +239,7 @@
             </el-table>
           </el-tab-pane>
 
-          <!-- 頁籤 3：📋 儲位與才數綜合總覽表 (含小計才數精準加總) -->
+          <!-- 頁籤 3：📋 儲位與才數綜合總覽表 -->
           <el-tab-pane label="📋 儲位與才數綜合總覽表" name="combined">
             <el-table 
               :data="combinedTableData" 
@@ -306,15 +308,16 @@
       </div>
     </div>
 
-    <!-- 儲位定義 Modal -->
+    <!-- ⚙️ 儲位定義 Modal (已整合匯出權限勾選設定區塊) -->
     <el-dialog
-      title="⚙️ 儲位定義參數設定"
+      title="⚙️ 儲位定義參數與權限設定"
       v-model="showConfigDialog"
       width="750px"
       append-to-body
       class="custom-dark-dialog"
     >
       <div class="config-modal-content">
+        <!-- 1. 匯入 CSV 功能區塊 -->
         <div class="upload-top-bar">
           <div>
             <div class="section-title">📥 匯入最新 `locations_master.csv` 檔案</div>
@@ -349,7 +352,7 @@
           border 
           stripe 
           size="mini" 
-          height="320px" 
+          height="220px" 
           v-loading="masterLoading"
           class="dark-table master-preview-table"
         >
@@ -366,11 +369,33 @@
             <template #default="scope">{{ scope.row.儲位才數 }}</template>
           </el-table-column>
         </el-table>
+
+        <!-- 🌟 2. 對齊「庫存查詢 80」的匯出權限設定區塊 🌟 -->
+        <el-divider content-position="left">🔒 開放儲位統計匯出功能權限</el-divider>
+
+        <div class="perm-config-card">
+          <div class="perm-title-desc">
+            <span class="perm-icon">🔒</span>
+            <span>開放儲位統計概覽 匯出功能權限</span>
+          </div>
+          <p class="perm-sub-text">未勾選之項目，一般管理員與一般人員將無法看見該匯出按鈕</p>
+
+          <div class="perm-checkbox-group">
+            <el-checkbox v-model="exportPerms.xlsx" class="dark-checkbox">
+              <span class="chk-label">📊 開放 <strong>匯出 xlsx</strong> 按鈕</span>
+            </el-checkbox>
+            <br />
+            <el-checkbox v-model="exportPerms.pdf" class="dark-checkbox">
+              <span class="chk-label">🖨️ 開放 <strong>匯出 PDF</strong> 按鈕 (暫不開放)</span>
+            </el-checkbox>
+          </div>
+        </div>
       </div>
 
       <template #footer>
         <span class="dialog-footer">
-          <el-button size="small" @click="showConfigDialog = false">關閉</el-button>
+          <el-button size="small" @click="showConfigDialog = false">取消關閉</el-button>
+          <el-button size="small" type="primary" icon="el-icon-check" @click="saveExportPerms">💾 儲存權限設定</el-button>
         </span>
       </template>
     </el-dialog>
@@ -397,34 +422,35 @@ export default {
       masterLoading: false,
       masterTableData: [],
       exportingXlsx: false,
-      exportingPdf: false
+      exportingPdf: false,
+
+      // 🌟 匯出功能權限控制 (預設 PDF 關閉) 🌟
+      exportPerms: {
+        xlsx: true,
+        pdf: false
+      }
     }
   },
   computed: {
-    // 拿掉頁籤 1 的小計與總計列
     filteredGridData() {
       if (!this.summaryGridData) return [];
       return this.summaryGridData.filter(r => !r.is_subtotal && !r.is_total);
     },
-    // 拿掉頁籤 2 的小計與總計列
     filteredVolData() {
       if (!this.summaryVolData) return [];
       return this.summaryVolData.filter(r => !r.is_subtotal && !r.is_total);
     },
-    // 🌟🌟🌟 頁籤 3：儲位與才數綜合總覽表數據源 (自動為小計列補充才數加總) 🌟🌟🌟
     combinedTableData() {
       if (!this.summaryGridData || this.summaryGridData.length === 0) return [];
       
       return this.summaryGridData.map((gridRow, idx) => {
         const volRow = (this.summaryVolData && this.summaryVolData[idx]) ? this.summaryVolData[idx] : {};
 
-        // 格數數據
         const sumPlanG = Number(this.getSumVal(gridRow, 'sum_plan_grid', ['plan_A區','plan_B區','plan_C區','plan_D區']));
         const sumUsedG = Number(this.getSumVal(gridRow, 'sum_used_grid', ['used_A區','used_B區','used_C區','used_D區']));
         const sumRemG = Number(this.getSumVal(gridRow, 'sum_rem_grid', ['rem_A區','rem_B區','rem_C區','rem_D區']));
         const sumUnrateG = gridRow.sum_unrate_grid || this.getUnrateVal(gridRow, 'sum_unrate_grid', 'sum_plan_grid', 'sum_used_grid');
 
-        // 才數數據 (小計/總計列若原為 0，前端自動進行儲位型態明細加總)
         let sumPlanV = Number(this.getSumVal(volRow, 'sum_plan_vol', ['plan_A區','plan_B區','plan_C區','plan_D區']));
         let sumUsedV = Number(this.getSumVal(volRow, 'sum_used_vol', ['used_A區','used_B區','used_C區','used_D區']));
         let sumRemV = Number(this.getSumVal(volRow, 'sum_rem_vol', ['rem_A區','rem_B區','rem_C區','rem_D區']));
@@ -483,6 +509,7 @@ export default {
     }
   },
   mounted() {
+    this.loadExportPerms();
     if (!this.summaryGridData || this.summaryGridData.length === 0) {
       this.$emit('refresh-summary');
     }
@@ -492,6 +519,24 @@ export default {
       if (val === null || val === undefined || val === '') return '0';
       const num = Number(String(val).replace(/,/g, ''));
       return isNaN(num) ? val : num.toLocaleString();
+    },
+    // 🌟 讀取與儲存匯出權限設定 🌟
+    loadExportPerms() {
+      const saved = localStorage.getItem('loc_summary_export_perms');
+      if (saved) {
+        try {
+          this.exportPerms = JSON.parse(saved);
+        } catch (e) {
+          this.exportPerms = { xlsx: true, pdf: false };
+        }
+      } else {
+        this.exportPerms = { xlsx: true, pdf: false }; // 預設 PDF 關閉
+      }
+    },
+    saveExportPerms() {
+      localStorage.setItem('loc_summary_export_perms', JSON.stringify(this.exportPerms));
+      this.$message.success('💾 匯出權限設定已成功儲存！');
+      this.showConfigDialog = false;
     },
     combinedSpanMethod({ row, columnIndex }) {
       if (row.is_subtotal || row.is_total) {
@@ -561,6 +606,7 @@ export default {
       return '';
     },
     openConfigModal() {
+      this.loadExportPerms();
       this.showConfigDialog = true;
       this.fetchLocationsMaster();
     },
@@ -607,6 +653,9 @@ export default {
 
     // 匯出 XLSX (1個檔案，3工作表)
     async exportFullXlsx() {
+      if (!this.exportPerms.xlsx) {
+        return this.$message.warning('權限受限：管理者尚未開放匯出 xlsx 功能');
+      }
       this.exportingXlsx = true;
       try {
         const wb = XLSX.utils.book_new();
@@ -692,15 +741,17 @@ export default {
       }
     },
 
-    // 🌟🌟🌟 核心修復：使用 jspdf-autotable 向量表格直接輸出 3 頁 PDF (無 wrong PNG signature 錯誤) 🌟🌟🌟
+    // 匯出 PDF
     async exportFullPdf() {
+      if (!this.exportPerms.pdf) {
+        return this.$message.warning('權限受限：管理者尚未開放匯出 PDF 功能');
+      }
       this.exportingPdf = true;
       this.$message.info('⚡ 正在生成純向量 PDF 3 頁報表中...');
 
       try {
         const doc = new jsPDF('landscape', 'pt', 'a4');
 
-        // 動態載入 NotoSansTC 避免預設 Helvetica 亂碼
         try {
           const fontUrl = 'https://raw.githubusercontent.com/googlefonts/noto-cjk/main/Sans/OTF/TraditionalChinese/NotoSansCJKtc-Regular.otf';
           const fontBytes = await fetch(fontUrl).then(res => res.arrayBuffer());
@@ -715,7 +766,6 @@ export default {
           console.warn('⚠️ 中文字型載入失敗，採用系統預設', fontErr);
         }
 
-        // 1. 頁籤 1 報表 (儲格數交叉統計表)
         doc.setFontSize(13);
         doc.setTextColor(56, 189, 248);
         doc.text('儲位管理系統 - 儲格數交叉統計表', 20, 25);
@@ -743,7 +793,6 @@ export default {
           theme: 'grid'
         });
 
-        // 2. 頁籤 2 報表 (才數交叉統計表)
         doc.addPage();
         doc.setFontSize(13);
         doc.setTextColor(56, 189, 248);
@@ -772,7 +821,6 @@ export default {
           theme: 'grid'
         });
 
-        // 3. 頁籤 3 報表 (儲位與才數綜合總覽表)
         doc.addPage();
         doc.setFontSize(13);
         doc.setTextColor(56, 189, 248);
@@ -934,7 +982,6 @@ export default {
   height: 100%;
 }
 
-/* 🌟🌟🌟 暗色系底色小計與總計列 + 藍色加粗頂部邊框 🌟🌟🌟 */
 :deep(.pivot-table tr.subtotal-row td) {
   background-color: #1e293b !important;
   color: #f8fafc !important;
@@ -983,6 +1030,55 @@ export default {
 .section-desc { font-size: 12px; color: #94a3b8; line-height: 1.5; margin: 0; }
 .section-desc code { background: #0f172a; color: #f43f5e; padding: 2px 6px; border-radius: 4px; }
 .master-preview-table { margin-top: 10px; }
+
+/* 🔒 權限設定卡片專屬樣式 (對齊庫存查詢 80 介面) */
+.perm-config-card {
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-top: 10px;
+}
+
+.perm-title-desc {
+  font-size: 14px;
+  font-weight: bold;
+  color: #f8fafc;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.perm-icon {
+  font-size: 16px;
+}
+
+.perm-sub-text {
+  font-size: 12px;
+  color: #94a3b8;
+  margin: 4px 0 12px 0;
+}
+
+.perm-checkbox-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+:deep(.dark-checkbox .el-checkbox__label) {
+  color: #e2e8f0 !important;
+  font-size: 13px;
+}
+
+:deep(.dark-checkbox .el-checkbox__inner) {
+  background-color: #1e293b;
+  border-color: #475569;
+}
+
+:deep(.dark-checkbox.is-checked .el-checkbox__inner) {
+  background-color: #38bdf8;
+  border-color: #38bdf8;
+}
 
 @media (max-width: 1400px) {
   .stats-overview-grid {
