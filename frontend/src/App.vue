@@ -229,8 +229,8 @@ export default {
       loginForm: { username: '', password: '', rememberMe: true },
       currentTab: 'home', openedTabs: ['home'], 
       
-      // 🌟 統計 80庫 與 15庫 的筆數指標 🌟
-      dbMetrics: { totalRows80: 0, totalRows15: 0 },
+      // 統計指標：80庫筆數、15庫筆數與運作時間
+      dbMetrics: { totalRows80: 0, totalRows15: 0, serverUptimeSec: 0 },
 
       logTab: 'normal', loading: false, draggedIndex: null, hasSearched: false, searchTime: '',
       currentPage: 1, 
@@ -247,7 +247,6 @@ export default {
         { key: 'abnormal_purchase', name: '⚠️ 不合理進貨清單' }
       ],
 
-      // 48 欄位完全體 (A ~ AV)
       rawColumnsMaster: [...full48Cols],
       allAvailableColumns: [...full48Cols],
 
@@ -424,34 +423,30 @@ export default {
     },
 
     async fetchDashboardMetrics() {
-  try {
-    // 1. 撈取 80 庫總筆數
-    const res80 = await axios.get('/api/search?page=1&pageSize=1');
-    if (res80.data?.success) {
-      this.dbMetrics.totalRows80 = res80.data.total || 0;
-    }
+      try {
+        const res80 = await axios.get('/api/search?page=1&pageSize=1');
+        if (res80.data?.success) {
+          this.dbMetrics.totalRows80 = res80.data.total || 0;
+        }
 
-    // 2. 撈取 15 庫總筆數
-    const res15 = await axios.get('/api/inventory15/search?page=1&pageSize=1');
-    if (res15.data?.success) {
-      this.dbMetrics.totalRows15 = res15.data.total || 0;
-    }
+        const res15 = await axios.get('/api/inventory15/search?page=1&pageSize=1');
+        if (res15.data?.success) {
+          this.dbMetrics.totalRows15 = res15.data.total || 0;
+        }
 
-    // 3. 撈取伺服器啟動計時秒數 (server_uptime_seconds)
-    const resConfig = await axios.get('/api/get-global-config');
-    if (resConfig.data?.success && resConfig.data?.data) {
-      this.dbMetrics.serverUptimeSec = resConfig.data.data.server_uptime_seconds || 0;
-    }
+        const resConfig = await axios.get('/api/get-global-config');
+        if (resConfig.data?.success && resConfig.data?.data) {
+          this.dbMetrics.serverUptimeSec = resConfig.data.data.server_uptime_seconds || 0;
+        }
 
-    // 4. 大區選單選項
-    const resCat = await axios.get('/api/categories/large');
-    if (resCat.data?.success) {
-      this.options.big_zones = resCat.data.data || [];
-    }
-  } catch (e) {
-    console.error('抓取儀表板指標失敗', e);
-  }
-}
+        const resCat = await axios.get('/api/categories/large');
+        if (resCat.data?.success) {
+          this.options.big_zones = resCat.data.data || [];
+        }
+      } catch (e) {
+        console.error('抓取儀表板指標失敗', e);
+      }
+    },
 
     openNewTab(tabKey) {
       if (!this.hasModulePermission(tabKey)) {
