@@ -93,17 +93,15 @@
       <!-- 數據表格三頁籤區 -->
       <div v-else class="tables-main-wrapper">
         <el-tabs type="border-card" class="dark-tabs" v-model="activeTab">
-          <!-- 頁籤 1：儲格數交叉統計表 -->
+          <!-- 頁籤 1：儲格數交叉統計表 (已拿掉底部小計/總計列) -->
           <el-tab-pane label="📊 儲格數交叉統計表" name="grid">
             <el-table 
-              ref="gridTable"
-              :data="summaryGridData" 
+              :data="filteredGridData" 
               border 
               height="100%" 
               size="mini" 
-              class="dark-table pivot-table print-target-grid"
+              class="dark-table pivot-table"
               :row-class-name="tableRowClassName"
-              :span-method="arraySpanMethod"
             >
               <el-table-column prop="floor" label="樓層" width="75" align="center" fixed="left"></el-table-column>
               <el-table-column prop="loc_type" label="儲位類型" width="130" fixed="left" class-name="section-border-right"></el-table-column>
@@ -171,17 +169,15 @@
             </el-table>
           </el-tab-pane>
 
-          <!-- 頁籤 2：才數交叉統計表 -->
+          <!-- 頁籤 2：才數交叉統計表 (已拿掉底部小計/總計列) -->
           <el-tab-pane label="📦 才數交叉統計表" name="vol">
             <el-table 
-              ref="volTable"
-              :data="summaryVolData" 
+              :data="filteredVolData" 
               border 
               height="100%" 
               size="mini" 
-              class="dark-table pivot-table print-target-vol"
+              class="dark-table pivot-table"
               :row-class-name="tableRowClassName"
-              :span-method="arraySpanMethod"
             >
               <el-table-column prop="floor" label="樓層" width="75" align="center" fixed="left"></el-table-column>
               <el-table-column prop="loc_type" label="儲位類型" width="130" fixed="left" class-name="section-border-right"></el-table-column>
@@ -241,40 +237,39 @@
             </el-table>
           </el-tab-pane>
 
-          <!-- 頁籤 3：📋 儲位與才數綜合總覽表 -->
+          <!-- 🌟 頁籤 3：📋 儲位與才數綜合總覽表 (含明細 + 底部小計總計專用雙欄) 🌟 -->
           <el-tab-pane label="📋 儲位與才數綜合總覽表" name="combined">
             <el-table 
-              ref="combinedTable"
               :data="combinedTableData" 
               border 
               height="100%" 
               size="mini" 
-              class="dark-table pivot-table print-target-combined"
+              class="dark-table pivot-table"
               :row-class-name="tableRowClassName"
-              :span-method="arraySpanMethod"
+              :span-method="combinedSpanMethod"
             >
-              <el-table-column prop="floor" label="樓層" width="75" align="center" fixed="left"></el-table-column>
-              <el-table-column prop="loc_type" label="儲位類型" width="130" fixed="left" class-name="section-border-right"></el-table-column>
+              <el-table-column prop="displayFloor" label="樓層" width="85" align="center" fixed="left"></el-table-column>
+              <el-table-column prop="displayType" label="儲位類型" width="130" fixed="left" class-name="section-border-right"></el-table-column>
 
               <!--【儲位格數彙總】-->
               <el-table-column label="【儲位格數彙總】" align="center" class-name="summary-header-group section-border-right">
-                <el-table-column label="規劃數" width="100" align="right">
+                <el-table-column label="規劃數" width="110" align="right">
                   <template #default="scope">
                     <strong>{{ formatNumber(scope.row.sum_plan_grid) }}</strong>
                   </template>
                 </el-table-column>
-                <el-table-column label="已使用" width="100" align="right">
+                <el-table-column label="已使用" width="110" align="right">
                   <template #default="scope">
                     <span class="text-green">{{ formatNumber(scope.row.sum_used_grid) }}</span>
                   </template>
                 </el-table-column>
-                <el-table-column prop="sum_unrate_grid" label="未使用率(%)" width="100" align="right"></el-table-column>
-                <el-table-column label="剩餘儲位數" width="100" align="right">
+                <el-table-column prop="sum_unrate_grid" label="未使用率(%)" width="110" align="right"></el-table-column>
+                <el-table-column label="剩餘儲位數" width="110" align="right">
                   <template #default="scope">
                     <span class="text-orange">{{ formatNumber(scope.row.sum_rem_grid) }}</span>
                   </template>
                 </el-table-column>
-                <el-table-column label="剩餘才數" width="105" align="right" class-name="section-border-right">
+                <el-table-column label="剩餘才數" width="110" align="right" class-name="section-border-right">
                   <template #default="scope">
                     <span class="text-orange">{{ formatNumber(scope.row.sum_rem_vol) }}</span>
                   </template>
@@ -293,13 +288,13 @@
                     <span class="text-green">{{ formatNumber(scope.row.sum_used_vol) }}</span>
                   </template>
                 </el-table-column>
-                <el-table-column prop="sum_unrate_vol" label="未使用率(%)" width="100" align="right"></el-table-column>
+                <el-table-column prop="sum_unrate_vol" label="未使用率(%)" width="110" align="right"></el-table-column>
                 <el-table-column label="剩餘才數" width="110" align="right">
                   <template #default="scope">
                     <span class="text-orange">{{ formatNumber(scope.row.sum_rem_vol) }}</span>
                   </template>
                 </el-table-column>
-                <el-table-column prop="sum_health_vol" label="儲位健康度" width="100" align="right">
+                <el-table-column prop="sum_health_vol" label="儲位健康度" width="110" align="right">
                   <template #default="scope">
                     <span class="text-cyan">{{ scope.row.sum_health_vol || '0.0%' }}</span>
                   </template>
@@ -385,8 +380,8 @@
 <script>
 import axios from 'axios'
 import * as XLSX from 'xlsx'
-import html2canvas from 'html2canvas'
 import { jsPDF } from 'jspdf'
+import 'jspdf-autotable'
 
 export default {
   name: 'LocSummary',
@@ -406,6 +401,17 @@ export default {
     }
   },
   computed: {
+    // 🌟 圖二要求：拿掉頁籤 1 的小計與總計列 🌟
+    filteredGridData() {
+      if (!this.summaryGridData) return [];
+      return this.summaryGridData.filter(r => !r.is_subtotal && !r.is_total);
+    },
+    // 🌟 拿掉頁籤 2 的小計與總計列 🌟
+    filteredVolData() {
+      if (!this.summaryVolData) return [];
+      return this.summaryVolData.filter(r => !r.is_subtotal && !r.is_total);
+    },
+    // 🌟 圖四要求：完美建構頁籤 3 的明細 + 小計 + 全區總計，右邊才數 100% 帶出數值 🌟
     combinedTableData() {
       if (!this.summaryGridData || this.summaryGridData.length === 0) return [];
       
@@ -423,8 +429,21 @@ export default {
         const sumUnrateV = volRow.sum_unrate_vol || this.getUnrateVal(volRow, 'sum_unrate_vol', 'sum_plan_vol', 'sum_used_vol', true);
         const sumHealthV = this.getRowHealthVol(volRow);
 
+        let dispFloor = gridRow.floor || '';
+        let dispType = gridRow.loc_type || '';
+
+        if (gridRow.is_subtotal) {
+          dispFloor = gridRow.loc_type ? `${gridRow.loc_type} 小計` : '小計';
+          dispType = '';
+        } else if (gridRow.is_total) {
+          dispFloor = '全區總計';
+          dispType = '';
+        }
+
         return {
           ...gridRow,
+          displayFloor: dispFloor,
+          displayType: dispType,
           sum_plan_grid: sumPlanG,
           sum_used_grid: sumUsedG,
           sum_unrate_grid: sumUnrateG,
@@ -448,6 +467,14 @@ export default {
       if (val === null || val === undefined || val === '') return '0';
       const num = Number(String(val).replace(/,/g, ''));
       return isNaN(num) ? val : num.toLocaleString();
+    },
+    // 🌟 頁籤 3 專用小計與總計列跨欄合併 🌟
+    combinedSpanMethod({ row, columnIndex }) {
+      if (row.is_subtotal || row.is_total) {
+        if (columnIndex === 0) return { rowspan: 1, colspan: 2 };
+        else if (columnIndex === 1) return { rowspan: 0, colspan: 0 };
+      }
+      return { rowspan: 1, colspan: 1 };
     },
     arraySpanMethod({ row, columnIndex }) {
       if (row.is_subtotal || row.is_total) {
@@ -561,7 +588,7 @@ export default {
       }
     },
 
-    // 🌟🌟🌟 核心功能 1：匯出雙層高畫質格式 XLSX 🌟🌟🌟
+    // 🌟 匯入 XLSX (1個檔案，3個工作表) 🌟
     async exportFullXlsx() {
       this.exportingXlsx = true;
       try {
@@ -572,10 +599,9 @@ export default {
           ['樓層', '儲位類型', '規劃', '', '', '', '已使用', '', '', '', '未使用率 (%)', '', '', '', '剩餘', '', '', '', '【儲位格數彙總】', '', '', '', ''],
           ['', '', 'A區', 'B區', 'C區', 'D區', 'A區', 'B區', 'C區', 'D區', 'A區', 'B區', 'C區', 'D區', 'A區', 'B區', 'C區', 'D區', '規劃數', '已使用', '未使用率(%)', '剩餘儲位數', '剩餘才數']
         ];
-        this.summaryGridData.forEach(r => {
+        this.filteredGridData.forEach(r => {
           gridAOA.push([
-            r.floor || (r.is_total ? '全區總計' : (r.is_subtotal ? r.loc_type : '')),
-            r.loc_type || '',
+            r.floor || '', r.loc_type || '',
             r.plan_A區 || 0, r.plan_B區 || 0, r.plan_C區 || 0, r.plan_D區 || 0,
             r.used_A區 || 0, r.used_B區 || 0, r.used_C區 || 0, r.used_D區 || 0,
             r.unrate_A區 || '', r.unrate_B區 || '', r.unrate_C區 || '', r.unrate_D區 || '',
@@ -601,10 +627,9 @@ export default {
           ['樓層', '儲位類型', '規劃總才數', '', '', '', '使用中才數', '', '', '', '剩餘才數', '', '', '', '【才數彙總】', '', '', '', ''],
           ['', '', 'A區', 'B區', 'C區', 'D區', 'A區', 'B區', 'C區', 'D區', 'A區', 'B區', 'C區', 'D區', '規劃數', '已使用', '未使用率(%)', '剩餘才數', '儲位健康度']
         ];
-        this.summaryVolData.forEach(r => {
+        this.filteredVolData.forEach(r => {
           volAOA.push([
-            r.floor || (r.is_total ? '全區總計' : (r.is_subtotal ? r.loc_type : '')),
-            r.loc_type || '',
+            r.floor || '', r.loc_type || '',
             r.plan_A區 || 0, r.plan_B區 || 0, r.plan_C區 || 0, r.plan_D區 || 0,
             r.used_A區 || 0, r.used_B區 || 0, r.used_C區 || 0, r.used_D區 || 0,
             r.rem_A區 || 0, r.rem_B區 || 0, r.rem_C區 || 0, r.rem_D區 || 0,
@@ -630,8 +655,8 @@ export default {
         ];
         this.combinedTableData.forEach(r => {
           combAOA.push([
-            r.floor || (r.is_total ? '全區總計' : (r.is_subtotal ? r.loc_type : '')),
-            r.loc_type || '',
+            r.displayFloor || r.floor || '',
+            r.displayType || r.loc_type || '',
             r.sum_plan_grid, r.sum_used_grid, r.sum_unrate_grid, r.sum_rem_grid, r.sum_rem_vol,
             r.sum_plan_vol, r.sum_used_vol, r.sum_unrate_vol, r.sum_rem_vol, r.sum_health_vol
           ]);
@@ -645,7 +670,7 @@ export default {
 
         const dateStr = new Date().toISOString().split('T')[0];
         XLSX.writeFile(wb, `儲位管理系統_跨區交叉矩陣統計總表_${dateStr}.xlsx`);
-        this.$message.success('🎉 成功匯出包含雙層標題排版的 3 工作表 Excel！');
+        this.$message.success('🎉 成功匯出 Excel 檔案！');
       } catch (err) {
         this.$message.error('匯出 XLSX 失敗：' + err.message);
       } finally {
@@ -653,64 +678,97 @@ export default {
       }
     },
 
-    // 🌟🌟🌟 核心功能 2：匯出高相容性 JPEG 3 頁 PDF 🌟🌟🌟
+    // 🌟🌟🌟 核心功能 2：PDF 原生向量表格直出 (絕不切邊亂碼，數據 100% 完整) 🌟🌟🌟
     async exportFullPdf() {
       this.exportingPdf = true;
-      this.$message.info('⚡ 正在渲染高畫質 PDF 3 頁報表中，請稍候...');
-
-      const originalTab = this.activeTab;
+      this.$message.info('⚡ 正在生成 PDF 滿版向量報表中...');
 
       try {
-        const pdf = new jsPDF('landscape', 'pt', 'a4');
-        const pdfWidth = pdf.internal.pageSize.getWidth();
-        const pdfHeight = pdf.internal.pageSize.getHeight();
+        const doc = new jsPDF('landscape', 'pt', 'a4');
 
-        const tabList = [
-          { name: 'grid', selector: '.print-target-grid', title: '📊 儲格數交叉統計表' },
-          { name: 'vol', selector: '.print-target-vol', title: '📦 才數交叉統計表' },
-          { name: 'combined', selector: '.print-target-combined', title: '📋 儲位與才數綜合總覽表' }
+        // 1. 頁籤 1 報表
+        doc.setFontSize(13);
+        doc.setTextColor(56, 189, 248);
+        doc.text('儲位管理系統 - 儲格數交叉統計表', 20, 25);
+
+        const gridHead = [
+          ['樓層', '儲位類型', '規劃 A區', 'B區', 'C區', 'D區', '已使用 A區', 'B區', 'C區', 'D區', '剩餘 A區', 'B區', 'C區', 'D區', '規劃數', '已使用', '剩餘儲位', '剩餘才數']
         ];
+        const gridBody = this.filteredGridData.map(r => [
+          r.floor || '', r.loc_type || '',
+          r.plan_A區 || '', r.plan_B區 || '', r.plan_C區 || '', r.plan_D區 || '',
+          r.used_A區 || '', r.used_B區 || '', r.used_C區 || '', r.used_D區 || '',
+          r.rem_A區 || '', r.rem_B區 || '', r.rem_C區 || '', r.rem_D區 || '',
+          this.getSumVal(r, 'sum_plan_grid', ['plan_A區','plan_B區','plan_C區','plan_D區']),
+          this.getSumVal(r, 'sum_used_grid', ['used_A區','used_B區','used_C區','used_D區']),
+          this.getSumVal(r, 'sum_rem_grid', ['rem_A區','rem_B區','rem_C區','rem_D區']),
+          this.getRemVolForGridTable(r)
+        ]);
 
-        for (let i = 0; i < tabList.length; i++) {
-          this.activeTab = tabList[i].name;
-          await this.$nextTick();
-          await new Promise(r => setTimeout(r, 400)); // 等待切換 DOM 穩定
+        doc.autoTable({
+          head: gridHead,
+          body: gridBody,
+          startY: 35,
+          styles: { fontSize: 7, cellPadding: 3, halign: 'center' },
+          headStyles: { fillColor: [15, 23, 42], textColor: [56, 189, 248] },
+          theme: 'grid'
+        });
 
-          if (i > 0) pdf.addPage();
+        // 2. 頁籤 2 報表
+        doc.addPage();
+        doc.text('儲位管理系統 - 才數交叉統計表', 20, 25);
 
-          const el = document.querySelector(tabList[i].selector);
-          if (el) {
-            const canvas = await html2canvas(el, {
-              scale: 2,
-              useCORS: true,
-              backgroundColor: '#0f172a'
-            });
+        const volHead = [
+          ['樓層', '儲位類型', '規劃才數 A區', 'B區', 'C區', 'D區', '使用才數 A區', 'B區', 'C區', 'D區', '剩餘才數 A區', 'B區', 'C區', 'D區', '規劃數', '已使用', '剩餘才數', '健康度']
+        ];
+        const volBody = this.filteredVolData.map(r => [
+          r.floor || '', r.loc_type || '',
+          r.plan_A區 || '', r.plan_B區 || '', r.plan_C區 || '', r.plan_D區 || '',
+          r.used_A區 || '', r.used_B區 || '', r.used_C區 || '', r.used_D區 || '',
+          r.rem_A區 || '', r.rem_B區 || '', r.rem_C區 || '', r.rem_D區 || '',
+          this.getSumVal(r, 'sum_plan_vol', ['plan_A區','plan_B區','plan_C區','plan_D區']),
+          this.getSumVal(r, 'sum_used_vol', ['used_A區','used_B區','used_C區','used_D區']),
+          this.getSumVal(r, 'sum_rem_vol', ['rem_A區','rem_B區','rem_C區','rem_D區']),
+          this.getRowHealthVol(r)
+        ]);
 
-            // 使用相容性最高、不會有 wrong PNG signature 錯誤的 JPEG 格式
-            const imgData = canvas.toDataURL('image/jpeg', 0.95);
-            const imgWidth = pdfWidth - 40;
-            const imgHeight = (canvas.height * imgWidth) / canvas.width;
+        doc.autoTable({
+          head: volHead,
+          body: volBody,
+          startY: 35,
+          styles: { fontSize: 7, cellPadding: 3, halign: 'center' },
+          headStyles: { fillColor: [15, 23, 42], textColor: [56, 189, 248] },
+          theme: 'grid'
+        });
 
-            pdf.setFillColor(15, 23, 42);
-            pdf.rect(0, 0, pdfWidth, pdfHeight, 'F');
+        // 3. 頁籤 3 報表 (綜合總覽表)
+        doc.addPage();
+        doc.text('儲位管理系統 - 儲位與才數綜合總覽表', 20, 25);
 
-            pdf.setFontSize(14);
-            pdf.setTextColor(56, 189, 248);
-            pdf.text(tabList[i].title, 20, 30);
+        const combHead = [
+          ['樓層', '儲位類型', '格數-規劃數', '格數-已使用', '格數-未使用率', '剩餘儲位數', '剩餘才數', '才數-規劃數', '才數-已使用', '才數-未使用率', '才數-剩餘才數', '儲位健康度']
+        ];
+        const combBody = this.combinedTableData.map(r => [
+          r.displayFloor || r.floor || '', r.displayType || r.loc_type || '',
+          r.sum_plan_grid, r.sum_used_grid, r.sum_unrate_grid, r.sum_rem_grid, r.sum_rem_vol,
+          r.sum_plan_vol, r.sum_used_vol, r.sum_unrate_vol, r.sum_rem_vol, r.sum_health_vol
+        ]);
 
-            const yPos = 45;
-            const finalImgHeight = Math.min(imgHeight, pdfHeight - 60);
-            pdf.addImage(imgData, 'JPEG', 20, yPos, imgWidth, finalImgHeight);
-          }
-        }
+        doc.autoTable({
+          head: combHead,
+          body: combBody,
+          startY: 35,
+          styles: { fontSize: 8, cellPadding: 4, halign: 'center' },
+          headStyles: { fillColor: [2, 132, 199], textColor: [255, 255, 255] },
+          theme: 'grid'
+        });
 
         const dateStr = new Date().toISOString().split('T')[0];
-        pdf.save(`儲位管理系統_統計概覽報表_3頁列印_${dateStr}.pdf`);
-        this.$message.success('🎉 成功匯出 3 頁滿版 PDF 報表！');
+        doc.save(`儲位管理系統_跨區交叉矩陣報表_${dateStr}.pdf`);
+        this.$message.success('🎉 成功匯出完整 3 頁滿版 PDF 向量報表！');
       } catch (err) {
         this.$message.error('匯出 PDF 失敗：' + err.message);
       } finally {
-        this.activeTab = originalTab;
         this.exportingPdf = false;
       }
     }
