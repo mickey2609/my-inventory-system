@@ -41,7 +41,7 @@
           <LocSummary 
             v-else-if="currentTab === 'loc_summary'" key="loc_summary"
             :loading="locLoading" :calc-progress="calcProgress" :progress-colors="progressColors"
-            :summary-stats="summaryStats" :area-grid-table="areaGridTable" :summary-grid-data="summaryGridData"
+            :summaryStats="summaryStats" :area-grid-table="areaGridTable" :summary-grid-data="summaryGridData"
             :area-vol-table="areaVolTable" :summary-vol-data="summaryVolData"
             @refresh-summary="handleSummaryCalc"
           />
@@ -56,6 +56,11 @@
             :is-sys-admin="isSysAdmin"
             @open-search="openSearchModal" @export-data="exportData" @page-change="handlePageChange"
             @size-change="handlePageSizeChange"
+          />
+
+          <!-- 🌟🌟🌟 新增：庫存查詢 15 頁面掛載 🌟🌟🌟 -->
+          <InvSearch15 
+            v-else-if="currentTab === 'inv15'" key="inv15"
           />
 
           <SettingsLog 
@@ -163,6 +168,7 @@ import InventorySearchModal from './components/InventorySearchModal.vue'
 import HomeDashboard from './views/HomeDashboard.vue'
 import LoginOverlay from './views/LoginOverlay.vue'
 import InvQuery80 from './views/InvQuery80.vue'
+import InvSearch15 from './views/InvSearch15.vue' // 🌟 新增匯入 InvSearch15
 import LocSummary from './views/LocSummary.vue'
 import SettingsPerm from './views/SettingsPerm.vue'
 import SettingsLog from './views/SettingsLog.vue'
@@ -178,7 +184,7 @@ export default {
   components: {
     TopNavbar, SystemDrawer, ColConfigModal, ParamMenuModal, WidthConfigModal,
     ImportTipModal, UserManagementModals, InventorySearchModal, HomeDashboard,
-    LoginOverlay, InvQuery80, LocSummary, SettingsPerm, SettingsLog
+    LoginOverlay, InvQuery80, InvSearch15, LocSummary, SettingsPerm, SettingsLog // 🌟 註冊 InvSearch15
   },
   setup() {
     const { sendLog, getDeviceType, setupAxiosInterceptor } = useSystemLogs();
@@ -234,7 +240,7 @@ export default {
       customExportColWidths: { '商品ID': 25, '商品名稱': 40, '儲位': 15 },
       availableModules: [
         { key: 'loc_summary', name: '📊 儲位數才數統整' }, { key: 'inv80', name: '🔍 庫存查詢80' },
-        { key: 'inv15', name: '⚡ 庫存查詢15' }, { key: 'turnover', name: '📈 迴轉率清單' },
+        { key: 'inv15', name: '📦 庫存查詢15' }, { key: 'turnover', name: '📈 迴轉率清單' },
         { key: 'abnormal_purchase', name: '⚠️ 不合理進貨清單' }
       ],
 
@@ -656,7 +662,16 @@ export default {
       this.$message.info('已成功登出');
     },
     getTabName(k) {
-      const names = { 'home': '🏠 系統首頁', 'inv80': '庫存查詢80', 'inv15': '庫存查詢15', 'loc_summary': '儲位數才數統整', 'turnover': '迴轉率清單', 'abnormal_purchase': '不合理進貨清單', 'settings_perm': '權限管理', 'settings_log': '日誌歷程查詢' };
+      const names = { 
+        'home': '🏠 系統首頁', 
+        'inv80': '🔍 庫存查詢80', 
+        'inv15': '📦 庫存查詢15', // 🌟 補全名稱
+        'loc_summary': '📊 儲位數才數統整', 
+        'turnover': '📈 迴轉率清單', 
+        'abnormal_purchase': '⚠️ 不合理進貨清單', 
+        'settings_perm': '⚙️ 權限管理', 
+        'settings_log': '📜 日誌歷程查詢' 
+      };
       return names[k] || '系統模組';
     },
     async fetchInitData() { try { const res = await axios.get('/api/categories/large'); if (res.data?.success) this.options.big_zones = res.data.data; } catch (e) {} },
@@ -686,7 +701,6 @@ export default {
           dimCols.forEach(col => { if (!currentCols.includes(col)) currentCols.push(col); });
         }
 
-        // 🌟 核心過濾修正：直接以 rawColumnsMaster 為基準防呆過濾，防止舊快取剝奪新欄位
         const masterSet = new Set(this.rawColumnsMaster);
         this.columns = currentCols.filter(c => masterSet.has(c));
         if (this.columns.length === 0) {
