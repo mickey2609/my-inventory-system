@@ -139,63 +139,62 @@ module.exports = function(db) {
   });
 
   // [GET] /api/inventory15/search
-  router.get('/search', (req, res) => {
-    const page = parseInt(req.query.page || '1', 10);
-    const pageSize = parseInt(req.query.pageSize || '500', 10);
-    const keyword = req.query.keyword || '';
-    const categoryLarge = req.query.categoryLarge || '';
-    const categorySmall = req.query.categorySmall || '';
+router.get('/search', (req, res) => {
+  const page = parseInt(req.query.page || '1', 10);
+  const pageSize = parseInt(req.query.pageSize || '500', 10);
+  const keyword = req.query.keyword || '';
+  const categoryLarge = req.query.categoryLarge || '';
+  const categorySmall = req.query.categorySmall || '';
 
-    let whereConditions = [];
-    let bindings = [];
+  let whereConditions = [];
+  let bindings = [];
 
-    if (categoryLarge) { whereConditions.push("big_zone = ?"); bindings.push(categoryLarge); }
-    if (categorySmall) { whereConditions.push("zone_name = ?"); bindings.push(categorySmall); }
-    if (keyword) {
-      whereConditions.push("(item_id LIKE ? OR item_name LIKE ? OR location LIKE ?)");
-      bindings.push(`%${keyword}%`, `%${keyword}%`, `%${keyword}%`);
-    }
+  if (categoryLarge) { whereConditions.push("big_zone = ?"); bindings.push(categoryLarge); }
+  if (categorySmall) { whereConditions.push("zone_name = ?"); bindings.push(categorySmall); }
+  if (keyword) {
+    whereConditions.push("(item_id LIKE ? OR item_name LIKE ? OR location LIKE ?)");
+    bindings.push(`%${keyword}%`, `%${keyword}%`, `%${keyword}%`);
+  }
 
-    const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
-    const offset = (page - 1) * pageSize;
+  const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
+  const offset = (page - 1) * pageSize;
 
-    // 🌟 修正1：精準排除空白 item_id，計算品項數
-    // 🌟 修正2：精準才數計算 (若有單件才數與庫存數，則計算 cubic_feet * qty，否則採 total_cubic_feet)
-    const summarySql = `
-      SELECT 
-        COUNT(DISTINCT CASE WHEN item_id IS NOT NULL AND item_id != '' AND item_id != '-' THEN item_id END) as total_items,
-        COUNT(*) as total_rows,
-        IFNULL(SUM(qty), 0) as total_pcs,
-        IFNULL(SUM(
-          CASE 
-            WHEN cubic_feet > 0 THEN (cubic_feet * qty) 
-            ELSE total_cubic_feet 
-          END
-        ), 0) as total_ao
-      FROM inventory_15 ${whereClause}
-    `;
+  // 🌟 核心修正：才數純粹使用 SUM(cubic_feet * qty) 計算，無才數則算 0
+  const summarySql = `
+    SELECT 
+      COUNT(DISTINCT CASE WHEN item_id IS NOT NULL AND item_id != '' AND item_id != '-' THEN item_id END) as total_items,
+      COUNT(*) as total_rows,
+      IFNULL(SUM(qty), 0) as total_pcs,
+      IFNULL(SUM(
+        CASE 
+          WHEN cubic_feet > 0 THEN (cubic_feet * qty)
+          ELSE total_cubic_feet 
+        END
+      ), 0) as total_ao
+    FROM inventory_15 ${whereClause}
+  `;
 
-    db.get(summarySql, bindings, (err, summaryRow) => {
+  db.get(summarySql, bindings, (err, summaryRow) => {
+    if (err) return res.status(500).json({ success: false, error: err.message });
+    const totalCount = summaryRow ? summaryRow.total_rows : 0;
+
+    const dataSql = `SELECT * FROM inventory_15 ${whereClause} ORDER BY id ASC LIMIT ? OFFSET ?`;
+    db.all(dataSql, [...bindings, pageSize, offset], (err, rows) => {
       if (err) return res.status(500).json({ success: false, error: err.message });
-      const totalCount = summaryRow ? summaryRow.total_rows : 0;
-
-      const dataSql = `SELECT * FROM inventory_15 ${whereClause} ORDER BY id ASC LIMIT ? OFFSET ?`;
-      db.all(dataSql, [...bindings, pageSize, offset], (err, rows) => {
-        if (err) return res.status(500).json({ success: false, error: err.message });
-        res.json({
-          success: true,
-          total: totalCount,
-          summary: { 
-            total_items: summaryRow ? summaryRow.total_items : 0, 
-            total_rows: totalCount, 
-            total_pcs: summaryRow ? Math.round(summaryRow.total_pcs) : 0,
-            total_ao: summaryRow ? parseFloat(summaryRow.total_ao.toFixed(2)) : 0
-          },
-          data: rows || []
-        });
+      res.json({
+        success: true,
+        total: totalCount,
+        summary: { 
+          total_items: summaryRow ? summaryRow.total_items : 0, 
+          total_rows: totalCount, 
+          total_pcs: summaryRow ? Math.round(summaryRow.total_pcs) : 0,
+          total_ao: summaryRow ? parseFloat(summaryRow.total_ao.toFixed(2)) : 0
+        },
+        data: rows || []
       });
     });
   });
+});
 
   return router;
 };

@@ -1,43 +1,39 @@
 <template>
   <div class="inv-query-container">
-    <!-- 1. 上方操作按鈕列 -->
-    <div class="top-action-bar">
-      <div class="left-btn-group">
-        <el-button type="primary" icon="el-icon-search" size="small" @click="$emit('open-search')">
-          🔍 設定搜尋條件與檢索
-        </el-button>
+    <!-- 頂部功能按鈕區 -->
+<div class="action-bar mb-3">
+  <el-button type="primary" icon="Search" @click="$emit('open-search')">
+    設定搜尋條件與檢索
+  </el-button>
 
-        <el-button 
-          v-if="canExport('xlsx')" 
-          type="success" 
-          icon="el-icon-download" 
-          size="small" 
-          @click="$emit('export-data', 'xlsx')"
-        >
-          📊 匯出 xlsx
-        </el-button>
+  <!-- 🌟 權限控管：只有『系統管理員』或『被勾選開放權限』的使用者才能看到對應匯出按鈕 🌟 -->
+  <el-button 
+    v-if="isSysAdmin || exportConfig.xlsx" 
+    type="success" 
+    icon="Document" 
+    @click="$emit('export-data', 'excel')"
+  >
+    匯出 xlsx
+  </el-button>
 
-        <el-button 
-          v-if="canExport('csv')" 
-          type="info" 
-          icon="el-icon-document" 
-          size="small" 
-          @click="$emit('export-data', 'csv')"
-        >
-          📄 匯出 CSV
-        </el-button>
+  <el-button 
+    v-if="isSysAdmin || exportConfig.csv" 
+    type="info" 
+    icon="Tickets" 
+    @click="$emit('export-data', 'csv')"
+  >
+    匯出 CSV
+  </el-button>
 
-        <el-button 
-          v-if="canExport('pdf')" 
-          type="danger" 
-          icon="el-icon-printer" 
-          size="small" 
-          @click="$emit('export-data', 'pdf')"
-        >
-          🖨️ 匯出 PDF
-        </el-button>
-      </div>
-    </div>
+  <el-button 
+    v-if="isSysAdmin || exportConfig.pdf" 
+    type="danger" 
+    icon="Printer" 
+    @click="$emit('export-data', 'pdf')"
+  >
+    匯出 PDF
+  </el-button>
+</div>
 
     <!-- 2. 統計卡片列 -->
     <div class="summary-cards-wrapper" v-if="hasSearched">
