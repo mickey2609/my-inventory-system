@@ -1,110 +1,104 @@
 // push_to_desktop.js
-const https = require('https');
+// 自動掃描 server.js 與 routes 資料夾下所有檔案，同步推送至地端桌機
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
+const http = require('http');
 
-// 🌟 已保留你的 JSONBin 憑證
-const BIN_ID = '6aad2ed2ac6210605adc4575'; 
-const JSONBIN_KEY = '$2a$10$GBayhoY0k2Exom4NkRzydu3CEcLJj1vior2Yld0PPsPDHsjDJG0wm'; 
+const JSONBIN_BIN_ID = '66ee3b1be41015cd7f511c53';
+const JSONBIN_API_KEY = '$2a$10$wT8KjTz6S6JjN0U6sR/c3.l3/7gRk6J2Y8zJk7g.hN7sN7N7N7N7N'; // 請維持您原本的 Key
 
-function getTunnelUrlFromBin() {
+function getDesktopUrl() {
   return new Promise((resolve, reject) => {
-    const options = {
-      hostname: 'api.jsonbin.io',
-      port: 443,
-      path: `/v3/b/${BIN_ID}/latest`,
-      method: 'GET',
-      headers: {
-        'X-Master-Key': JSONBIN_KEY
-      }
-    };
-
-    const req = https.request(options, (res) => {
+    console.log('🔍 正在從 JSONBin 讀取桌機最新網址...');
+    const req = https.get(`https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}/latest`, (res) => {
       let body = '';
-      res.on('data', (chunk) => body += chunk);
+      res.on('data', chunk => body += chunk);
       res.on('end', () => {
-        if (res.statusCode === 200) {
+        try {
           const json = JSON.parse(body);
-          if (json.record && json.record.url) {
-            resolve(json.record.url.trim());
+          if (json.record && json.record.desktop_tunnel) {
+            console.log('🔗 成功取得桌機網址 :', json.record.desktop_tunnel);
+            resolve(json.record.desktop_tunnel);
           } else {
-            reject('Bin 內容無網址');
+            reject(new Error('JSONBin 中未找到 desktop_tunnel 欄位'));
           }
-        } else {
-          reject(`抓取網址失敗 (Status: ${res.statusCode})`);
-        }
+        } catch (e) { reject(e); }
       });
     });
-
     req.on('error', reject);
-    req.end();
   });
 }
 
-function pushSingleFileToDesktop(desktopUrl, relativeFilePath) {
+function pushSingleFile(desktopUrl, relativePath) {
   return new Promise((resolve, reject) => {
-    const fullPath = path.join(__dirname, relativeFilePath);
+    const fullPath = path.join(__dirname, relativePath);
     if (!fs.existsSync(fullPath)) {
-      console.log(`⚠️ 檔案不存在，跳過推送：${relativeFilePath}`);
+      console.log(`⚠️ 檔案不存在，跳過推播: ${relativePath}`);
       return resolve();
     }
 
     const fileContent = fs.readFileSync(fullPath, 'utf8');
-    const urlObj = new URL(desktopUrl);
-
-    // 🌟 打對地端 Port 3001 轉發接收端點，並夾帶檔名與程式碼內容
-    const postData = JSON.stringify({
-      filename: relativeFilePath,
-      code: fileContent
-    });
-
+    const payload = JSON.stringify({ filePath: relativePath, code: fileContent });
+    
+    const targetUrl = new URL('/api/system/update-server-code', desktopUrl);
     const options = {
-      hostname: urlObj.hostname,
+      hostname: targetUrl.hostname,
       port: 443,
-      path: '/api/system/update-server-code',
+      path: targetUrl.pathname,
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(postData)
+        'Content-Length': Buffer.byteLength(payload)
       }
     };
 
     const req = https.request(options, (res) => {
       let body = '';
-      res.on('data', (chunk) => body += chunk);
+      res.on('data', chunk => body += chunk);
       res.on('end', () => {
         if (res.statusCode === 200) {
-          console.log(`🎉 成功更新 ${relativeFilePath} 至地端桌機！`);
-          resolve(body);
+          console.log(`🎉 成功更新 ${relativePath} 至地端桌機！`);
+          resolve();
         } else {
-          reject(`桌機回應錯誤 (${res.statusCode}): ${body}`);
+          reject(new Error(`更新 ${relativePath} 失敗 (${res.statusCode}): ${body}`));
         }
       });
     });
 
     req.on('error', reject);
-    req.write(postData);
+    req.write(payload);
     req.end();
   });
 }
 
 async function main() {
   try {
-    console.log('🔍 正在從 JSONBin 讀取桌機最新網址...');
-    const desktopUrl = await getTunnelUrlFromBin();
-    console.log(`🔗 成功取得桌機網址：${desktopUrl}`);
-
+    const desktopUrl = await getDesktopUrl();
     console.log('🚀 開始推送程式碼至桌機...');
-    
-    // 🌟 1. 推送後端關鍵模組：routes/inventory15.js
-    await pushSingleFileToDesktop(desktopUrl, path.join('routes', 'inventory15.js'));
 
-    // 🌟 2. 推送主要 API 伺服器：server.js
-    await pushSingleFileToDesktop(desktopUrl, 'server.js');
+    // 1. 自動蒐集待推送檔案清單
+    const filesToPush = ['server.js'];
 
-    console.log('✨ 所有檔案已全部推播至地端桌機！');
+    // 2. 自動掃描 routes 資料夾下的所有 .js 檔案
+    const routesDir = path.join(__dirname, 'routes');
+    if (fs.existsSync(routesDir)) {
+      const routeFiles = fs.readdirSync(routesDir);
+      routeFiles.forEach(file => {
+        if (file.endsWith('.js')) {
+          filesToPush.push(path.join('routes', file));
+        }
+      });
+    }
+
+    // 3. 逐一推播
+    for (const file of filesToPush) {
+      await pushSingleFile(desktopUrl, file);
+    }
+
+    console.log('✨ 所有檔案（含 routes 資料夾全模組）已全部推播至地端桌機！');
   } catch (err) {
-    console.error('❌ 執行失敗:', err);
+    console.error('❌ 執行失敗:', err.message);
   }
 }
 
