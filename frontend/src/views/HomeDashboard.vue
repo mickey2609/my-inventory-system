@@ -53,19 +53,19 @@
         <div class="action-card" @click="$emit('open-tab', 'inv80')">
           <div class="action-icon">🔍</div>
           <div class="action-title">庫存查詢 80</div>
-          <div class="action-desc">48 欄位極速搜尋、多區批次查詢與匯出</div>
+          <div class="action-desc">人工倉</div>
         </div>
 
         <div class="action-card" @click="$emit('open-tab', 'inv15')">
           <div class="action-icon">📦</div>
           <div class="action-title">庫存查詢 15</div>
-          <div class="action-desc">處理 30~40 萬筆大數據 latest_inventory15.csv</div>
+          <div class="action-desc">自動化倉</div>
         </div>
 
         <div class="action-card" @click="$emit('open-tab', 'loc_summary')">
           <div class="action-icon">📊</div>
-          <div class="action-title">儲位數才數統整</div>
-          <div class="action-desc">A/B/C/D 區與樓層型態跨區交叉矩陣統計</div>
+          <div class="action-title">儲位數才數統整 80</div>
+          <div class="action-desc">各樓層儲位類型統計</div>
         </div>
 
         <div class="action-card" @click="$emit('open-tab', 'turnover')">
