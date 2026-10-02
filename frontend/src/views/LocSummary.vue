@@ -3,8 +3,42 @@
     <div class="summary-container">
       <!-- 頂部操作列與設定按鈕 -->
       <div class="top-bar-actions">
-        <span class="page-title-text">📊 儲位數與才數統計概覽 (跨區交叉矩陣)</span>
+        <div class="left-title-group">
+          <span class="page-title-text">📊 儲位數與才數統計概覽 (跨區交叉矩陣)</span>
+          
+          <!-- 🌟 歷史快照選擇下拉選單 🌟 -->
+          <el-select 
+            v-model="selectedDate" 
+            placeholder="選擇紀錄日期" 
+            size="mini" 
+            style="width: 210px; margin-left: 15px;"
+            @change="onDateChange"
+          >
+            <el-option label="⚡ 當前即時試算數據" value="realtime" />
+            <el-option 
+              v-for="item in historyList" 
+              :key="item.record_date" 
+              :label="`${item.record_date} (${item.file_name || '歷史快照'})`" 
+              :value="item.record_date" 
+            />
+          </el-select>
+          <span v-if="selectedDate !== 'realtime'" class="history-tag">
+            📌 歷史快照模式
+          </span>
+        </div>
+
         <div class="btn-group">
+          <!-- 重新整理按鈕 -->
+          <el-button 
+            type="primary" 
+            size="small" 
+            icon="el-icon-refresh" 
+            :loading="loading" 
+            @click="fetchRealtimeAndHistory"
+          >
+            重新整理數據
+          </el-button>
+
           <!-- 🌟 匯出 XLSX 按鈕 (依權限控制顯示) 🌟 -->
           <el-button 
             v-if="exportPerms.xlsx"
@@ -44,35 +78,35 @@
         </div>
       </div>
 
-      <!-- 7 大數據指標卡片 -->
+      <!-- 7 大數據指標卡片 (自動響應即時 / 歷史快照數據) -->
       <div class="stats-overview-grid">
         <div class="stat-card">
           <span class="stat-lbl">規劃總儲格數</span>
-          <span class="stat-val text-blue">{{ formatNumber(summaryStats.total_plan_grid) }}</span>
+          <span class="stat-val text-blue">{{ formatNumber(activeStats.total_plan_grid) }}</span>
         </div>
         <div class="stat-card">
           <span class="stat-lbl">使用中儲格數</span>
-          <span class="stat-val text-green">{{ formatNumber(summaryStats.total_used_grid) }}</span>
+          <span class="stat-val text-green">{{ formatNumber(activeStats.total_used_grid) }}</span>
         </div>
         <div class="stat-card">
           <span class="stat-lbl">剩餘空儲格數</span>
-          <span class="stat-val text-orange">{{ formatNumber(summaryStats.total_rem_grid) }}</span>
+          <span class="stat-val text-orange">{{ formatNumber(activeStats.total_rem_grid) }}</span>
         </div>
         <div class="stat-card">
           <span class="stat-lbl">規劃總才數</span>
-          <span class="stat-val text-blue">{{ formatNumber(summaryStats.total_plan_vol) }}</span>
+          <span class="stat-val text-blue">{{ formatNumber(activeStats.total_plan_vol) }}</span>
         </div>
         <div class="stat-card">
           <span class="stat-lbl">使用中才數</span>
-          <span class="stat-val text-green">{{ formatNumber(summaryStats.total_used_vol) }}</span>
+          <span class="stat-val text-green">{{ formatNumber(activeStats.total_used_vol) }}</span>
         </div>
         <div class="stat-card">
           <span class="stat-lbl">剩餘空才數</span>
-          <span class="stat-val text-orange">{{ formatNumber(summaryStats.total_rem_vol) }}</span>
+          <span class="stat-val text-orange">{{ formatNumber(activeStats.total_rem_vol) }}</span>
         </div>
         <div class="stat-card highlight-health">
           <span class="stat-lbl">儲位整體健康度</span>
-          <span class="stat-val text-cyan">{{ summaryStats.total_health || '0.0%' }}</span>
+          <span class="stat-val text-cyan">{{ activeStats.total_health || '0.0%' }}</span>
         </div>
       </div>
 
@@ -414,6 +448,11 @@ export default {
       exportingXlsx: false,
       exportingPdf: false,
 
+      // 🌟 歷史快照選擇與備份狀態 🌟
+      selectedDate: 'realtime',
+      historyList: [],
+      snapshotStats: null,
+
       // 🌟 匯出功能權限控制
       exportPerms: {
         xlsx: true,
@@ -422,7 +461,19 @@ export default {
     }
   },
   computed: {
-    // 🌟🌟🌟 判斷當前登入者是否為「系統管理員」sys_admin 🌟🌟🌟
+    // 🌟 判斷當前指標卡片要顯示即時試算還是歷史快照 🌟
+    activeStats() {
+      if (this.selectedDate !== 'realtime' && this.snapshotStats) {
+        return this.snapshotStats;
+      }
+      return this.summaryStats || {
+        total_plan_grid: 0, total_used_grid: 0, total_rem_grid: 0,
+        total_plan_vol: 0, total_used_vol: 0, total_rem_vol: 0,
+        total_health: '0.0%'
+      };
+    },
+
+    // 🌟 判斷當前登入者是否為「系統管理員」sys_admin 🌟
     isAdmin() {
       try {
         const userStr = localStorage.getItem('user') || localStorage.getItem('loginUser');
@@ -511,6 +562,7 @@ export default {
   },
   mounted() {
     this.loadExportPerms();
+    this.fetchHistoryList();
     if (!this.summaryGridData || this.summaryGridData.length === 0) {
       this.$emit('refresh-summary');
     }
@@ -521,6 +573,45 @@ export default {
       const num = Number(String(val).replace(/,/g, ''));
       return isNaN(num) ? val : num.toLocaleString();
     },
+
+    // 🌟 讀取已紀錄之歷史快照日期清單 🌟
+    async fetchHistoryList() {
+      try {
+        const res = await axios.get('/api/location-stats/history');
+        if (res.data && res.data.success) {
+          this.historyList = res.data.data || [];
+        }
+      } catch (e) {
+        console.error('抓取歷史快照失敗:', e.message);
+      }
+    },
+
+    // 🌟 歷史日期選單切換處理 🌟
+    onDateChange(val) {
+      if (val === 'realtime') {
+        this.snapshotStats = null;
+      } else {
+        const target = this.historyList.find(item => item.record_date === val);
+        if (target) {
+          this.snapshotStats = {
+            total_plan_grid: target.plan_grid,
+            total_used_grid: target.used_grid,
+            total_rem_grid: target.rem_grid,
+            total_plan_vol: target.plan_vol,
+            total_used_vol: target.used_vol,
+            total_rem_vol: target.rem_vol,
+            total_health: `${target.health_rate}%`
+          };
+        }
+      }
+    },
+
+    // 🌟 重新整理資料（包含即時計算與歷史清單） 🌟
+    async fetchRealtimeAndHistory() {
+      this.$emit('refresh-summary');
+      await this.fetchHistoryList();
+    },
+
     loadExportPerms() {
       const saved = localStorage.getItem('loc_summary_export_perms');
       if (saved) {
@@ -763,7 +854,7 @@ export default {
           doc.addFont('NotoSansTC.otf', 'NotoSansTC', 'normal');
           doc.setFont('NotoSansTC');
         } catch (fontErr) {
-          console.warn('⚠️ 中文字型載入失敗，採用系統預設', fontErr);
+          console.warn('⚠️️ 中文字型載入失敗，採用系統預設', fontErr);
         }
 
         doc.setFontSize(13);
@@ -881,10 +972,25 @@ export default {
   flex-shrink: 0;
 }
 
+.left-title-group {
+  display: flex;
+  align-items: center;
+}
+
 .page-title-text {
   font-size: 15px;
   font-weight: bold;
   color: #38bdf8;
+}
+
+.history-tag {
+  margin-left: 10px;
+  background-color: #f59e0b;
+  color: #000;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: bold;
 }
 
 .btn-group {
