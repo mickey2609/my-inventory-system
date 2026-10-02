@@ -64,7 +64,7 @@ module.exports = function(db) {
             return '';
           };
 
-          const itemId = getField('item_id', '商品ID');
+          const itemId = getField('item_id', '商品ID', '商品Id', 'itemId', 'ITEM_ID');
           if (!itemId || itemId === '-' || itemId === '0') continue;
 
           const getNum = (...keys) => {
@@ -72,55 +72,60 @@ module.exports = function(db) {
             return val ? (parseFloat(String(val).replace(/,/g, '')) || 0) : 0;
           };
 
+          const qtyVal = getNum('qty', '儲位庫存數', '儲位庫存', '庫存數');
+          const cubicFeetVal = getNum('cubic_feet', '才數', '單才數', '單件才數');
+          // 自動重新算精準的總才數，避免帶入 CSV 中的髒數據
+          const calculatedTotalCubic = cubicFeetVal * qtyVal;
+
           stmt.run([
             itemId,
-            getField('item_name', '商品名稱'),
-            getField('borrow_proc', '借/採'),
-            getField('location', '儲位'),
-            getNum('qty', '儲位庫存數'),
+            getField('item_name', '商品名稱', '品名'),
+            getField('borrow_proc', '借/採', '借採'),
+            getField('location', '儲位', '儲位編號'),
+            qtyVal,
             parseInt(getField('age', '庫齡') || 0, 10),
-            getField('zone_id', '區編'),
-            getField('zone_name', '區名'),
-            getField('hall_id', '館編'),
-            getField('hall_name', '館名'),
-            getNum('length', '長(cm)'),
-            getNum('width', '寬(cm)'),
-            getNum('height', '高(cm)'),
-            getNum('weight', '重量(kg)'),
-            getNum('monthly_sales', '(近)月銷量'),
-            getNum('pick_days_m', '(近)月-有揀貨單天數'),
-            getNum('sales_90d', '(近)90日銷量'),
-            getNum('pick_days_90d', '(近)90日-有揀貨單天數'),
-            getField('supplier_id', '供應商ID'),
-            getField('supplier_name', '供應商名稱'),
-            getField('pm', '所屬PM'),
-            getNum('total_qty', '總庫存數'),
-            getNum('turn_days_total', '總庫存_迴轉天數'),
-            getNum('cubic_feet', '才數'),
-            getField('vol_type', '材積別'),
-            getField('loc_code_3', '儲位編碼-3'),
-            getField('loc_code_full', '儲位編碼'),
-            getField('loc_code_5', '儲位編碼5'),
+            getField('zone_id', '區編', '區編號', '區域編號'),
+            getField('zone_name', '區名', '區域名稱'),
+            getField('hall_id', '館編', '館編號'),
+            getField('hall_name', '館名', '館別'),
+            getNum('length', '長(cm)', '長'),
+            getNum('width', '寬(cm)', '寬'),
+            getNum('height', '高(cm)', '高'),
+            getNum('weight', '重量(kg)', '重量'),
+            getNum('monthly_sales', '(近)月銷量', '月銷量'),
+            getNum('pick_days_m', '(近)月-有揀貨單天數', '月揀貨單天數'),
+            getNum('sales_90d', '(近)90日銷量', '90日銷量'),
+            getNum('pick_days_90d', '(近)90日-有揀貨單天數', '90日揀貨單天數'),
+            getField('supplier_id', '供應商ID', '廠商ID'),
+            getField('supplier_name', '供應商名稱', '廠商名稱'),
+            getField('pm', '所屬PM', 'PM'),
+            getNum('total_qty', '總庫存數', '總庫存'),
+            getNum('turn_days_total', '總庫存_迴轉天數', '迴轉天數'),
+            cubicFeetVal,
+            getField('vol_type', '材積別', '材積'),
+            getField('loc_code_3', '儲位編碼-3', '儲位3'),
+            getField('loc_code_full', '儲位編碼', '完整儲位編碼'),
+            getField('loc_code_5', '儲位編碼5', '儲位5'),
             getField('floor', '樓層'),
-            getField('floor_zone', '樓層區域'),
-            getField('loc_type', '儲位型態'),
-            getField('big_zone_id', '大區編'),
-            getField('big_zone', '大區名'),
-            getNum('dim_sum', '三邊長'),
-            getNum('max_dim', '最長邊'),
-            getNum('min_dim', '最短邊'),
+            getField('floor_zone', '樓層區域', '樓層區'),
+            getField('loc_type', '儲位型態', '儲位類型'),
+            getField('big_zone_id', '大區編', '大區ID', '大區編號'),
+            getField('big_zone', '大區名', '大區', '大區名稱'),
+            getNum('dim_sum', '三邊長', '三邊長(cm)'),
+            getNum('max_dim', '最長邊', '最長邊(cm)'),
+            getNum('min_dim', '最短邊', '最短邊(cm)'),
             getNum('loc_cubic_feet', '儲位才數'),
             getField('loc_health', '儲位健康度'),
             getField('non_compliant', '不符合'),
             getField('vol_check', '材積判斷'),
-            getNum('total_cubic_feet', '總才數'),
+            calculatedTotalCubic,
             getField('auto_type', '人工/自動'),
-            getField('shelf_level', '儲位層標示'),
-            getField('age_bracket', '庫齡級距'),
+            getField('shelf_level', '儲位層標示', '層標示'),
+            getField('age_bracket', '庫齡級距', '庫齡段'),
             getField('floor_config', '樓層設定'),
             getField('heavy_rack_check', '重型架判斷'),
             getField('assigned_floor', 'ID指定樓層'),
-            getField('remark', '備註')
+            getField('remark', '備註', '說明')
           ], (err) => {
             if (err) console.error('⚠ 單筆寫入失敗：', err.message);
           });
@@ -159,13 +164,13 @@ module.exports = function(db) {
     const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
     const offset = (page - 1) * pageSize;
 
-    // 🌟 核心公式：總才數 100% 嚴格採用 SUM(cubic_feet * qty) 累加！
+    // 🌟 100% 絕對純粹採納 SUM(cubic_feet * qty) 精準算式！
     const summarySql = `
       SELECT 
         COUNT(DISTINCT CASE WHEN item_id IS NOT NULL AND item_id != '' AND item_id != '-' THEN item_id END) as total_items,
         COUNT(*) as total_rows,
         IFNULL(SUM(qty), 0) as total_pcs,
-        IFNULL(SUM(cubic_feet * qty), 0) as total_ao
+        IFNULL(SUM(CAST(cubic_feet AS REAL) * CAST(qty AS REAL)), 0) as total_ao
       FROM inventory_15 ${whereClause}
     `;
 
