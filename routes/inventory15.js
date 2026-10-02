@@ -1,5 +1,4 @@
 // routes/inventory15.js
-// 專屬「庫存查詢 15」大數據處理模組 (含 WAL 模式與記憶體優化)
 const express = require('express');
 const router = express.Router();
 
@@ -8,7 +7,7 @@ function initInventory15Table(db) {
     // ⚡ 核心極速優化 PRAGMA
     db.run(`PRAGMA journal_mode = WAL;`);
     db.run(`PRAGMA synchronous = OFF;`);
-    db.run(`PRAGMA cache_size = -64000;`); // 64MB 記憶體快取
+    db.run(`PRAGMA cache_size = -64000;`);
 
     db.run(`
       CREATE TABLE IF NOT EXISTS inventory_15 (
@@ -44,7 +43,6 @@ module.exports = function(db) {
         db.run('BEGIN TRANSACTION');
         if (isFirstChunk) db.run('DELETE FROM inventory_15');
 
-        // 精準 48 個欄位與 48 個 ? 問號
         const stmt = db.prepare(`
           INSERT INTO inventory_15 (
             item_id, item_name, borrow_proc, location, qty, age,
@@ -68,7 +66,6 @@ module.exports = function(db) {
           };
 
           const itemId = getField('item_id', '商品ID');
-          // 雙重防呆：沒有商品 ID 直接跳過不寫入（防無效空白列）
           if (!itemId) continue;
 
           const getNum = (...keys) => {
@@ -163,9 +160,17 @@ module.exports = function(db) {
     const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
     const offset = (page - 1) * pageSize;
 
-    const countSql = `SELECT COUNT(*) as total_rows, IFNULL(SUM(qty), 0) as total_pcs FROM inventory_15 ${whereClause}`;
+    // 🌟 核心修正：補齊 COUNT(DISTINCT item_id) 與 SUM(才數)
+    const summarySql = `
+      SELECT 
+        COUNT(DISTINCT item_id) as total_items,
+        COUNT(*) as total_rows,
+        IFNULL(SUM(qty), 0) as total_pcs,
+        IFNULL(SUM(CASE WHEN total_cubic_feet > 0 THEN total_cubic_feet ELSE (cubic_feet * qty) END), 0) as total_ao
+      FROM inventory_15 ${whereClause}
+    `;
 
-    db.get(countSql, bindings, (err, summaryRow) => {
+    db.get(summarySql, bindings, (err, summaryRow) => {
       if (err) return res.status(500).json({ success: false, error: err.message });
       const totalCount = summaryRow ? summaryRow.total_rows : 0;
 
@@ -175,7 +180,12 @@ module.exports = function(db) {
         res.json({
           success: true,
           total: totalCount,
-          summary: { total_rows: totalCount, total_pcs: Math.round(summaryRow ? summaryRow.total_pcs : 0) },
+          summary: { 
+            total_items: summaryRow ? summaryRow.total_items : 0, 
+            total_rows: totalCount, 
+            total_pcs: summaryRow ? Math.round(summaryRow.total_pcs) : 0,
+            total_ao: summaryRow ? parseFloat(summaryRow.total_ao.toFixed(2)) : 0
+          },
           data: rows || []
         });
       });
