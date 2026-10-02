@@ -52,7 +52,7 @@
             📊 匯出 xlsx (3工作表)
           </el-button>
 
-          <!-- 🌟 匯出 PDF 按鈕 (依權限控制顯示) 🌟 -->
+          <!-- 🌟 匯出 PDF 按鈕 (依權限控制顯示，預設關閉) 🌟 -->
           <el-button 
             v-if="exportPerms.pdf"
             type="danger" 
@@ -65,7 +65,7 @@
             🖨️ 匯出 PDF (3頁)
           </el-button>
 
-          <!-- 🌟 儲位定義設定按鈕 🌟 -->
+          <!-- 🌟 儲位定義設定按鈕 (只有系統管理員 sys_admin 看的到) 🌟 -->
           <el-button 
             v-if="isAdmin"
             type="warning" 
@@ -132,6 +132,7 @@
               <el-table-column prop="floor" label="樓層" width="75" align="center" fixed="left"></el-table-column>
               <el-table-column prop="loc_type" label="儲位類型" width="130" fixed="left" class-name="section-border-right"></el-table-column>
 
+              <!-- 規劃 -->
               <el-table-column label="規劃" align="center" class-name="section-border-right">
                 <el-table-column prop="plan_A區" label="A區" width="80" align="right"></el-table-column>
                 <el-table-column prop="plan_B區" label="B區" width="80" align="right"></el-table-column>
@@ -139,6 +140,7 @@
                 <el-table-column prop="plan_D區" label="D區" width="80" align="right" class-name="section-border-right"></el-table-column>
               </el-table-column>
 
+              <!-- 已使用 -->
               <el-table-column label="已使用" align="center" class-name="section-border-right">
                 <el-table-column prop="used_A區" label="A區" width="80" align="right"></el-table-column>
                 <el-table-column prop="used_B區" label="B區" width="80" align="right"></el-table-column>
@@ -146,6 +148,7 @@
                 <el-table-column prop="used_D區" label="D區" width="80" align="right" class-name="section-border-right"></el-table-column>
               </el-table-column>
 
+              <!-- 未使用率 (%) -->
               <el-table-column label="未使用率 (%)" align="center" class-name="section-border-right">
                 <el-table-column prop="unrate_A區" label="A區" width="80" align="right"></el-table-column>
                 <el-table-column prop="unrate_B區" label="B區" width="80" align="right"></el-table-column>
@@ -153,6 +156,7 @@
                 <el-table-column prop="unrate_D區" label="D區" width="80" align="right" class-name="section-border-right"></el-table-column>
               </el-table-column>
 
+              <!-- 剩餘 -->
               <el-table-column label="剩餘" align="center" class-name="section-border-right">
                 <el-table-column prop="rem_A區" label="A區" width="80" align="right"></el-table-column>
                 <el-table-column prop="rem_B區" label="B區" width="80" align="right"></el-table-column>
@@ -160,6 +164,7 @@
                 <el-table-column prop="rem_D區" label="D區" width="80" align="right" class-name="section-border-right"></el-table-column>
               </el-table-column>
 
+              <!--【儲位格數彙總】-->
               <el-table-column label="【儲位格數彙總】" align="center" class-name="summary-header-group">
                 <el-table-column label="規劃數" width="85" align="right">
                   <template #default="scope">
@@ -203,6 +208,7 @@
               <el-table-column prop="floor" label="樓層" width="75" align="center" fixed="left"></el-table-column>
               <el-table-column prop="loc_type" label="儲位類型" width="130" fixed="left" class-name="section-border-right"></el-table-column>
 
+              <!-- 規劃總才數 -->
               <el-table-column label="規劃總才數" align="center" class-name="section-border-right">
                 <el-table-column prop="plan_A區" label="A區" width="80" align="right"></el-table-column>
                 <el-table-column prop="plan_B區" label="B區" width="80" align="right"></el-table-column>
@@ -210,6 +216,7 @@
                 <el-table-column prop="plan_D區" label="D區" width="80" align="right" class-name="section-border-right"></el-table-column>
               </el-table-column>
 
+              <!-- 使用中才數 -->
               <el-table-column label="使用中才數" align="center" class-name="section-border-right">
                 <el-table-column prop="used_A區" label="A區" width="80" align="right"></el-table-column>
                 <el-table-column prop="used_B區" label="B區" width="80" align="right"></el-table-column>
@@ -217,6 +224,7 @@
                 <el-table-column prop="used_D區" label="D區" width="80" align="right" class-name="section-border-right"></el-table-column>
               </el-table-column>
 
+              <!-- 剩餘才數 -->
               <el-table-column label="剩餘才數" align="center" class-name="section-border-right">
                 <el-table-column prop="rem_A區" label="A區" width="80" align="right"></el-table-column>
                 <el-table-column prop="rem_B區" label="B區" width="80" align="right"></el-table-column>
@@ -224,6 +232,7 @@
                 <el-table-column prop="rem_D區" label="D區" width="80" align="right" class-name="section-border-right"></el-table-column>
               </el-table-column>
 
+              <!--【才數彙總】-->
               <el-table-column label="【才數彙總】" align="center" class-name="summary-header-group">
                 <el-table-column label="規劃數" width="90" align="right">
                   <template #default="scope">
@@ -268,6 +277,7 @@
               <el-table-column prop="displayFloor" label="樓層" width="100" align="center" fixed="left"></el-table-column>
               <el-table-column prop="displayType" label="儲位類型" width="130" fixed="left" class-name="section-border-right"></el-table-column>
 
+              <!--【儲位格數彙總】-->
               <el-table-column label="【儲位格數彙總】" align="center" class-name="summary-header-group section-border-right">
                 <el-table-column label="規劃數" width="100" align="right">
                   <template #default="scope">
@@ -292,6 +302,7 @@
                 </el-table-column>
               </el-table-column>
 
+              <!--【才數彙總】-->
               <el-table-column label="【才數彙總】" align="center" class-name="summary-header-group-vol">
                 <el-table-column label="規劃數" width="110" align="right">
                   <template #default="scope">
@@ -318,19 +329,23 @@
             </el-table>
           </el-tab-pane>
 
-          <!-- 🌟 頁籤 4：📈 空間與健康度歷史趨勢圖 (高質感 ECharts 平滑曲線圖) 🌟 -->
+          <!-- 🌟 頁籤 4：📈 空間與健康度歷史趨勢圖 (Chart.js 動態雙曲線) 🌟 -->
           <el-tab-pane label="📈 空間與健康度歷史趨勢圖" name="trend">
             <div v-if="historyList.length === 0" class="no-trend-box">
               ⚠️ 尚無歷史快照紀錄，上傳庫存 CSV 檔案後將自動產生趨勢分析！
             </div>
-            <div v-else class="echarts-wrapper">
+            <div v-else class="charts-wrapper">
               <div class="chart-card">
                 <div class="chart-header">📊 80 庫「使用中儲格數」與「使用中才數」歷史推移曲線</div>
-                <div ref="capacityChart" class="chart-dom"></div>
+                <div class="canvas-container">
+                  <canvas ref="capacityChartCanvas"></canvas>
+                </div>
               </div>
               <div class="chart-card">
                 <div class="chart-header">🩺 80 庫「儲位整體健康度 %」歷史趨勢曲線</div>
-                <div ref="healthChart" class="chart-dom"></div>
+                <div class="canvas-container">
+                  <canvas ref="healthChartCanvas"></canvas>
+                </div>
               </div>
             </div>
           </el-tab-pane>
@@ -499,7 +514,7 @@ export default {
       historyList: [],
       snapshotStats: null,
 
-      // ECharts 實例
+      // Chart.js 實例
       capacityChartInstance: null,
       healthChartInstance: null,
 
@@ -620,12 +635,9 @@ export default {
     if (!this.summaryGridData || this.summaryGridData.length === 0) {
       this.$emit('refresh-summary');
     }
-    window.addEventListener('resize', this.resizeCharts);
   },
   beforeUnmount() {
-    window.removeEventListener('resize', this.resizeCharts);
-    if (this.capacityChartInstance) this.capacityChartInstance.dispose();
-    if (this.healthChartInstance) this.healthChartInstance.dispose();
+    this.destroyCharts();
   },
   methods: {
     formatNumber(val) {
@@ -637,20 +649,22 @@ export default {
     handleTabClick(tab) {
       if (tab.props.name === 'trend') {
         this.$nextTick(() => {
-          this.renderECharts();
+          this.renderCharts();
         });
       }
     },
 
-    resizeCharts() {
-      if (this.capacityChartInstance) this.capacityChartInstance.resize();
-      if (this.healthChartInstance) this.healthChartInstance.resize();
+    destroyCharts() {
+      if (this.capacityChartInstance) { this.capacityChartInstance.destroy(); this.capacityChartInstance = null; }
+      if (this.healthChartInstance) { this.healthChartInstance.destroy(); this.healthChartInstance = null; }
     },
 
-    // 🌟 渲染 CDN Element / ECharts 平滑雙動態折線圖 🌟
-    renderECharts() {
-      const echarts = window.echarts || (typeof echarts !== 'undefined' ? echarts : null);
-      if (!echarts || this.sortedHistoryList.length === 0) return;
+    // 🌟 原生 Chart.js 渲染平滑趨勢圖 🌟
+    renderCharts() {
+      const Chart = window.Chart || (typeof Chart !== 'undefined' ? Chart : null);
+      if (!Chart || this.sortedHistoryList.length === 0) return;
+
+      this.destroyCharts();
 
       const dates = this.sortedHistoryList.map(item => item.record_date);
       const usedGrids = this.sortedHistoryList.map(item => item.used_grid);
@@ -658,72 +672,82 @@ export default {
       const healthRates = this.sortedHistoryList.map(item => item.health_rate);
 
       // 1. 容量與才數雙 Y 軸曲線圖
-      if (this.$refs.capacityChart) {
-        if (!this.capacityChartInstance) {
-          this.capacityChartInstance = echarts.init(this.$refs.capacityChart);
-        }
-        const option1 = {
-          backgroundColor: 'transparent',
-          tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
-          legend: { data: ['使用中儲格數', '使用中才數'], textStyle: { color: '#94a3b8' } },
-          grid: { left: '4%', right: '4%', bottom: '8%', top: '15%', containLabel: true },
-          xAxis: { type: 'category', data: dates, axisLine: { lineStyle: { color: '#334155' } }, axisLabel: { color: '#94a3b8' } },
-          yAxis: [
-            { type: 'value', name: '儲格數', axisLine: { lineStyle: { color: '#38bdf8' } }, splitLine: { lineStyle: { color: '#1e293b' } }, axisLabel: { color: '#38bdf8' } },
-            { type: 'value', name: '才數', axisLine: { lineStyle: { color: '#4ade80' } }, splitLine: { show: false }, axisLabel: { color: '#4ade80' } }
-          ],
-          series: [
-            {
-              name: '使用中儲格數', type: 'line', smooth: true, yAxisIndex: 0, data: usedGrids,
-              itemStyle: { color: '#38bdf8' },
-              areaStyle: {
-                color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                  { offset: 0, color: 'rgba(56, 189, 248, 0.4)' },
-                  { offset: 1, color: 'rgba(56, 189, 248, 0.0)' }
-                ])
+      if (this.$refs.capacityChartCanvas) {
+        const ctx1 = this.$refs.capacityChartCanvas.getContext('2d');
+        this.capacityChartInstance = new Chart(ctx1, {
+          type: 'line',
+          data: {
+            labels: dates,
+            datasets: [
+              {
+                label: '使用中儲格數',
+                data: usedGrids,
+                borderColor: '#38bdf8',
+                backgroundColor: 'rgba(56, 189, 248, 0.15)',
+                fill: true,
+                tension: 0.4,
+                yAxisID: 'yGrid'
+              },
+              {
+                label: '使用中才數',
+                data: usedVols,
+                borderColor: '#4ade80',
+                backgroundColor: 'rgba(74, 222, 128, 0.15)',
+                fill: true,
+                tension: 0.4,
+                yAxisID: 'yVol'
               }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+              legend: { labels: { color: '#94a3b8' } }
             },
-            {
-              name: '使用中才數', type: 'line', smooth: true, yAxisIndex: 1, data: usedVols,
-              itemStyle: { color: '#4ade80' },
-              areaStyle: {
-                color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                  { offset: 0, color: 'rgba(74, 222, 128, 0.3)' },
-                  { offset: 1, color: 'rgba(74, 222, 128, 0.0)' }
-                ])
+            scales: {
+              x: { grid: { color: '#1e293b' }, ticks: { color: '#94a3b8' } },
+              yGrid: {
+                type: 'linear', position: 'left', title: { display: true, text: '儲格數', color: '#38bdf8' },
+                grid: { color: '#1e293b' }, ticks: { color: '#38bdf8' }
+              },
+              yVol: {
+                type: 'linear', position: 'right', title: { display: true, text: '才數', color: '#4ade80' },
+                grid: { drawOnChartArea: false }, ticks: { color: '#4ade80' }
               }
             }
-          ]
-        };
-        this.capacityChartInstance.setOption(option1);
+          }
+        });
       }
 
-      // 2. 健康度 % 平滑曲線圖
-      if (this.$refs.healthChart) {
-        if (!this.healthChartInstance) {
-          this.healthChartInstance = echarts.init(this.$refs.healthChart);
-        }
-        const option2 = {
-          backgroundColor: 'transparent',
-          tooltip: { trigger: 'axis', formatter: '{b} <br/>儲位健康度: {c}%' },
-          grid: { left: '4%', right: '4%', bottom: '8%', top: '15%', containLabel: true },
-          xAxis: { type: 'category', data: dates, axisLine: { lineStyle: { color: '#334155' } }, axisLabel: { color: '#94a3b8' } },
-          yAxis: { type: 'value', name: '健康度 (%)', min: 0, max: 100, axisLine: { lineStyle: { color: '#22d3ee' } }, splitLine: { lineStyle: { color: '#1e293b' } }, axisLabel: { color: '#22d3ee' } },
-          series: [
-            {
-              name: '健康度 (%)', type: 'line', smooth: true, data: healthRates,
-              itemStyle: { color: '#22d3ee' },
-              lineStyle: { width: 3, color: '#22d3ee' },
-              areaStyle: {
-                color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                  { offset: 0, color: 'rgba(34, 211, 238, 0.4)' },
-                  { offset: 1, color: 'rgba(34, 211, 238, 0.0)' }
-                ])
-              }
+      // 2. 健康度 % 曲線圖
+      if (this.$refs.healthChartCanvas) {
+        const ctx2 = this.$refs.healthChartCanvas.getContext('2d');
+        this.healthChartInstance = new Chart(ctx2, {
+          type: 'line',
+          data: {
+            labels: dates,
+            datasets: [{
+              label: '儲位健康度 (%)',
+              data: healthRates,
+              borderColor: '#22d3ee',
+              backgroundColor: 'rgba(34, 211, 238, 0.2)',
+              fill: true,
+              tension: 0.4,
+              borderWidth: 3
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { labels: { color: '#94a3b8' } } },
+            scales: {
+              x: { grid: { color: '#1e293b' }, ticks: { color: '#94a3b8' } },
+              y: { min: 0, max: 100, grid: { color: '#1e293b' }, ticks: { color: '#22d3ee', callback: v => v + '%' } }
             }
-          ]
-        };
-        this.healthChartInstance.setOption(option2);
+          }
+        });
       }
     },
 
@@ -732,7 +756,7 @@ export default {
         const res = await axios.get('/api/location-stats/history');
         if (res.data && res.data.success) {
           this.historyList = res.data.data || [];
-          if (this.activeTab === 'trend') this.renderECharts();
+          if (this.activeTab === 'trend') this.renderCharts();
         }
       } catch (e) {
         console.error('抓取歷史快照失敗:', e.message);
@@ -1024,7 +1048,7 @@ export default {
           doc.addFont('NotoSansTC.otf', 'NotoSansTC', 'normal');
           doc.setFont('NotoSansTC');
         } catch (fontErr) {
-          console.warn('⚠️ 中文字型載入失敗，採用系統預設', fontErr);
+          console.warn('⚠️️ 中文字型載入失敗，採用系統預設', fontErr);
         }
 
         doc.setFontSize(13);
@@ -1301,7 +1325,7 @@ export default {
   border-left: 3px solid #38bdf8 !important;
 }
 
-/* 📈 趨勢圖 ECharts 容器與卡片 */
+/* 📈 趨勢圖 Chart.js 容器與卡片 */
 .no-trend-box {
   padding: 40px;
   text-align: center;
@@ -1309,7 +1333,7 @@ export default {
   font-size: 14px;
 }
 
-.echarts-wrapper {
+.charts-wrapper {
   display: flex;
   flex-direction: column;
   gap: 15px;
@@ -1332,7 +1356,8 @@ export default {
   margin-bottom: 8px;
 }
 
-.chart-dom {
+.canvas-container {
+  position: relative;
   width: 100%;
   height: 220px;
 }
