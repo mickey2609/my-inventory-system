@@ -314,7 +314,7 @@
             </el-table>
           </el-tab-pane>
 
-          <!-- 🌟 頁籤 4：📈 空間與健康度歷史趨勢圖 (100% 免套件 SVG 向量曲線圖) 🌟 -->
+          <!-- 🌟 頁籤 4：📈 空間與健康度歷史趨勢圖 🌟 -->
           <el-tab-pane label="📈 空間與健康度歷史趨勢圖" name="trend">
             <div v-if="sortedHistoryList.length === 0" class="no-trend-box">
               ⚠️ 尚無歷史快照紀錄，上傳庫存 CSV 檔案後將自動產生趨勢分析！
@@ -331,19 +331,14 @@
                 </div>
                 <div class="svg-stage">
                   <svg viewBox="0 0 800 200" class="svg-graph">
-                    <!-- 背景網格 -->
                     <line x1="50" y1="30" x2="750" y2="30" stroke="#1e293b" stroke-dasharray="4" />
                     <line x1="50" y1="90" x2="750" y2="90" stroke="#1e293b" stroke-dasharray="4" />
                     <line x1="50" y1="150" x2="750" y2="150" stroke="#1e293b" stroke-dasharray="4" />
 
-                    <!-- 曲線 1: 使用儲格 (藍色) -->
                     <path :d="gridSvgPath" fill="none" stroke="#38bdf8" stroke-width="3" stroke-linecap="round" />
                     <polygon :d="gridSvgArea" fill="url(#blueGradient)" opacity="0.25" />
-
-                    <!-- 曲線 2: 使用才數 (綠色) -->
                     <path :d="volSvgPath" fill="none" stroke="#4ade80" stroke-width="3" stroke-linecap="round" />
 
-                    <!-- 數據點 & 標籤 -->
                     <g v-for="(p, idx) in chartPoints" :key="'p1-'+idx">
                       <circle :cx="p.x" :cy="p.yGrid" r="5" fill="#38bdf8" stroke="#0f172a" stroke-width="2" />
                       <text :x="p.x" :y="p.yGrid - 10" fill="#38bdf8" font-size="11" text-anchor="middle" font-weight="bold">{{ formatNumber(p.item.used_grid) }} 格</text>
@@ -364,7 +359,7 @@
                 </div>
               </div>
 
-              <!-- 圖二：儲位健康度 (使用率 %) 走勢 -->
+              <!-- 圖二：儲位健康度走勢 -->
               <div class="svg-chart-card">
                 <div class="chart-title">
                   <span>🩺 二、80 庫「儲位整體健康度 (儲位使用率 %)」歷史走勢曲線（越高越好）</span>
@@ -376,11 +371,9 @@
                     <line x1="50" y1="85" x2="750" y2="85" stroke="#1e293b" stroke-dasharray="4" />
                     <line x1="50" y1="140" x2="750" y2="140" stroke="#1e293b" stroke-dasharray="4" />
 
-                    <!-- 健康度曲線 (青色) -->
                     <path :d="healthSvgPath" fill="none" stroke="#22d3ee" stroke-width="3.5" stroke-linecap="round" />
                     <polygon :d="healthSvgArea" fill="url(#cyanGradient)" opacity="0.25" />
 
-                    <!-- 數據點 -->
                     <g v-for="(p, idx) in chartPoints" :key="'p2-'+idx">
                       <circle :cx="p.x" :cy="p.yHealth" r="5" fill="#22d3ee" stroke="#0f172a" stroke-width="2" />
                       <text :x="p.x" :y="p.yHealth - 12" fill="#22d3ee" font-size="12" text-anchor="middle" font-weight="bold">{{ p.item.health_rate }}%</text>
@@ -397,7 +390,7 @@
                 </div>
               </div>
 
-              <!-- 圖三：剩餘儲位數與剩餘才數曲線 -->
+              <!-- 圖三：剩餘儲位數與才數曲線 -->
               <div class="svg-chart-card">
                 <div class="chart-title">
                   <span>📦 三、80 庫「剩餘空儲格數」與「剩餘空才數」歷史推移曲線</span>
@@ -412,10 +405,7 @@
                     <line x1="50" y1="90" x2="750" y2="90" stroke="#1e293b" stroke-dasharray="4" />
                     <line x1="50" y1="150" x2="750" y2="150" stroke="#1e293b" stroke-dasharray="4" />
 
-                    <!-- 曲線 1: 剩餘儲格 (橘色) -->
                     <path :d="remGridSvgPath" fill="none" stroke="#f97316" stroke-width="3" stroke-linecap="round" />
-
-                    <!-- 曲線 2: 剩餘才數 (黃色) -->
                     <path :d="remVolSvgPath" fill="none" stroke="#eab308" stroke-width="3" stroke-linecap="round" />
 
                     <g v-for="(p, idx) in chartPoints" :key="'p3-'+idx">
@@ -433,15 +423,62 @@
             </div>
           </el-tab-pane>
 
-          <!-- 頁籤 5：🗓️ 儲位 7 大 KPI 歷史快照管理清單 (獨立頁面呈現) -->
+          <!-- 🌟 頁籤 5：🗓️ 儲位 7 大 KPI 歷史快照管理清單 (含可展開各儲位類型小計) 🌟 -->
           <el-tab-pane label="🗓️ 儲位 7 大 KPI 歷史快照管理清單" name="history_manager">
             <div class="history-page-wrapper">
               <div class="history-page-header">
                 <span class="history-page-title">🗓️ 80 庫歷史快照點詳細紀錄列表</span>
-                <span class="history-page-subtitle">共 {{ historyList.length }} 筆歷史資料（點擊資料列右側按鈕可刪除誤上傳快照）</span>
+                <span class="history-page-subtitle">共 {{ historyList.length }} 筆歷史資料（點擊左側 ➕ 可展開檢視各儲位類型小計指標）</span>
               </div>
-              <el-table :data="historyList" border stripe size="small" class="dark-table" height="calc(100vh - 280px)">
-                <el-table-column prop="record_date" label="紀錄日期" width="120" align="center" fixed />
+              
+              <el-table 
+                :data="historyList" 
+                border 
+                stripe 
+                size="small" 
+                class="dark-table" 
+                height="calc(100vh - 280px)"
+              >
+                <!-- 🌟 展開欄位：展開後呈現該日期下「重型架、AGV層架...各小計」 🌟 -->
+                <el-table-column type="expand">
+                  <template #default="props">
+                    <div class="type-details-nested-box">
+                      <div class="nested-title">📋 {{ props.row.record_date }} 各儲位類型 (loc_type) 快照小計細節：</div>
+                      
+                      <el-table 
+                        :data="props.row.type_details || []" 
+                        border 
+                        size="mini" 
+                        class="dark-nested-table"
+                      >
+                        <el-table-column prop="loc_type" label="儲位類型 (小計)" width="180" />
+                        <el-table-column label="規劃儲格" width="110" align="right">
+                          <template #default="sub">{{ formatNumber(sub.row.plan_grid) }}</template>
+                        </el-table-column>
+                        <el-table-column label="使用儲格" width="110" align="right">
+                          <template #default="sub"><span class="text-green">{{ formatNumber(sub.row.used_grid) }}</span></template>
+                        </el-table-column>
+                        <el-table-column label="剩餘儲格" width="110" align="right">
+                          <template #default="sub"><span class="text-orange">{{ formatNumber(sub.row.rem_grid) }}</span></template>
+                        </el-table-column>
+                        <el-table-column label="規劃才數" width="130" align="right">
+                          <template #default="sub">{{ formatNumber(sub.row.plan_vol) }}</template>
+                        </el-table-column>
+                        <el-table-column label="使用才數" width="130" align="right">
+                          <template #default="sub"><span class="text-green">{{ formatNumber(sub.row.used_vol) }}</span></template>
+                        </el-table-column>
+                        <el-table-column label="剩餘才數" width="130" align="right">
+                          <template #default="sub"><span class="text-orange">{{ formatNumber(sub.row.rem_vol) }}</span></template>
+                        </el-table-column>
+                        <el-table-column prop="health_rate" label="類型健康度" width="110" align="right">
+                          <template #default="sub"><span class="text-cyan font-bold">{{ sub.row.health_rate }}%</span></template>
+                        </el-table-column>
+                      </el-table>
+                    </div>
+                  </template>
+                </el-table-column>
+
+                <el-table-column prop="record_date" label="紀錄日期" width="120" align="center" />
                 <el-table-column prop="file_name" label="原始來源檔名" min-width="220" show-overflow-tooltip />
                 <el-table-column label="已用儲格 / 規劃總格" width="180" align="right">
                   <template #default="scope">
@@ -592,12 +629,10 @@ export default {
       exportingXlsx: false,
       exportingPdf: false,
 
-      // 🌟 歷史快照選擇與備份狀態 🌟
       selectedDate: 'realtime',
       historyList: [],
       snapshotStats: null,
 
-      // 🌟 匯出功能權限控制
       exportPerms: {
         xlsx: true,
         pdf: false
@@ -605,12 +640,10 @@ export default {
     }
   },
   computed: {
-    // 歷史紀錄按日期正序排列（供折線圖左至右渲染）
     sortedHistoryList() {
       return [...this.historyList].reverse();
     },
 
-    // 🌟 原生 SVG 向量曲線數據座標點動態運算 🌟
     chartPoints() {
       const list = this.sortedHistoryList;
       if (list.length === 0) return [];
@@ -619,7 +652,6 @@ export default {
       const endX = 720;
       const stepX = list.length > 1 ? (endX - startX) / (list.length - 1) : 0;
 
-      // 找出各極值供數值比例縮放
       const minGrid = Math.min(...list.map(i => i.used_grid || 0));
       const maxGrid = Math.max(...list.map(i => i.used_grid || 0)) || 1;
       const minVol = Math.min(...list.map(i => i.used_vol || 0));
@@ -633,18 +665,15 @@ export default {
       return list.map((item, idx) => {
         const x = list.length === 1 ? 400 : startX + idx * stepX;
 
-        // 圖一: 已用儲格與才數
         const gRatio = maxGrid === minGrid ? 0.5 : (item.used_grid - minGrid) / (maxGrid - minGrid);
         const yGrid = 140 - gRatio * 90;
 
         const vRatio = maxVol === minVol ? 0.5 : (item.used_vol - minVol) / (maxVol - minVol);
         const yVol = 140 - vRatio * 90;
 
-        // 圖二: 健康度 %
         const hRatio = (item.health_rate || 0) / 100;
         const yHealth = 135 - hRatio * 85;
 
-        // 圖三: 剩餘儲格與才數
         const rgRatio = maxRemGrid === minRemGrid ? 0.5 : (item.rem_grid - minRemGrid) / (maxRemGrid - minRemGrid);
         const yRemGrid = 140 - rgRatio * 90;
 
@@ -655,7 +684,6 @@ export default {
       });
     },
 
-    // 平滑曲線路徑計算輔助 (Smooth Path Generator)
     gridSvgPath() { return this.generateSmoothPath(this.chartPoints.map(p => ({ x: p.x, y: p.yGrid }))); },
     gridSvgArea() {
       const pts = this.chartPoints.map(p => ({ x: p.x, y: p.yGrid }));
@@ -676,7 +704,6 @@ export default {
     remGridSvgPath() { return this.generateSmoothPath(this.chartPoints.map(p => ({ x: p.x, y: p.yRemGrid }))); },
     remVolSvgPath() { return this.generateSmoothPath(this.chartPoints.map(p => ({ x: p.x, y: p.yRemVol }))); },
 
-    // 指標卡片資料源
     activeStats() {
       if (this.selectedDate !== 'realtime' && this.snapshotStats) {
         return this.snapshotStats;
@@ -788,7 +815,6 @@ export default {
       return isNaN(num) ? val : num.toLocaleString();
     },
 
-    // 產生 SVG Bezier 平滑曲線指令
     generateSmoothPath(points) {
       if (points.length === 0) return '';
       if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
@@ -943,7 +969,7 @@ export default {
     },
     openConfigModal() {
       this.loadExportPerms();
-      this.showConfigDialog = true;
+      this.showConfigDialog = false;
       this.fetchLocationsMaster();
     },
     async fetchLocationsMaster() {
@@ -1044,8 +1070,7 @@ export default {
         ws2['!merges'] = [
           { s: { r: 0, c: 0 }, e: { r: 1, c: 0 } }, { s: { r: 0, c: 1 }, e: { r: 1, c: 1 } },
           { s: { r: 0, c: 2 }, e: { r: 0, c: 5 } }, { s: { r: 0, c: 6 }, e: { r: 0, c: 9 } },
-          { s: { r: 0, c: 10 }, e: { r: 0, c: 13 } }, { s: { r: 0, c: 14 }, e: { r: 0, c: 17 } },
-          { s: { r: 0, c: 18 }, e: { r: 0, c: 22 } }
+          { s: { r: 0, c: 10 }, e: { r: 0, c: 13 } }, { s: { r: 0, c: 14 }, e: { r: 0, c: 18 } }
         ];
         XLSX.utils.book_append_sheet(wb, ws2, "才數交叉統計表");
 
@@ -1100,7 +1125,7 @@ export default {
           doc.addFont('NotoSansTC.otf', 'NotoSansTC', 'normal');
           doc.setFont('NotoSansTC');
         } catch (fontErr) {
-          console.warn('⚠ 中文字型載入失敗，採用系統預設', fontErr);
+          console.warn('⚠️ 中文字型載入失敗，採用系統預設', fontErr);
         }
 
         doc.setFontSize(13);
@@ -1455,7 +1480,7 @@ export default {
   overflow: visible;
 }
 
-/* 🗓️ 歷史快照管理頁面樣式 */
+/* 🗓️ 歷史快照管理與嵌套子表格樣式 */
 .history-page-wrapper {
   display: flex;
   flex-direction: column;
@@ -1483,6 +1508,28 @@ export default {
 .history-page-subtitle {
   font-size: 12px;
   color: #94a3b8;
+}
+
+.type-details-nested-box {
+  padding: 10px 20px;
+  background-color: #0f172a;
+  border-radius: 6px;
+}
+
+.nested-title {
+  font-size: 12px;
+  font-weight: bold;
+  color: #38bdf8;
+  margin-bottom: 8px;
+}
+
+:deep(.dark-nested-table) {
+  background-color: #1e293b !important;
+}
+
+:deep(.dark-nested-table th.el-table__cell) {
+  background-color: #0f172a !important;
+  color: #38bdf8 !important;
 }
 
 .config-modal-content { color: #f8fafc; }

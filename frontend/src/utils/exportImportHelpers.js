@@ -23,20 +23,61 @@ export function extractDateFromFilename(fileName) {
   return new Date().toISOString().split('T')[0]; // 檔名無日期時預設為今天
 }
 
-// 🌟 2. 匯入成功後，自動呼叫 API 重新計算並寫入 80 庫 7 大 KPI 歷史快照
+// 🌟 匯入成功後，自動呼叫 API 重新計算並寫入 80 庫總體 KPI 與各儲位類型細節快照
 export async function triggerSaveLocationHistory(fileName) {
   try {
     const recordDate = extractDateFromFilename(fileName);
-    // 呼叫交叉試算 API 取得最新 7 大 KPI
+    // 呼叫交叉試算 API 取得最新 7 大 KPI 與小計數據
     const res = await axios.get('/api/calc-location-summary');
     if (res.data && res.data.success && res.data.summaryStats) {
+      
+      // 🌟 解析每個儲位類型 (loc_type) 的小計列數據 🌟
+      const typeSubtotals = [];
+      const gridSummary = res.data.grid_summary || [];
+      const volSummary = res.data.vol_summary || [];
+
+      gridSummary.forEach((gRow, idx) => {
+        if (gRow.is_subtotal && gRow.loc_type) {
+          const vRow = volSummary[idx] || {};
+          
+          const planG = Number(gRow.sum_plan_grid || gRow.sumPlanGrid || 0);
+          const usedG = Number(gRow.sum_used_grid || gRow.sumUsedGrid || 0);
+          const remG = Number(gRow.sum_rem_grid || gRow.sumRemGrid || Math.max(0, planG - usedG));
+
+          const planV = Number(vRow.sum_plan_vol || vRow.sumPlanVol || 0);
+          const usedV = Number(vRow.sum_used_vol || vRow.sumUsedVol || 0);
+          const remV = Number(vRow.sum_rem_vol || vRow.sumRemVol || Math.max(0, planV - usedV));
+
+          let health = 0;
+          if (planV > 0) {
+            const unrate = remV / planV;
+            const denom = 1 - unrate;
+            if (denom > 0) {
+              health = parseFloat((((usedV / denom) / planV) * 100).toFixed(1));
+            }
+          }
+
+          typeSubtotals.push({
+            loc_type: gRow.loc_type,
+            plan_grid: planG,
+            used_grid: usedG,
+            rem_grid: remG,
+            plan_vol: planV,
+            used_vol: usedV,
+            rem_vol: remV,
+            health_rate: health
+          });
+        }
+      });
+
       // 儲存至歷史快照資料表
       await axios.post('/api/location-stats/save', {
         record_date: recordDate,
         file_name: fileName,
-        stats: res.data.summaryStats
+        stats: res.data.summaryStats,
+        type_subtotals: typeSubtotals
       });
-      console.log(`✅ 已自動儲存 ${recordDate} (${fileName}) 之 80 庫儲位歷史快照！`);
+      console.log(`✅ 已自動儲存 ${recordDate} (${fileName}) 之 80 庫總體與 ${typeSubtotals.length} 個儲位類型歷史快照！`);
     }
   } catch (e) {
     console.error('⚠️ 自動儲存儲位歷史快照失敗:', e.message);
