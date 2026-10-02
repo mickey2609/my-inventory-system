@@ -91,5 +91,18 @@ module.exports = function(db) {
     });
   });
 
+  // [DELETE] /api/location-stats/delete - 刪除指定日期的快照紀錄
+  router.delete('/delete', (req, res) => {
+    const { record_date } = req.body;
+    if (!record_date) {
+      return res.status(400).json({ success: false, message: '缺少 record_date 參數' });
+    }
+
+    db.run('DELETE FROM location_stats_history WHERE record_date = ? AND source_module = "inv80"', [record_date], function(err) {
+      if (err) return res.status(500).json({ success: false, error: err.message });
+      res.json({ success: true, message: `已成功刪除 ${record_date} 之歷史快照紀錄！` });
+    });
+  });
+
   return router;
 };

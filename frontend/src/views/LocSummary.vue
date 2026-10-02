@@ -39,6 +39,16 @@
             重新整理數據
           </el-button>
 
+          <!-- 🌟 歷史快照管理按鈕 🌟 -->
+          <el-button 
+            type="info" 
+            size="small" 
+            icon="el-icon-date" 
+            @click="showHistoryManagerModal = true"
+          >
+            🗓️ 歷史快照管理
+          </el-button>
+
           <!-- 🌟 匯出 XLSX 按鈕 (依權限控制顯示) 🌟 -->
           <el-button 
             v-if="exportPerms.xlsx"
@@ -116,7 +126,7 @@
         <el-progress :percentage="calcProgress" :color="progressColors" :stroke-width="18" striped stripe-processing></el-progress>
       </div>
 
-      <!-- 數據表格三頁籤區 -->
+      <!-- 數據表格與圖表頁籤區 -->
       <div v-else class="tables-main-wrapper">
         <el-tabs type="border-card" class="dark-tabs" v-model="activeTab">
           <!-- 頁籤 1：儲格數交叉統計表 -->
@@ -328,11 +338,95 @@
               </el-table-column>
             </el-table>
           </el-tab-pane>
+
+          <!-- 🌟 頁籤 4：📈 空間與健康度歷史趨勢圖 🌟 -->
+          <el-tab-pane label="📈 空間與健康度歷史趨勢圖" name="trend">
+            <div v-if="historyList.length === 0" class="no-trend-box">
+              ⚠️ 尚無歷史快照紀錄，上傳庫存 CSV 檔案後將自動產生趨勢分析！
+            </div>
+            <div v-else class="trend-container">
+              <div class="trend-card">
+                <div class="trend-title">📊 使用中儲位數 vs 剩餘空儲位數 歷史變遷</div>
+                <div class="trend-bars">
+                  <div v-for="item in sortedHistoryList" :key="item.record_date" class="bar-col">
+                    <div class="bar-val-text">{{ formatNumber(item.used_grid) }}</div>
+                    <div class="bar-track">
+                      <div class="bar-fill used" :style="{ height: getGridHeightPercent(item.used_grid, item.plan_grid) }"></div>
+                    </div>
+                    <div class="bar-date-label">{{ item.record_date.substring(5) }}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="trend-card">
+                <div class="trend-title">🩺 儲位整體健康度 % 歷史走勢</div>
+                <div class="health-list">
+                  <div v-for="item in sortedHistoryList" :key="item.record_date" class="health-row">
+                    <span class="h-date">{{ item.record_date }}</span>
+                    <el-progress 
+                      :percentage="Math.min(100, item.health_rate || 0)" 
+                      :color="item.health_rate > 85 ? '#f43f5e' : (item.health_rate > 60 ? '#f59e0b' : '#38bdf8')" 
+                      :stroke-width="14"
+                      style="flex: 1; margin: 0 15px;"
+                    />
+                    <span class="h-val">{{ item.health_rate }}%</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </el-tab-pane>
         </el-tabs>
       </div>
     </div>
 
-    <!-- ⚙️ 儲位定義 Modal -->
+    <!-- 🗓️ 1. 歷史快照管理 Modal -->
+    <el-dialog
+      title="🗓️ 儲位 7 大 KPI 歷史快照管理清單"
+      v-model="showHistoryManagerModal"
+      width="850px"
+      append-to-body
+      class="custom-dark-dialog"
+    >
+      <div class="history-modal-body">
+        <el-table :data="historyList" border stripe size="mini" class="dark-table" max-height="380px">
+          <el-table-column prop="record_date" label="紀錄日期" width="110" align="center" fixed />
+          <el-table-column prop="file_name" label="原始來源檔名" min-width="180" show-overflow-tooltip />
+          <el-table-column label="已用 / 規劃儲格" width="130" align="right">
+            <template #default="scope">
+              {{ formatNumber(scope.row.used_grid) }} / {{ formatNumber(scope.row.plan_grid) }}
+            </template>
+          </el-table-column>
+          <el-table-column label="已用才數" width="110" align="right">
+            <template #default="scope">{{ formatNumber(scope.row.used_vol) }}</template>
+          </el-table-column>
+          <el-table-column prop="health_rate" label="健康度" width="85" align="right">
+            <template #default="scope">
+              <span class="text-cyan">{{ scope.row.health_rate }}%</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="created_at" label="寫入時間" width="140" align="center" />
+          <el-table-column label="操作" width="90" align="center" fixed="right">
+            <template #default="scope">
+              <el-button 
+                type="danger" 
+                size="mini" 
+                icon="el-icon-delete"
+                @click="deleteSnapshot(scope.row.record_date)"
+              >
+                刪除
+              </el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button size="small" @click="showHistoryManagerModal = false">關閉</el-button>
+        </span>
+      </template>
+    </el-dialog>
+
+    <!-- ⚙️ 2. 儲位定義 Modal -->
     <el-dialog
       title="⚙️ 儲位定義參數與權限設定"
       v-model="showConfigDialog"
@@ -341,7 +435,6 @@
       class="custom-dark-dialog"
     >
       <div class="config-modal-content">
-        <!-- 1. 匯入 CSV 功能區塊 -->
         <div class="upload-top-bar">
           <div>
             <div class="section-title">📥 匯入最新 `locations_master.csv` 檔案</div>
@@ -394,7 +487,6 @@
           </el-table-column>
         </el-table>
 
-        <!-- 2. 匯出權限設定區塊 -->
         <el-divider content-position="left">🔒 開放儲位統計匯出功能權限</el-divider>
 
         <div class="perm-config-card">
@@ -442,6 +534,7 @@ export default {
     return {
       activeTab: 'grid',
       showConfigDialog: false,
+      showHistoryManagerModal: false,
       isUploading: false,
       masterLoading: false,
       masterTableData: [],
@@ -461,6 +554,11 @@ export default {
     }
   },
   computed: {
+    // 🌟 按日期正序排列（供趨勢圖渲染） 🌟
+    sortedHistoryList() {
+      return [...this.historyList].reverse();
+    },
+
     // 🌟 判斷當前指標卡片要顯示即時試算還是歷史快照 🌟
     activeStats() {
       if (this.selectedDate !== 'realtime' && this.snapshotStats) {
@@ -473,7 +571,6 @@ export default {
       };
     },
 
-    // 🌟 判斷當前登入者是否為「系統管理員」sys_admin 🌟
     isAdmin() {
       try {
         const userStr = localStorage.getItem('user') || localStorage.getItem('loginUser');
@@ -574,7 +671,12 @@ export default {
       return isNaN(num) ? val : num.toLocaleString();
     },
 
-    // 🌟 讀取已紀錄之歷史快照日期清單 🌟
+    getGridHeightPercent(used, plan) {
+      if (!plan || plan <= 0) return '0%';
+      const p = Math.min(100, Math.round((used / plan) * 100));
+      return `${p}%`;
+    },
+
     async fetchHistoryList() {
       try {
         const res = await axios.get('/api/location-stats/history');
@@ -586,7 +688,6 @@ export default {
       }
     },
 
-    // 🌟 歷史日期選單切換處理 🌟
     onDateChange(val) {
       if (val === 'realtime') {
         this.snapshotStats = null;
@@ -606,10 +707,28 @@ export default {
       }
     },
 
-    // 🌟 重新整理資料（包含即時計算與歷史清單） 🌟
     async fetchRealtimeAndHistory() {
       this.$emit('refresh-summary');
       await this.fetchHistoryList();
+    },
+
+    async deleteSnapshot(recordDate) {
+      try {
+        await this.$confirm(`確定要刪除 ${recordDate} 的歷史快照紀錄嗎？`, '警告', {
+          confirmButtonText: '確定刪除',
+          cancelButtonText: '取消',
+          type: 'warning'
+        });
+
+        const res = await axios.delete('/api/location-stats/delete', { data: { record_date: recordDate } });
+        if (res.data?.success) {
+          this.$message.success(res.data.message);
+          if (this.selectedDate === recordDate) this.selectedDate = 'realtime';
+          await this.fetchHistoryList();
+        }
+      } catch (e) {
+        if (e !== 'cancel') this.$message.error('刪除失敗: ' + e.message);
+      }
     },
 
     loadExportPerms() {
@@ -799,7 +918,8 @@ export default {
         ws2['!merges'] = [
           { s: { r: 0, c: 0 }, e: { r: 1, c: 0 } }, { s: { r: 0, c: 1 }, e: { r: 1, c: 1 } },
           { s: { r: 0, c: 2 }, e: { r: 0, c: 5 } }, { s: { r: 0, c: 6 }, e: { r: 0, c: 9 } },
-          { s: { r: 0, c: 10 }, e: { r: 0, c: 13 } }, { s: { r: 0, c: 14 }, e: { r: 0, c: 18 } }
+          { s: { r: 0, c: 10 }, e: { r: 0, c: 13 } }, { s: { r: 0, c: 14 }, e: { r: 0, c: 17 } },
+          { s: { r: 0, c: 18 }, e: { r: 0, c: 22 } }
         ];
         XLSX.utils.book_append_sheet(wb, ws2, "才數交叉統計表");
 
@@ -1130,6 +1250,109 @@ export default {
   border-left: 3px solid #38bdf8 !important;
 }
 
+/* 📈 趨勢圖專屬樣式 */
+.no-trend-box {
+  padding: 40px;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 14px;
+}
+
+.trend-container {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.trend-card {
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 15px;
+}
+
+.trend-title {
+  font-size: 14px;
+  font-weight: bold;
+  color: #38bdf8;
+  margin-bottom: 15px;
+}
+
+.trend-bars {
+  display: flex;
+  gap: 20px;
+  align-items: flex-end;
+  height: 160px;
+  padding-bottom: 10px;
+}
+
+.bar-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 100%;
+  width: 45px;
+}
+
+.bar-val-text {
+  font-size: 10px;
+  color: #38bdf8;
+  margin-bottom: 4px;
+}
+
+.bar-track {
+  flex: 1;
+  width: 16px;
+  background: #1e293b;
+  border-radius: 8px;
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+}
+
+.bar-fill.used {
+  width: 100%;
+  background: linear-gradient(180deg, #38bdf8 0%, #0284c7 100%);
+  border-radius: 8px;
+}
+
+.bar-date-label {
+  font-size: 11px;
+  color: #94a3b8;
+  margin-top: 6px;
+}
+
+.health-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.health-row {
+  display: flex;
+  align-items: center;
+}
+
+.h-date {
+  width: 90px;
+  font-size: 12px;
+  color: #e2e8f0;
+}
+
+.h-val {
+  width: 60px;
+  font-size: 13px;
+  font-weight: bold;
+  color: #22d3ee;
+  text-align: right;
+}
+
+.history-modal-body {
+  padding: 5px 0;
+}
+
 .config-modal-content { color: #f8fafc; }
 .upload-top-bar { display: flex; justify-content: space-between; align-items: center; }
 .section-title { font-size: 14px; font-weight: bold; color: #38bdf8; margin-bottom: 4px; }
@@ -1137,7 +1360,6 @@ export default {
 .section-desc code { background: #0f172a; color: #f43f5e; padding: 2px 6px; border-radius: 4px; }
 .master-preview-table { margin-top: 10px; }
 
-/* 🔒 權限設定卡片專屬樣式 */
 .perm-config-card {
   background: #0f172a;
   border: 1px solid #334155;
@@ -1155,40 +1377,15 @@ export default {
   gap: 6px;
 }
 
-.perm-icon {
-  font-size: 16px;
-}
+.perm-icon { font-size: 16px; }
+.perm-sub-text { font-size: 12px; color: #94a3b8; margin: 4px 0 12px 0; }
+.perm-checkbox-group { display: flex; flex-direction: column; gap: 8px; }
 
-.perm-sub-text {
-  font-size: 12px;
-  color: #94a3b8;
-  margin: 4px 0 12px 0;
-}
-
-.perm-checkbox-group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-:deep(.dark-checkbox .el-checkbox__label) {
-  color: #e2e8f0 !important;
-  font-size: 13px;
-}
-
-:deep(.dark-checkbox .el-checkbox__inner) {
-  background-color: #1e293b;
-  border-color: #475569;
-}
-
-:deep(.dark-checkbox.is-checked .el-checkbox__inner) {
-  background-color: #38bdf8;
-  border-color: #38bdf8;
-}
+:deep(.dark-checkbox .el-checkbox__label) { color: #e2e8f0 !important; font-size: 13px; }
+:deep(.dark-checkbox .el-checkbox__inner) { background-color: #1e293b; border-color: #475569; }
+:deep(.dark-checkbox.is-checked .el-checkbox__inner) { background-color: #38bdf8; border-color: #38bdf8; }
 
 @media (max-width: 1400px) {
-  .stats-overview-grid {
-    grid-template-columns: repeat(4, 1fr);
-  }
+  .stats-overview-grid { grid-template-columns: repeat(4, 1fr); }
 }
 </style>
