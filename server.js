@@ -1,5 +1,5 @@
 // C:\my-inventory-server\server.js
-// 業務主程式 API 伺服器 (整合 48 欄位 + inventory_15 模組掛載 + 全域防崩潰保護 + 自由路徑程式碼更新)
+// 業務主程式 API 伺服器 (整合 48 欄位 + inventory_15 模組 + locationStats 模組掛載 + 全域防崩潰保護)
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const cors = require('cors');
@@ -8,7 +8,7 @@ const fs = require('fs');
 
 // 🌟🌟🌟 核心防護：攔截全域未捕捉例外，防止 SQL 出錯時伺服器閃退斷線 🌟🌟🌟
 process.on('uncaughtException', (err) => {
-  console.error('⚠️️ [系統防護] 攔截到未處理的例外，伺服器維持運作：', err.message);
+  console.error('⚠ [系統防護] 攔截到未處理的例外，伺服器維持運作：', err.message);
 });
 process.on('unhandledRejection', (reason, promise) => {
   console.error('⚠️ [系統防護] 攔截到未處理的 Promise 拒絕：', reason);
@@ -42,18 +42,15 @@ const db = new sqlite3.Database('inventory_local.sqlite', (err) => {
 
 // 🌟 引入庫存 15 大數據專屬路由模組
 const inventory15Module = require('./routes/inventory15');
+// 🌟 引入儲位 7 大 KPI 歷史快照專屬路由模組
+const locationStatsModule = require('./routes/locationStats');
 
 app.use(cors());
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
-
 // 🌟 掛載 /api/inventory15 相關路由
 app.use('/api/inventory15', inventory15Module(db));
-
-// 🌟 引入儲位 7 大 KPI 歷史快照專屬路由模組
-const locationStatsModule = require('./routes/locationStats');
-
 // 🌟 掛載 /api/location-stats 相關路由
 app.use('/api/location-stats', locationStatsModule(db));
 
@@ -229,7 +226,7 @@ app.post(['/api/import-locations-master', '/api/import-locations-master-json'], 
   });
 });
 
-// [GET] 📊 儲位才數與格數強效交叉計算 API (修復小計才數累加)
+// [GET] 📊 儲位才數與格數強效交叉計算 API
 app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, res) => {
   const masterSql = `SELECT COALESCE(floor, '') as floor, COALESCE(zone, '') as zone, COALESCE(loc_type, '') as loc_type, COALESCE(cubic_feet, 0) as cubic_feet, COALESCE(grid_count, 0) as grid_count, COALESCE(single_cubic_feet, 0) as single_cubic_feet FROM locations_master`;
   const inventorySql = `SELECT COALESCE(floor, '') as floor, COALESCE(floor_zone, '') as floor_zone, COALESCE(loc_type, '') as loc_type, COALESCE(heavy_rack_check, '') as heavy_rack_check, COALESCE(location, '') as location, COALESCE(loc_code_5, '') as loc_code_5, COALESCE(shelf_level, '') as shelf_level, COALESCE(total_cubic_feet, 0) as total_cubic_feet, COALESCE(cubic_feet, 0) as cubic_feet, COALESCE(qty, 0) as qty FROM inventory`;
@@ -561,7 +558,7 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
 
 app.get('/api/get-global-config', (req, res) => {
   const currentUptimeSec = Math.floor((Date.now() - SERVER_START_TIME) / 1000);
-  res.json({ success: true, data: { system_name: "庫存儲位管理系統", version: "v2026.09.24-48COL-ALIGNED", server_uptime_seconds: currentUptimeSec } });
+  res.json({ success: true, data: { system_name: "庫存儲位管理系統", version: "v2026.10.02-SNAP", server_uptime_seconds: currentUptimeSec } });
 });
 
 app.get('/api/categories/large', (req, res) => {
