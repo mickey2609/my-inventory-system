@@ -55,6 +55,7 @@
             :custom-widths="customColWidths80" :form="form80"
             :export-config="exportConfig80"
             :is-sys-admin="isSysAdmin"
+            :current-username="currentUsername"
             @open-search="openSearchModal" @export-data="exportData" @page-change="p => handlePageChange(p, 'inv80')"
             @size-change="s => handlePageSizeChange(s, 'inv80')"
           />
@@ -68,6 +69,7 @@
             :custom-widths="customColWidths15" :form="form15"
             :export-config="exportConfig15"
             :is-sys-admin="isSysAdmin"
+            :current-username="currentUsername"
             @open-search="openSearchModal" @export-data="exportData" @page-change="p => handlePageChange(p, 'inv15')"
             @size-change="s => handlePageSizeChange(s, 'inv15')"
             @refresh-metrics="fetchDashboardMetrics"
@@ -231,7 +233,7 @@ export default {
     ];
 
     return {
-      appVersion: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'v2026.09.23-48COL',
+      appVersion: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'v2026.10.02',
       isLoggedIn: false, currentUser: '', currentUsername: '', currentUserRole: 'user', loginLoading: false, savingConfig: false,
       savingExportConfig: false, currentUserPermissions: [],
       showUnifiedDrawer: false, showSearchModal: false, showParamMenuDialog: false, showWidthConfigDialog: false,
@@ -244,10 +246,10 @@ export default {
       dbMetrics: { totalRows80: 0, totalRows15: 0, serverUptimeSec: 0 },
       logTab: 'normal', loading: false, draggedIndex: null,
 
-      // 🌟 庫存 80 專屬隔離狀態 🌟
+      // 🌟 庫存 80 專屬隔離狀態 (預設關閉匯出權限) 🌟
       hasSearched80: false, searchTime80: '', currentPage80: 1, pageSize80: 500, totalRowsCount80: 0,
       tableData80: [], columns80: [], summary80: { total_items: 0, total_rows: 0, total_pcs: 0, total_ao: 0 },
-      exportConfig80: { xlsx: true, csv: true, pdf: true },
+      exportConfig80: { xlsx: false, csv: false, pdf: false },
       customColWidths80: { '商品ID': 180, '商品名稱': 300, '儲位': 130 },
       customExportColWidths80: { '商品ID': 25, '商品名稱': 40, '儲位': 15 },
       form80: {
@@ -256,10 +258,10 @@ export default {
         txt_monthly_sales: '', selected_columns: [...full48Cols], chk_show_loc: true, chk_show_dim: true, cbo_sort: '商品ID', sort_order: 'desc'
       },
 
-      // 🌟 庫存 15 專屬隔離狀態 🌟
+      // 🌟 庫存 15 專屬隔離狀態 (預設關閉匯出權限) 🌟
       hasSearched15: false, searchTime15: '', currentPage15: 1, pageSize15: 500, totalRowsCount15: 0,
       tableData15: [], columns15: [], summary15: { total_items: 0, total_rows: 0, total_pcs: 0, total_ao: 0 },
-      exportConfig15: { xlsx: true, csv: true, pdf: true },
+      exportConfig15: { xlsx: false, csv: false, pdf: false },
       customColWidths15: { '商品ID': 180, '商品名稱': 300, '儲位': 130 },
       customExportColWidths15: { '商品ID': 25, '商品名稱': 40, '儲位': 15 },
       form15: {
@@ -398,7 +400,7 @@ export default {
       return false;
     },
 
-    // 🌟 80 庫與 15 庫設定檔精準拆分 🌟
+    // 🌟 讀取匯出與欄位設定檔，若未開則預設全關 ({ xlsx: false, csv: false, pdf: false }) 🌟
     async fetchGlobalConfig() {
       try {
         const key80 = 'global_default_80';
@@ -414,6 +416,20 @@ export default {
         if (res15.data?.success && res15.data?.data) {
           const cfg = res15.data.data;
           if (cfg.selected_columns) this.form15.selected_columns = cfg.selected_columns;
+        }
+
+        const resExp80 = await axios.get(`/api/get-column-config?key=export_config_80`);
+        if (resExp80.data?.success && resExp80.data?.data) {
+          this.exportConfig80 = resExp80.data.data;
+        } else {
+          this.exportConfig80 = { xlsx: false, csv: false, pdf: false };
+        }
+
+        const resExp15 = await axios.get(`/api/get-column-config?key=export_config_15`);
+        if (resExp15.data?.success && resExp15.data?.data) {
+          this.exportConfig15 = resExp15.data.data;
+        } else {
+          this.exportConfig15 = { xlsx: false, csv: false, pdf: false };
         }
       } catch (e) {}
     },
@@ -507,7 +523,6 @@ export default {
 
     triggerSelectInventoryFile() { this.$refs.inventoryFileInput.click(); },
 
-    // 🌟 動態上傳分流：根據當前頁籤分流至 80 庫或 15 庫 🌟
     async handleInventoryUpload(event) {
       const file = event.target.files[0];
       if (!file) return;
@@ -723,7 +738,6 @@ export default {
       try { const res = await axios.get('/api/categories/small?large=' + encodeURIComponent(val)); if (res.data?.success) this.options.zones = res.data.data; } catch (e) {}
     },
 
-    // 🌟 獨立處理 80 與 15 的搜尋結果 (精準尊重使用者勾選欄位) 🌟
     async handleSearch() {
       this.loading = true;
       this.searchElapsedSec = 0;
@@ -734,8 +748,6 @@ export default {
 
       try {
         const formObj = this.currentForm;
-        
-        // 🌟 1. 精準尊重彈窗選擇的欄位順序與勾選，不自動強行附加上「儲位」
         let currentCols = Array.isArray(formObj.selected_columns) && formObj.selected_columns.length > 0 
           ? [...formObj.selected_columns] 
           : [...this.rawColumnsMaster];
@@ -776,7 +788,6 @@ export default {
               return '-';
             };
 
-            // 🌟 2. 全欄位別名擴充地圖，解決某些欄位抓不到值補 - 的問題
             return {
               ...row,
               '商品ID': getAnyVal('商品ID', 'item_id'),
@@ -794,45 +805,20 @@ export default {
               '高(cm)': getAnyVal('高(cm)', 'height'),
               '重量(kg)': getAnyVal('重量(kg)', 'weight'),
               '(近)月銷量': getAnyVal('(近)月銷量', 'monthly_sales'),
-              '(近)月-有揀貨單天數': getAnyVal('(近)月-有揀貨單天數', 'pick_days_m'),
               '(近)90日銷量': getAnyVal('(近)90日銷量', 'sales_90d'),
-              '(近)90日-有揀貨單天數': getAnyVal('(近)90日-有揀貨單天數', 'pick_days_90d'),
-              '供應商ID': getAnyVal('供應商ID', 'supplier_id'),
               '供應商名稱': getAnyVal('供應商名稱', 'supplier_name'),
-              '所屬PM': getAnyVal('所屬PM', 'pm'),
               '總庫存數': getAnyVal('總庫存數', 'total_qty'),
-              '總庫存_迴轉天數': getAnyVal('總庫存_迴轉天數', 'turn_days_total', '總庫存迴轉天數', '迴轉天數'),
               '才數': getAnyVal('才數', 'cubic_feet', '單才數'),
               '材積別': getAnyVal('材積別', 'vol_type'),
-              '儲位編碼-3': getAnyVal('儲位編碼-3', 'loc_code_3'),
-              '儲位編碼': getAnyVal('儲位編碼', 'loc_code_full'),
-              '儲位編碼5': getAnyVal('儲位編碼5', 'loc_code_5'),
               '樓層': getAnyVal('樓層', 'floor'),
-              '樓層區域': getAnyVal('樓層區域', 'floor_zone'),
               '儲位型態': getAnyVal('儲位型態', 'loc_type'),
-              '大區編': getAnyVal('大區編', 'big_zone_id'),
               '大區名': getAnyVal('大區名', 'big_zone', '大區'),
-              '三邊長': getAnyVal('三邊長', 'dim_sum'),
-              '最長邊': getAnyVal('最長邊', 'max_dim'),
-              '最短邊': getAnyVal('最短邊', 'min_dim'),
-              '儲位才數': getAnyVal('儲位才數', 'loc_cubic_feet'),
-              '儲位健康度': getAnyVal('儲位健康度', 'loc_health'),
-              '不符合': getAnyVal('不符合', 'non_compliant'),
-              '材積判斷': getAnyVal('材積判斷', 'vol_check'),
-              '總才數': getAnyVal('總才數', 'total_cubic_feet'),
-              '人工/自動': getAnyVal('人工/自動', 'auto_type'),
-              '儲位層標示': getAnyVal('儲位層標示', 'shelf_level'),
-              '庫齡級距': getAnyVal('庫齡級距', 'age_bracket'),
-              '樓層設定': getAnyVal('樓層設定', 'floor_config'),
-              '重型架判斷': getAnyVal('重型架判斷', 'heavy_rack_check'),
-              'ID指定樓層': getAnyVal('ID指定樓層', 'assigned_floor'),
-              '備註': getAnyVal('備註', 'remark')
+              '人工/自動': getAnyVal('人工/自動', 'auto_type')
             };
           });
 
           const timeStr = new Date().toLocaleString() + ' (耗時 ' + this.searchElapsedSec + ' 秒)';
 
-          // 🌟 寫回各自獨立狀態 🌟
           if (this.currentTab === 'inv15') {
             this.tableData15 = formattedRows;
             this.columns15 = filteredCols;

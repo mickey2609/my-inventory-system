@@ -95,8 +95,8 @@ module.exports = function(db) {
             getField('supplier_name', '供應商名稱'),
             getField('pm', '所屬PM'),
             getNum('total_qty', '總庫存數'),
-            getNum('turn_days_total', '總庫存_迴轉天數', '總庫存迴轉天數', '迴轉天數'),
-            getNum('cubic_feet', '才數', '單才數'),
+            getNum('turn_days_total', '總庫存_迴轉天數'),
+            getNum('cubic_feet', '才數'),
             getField('vol_type', '材積別'),
             getField('loc_code_3', '儲位編碼-3'),
             getField('loc_code_full', '儲位編碼'),
@@ -105,7 +105,7 @@ module.exports = function(db) {
             getField('floor_zone', '樓層區域'),
             getField('loc_type', '儲位型態'),
             getField('big_zone_id', '大區編'),
-            getField('big_zone', '大區名', '大區'),
+            getField('big_zone', '大區名'),
             getNum('dim_sum', '三邊長'),
             getNum('max_dim', '最長邊'),
             getNum('min_dim', '最短邊'),
@@ -139,62 +139,57 @@ module.exports = function(db) {
   });
 
   // [GET] /api/inventory15/search
-router.get('/search', (req, res) => {
-  const page = parseInt(req.query.page || '1', 10);
-  const pageSize = parseInt(req.query.pageSize || '500', 10);
-  const keyword = req.query.keyword || '';
-  const categoryLarge = req.query.categoryLarge || '';
-  const categorySmall = req.query.categorySmall || '';
+  router.get('/search', (req, res) => {
+    const page = parseInt(req.query.page || '1', 10);
+    const pageSize = parseInt(req.query.pageSize || '500', 10);
+    const keyword = req.query.keyword || '';
+    const categoryLarge = req.query.categoryLarge || '';
+    const categorySmall = req.query.categorySmall || '';
 
-  let whereConditions = [];
-  let bindings = [];
+    let whereConditions = [];
+    let bindings = [];
 
-  if (categoryLarge) { whereConditions.push("big_zone = ?"); bindings.push(categoryLarge); }
-  if (categorySmall) { whereConditions.push("zone_name = ?"); bindings.push(categorySmall); }
-  if (keyword) {
-    whereConditions.push("(item_id LIKE ? OR item_name LIKE ? OR location LIKE ?)");
-    bindings.push(`%${keyword}%`, `%${keyword}%`, `%${keyword}%`);
-  }
+    if (categoryLarge) { whereConditions.push("big_zone = ?"); bindings.push(categoryLarge); }
+    if (categorySmall) { whereConditions.push("zone_name = ?"); bindings.push(categorySmall); }
+    if (keyword) {
+      whereConditions.push("(item_id LIKE ? OR item_name LIKE ? OR location LIKE ?)");
+      bindings.push(`%${keyword}%`, `%${keyword}%`, `%${keyword}%`);
+    }
 
-  const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
-  const offset = (page - 1) * pageSize;
+    const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
+    const offset = (page - 1) * pageSize;
 
-  // 🌟 核心修正：才數純粹使用 SUM(cubic_feet * qty) 計算，無才數則算 0
-  const summarySql = `
-    SELECT 
-      COUNT(DISTINCT CASE WHEN item_id IS NOT NULL AND item_id != '' AND item_id != '-' THEN item_id END) as total_items,
-      COUNT(*) as total_rows,
-      IFNULL(SUM(qty), 0) as total_pcs,
-      IFNULL(SUM(
-        CASE 
-          WHEN cubic_feet > 0 THEN (cubic_feet * qty)
-          ELSE total_cubic_feet 
-        END
-      ), 0) as total_ao
-    FROM inventory_15 ${whereClause}
-  `;
+    // 🌟 核心公式：總才數 100% 嚴格採用 SUM(cubic_feet * qty) 累加！
+    const summarySql = `
+      SELECT 
+        COUNT(DISTINCT CASE WHEN item_id IS NOT NULL AND item_id != '' AND item_id != '-' THEN item_id END) as total_items,
+        COUNT(*) as total_rows,
+        IFNULL(SUM(qty), 0) as total_pcs,
+        IFNULL(SUM(cubic_feet * qty), 0) as total_ao
+      FROM inventory_15 ${whereClause}
+    `;
 
-  db.get(summarySql, bindings, (err, summaryRow) => {
-    if (err) return res.status(500).json({ success: false, error: err.message });
-    const totalCount = summaryRow ? summaryRow.total_rows : 0;
-
-    const dataSql = `SELECT * FROM inventory_15 ${whereClause} ORDER BY id ASC LIMIT ? OFFSET ?`;
-    db.all(dataSql, [...bindings, pageSize, offset], (err, rows) => {
+    db.get(summarySql, bindings, (err, summaryRow) => {
       if (err) return res.status(500).json({ success: false, error: err.message });
-      res.json({
-        success: true,
-        total: totalCount,
-        summary: { 
-          total_items: summaryRow ? summaryRow.total_items : 0, 
-          total_rows: totalCount, 
-          total_pcs: summaryRow ? Math.round(summaryRow.total_pcs) : 0,
-          total_ao: summaryRow ? parseFloat(summaryRow.total_ao.toFixed(2)) : 0
-        },
-        data: rows || []
+      const totalCount = summaryRow ? summaryRow.total_rows : 0;
+
+      const dataSql = `SELECT * FROM inventory_15 ${whereClause} ORDER BY id ASC LIMIT ? OFFSET ?`;
+      db.all(dataSql, [...bindings, pageSize, offset], (err, rows) => {
+        if (err) return res.status(500).json({ success: false, error: err.message });
+        res.json({
+          success: true,
+          total: totalCount,
+          summary: { 
+            total_items: summaryRow ? summaryRow.total_items : 0, 
+            total_rows: totalCount, 
+            total_pcs: summaryRow ? Math.round(summaryRow.total_pcs) : 0,
+            total_ao: summaryRow ? parseFloat(summaryRow.total_ao.toFixed(2)) : 0
+          },
+          data: rows || []
+        });
       });
     });
   });
-});
 
   return router;
 };

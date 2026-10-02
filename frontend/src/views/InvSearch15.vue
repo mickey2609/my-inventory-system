@@ -1,39 +1,39 @@
 <template>
   <div class="inv-query-container">
     <!-- 頂部功能按鈕區 -->
-<div class="action-bar mb-3">
-  <el-button type="primary" icon="Search" @click="$emit('open-search')">
-    設定搜尋條件與檢索
-  </el-button>
+    <div class="action-bar mb-3">
+      <el-button type="primary" icon="Search" @click="$emit('open-search')">
+        設定搜尋條件與檢索
+      </el-button>
 
-  <!-- 🌟 權限控管：只有『系統管理員』或『被勾選開放權限』的使用者才能看到對應匯出按鈕 🌟 -->
-  <el-button 
-    v-if="isSysAdmin || exportConfig.xlsx" 
-    type="success" 
-    icon="Document" 
-    @click="$emit('export-data', 'excel')"
-  >
-    匯出 xlsx
-  </el-button>
+      <!-- 🌟 權限控制：只有最高管理者 (admin) 或被勾選開放時，一般管理者/使用者才可見 🌟 -->
+      <el-button 
+        v-if="isSuperAdmin || exportConfig.xlsx" 
+        type="success" 
+        icon="Document" 
+        @click="$emit('export-data', 'excel')"
+      >
+        匯出 xlsx
+      </el-button>
 
-  <el-button 
-    v-if="isSysAdmin || exportConfig.csv" 
-    type="info" 
-    icon="Tickets" 
-    @click="$emit('export-data', 'csv')"
-  >
-    匯出 CSV
-  </el-button>
+      <el-button 
+        v-if="isSuperAdmin || exportConfig.csv" 
+        type="info" 
+        icon="Tickets" 
+        @click="$emit('export-data', 'csv')"
+      >
+        匯出 CSV
+      </el-button>
 
-  <el-button 
-    v-if="isSysAdmin || exportConfig.pdf" 
-    type="danger" 
-    icon="Printer" 
-    @click="$emit('export-data', 'pdf')"
-  >
-    匯出 PDF
-  </el-button>
-</div>
+      <el-button 
+        v-if="isSuperAdmin || exportConfig.pdf" 
+        type="danger" 
+        icon="Printer" 
+        @click="$emit('export-data', 'pdf')"
+      >
+        匯出 PDF
+      </el-button>
+    </div>
 
     <!-- 2. 統計卡片列 -->
     <div class="summary-cards-wrapper" v-if="hasSearched">
@@ -133,10 +133,15 @@ export default {
     totalRowsCount: { type: Number, default: 0 },
     customWidths: { type: Object, default: () => ({}) },
     form: { type: Object, default: () => ({}) },
-    exportConfig: { type: Object, default: () => ({ xlsx: true, csv: true, pdf: true }) },
-    isSysAdmin: Boolean
+    exportConfig: { type: Object, default: () => ({ xlsx: false, csv: false, pdf: false }) },
+    isSysAdmin: Boolean,
+    currentUsername: { type: String, default: '' }
   },
   computed: {
+    // 🌟 只有 username === 'admin' 才是無條件能看到按鈕的最高權限者 🌟
+    isSuperAdmin() {
+      return this.currentUsername === 'admin';
+    },
     computedSummary() {
       return this.summary || { total_items: 0, total_rows: 0, total_pcs: 0, total_ao: 0 };
     },
@@ -169,12 +174,6 @@ export default {
     }
   },
   methods: {
-    canExport(type) {
-      if (this.isSysAdmin) return true;
-      if (!this.exportConfig) return true;
-      const val = this.exportConfig[type];
-      return val === true || val === 'true' || val === 1 || val === undefined;
-    },
     indexMethod(index) {
       return (this.currentPage - 1) * this.pageSize + index + 1;
     },
@@ -244,8 +243,7 @@ export default {
 
 <style scoped>
 .inv-query-container { display: flex; flex-direction: column; gap: 12px; height: 100%; padding: 12px; box-sizing: border-box; }
-.top-action-bar { display: flex; align-items: center; justify-content: space-between; }
-.left-btn-group { display: flex; gap: 8px; }
+.action-bar { display: flex; gap: 8px; }
 .summary-cards-wrapper { display: flex; gap: 12px; flex-wrap: wrap; }
 .summary-card { background-color: #1e293b; border: 1px solid #334155; border-radius: 6px; padding: 8px 16px; min-width: 140px; flex: 1; }
 .card-title { font-size: 12px; color: #94a3b8; margin-bottom: 4px; }
