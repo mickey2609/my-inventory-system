@@ -723,7 +723,7 @@ export default {
       try { const res = await axios.get('/api/categories/small?large=' + encodeURIComponent(val)); if (res.data?.success) this.options.zones = res.data.data; } catch (e) {}
     },
 
-    // 🌟 獨立處理 80 與 15 的搜尋結果 🌟
+    // 🌟 獨立處理 80 與 15 的搜尋結果 (精準尊重使用者勾選欄位) 🌟
     async handleSearch() {
       this.loading = true;
       this.searchElapsedSec = 0;
@@ -734,18 +734,11 @@ export default {
 
       try {
         const formObj = this.currentForm;
+        
+        // 🌟 1. 精準尊重彈窗選擇的欄位順序與勾選，不自動強行附加上「儲位」
         let currentCols = Array.isArray(formObj.selected_columns) && formObj.selected_columns.length > 0 
           ? [...formObj.selected_columns] 
           : [...this.rawColumnsMaster];
-
-        if (formObj.chk_show_loc) {
-          if (!currentCols.includes('儲位')) currentCols.push('儲位');
-        }
-
-        const dimCols = ['長(cm)', '寬(cm)', '高(cm)', '重量(kg)', '才數', '材積別'];
-        if (formObj.chk_show_dim) {
-          dimCols.forEach(col => { if (!currentCols.includes(col)) currentCols.push(col); });
-        }
 
         const masterSet = new Set(this.rawColumnsMaster);
         const filteredCols = currentCols.filter(c => masterSet.has(c));
@@ -783,6 +776,7 @@ export default {
               return '-';
             };
 
+            // 🌟 2. 全欄位別名擴充地圖，解決某些欄位抓不到值補 - 的問題
             return {
               ...row,
               '商品ID': getAnyVal('商品ID', 'item_id'),
@@ -800,15 +794,39 @@ export default {
               '高(cm)': getAnyVal('高(cm)', 'height'),
               '重量(kg)': getAnyVal('重量(kg)', 'weight'),
               '(近)月銷量': getAnyVal('(近)月銷量', 'monthly_sales'),
+              '(近)月-有揀貨單天數': getAnyVal('(近)月-有揀貨單天數', 'pick_days_m'),
               '(近)90日銷量': getAnyVal('(近)90日銷量', 'sales_90d'),
+              '(近)90日-有揀貨單天數': getAnyVal('(近)90日-有揀貨單天數', 'pick_days_90d'),
+              '供應商ID': getAnyVal('供應商ID', 'supplier_id'),
               '供應商名稱': getAnyVal('供應商名稱', 'supplier_name'),
+              '所屬PM': getAnyVal('所屬PM', 'pm'),
               '總庫存數': getAnyVal('總庫存數', 'total_qty'),
-              '才數': getAnyVal('才數', 'cubic_feet'),
+              '總庫存_迴轉天數': getAnyVal('總庫存_迴轉天數', 'turn_days_total', '總庫存迴轉天數', '迴轉天數'),
+              '才數': getAnyVal('才數', 'cubic_feet', '單才數'),
               '材積別': getAnyVal('材積別', 'vol_type'),
+              '儲位編碼-3': getAnyVal('儲位編碼-3', 'loc_code_3'),
+              '儲位編碼': getAnyVal('儲位編碼', 'loc_code_full'),
+              '儲位編碼5': getAnyVal('儲位編碼5', 'loc_code_5'),
               '樓層': getAnyVal('樓層', 'floor'),
+              '樓層區域': getAnyVal('樓層區域', 'floor_zone'),
               '儲位型態': getAnyVal('儲位型態', 'loc_type'),
-              '大區名': getAnyVal('大區名', 'big_zone'),
-              '人工/自動': getAnyVal('人工/自動', 'auto_type')
+              '大區編': getAnyVal('大區編', 'big_zone_id'),
+              '大區名': getAnyVal('大區名', 'big_zone', '大區'),
+              '三邊長': getAnyVal('三邊長', 'dim_sum'),
+              '最長邊': getAnyVal('最長邊', 'max_dim'),
+              '最短邊': getAnyVal('最短邊', 'min_dim'),
+              '儲位才數': getAnyVal('儲位才數', 'loc_cubic_feet'),
+              '儲位健康度': getAnyVal('儲位健康度', 'loc_health'),
+              '不符合': getAnyVal('不符合', 'non_compliant'),
+              '材積判斷': getAnyVal('材積判斷', 'vol_check'),
+              '總才數': getAnyVal('總才數', 'total_cubic_feet'),
+              '人工/自動': getAnyVal('人工/自動', 'auto_type'),
+              '儲位層標示': getAnyVal('儲位層標示', 'shelf_level'),
+              '庫齡級距': getAnyVal('庫齡級距', 'age_bracket'),
+              '樓層設定': getAnyVal('樓層設定', 'floor_config'),
+              '重型架判斷': getAnyVal('重型架判斷', 'heavy_rack_check'),
+              'ID指定樓層': getAnyVal('ID指定樓層', 'assigned_floor'),
+              '備註': getAnyVal('備註', 'remark')
             };
           });
 

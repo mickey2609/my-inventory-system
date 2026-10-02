@@ -4,7 +4,6 @@ const router = express.Router();
 
 function initInventory15Table(db) {
   db.serialize(() => {
-    // ⚡ 核心極速優化 PRAGMA
     db.run(`PRAGMA journal_mode = WAL;`);
     db.run(`PRAGMA synchronous = OFF;`);
     db.run(`PRAGMA cache_size = -64000;`);
@@ -66,7 +65,7 @@ module.exports = function(db) {
           };
 
           const itemId = getField('item_id', '商品ID');
-          if (!itemId) continue;
+          if (!itemId || itemId === '-' || itemId === '0') continue;
 
           const getNum = (...keys) => {
             const val = getField(...keys);
@@ -96,8 +95,8 @@ module.exports = function(db) {
             getField('supplier_name', '供應商名稱'),
             getField('pm', '所屬PM'),
             getNum('total_qty', '總庫存數'),
-            getNum('turn_days_total', '總庫存_迴轉天數'),
-            getNum('cubic_feet', '才數'),
+            getNum('turn_days_total', '總庫存_迴轉天數', '總庫存迴轉天數', '迴轉天數'),
+            getNum('cubic_feet', '才數', '單才數'),
             getField('vol_type', '材積別'),
             getField('loc_code_3', '儲位編碼-3'),
             getField('loc_code_full', '儲位編碼'),
@@ -106,7 +105,7 @@ module.exports = function(db) {
             getField('floor_zone', '樓層區域'),
             getField('loc_type', '儲位型態'),
             getField('big_zone_id', '大區編'),
-            getField('big_zone', '大區名'),
+            getField('big_zone', '大區名', '大區'),
             getNum('dim_sum', '三邊長'),
             getNum('max_dim', '最長邊'),
             getNum('min_dim', '最短邊'),
@@ -160,13 +159,19 @@ module.exports = function(db) {
     const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
     const offset = (page - 1) * pageSize;
 
-    // 🌟 核心修正：補齊 COUNT(DISTINCT item_id) 與 SUM(才數)
+    // 🌟 修正1：精準排除空白 item_id，計算品項數
+    // 🌟 修正2：精準才數計算 (若有單件才數與庫存數，則計算 cubic_feet * qty，否則採 total_cubic_feet)
     const summarySql = `
       SELECT 
-        COUNT(DISTINCT item_id) as total_items,
+        COUNT(DISTINCT CASE WHEN item_id IS NOT NULL AND item_id != '' AND item_id != '-' THEN item_id END) as total_items,
         COUNT(*) as total_rows,
         IFNULL(SUM(qty), 0) as total_pcs,
-        IFNULL(SUM(CASE WHEN total_cubic_feet > 0 THEN total_cubic_feet ELSE (cubic_feet * qty) END), 0) as total_ao
+        IFNULL(SUM(
+          CASE 
+            WHEN cubic_feet > 0 THEN (cubic_feet * qty) 
+            ELSE total_cubic_feet 
+          END
+        ), 0) as total_ao
       FROM inventory_15 ${whereClause}
     `;
 
