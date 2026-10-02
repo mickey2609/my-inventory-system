@@ -72,17 +72,12 @@ module.exports = function(db) {
             return val ? (parseFloat(String(val).replace(/,/g, '')) || 0) : 0;
           };
 
-          const qtyVal = getNum('qty', '儲位庫存數', '儲位庫存', '庫存數');
-          const cubicFeetVal = getNum('cubic_feet', '才數', '單才數', '單件才數');
-          // 自動重新算精準的總才數，避免帶入 CSV 中的髒數據
-          const calculatedTotalCubic = cubicFeetVal * qtyVal;
-
           stmt.run([
             itemId,
             getField('item_name', '商品名稱', '品名'),
             getField('borrow_proc', '借/採', '借採'),
             getField('location', '儲位', '儲位編號'),
-            qtyVal,
+            getNum('qty', '儲位庫存數', '儲位庫存', '庫存數'),
             parseInt(getField('age', '庫齡') || 0, 10),
             getField('zone_id', '區編', '區編號', '區域編號'),
             getField('zone_name', '區名', '區域名稱'),
@@ -101,7 +96,7 @@ module.exports = function(db) {
             getField('pm', '所屬PM', 'PM'),
             getNum('total_qty', '總庫存數', '總庫存'),
             getNum('turn_days_total', '總庫存_迴轉天數', '迴轉天數'),
-            cubicFeetVal,
+            getNum('cubic_feet', '才數', '單才數', '單件才數'),
             getField('vol_type', '材積別', '材積'),
             getField('loc_code_3', '儲位編碼-3', '儲位3'),
             getField('loc_code_full', '儲位編碼', '完整儲位編碼'),
@@ -118,7 +113,7 @@ module.exports = function(db) {
             getField('loc_health', '儲位健康度'),
             getField('non_compliant', '不符合'),
             getField('vol_check', '材積判斷'),
-            calculatedTotalCubic,
+            getNum('total_cubic_feet', '總才數'),
             getField('auto_type', '人工/自動'),
             getField('shelf_level', '儲位層標示', '層標示'),
             getField('age_bracket', '庫齡級距', '庫齡段'),
@@ -164,13 +159,13 @@ module.exports = function(db) {
     const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
     const offset = (page - 1) * pageSize;
 
-    // 🌟 100% 絕對純粹採納 SUM(cubic_feet * qty) 精準算式！
+    // 🌟 完全 100% 套用 80 庫 (server.js) 的統計公式
     const summarySql = `
       SELECT 
         COUNT(DISTINCT CASE WHEN item_id IS NOT NULL AND item_id != '' AND item_id != '-' THEN item_id END) as total_items,
         COUNT(*) as total_rows,
         IFNULL(SUM(qty), 0) as total_pcs,
-        IFNULL(SUM(CAST(cubic_feet AS REAL) * CAST(qty AS REAL)), 0) as total_ao
+        IFNULL(SUM(CASE WHEN total_cubic_feet > 0 THEN total_cubic_feet ELSE (cubic_feet * qty) END), 0) as total_ao
       FROM inventory_15 ${whereClause}
     `;
 
