@@ -523,19 +523,24 @@ export default {
 
     triggerSelectInventoryFile() { this.$refs.inventoryFileInput.click(); },
 
+    // 🌟 動態上傳分流：根據當前頁籤分流至 80 庫或 15 庫 (實時更新彈窗進度條) 🌟
     async handleInventoryUpload(event) {
       const file = event.target.files[0];
       if (!file) return;
       this.isUploading = true;
+      this.uploadPercent = 0; // 重置進度條為 0%
 
       if (this.currentTab === 'inv15') {
-        const loadingMsg = this.$message.info({ message: '⚡ 正在進行 15 庫存分塊處理與寫入中...', duration: 0 });
         try {
           const text = await file.text();
           const lines = text.split(/\r?\n/).filter(l => l.trim());
-          if (lines.length <= 1) { loadingMsg.close(); return this.$message.error('檔案格式無效'); }
+          if (lines.length <= 1) { 
+            this.isUploading = false;
+            return this.$message.error('檔案格式無效或內容為空！'); 
+          }
 
           const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+          const totalLines = lines.length - 1; // 扣除 Header 的總資料筆數
           let currentBatch = [];
           let uploadedCount = 0;
           let isFirstChunk = true;
@@ -549,6 +554,7 @@ export default {
               if (itemId.trim() !== '') currentBatch.push(rowObj);
             }
 
+            // 每 10,000 筆或讀取到最後一行時發送一次批次 API
             if (currentBatch.length >= 10000 || i === lines.length - 1) {
               if (currentBatch.length > 0) {
                 await axios.post('/api/inventory15/upload', { items: currentBatch, isFirstChunk: isFirstChunk });
@@ -557,21 +563,35 @@ export default {
                 currentBatch = [];
               }
             }
+
+            // 🌟 即時將計算出的百分比賦值給 uploadPercent，讓彈窗進度條動起來！
+            this.uploadPercent = Math.min(100, Math.round((i / totalLines) * 100));
           }
-          loadingMsg.close();
+
           this.$message.success(`🎉 成功寫入 ${uploadedCount.toLocaleString()} 筆有效資料至 庫存15！`);
           this.showInventoryImportTipDialog = false;
           this.fetchDashboardMetrics();
-        } catch (e) { loadingMsg.close(); this.$message.error('匯入 15 庫失敗：' + e.message); }
-        finally { this.isUploading = false; event.target.value = ''; }
+        } catch (e) { 
+          this.$message.error('匯入 15 庫失敗：' + e.message); 
+        } finally { 
+          this.isUploading = false; 
+          this.uploadPercent = 0;
+          event.target.value = ''; 
+        }
       } else {
+        // 80 庫原有流式上傳處理（自動帶入進度條）
         try {
           const totalRows = await processCsvUpload(file, p => { this.uploadPercent = p; }, (f, a) => this.sendCurrentLog(f, a));
           this.$message.success(`🎉 成功寫入 ${totalRows.toLocaleString()} 筆資料至 庫存80！`);
           this.showInventoryImportTipDialog = false;
           this.fetchDashboardMetrics();
-        } catch (e) { this.$message.error('上傳 80 庫失敗：' + e.message); }
-        finally { this.isUploading = false; event.target.value = ''; }
+        } catch (e) { 
+          this.$message.error('上傳 80 庫失敗：' + e.message); 
+        } finally { 
+          this.isUploading = false; 
+          this.uploadPercent = 0;
+          event.target.value = ''; 
+        }
       }
     },
 
