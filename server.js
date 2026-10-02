@@ -47,8 +47,15 @@ app.use(cors());
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
+
 // 🌟 掛載 /api/inventory15 相關路由
 app.use('/api/inventory15', inventory15Module(db));
+
+// 🌟 引入儲位 7 大 KPI 歷史快照專屬路由模組
+const locationStatsModule = require('./routes/locationStats');
+
+// 🌟 掛載 /api/location-stats 相關路由
+app.use('/api/location-stats', locationStatsModule(db));
 
 // 🌟 轉發程式碼更新請求至 Port 3001
 app.post('/api/system/update-server-code', (req, res) => {
