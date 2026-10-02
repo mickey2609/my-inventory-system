@@ -1,5 +1,5 @@
 // C:\my-inventory-server\server.js
-// 業務主程式 API 伺服器 (整合 48 欄位 + inventory_15 模組掛載 + 全域防崩潰保護)
+// 業務主程式 API 伺服器 (整合 48 欄位 + inventory_15 模組掛載 + 全域防崩潰保護 + 自由路徑程式碼更新)
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const cors = require('cors');
@@ -8,7 +8,7 @@ const fs = require('fs');
 
 // 🌟🌟🌟 核心防護：攔截全域未捕捉例外，防止 SQL 出錯時伺服器閃退斷線 🌟🌟🌟
 process.on('uncaughtException', (err) => {
-  console.error('⚠️ [系統防護] 攔截到未處理的例外，伺服器維持運作：', err.message);
+  console.error('⚠️️ [系統防護] 攔截到未處理的例外，伺服器維持運作：', err.message);
 });
 process.on('unhandledRejection', (reason, promise) => {
   console.error('⚠️ [系統防護] 攔截到未處理的 Promise 拒絕：', reason);
@@ -50,6 +50,7 @@ app.use(express.urlencoded({ limit: '100mb', extended: true }));
 // 🌟 掛載 /api/inventory15 相關路由
 app.use('/api/inventory15', inventory15Module(db));
 
+// 🌟 轉發程式碼更新請求至 Port 3001
 app.post('/api/system/update-server-code', (req, res) => {
   const http = require('http');
   const payload = JSON.stringify(req.body);
