@@ -39,16 +39,6 @@
             重新整理數據
           </el-button>
 
-          <!-- 🌟 歷史快照管理按鈕 🌟 -->
-          <el-button 
-            type="info" 
-            size="small" 
-            icon="el-icon-date" 
-            @click="showHistoryManagerModal = true"
-          >
-            🗓️ 歷史快照管理
-          </el-button>
-
           <!-- 🌟 匯出 XLSX 按鈕 (依權限控制顯示) 🌟 -->
           <el-button 
             v-if="exportPerms.xlsx"
@@ -62,7 +52,7 @@
             📊 匯出 xlsx (3工作表)
           </el-button>
 
-          <!-- 🌟 匯出 PDF 按鈕 (依權限控制顯示，預設關閉) 🌟 -->
+          <!-- 🌟 匯出 PDF 按鈕 (依權限控制顯示) 🌟 -->
           <el-button 
             v-if="exportPerms.pdf"
             type="danger" 
@@ -75,7 +65,7 @@
             🖨️ 匯出 PDF (3頁)
           </el-button>
 
-          <!-- 🌟 儲位定義設定按鈕 (只有系統管理員 sys_admin 看的到) 🌟 -->
+          <!-- 🌟 儲位定義設定按鈕 🌟 -->
           <el-button 
             v-if="isAdmin"
             type="warning" 
@@ -128,7 +118,7 @@
 
       <!-- 數據表格與圖表頁籤區 -->
       <div v-else class="tables-main-wrapper">
-        <el-tabs type="border-card" class="dark-tabs" v-model="activeTab">
+        <el-tabs type="border-card" class="dark-tabs" v-model="activeTab" @tab-click="handleTabClick">
           <!-- 頁籤 1：儲格數交叉統計表 -->
           <el-tab-pane label="📊 儲格數交叉統計表" name="grid">
             <el-table 
@@ -142,7 +132,6 @@
               <el-table-column prop="floor" label="樓層" width="75" align="center" fixed="left"></el-table-column>
               <el-table-column prop="loc_type" label="儲位類型" width="130" fixed="left" class-name="section-border-right"></el-table-column>
 
-              <!-- 規劃 -->
               <el-table-column label="規劃" align="center" class-name="section-border-right">
                 <el-table-column prop="plan_A區" label="A區" width="80" align="right"></el-table-column>
                 <el-table-column prop="plan_B區" label="B區" width="80" align="right"></el-table-column>
@@ -150,7 +139,6 @@
                 <el-table-column prop="plan_D區" label="D區" width="80" align="right" class-name="section-border-right"></el-table-column>
               </el-table-column>
 
-              <!-- 已使用 -->
               <el-table-column label="已使用" align="center" class-name="section-border-right">
                 <el-table-column prop="used_A區" label="A區" width="80" align="right"></el-table-column>
                 <el-table-column prop="used_B區" label="B區" width="80" align="right"></el-table-column>
@@ -158,7 +146,6 @@
                 <el-table-column prop="used_D區" label="D區" width="80" align="right" class-name="section-border-right"></el-table-column>
               </el-table-column>
 
-              <!-- 未使用率 (%) -->
               <el-table-column label="未使用率 (%)" align="center" class-name="section-border-right">
                 <el-table-column prop="unrate_A區" label="A區" width="80" align="right"></el-table-column>
                 <el-table-column prop="unrate_B區" label="B區" width="80" align="right"></el-table-column>
@@ -166,7 +153,6 @@
                 <el-table-column prop="unrate_D區" label="D區" width="80" align="right" class-name="section-border-right"></el-table-column>
               </el-table-column>
 
-              <!-- 剩餘 -->
               <el-table-column label="剩餘" align="center" class-name="section-border-right">
                 <el-table-column prop="rem_A區" label="A區" width="80" align="right"></el-table-column>
                 <el-table-column prop="rem_B區" label="B區" width="80" align="right"></el-table-column>
@@ -174,7 +160,6 @@
                 <el-table-column prop="rem_D區" label="D區" width="80" align="right" class-name="section-border-right"></el-table-column>
               </el-table-column>
 
-              <!--【儲位格數彙總】-->
               <el-table-column label="【儲位格數彙總】" align="center" class-name="summary-header-group">
                 <el-table-column label="規劃數" width="85" align="right">
                   <template #default="scope">
@@ -218,7 +203,6 @@
               <el-table-column prop="floor" label="樓層" width="75" align="center" fixed="left"></el-table-column>
               <el-table-column prop="loc_type" label="儲位類型" width="130" fixed="left" class-name="section-border-right"></el-table-column>
 
-              <!-- 規劃總才數 -->
               <el-table-column label="規劃總才數" align="center" class-name="section-border-right">
                 <el-table-column prop="plan_A區" label="A區" width="80" align="right"></el-table-column>
                 <el-table-column prop="plan_B區" label="B區" width="80" align="right"></el-table-column>
@@ -226,7 +210,6 @@
                 <el-table-column prop="plan_D區" label="D區" width="80" align="right" class-name="section-border-right"></el-table-column>
               </el-table-column>
 
-              <!-- 使用中才數 -->
               <el-table-column label="使用中才數" align="center" class-name="section-border-right">
                 <el-table-column prop="used_A區" label="A區" width="80" align="right"></el-table-column>
                 <el-table-column prop="used_B區" label="B區" width="80" align="right"></el-table-column>
@@ -234,7 +217,6 @@
                 <el-table-column prop="used_D區" label="D區" width="80" align="right" class-name="section-border-right"></el-table-column>
               </el-table-column>
 
-              <!-- 剩餘才數 -->
               <el-table-column label="剩餘才數" align="center" class-name="section-border-right">
                 <el-table-column prop="rem_A區" label="A區" width="80" align="right"></el-table-column>
                 <el-table-column prop="rem_B區" label="B區" width="80" align="right"></el-table-column>
@@ -242,7 +224,6 @@
                 <el-table-column prop="rem_D區" label="D區" width="80" align="right" class-name="section-border-right"></el-table-column>
               </el-table-column>
 
-              <!--【才數彙總】-->
               <el-table-column label="【才數彙總】" align="center" class-name="summary-header-group">
                 <el-table-column label="規劃數" width="90" align="right">
                   <template #default="scope">
@@ -287,7 +268,6 @@
               <el-table-column prop="displayFloor" label="樓層" width="100" align="center" fixed="left"></el-table-column>
               <el-table-column prop="displayType" label="儲位類型" width="130" fixed="left" class-name="section-border-right"></el-table-column>
 
-              <!--【儲位格數彙總】-->
               <el-table-column label="【儲位格數彙總】" align="center" class-name="summary-header-group section-border-right">
                 <el-table-column label="規劃數" width="100" align="right">
                   <template #default="scope">
@@ -312,7 +292,6 @@
                 </el-table-column>
               </el-table-column>
 
-              <!--【才數彙總】-->
               <el-table-column label="【才數彙總】" align="center" class-name="summary-header-group-vol">
                 <el-table-column label="規劃數" width="110" align="right">
                   <template #default="scope">
@@ -339,94 +318,69 @@
             </el-table>
           </el-tab-pane>
 
-          <!-- 🌟 頁籤 4：📈 空間與健康度歷史趨勢圖 🌟 -->
+          <!-- 🌟 頁籤 4：📈 空間與健康度歷史趨勢圖 (高質感 ECharts 平滑曲線圖) 🌟 -->
           <el-tab-pane label="📈 空間與健康度歷史趨勢圖" name="trend">
             <div v-if="historyList.length === 0" class="no-trend-box">
               ⚠️ 尚無歷史快照紀錄，上傳庫存 CSV 檔案後將自動產生趨勢分析！
             </div>
-            <div v-else class="trend-container">
-              <div class="trend-card">
-                <div class="trend-title">📊 使用中儲位數 vs 剩餘空儲位數 歷史變遷</div>
-                <div class="trend-bars">
-                  <div v-for="item in sortedHistoryList" :key="item.record_date" class="bar-col">
-                    <div class="bar-val-text">{{ formatNumber(item.used_grid) }}</div>
-                    <div class="bar-track">
-                      <div class="bar-fill used" :style="{ height: getGridHeightPercent(item.used_grid, item.plan_grid) }"></div>
-                    </div>
-                    <div class="bar-date-label">{{ item.record_date.substring(5) }}</div>
-                  </div>
-                </div>
+            <div v-else class="echarts-wrapper">
+              <div class="chart-card">
+                <div class="chart-header">📊 80 庫「使用中儲格數」與「使用中才數」歷史推移曲線</div>
+                <div ref="capacityChart" class="chart-dom"></div>
               </div>
+              <div class="chart-card">
+                <div class="chart-header">🩺 80 庫「儲位整體健康度 %」歷史趨勢曲線</div>
+                <div ref="healthChart" class="chart-dom"></div>
+              </div>
+            </div>
+          </el-tab-pane>
 
-              <div class="trend-card">
-                <div class="trend-title">🩺 儲位整體健康度 % 歷史走勢</div>
-                <div class="health-list">
-                  <div v-for="item in sortedHistoryList" :key="item.record_date" class="health-row">
-                    <span class="h-date">{{ item.record_date }}</span>
-                    <el-progress 
-                      :percentage="Math.min(100, item.health_rate || 0)" 
-                      :color="item.health_rate > 85 ? '#f43f5e' : (item.health_rate > 60 ? '#f59e0b' : '#38bdf8')" 
-                      :stroke-width="14"
-                      style="flex: 1; margin: 0 15px;"
-                    />
-                    <span class="h-val">{{ item.health_rate }}%</span>
-                  </div>
-                </div>
+          <!-- 🌟 頁籤 5：🗓️ 儲位 7 大 KPI 歷史快照管理清單 (獨立頁面呈現) 🌟 -->
+          <el-tab-pane label="🗓️ 儲位 7 大 KPI 歷史快照管理清單" name="history_manager">
+            <div class="history-page-wrapper">
+              <div class="history-page-header">
+                <span class="history-page-title">🗓️ 80 庫歷史快照點詳細紀錄列表</span>
+                <span class="history-page-subtitle">共 {{ historyList.length }} 筆歷史資料（點擊資料列右側按鈕可刪除誤上傳快照）</span>
               </div>
+              <el-table :data="historyList" border stripe size="small" class="dark-table" height="calc(100vh - 280px)">
+                <el-table-column prop="record_date" label="紀錄日期" width="120" align="center" fixed />
+                <el-table-column prop="file_name" label="原始來源檔名" min-width="220" show-overflow-tooltip />
+                <el-table-column label="已用儲格 / 規劃總格" width="180" align="right">
+                  <template #default="scope">
+                    <span class="text-green">{{ formatNumber(scope.row.used_grid) }}</span> / {{ formatNumber(scope.row.plan_grid) }}
+                  </template>
+                </el-table-column>
+                <el-table-column label="已用才數 / 規劃總才數" width="200" align="right">
+                  <template #default="scope">
+                    <span class="text-green">{{ formatNumber(scope.row.used_vol) }}</span> / {{ formatNumber(scope.row.plan_vol) }}
+                  </template>
+                </el-table-column>
+                <el-table-column prop="health_rate" label="健康度" width="110" align="right">
+                  <template #default="scope">
+                    <span class="text-cyan font-bold">{{ scope.row.health_rate }}%</span>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="created_at" label="寫入系統時間" width="170" align="center" />
+                <el-table-column label="操作" width="110" align="center" fixed="right">
+                  <template #default="scope">
+                    <el-button 
+                      type="danger" 
+                      size="mini" 
+                      icon="el-icon-delete"
+                      @click="deleteSnapshot(scope.row.record_date)"
+                    >
+                      刪除
+                    </el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
             </div>
           </el-tab-pane>
         </el-tabs>
       </div>
     </div>
 
-    <!-- 🗓️ 1. 歷史快照管理 Modal -->
-    <el-dialog
-      title="🗓️ 儲位 7 大 KPI 歷史快照管理清單"
-      v-model="showHistoryManagerModal"
-      width="850px"
-      append-to-body
-      class="custom-dark-dialog"
-    >
-      <div class="history-modal-body">
-        <el-table :data="historyList" border stripe size="mini" class="dark-table" max-height="380px">
-          <el-table-column prop="record_date" label="紀錄日期" width="110" align="center" fixed />
-          <el-table-column prop="file_name" label="原始來源檔名" min-width="180" show-overflow-tooltip />
-          <el-table-column label="已用 / 規劃儲格" width="130" align="right">
-            <template #default="scope">
-              {{ formatNumber(scope.row.used_grid) }} / {{ formatNumber(scope.row.plan_grid) }}
-            </template>
-          </el-table-column>
-          <el-table-column label="已用才數" width="110" align="right">
-            <template #default="scope">{{ formatNumber(scope.row.used_vol) }}</template>
-          </el-table-column>
-          <el-table-column prop="health_rate" label="健康度" width="85" align="right">
-            <template #default="scope">
-              <span class="text-cyan">{{ scope.row.health_rate }}%</span>
-            </template>
-          </el-table-column>
-          <el-table-column prop="created_at" label="寫入時間" width="140" align="center" />
-          <el-table-column label="操作" width="90" align="center" fixed="right">
-            <template #default="scope">
-              <el-button 
-                type="danger" 
-                size="mini" 
-                icon="el-icon-delete"
-                @click="deleteSnapshot(scope.row.record_date)"
-              >
-                刪除
-              </el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-      </div>
-      <template #footer>
-        <span class="dialog-footer">
-          <el-button size="small" @click="showHistoryManagerModal = false">關閉</el-button>
-        </span>
-      </template>
-    </el-dialog>
-
-    <!-- ⚙️ 2. 儲位定義 Modal -->
+    <!-- ⚙️ 儲位定義 Modal -->
     <el-dialog
       title="⚙️ 儲位定義參數與權限設定"
       v-model="showConfigDialog"
@@ -534,7 +488,6 @@ export default {
     return {
       activeTab: 'grid',
       showConfigDialog: false,
-      showHistoryManagerModal: false,
       isUploading: false,
       masterLoading: false,
       masterTableData: [],
@@ -546,6 +499,10 @@ export default {
       historyList: [],
       snapshotStats: null,
 
+      // ECharts 實例
+      capacityChartInstance: null,
+      healthChartInstance: null,
+
       // 🌟 匯出功能權限控制
       exportPerms: {
         xlsx: true,
@@ -554,12 +511,12 @@ export default {
     }
   },
   computed: {
-    // 🌟 按日期正序排列（供趨勢圖渲染） 🌟
+    // 按日期正序排列（供趨勢圖左至右渲染）
     sortedHistoryList() {
       return [...this.historyList].reverse();
     },
 
-    // 🌟 判斷當前指標卡片要顯示即時試算還是歷史快照 🌟
+    // 指標卡片資料源
     activeStats() {
       if (this.selectedDate !== 'realtime' && this.snapshotStats) {
         return this.snapshotStats;
@@ -663,6 +620,12 @@ export default {
     if (!this.summaryGridData || this.summaryGridData.length === 0) {
       this.$emit('refresh-summary');
     }
+    window.addEventListener('resize', this.resizeCharts);
+  },
+  beforeUnmount() {
+    window.removeEventListener('resize', this.resizeCharts);
+    if (this.capacityChartInstance) this.capacityChartInstance.dispose();
+    if (this.healthChartInstance) this.healthChartInstance.dispose();
   },
   methods: {
     formatNumber(val) {
@@ -671,10 +634,97 @@ export default {
       return isNaN(num) ? val : num.toLocaleString();
     },
 
-    getGridHeightPercent(used, plan) {
-      if (!plan || plan <= 0) return '0%';
-      const p = Math.min(100, Math.round((used / plan) * 100));
-      return `${p}%`;
+    handleTabClick(tab) {
+      if (tab.props.name === 'trend') {
+        this.$nextTick(() => {
+          this.renderECharts();
+        });
+      }
+    },
+
+    resizeCharts() {
+      if (this.capacityChartInstance) this.capacityChartInstance.resize();
+      if (this.healthChartInstance) this.healthChartInstance.resize();
+    },
+
+    // 🌟 渲染 CDN Element / ECharts 平滑雙動態折線圖 🌟
+    renderECharts() {
+      const echarts = window.echarts || (typeof echarts !== 'undefined' ? echarts : null);
+      if (!echarts || this.sortedHistoryList.length === 0) return;
+
+      const dates = this.sortedHistoryList.map(item => item.record_date);
+      const usedGrids = this.sortedHistoryList.map(item => item.used_grid);
+      const usedVols = this.sortedHistoryList.map(item => item.used_vol);
+      const healthRates = this.sortedHistoryList.map(item => item.health_rate);
+
+      // 1. 容量與才數雙 Y 軸曲線圖
+      if (this.$refs.capacityChart) {
+        if (!this.capacityChartInstance) {
+          this.capacityChartInstance = echarts.init(this.$refs.capacityChart);
+        }
+        const option1 = {
+          backgroundColor: 'transparent',
+          tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+          legend: { data: ['使用中儲格數', '使用中才數'], textStyle: { color: '#94a3b8' } },
+          grid: { left: '4%', right: '4%', bottom: '8%', top: '15%', containLabel: true },
+          xAxis: { type: 'category', data: dates, axisLine: { lineStyle: { color: '#334155' } }, axisLabel: { color: '#94a3b8' } },
+          yAxis: [
+            { type: 'value', name: '儲格數', axisLine: { lineStyle: { color: '#38bdf8' } }, splitLine: { lineStyle: { color: '#1e293b' } }, axisLabel: { color: '#38bdf8' } },
+            { type: 'value', name: '才數', axisLine: { lineStyle: { color: '#4ade80' } }, splitLine: { show: false }, axisLabel: { color: '#4ade80' } }
+          ],
+          series: [
+            {
+              name: '使用中儲格數', type: 'line', smooth: true, yAxisIndex: 0, data: usedGrids,
+              itemStyle: { color: '#38bdf8' },
+              areaStyle: {
+                color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                  { offset: 0, color: 'rgba(56, 189, 248, 0.4)' },
+                  { offset: 1, color: 'rgba(56, 189, 248, 0.0)' }
+                ])
+              }
+            },
+            {
+              name: '使用中才數', type: 'line', smooth: true, yAxisIndex: 1, data: usedVols,
+              itemStyle: { color: '#4ade80' },
+              areaStyle: {
+                color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                  { offset: 0, color: 'rgba(74, 222, 128, 0.3)' },
+                  { offset: 1, color: 'rgba(74, 222, 128, 0.0)' }
+                ])
+              }
+            }
+          ]
+        };
+        this.capacityChartInstance.setOption(option1);
+      }
+
+      // 2. 健康度 % 平滑曲線圖
+      if (this.$refs.healthChart) {
+        if (!this.healthChartInstance) {
+          this.healthChartInstance = echarts.init(this.$refs.healthChart);
+        }
+        const option2 = {
+          backgroundColor: 'transparent',
+          tooltip: { trigger: 'axis', formatter: '{b} <br/>儲位健康度: {c}%' },
+          grid: { left: '4%', right: '4%', bottom: '8%', top: '15%', containLabel: true },
+          xAxis: { type: 'category', data: dates, axisLine: { lineStyle: { color: '#334155' } }, axisLabel: { color: '#94a3b8' } },
+          yAxis: { type: 'value', name: '健康度 (%)', min: 0, max: 100, axisLine: { lineStyle: { color: '#22d3ee' } }, splitLine: { lineStyle: { color: '#1e293b' } }, axisLabel: { color: '#22d3ee' } },
+          series: [
+            {
+              name: '健康度 (%)', type: 'line', smooth: true, data: healthRates,
+              itemStyle: { color: '#22d3ee' },
+              lineStyle: { width: 3, color: '#22d3ee' },
+              areaStyle: {
+                color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                  { offset: 0, color: 'rgba(34, 211, 238, 0.4)' },
+                  { offset: 1, color: 'rgba(34, 211, 238, 0.0)' }
+                ])
+              }
+            }
+          ]
+        };
+        this.healthChartInstance.setOption(option2);
+      }
     },
 
     async fetchHistoryList() {
@@ -682,6 +732,7 @@ export default {
         const res = await axios.get('/api/location-stats/history');
         if (res.data && res.data.success) {
           this.historyList = res.data.data || [];
+          if (this.activeTab === 'trend') this.renderECharts();
         }
       } catch (e) {
         console.error('抓取歷史快照失敗:', e.message);
@@ -918,8 +969,7 @@ export default {
         ws2['!merges'] = [
           { s: { r: 0, c: 0 }, e: { r: 1, c: 0 } }, { s: { r: 0, c: 1 }, e: { r: 1, c: 1 } },
           { s: { r: 0, c: 2 }, e: { r: 0, c: 5 } }, { s: { r: 0, c: 6 }, e: { r: 0, c: 9 } },
-          { s: { r: 0, c: 10 }, e: { r: 0, c: 13 } }, { s: { r: 0, c: 14 }, e: { r: 0, c: 17 } },
-          { s: { r: 0, c: 18 }, e: { r: 0, c: 22 } }
+          { s: { r: 0, c: 10 }, e: { r: 0, c: 13 } }, { s: { r: 0, c: 14 }, e: { r: 0, c: 18 } }
         ];
         XLSX.utils.book_append_sheet(wb, ws2, "才數交叉統計表");
 
@@ -974,7 +1024,7 @@ export default {
           doc.addFont('NotoSansTC.otf', 'NotoSansTC', 'normal');
           doc.setFont('NotoSansTC');
         } catch (fontErr) {
-          console.warn('⚠️️ 中文字型載入失敗，採用系統預設', fontErr);
+          console.warn('⚠️ 中文字型載入失敗，採用系統預設', fontErr);
         }
 
         doc.setFontSize(13);
@@ -1160,6 +1210,7 @@ export default {
 .text-green { color: #4ade80; }
 .text-orange { color: #fbbf24; }
 .text-cyan { color: #22d3ee; }
+.font-bold { font-weight: bold; }
 
 .stat-card.highlight-health {
   background: rgba(34, 211, 238, 0.1);
@@ -1250,7 +1301,7 @@ export default {
   border-left: 3px solid #38bdf8 !important;
 }
 
-/* 📈 趨勢圖專屬樣式 */
+/* 📈 趨勢圖 ECharts 容器與卡片 */
 .no-trend-box {
   padding: 40px;
   text-align: center;
@@ -1258,99 +1309,62 @@ export default {
   font-size: 14px;
 }
 
-.trend-container {
+.echarts-wrapper {
   display: flex;
   flex-direction: column;
   gap: 15px;
   height: 100%;
   overflow-y: auto;
+  padding: 5px;
 }
 
-.trend-card {
+.chart-card {
   background: #0f172a;
   border: 1px solid #334155;
   border-radius: 8px;
-  padding: 15px;
+  padding: 12px 16px;
 }
 
-.trend-title {
+.chart-header {
   font-size: 14px;
   font-weight: bold;
   color: #38bdf8;
-  margin-bottom: 15px;
+  margin-bottom: 8px;
 }
 
-.trend-bars {
-  display: flex;
-  gap: 20px;
-  align-items: flex-end;
-  height: 160px;
-  padding-bottom: 10px;
-}
-
-.bar-col {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  height: 100%;
-  width: 45px;
-}
-
-.bar-val-text {
-  font-size: 10px;
-  color: #38bdf8;
-  margin-bottom: 4px;
-}
-
-.bar-track {
-  flex: 1;
-  width: 16px;
-  background: #1e293b;
-  border-radius: 8px;
-  display: flex;
-  align-items: flex-end;
-  overflow: hidden;
-}
-
-.bar-fill.used {
+.chart-dom {
   width: 100%;
-  background: linear-gradient(180deg, #38bdf8 0%, #0284c7 100%);
-  border-radius: 8px;
+  height: 220px;
 }
 
-.bar-date-label {
-  font-size: 11px;
-  color: #94a3b8;
-  margin-top: 6px;
-}
-
-.health-list {
+/* 🗓️ 歷史快照管理頁面樣式 */
+.history-page-wrapper {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
+  height: 100%;
+  padding: 5px;
 }
 
-.health-row {
+.history-page-header {
   display: flex;
-  align-items: center;
+  align-items: baseline;
+  gap: 15px;
+  background: #0f172a;
+  padding: 10px 16px;
+  border-radius: 6px;
+  border: 1px solid #334155;
 }
 
-.h-date {
-  width: 90px;
-  font-size: 12px;
-  color: #e2e8f0;
-}
-
-.h-val {
-  width: 60px;
-  font-size: 13px;
+.history-page-title {
+  font-size: 15px;
   font-weight: bold;
-  color: #22d3ee;
-  text-align: right;
+  color: #38bdf8;
 }
 
-.history-modal-body {
-  padding: 5px 0;
+.history-page-subtitle {
+  font-size: 12px;
+  color: #94a3b8;
 }
 
 .config-modal-content { color: #f8fafc; }
