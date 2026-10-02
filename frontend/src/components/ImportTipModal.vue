@@ -1,6 +1,6 @@
 <template>
   <div>
-    <!-- 商品 CSV 匯入說明 -->
+    <!-- 1. 商品庫存 CSV 匯入說明彈窗 -->
     <el-dialog 
       title="📥 商品資料明細匯入說明" 
       :model-value="showInventoryImportTip" 
@@ -14,13 +14,13 @@
         <p style="margin-top: 0; color: #38bdf8; font-weight: bold;">請確認您準備上傳的商品明細檔案符合以下規範：</p>
         <ol style="padding-left: 20px; margin-bottom: 15px;">
           <li><b>建議上傳檔案格式</b>：<code style="color: #4ade80;">.csv</code></li>
-          <li><b>更新效益</b>：上傳成功後，資料將直接寫入 Cloudflare D1 資料庫，<b>即時同步全公司最新庫存</b>！</li>
+          <li><b>更新效益</b>：上傳成功後，資料將直接寫入<b>地端 SQLite 高效能資料庫</b>，<b>即時同步全公司最新庫存</b>！</li>
         </ol>
 
-        <!-- 🎨 美化版動態進度條 (僅在上傳時顯示) -->
-        <div v-if="isUploading" style="margin-top: 20px; padding: 12px; background: #0f172a; border-radius: 8px; border: 1px solid #334155;">
+        <!-- 動態進度條 (僅在上傳時顯示) -->
+        <div v-if="isUploading" style="margin-top: 20px; padding: 12px; background: #0f172a; border-radius: 8px; border: 1px solid #0284c7;">
           <div style="font-size: 13px; color: #38bdf8; margin-bottom: 8px; font-weight: bold;">
-            🚀 寫入 Cloudflare D1 資料庫中...
+            🚀 寫入地端 SQLite 資料庫中...
           </div>
           <el-progress 
             :percentage="uploadPercent" 
@@ -34,19 +34,21 @@
       </div>
 
       <template #footer>
-        <el-button :disabled="isUploading" @click="$emit('update:showInventoryImportTip', false)">取消</el-button>
-        <el-button 
-          type="warning" 
-          :loading="isUploading"
-          style="font-weight: bold; color: #000;" 
-          @click="$emit('confirm-inventory-import')"
-        >
-          {{ isUploading ? '寫入中...' : '確定，選擇檔案並開始匯入' }}
-        </el-button>
+        <div class="dialog-footer">
+          <el-button :disabled="isUploading" @click="$emit('update:showInventoryImportTip', false)">取消</el-button>
+          <el-button 
+            type="warning" 
+            :loading="isUploading"
+            style="font-weight: bold; color: #000;" 
+            @click="$emit('confirm-inventory-import')"
+          >
+            {{ isUploading ? '寫入中...' : '確定，選擇檔案並開始匯入' }}
+          </el-button>
+        </div>
       </template>
     </el-dialog>
 
-    <!-- 帳號批次匯入說明 -->
+    <!-- 2. 帳號批次匯入說明彈窗 -->
     <el-dialog 
       title="📥 批次匯入帳號欄位格式說明" 
       :model-value="showImportTip" 
@@ -64,8 +66,10 @@
         </ol>
       </div>
       <template #footer>
-        <el-button @click="$emit('update:showImportTip', false)">取消</el-button>
-        <el-button type="primary" @click="$emit('confirm-batch-import')">確定，選擇檔案並上傳</el-button>
+        <div class="dialog-footer">
+          <el-button @click="$emit('update:showImportTip', false)">取消</el-button>
+          <el-button type="primary" @click="$emit('confirm-batch-import')">確定，選擇檔案並上傳</el-button>
+        </div>
       </template>
     </el-dialog>
   </div>
@@ -78,7 +82,7 @@ export default {
     showInventoryImportTip: Boolean,
     showImportTip: Boolean,
     isUploading: Boolean,
-    uploadPercent: Number
+    uploadPercent: { type: Number, default: 0 }
   },
   emits: [
     'update:showInventoryImportTip',
@@ -88,3 +92,11 @@ export default {
   ]
 }
 </script>
+
+<style scoped>
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+</style>
