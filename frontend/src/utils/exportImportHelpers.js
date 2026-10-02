@@ -10,10 +10,42 @@ const getRowValue = (row, col) => {
   return '-';
 };
 
-// 1. CSV 批次寫入地端 SQLite (100% 寫入 48 欄位)
+// 🌟 1. 從檔名自動提取日期 (支援 YYYYMMDD, YYYY-MM-DD, YYYY_MM_DD 等格式)
+export function extractDateFromFilename(fileName) {
+  if (!fileName) return new Date().toISOString().split('T')[0];
+  const match = fileName.match(/(20\d{2}[-_/]?\d{2}[-_/]?\d{2})/);
+  if (match) {
+    const raw = match[1].replace(/[-_/]/g, '');
+    if (raw.length === 8) {
+      return `${raw.substring(0, 4)}-${raw.substring(4, 6)}-${raw.substring(6, 8)}`;
+    }
+  }
+  return new Date().toISOString().split('T')[0]; // 檔名無日期時預設為今天
+}
+
+// 🌟 2. 匯入成功後，自動呼叫 API 重新計算並寫入 80 庫 7 大 KPI 歷史快照
+export async function triggerSaveLocationHistory(fileName) {
+  try {
+    const recordDate = extractDateFromFilename(fileName);
+    // 呼叫交叉試算 API 取得最新 7 大 KPI
+    const res = await axios.get('/api/calc-location-summary');
+    if (res.data && res.data.success && res.data.summaryStats) {
+      // 儲存至歷史快照資料表
+      await axios.post('/api/location-stats/save', {
+        record_date: recordDate,
+        file_name: fileName,
+        stats: res.data.summaryStats
+      });
+      console.log(`✅ 已自動儲存 ${recordDate} (${fileName}) 之 80 庫儲位歷史快照！`);
+    }
+  } catch (e) {
+    console.error('⚠️ 自動儲存儲位歷史快照失敗:', e.message);
+  }
+}
+
+// 3. CSV 批次寫入地端 SQLite (100% 寫入 48 欄位)
 export async function processCsvUpload(file, onProgress, sendLogCallback) {
   return new Promise((resolve, reject) => {
-    // 改為讀取 CDN 載入的 PapaParse
     const papa = window.Papa || (typeof Papa !== 'undefined' ? Papa : null);
     if (!papa) {
       reject(new Error('PapaParse 解析庫尚未載入完成，請重新整理頁面再試'));
@@ -124,7 +156,7 @@ export async function processCsvUpload(file, onProgress, sendLogCallback) {
   });
 }
 
-// 2. 報表匯出 (PDF / Excel / CSV)
+// 4. 報表匯出 (PDF / Excel / CSV)
 export function processExportData({ fmt, tableData, exportCols, moduleName, summary, searchTime, sendLogCallback, formatNumber }) {
   const now = new Date();
   const dateStr = now.getFullYear() + String(now.getMonth() + 1).padStart(2, '0') + String(now.getDate()).padStart(2, '0');

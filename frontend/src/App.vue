@@ -190,7 +190,7 @@ import { useAuthSession } from './composables/useAuthSession.js'
 import { useSystemLogs } from './composables/useSystemLogs.js'
 import { useUserManagement } from './composables/useUserManagement.js'
 import { useLocSummary } from './composables/useLocSummary.js'
-import { processCsvUpload, processExportData } from './utils/exportImportHelpers.js'
+import { processCsvUpload, processExportData, triggerSaveLocationHistory } from './utils/exportImportHelpers.js'
 
 export default {
   name: 'App',
@@ -246,7 +246,6 @@ export default {
       dbMetrics: { totalRows80: 0, totalRows15: 0, serverUptimeSec: 0 },
       logTab: 'normal', loading: false, draggedIndex: null,
 
-      // 🌟 庫存 80 專屬隔離狀態 (預設關閉匯出權限) 🌟
       hasSearched80: false, searchTime80: '', currentPage80: 1, pageSize80: 500, totalRowsCount80: 0,
       tableData80: [], columns80: [], summary80: { total_items: 0, total_rows: 0, total_pcs: 0, total_ao: 0 },
       exportConfig80: { xlsx: false, csv: false, pdf: false },
@@ -258,7 +257,6 @@ export default {
         txt_monthly_sales: '', selected_columns: [...full48Cols], chk_show_loc: true, chk_show_dim: true, cbo_sort: '商品ID', sort_order: 'desc'
       },
 
-      // 🌟 庫存 15 專屬隔離狀態 (預設關閉匯出權限) 🌟
       hasSearched15: false, searchTime15: '', currentPage15: 1, pageSize15: 500, totalRowsCount15: 0,
       tableData15: [], columns15: [], summary15: { total_items: 0, total_rows: 0, total_pcs: 0, total_ao: 0 },
       exportConfig15: { xlsx: false, csv: false, pdf: false },
@@ -400,7 +398,6 @@ export default {
       return false;
     },
 
-    // 🌟 讀取匯出與欄位設定檔，若未開則預設全關 ({ xlsx: false, csv: false, pdf: false }) 🌟
     async fetchGlobalConfig() {
       try {
         const key80 = 'global_default_80';
@@ -523,12 +520,12 @@ export default {
 
     triggerSelectInventoryFile() { this.$refs.inventoryFileInput.click(); },
 
-    // 🌟 動態上傳分流：根據當前頁籤分流至 80 庫或 15 庫 (實時更新彈窗進度條) 🌟
+    // 🌟 動態上傳分流：根據當前頁籤分流至 80 庫或 15 庫 🌟
     async handleInventoryUpload(event) {
       const file = event.target.files[0];
       if (!file) return;
       this.isUploading = true;
-      this.uploadPercent = 0; // 重置進度條為 0%
+      this.uploadPercent = 0;
 
       if (this.currentTab === 'inv15') {
         try {
@@ -540,7 +537,7 @@ export default {
           }
 
           const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
-          const totalLines = lines.length - 1; // 扣除 Header 的總資料筆數
+          const totalLines = lines.length - 1;
           let currentBatch = [];
           let uploadedCount = 0;
           let isFirstChunk = true;
@@ -554,7 +551,6 @@ export default {
               if (itemId.trim() !== '') currentBatch.push(rowObj);
             }
 
-            // 每 10,000 筆或讀取到最後一行時發送一次批次 API
             if (currentBatch.length >= 10000 || i === lines.length - 1) {
               if (currentBatch.length > 0) {
                 await axios.post('/api/inventory15/upload', { items: currentBatch, isFirstChunk: isFirstChunk });
@@ -564,7 +560,6 @@ export default {
               }
             }
 
-            // 🌟 即時將計算出的百分比賦值給 uploadPercent，讓彈窗進度條動起來！
             this.uploadPercent = Math.min(100, Math.round((i / totalLines) * 100));
           }
 
@@ -579,9 +574,13 @@ export default {
           event.target.value = ''; 
         }
       } else {
-        // 80 庫原有流式上傳處理（自動帶入進度條）
+        // 80 庫流式上傳處理
         try {
           const totalRows = await processCsvUpload(file, p => { this.uploadPercent = p; }, (f, a) => this.sendCurrentLog(f, a));
+          
+          // 🌟 自動觸發寫入 7 大 KPI 歷史快照 (自動解析檔名日期)
+          await triggerSaveLocationHistory(file.name);
+
           this.$message.success(`🎉 成功寫入 ${totalRows.toLocaleString()} 筆資料至 庫存80！`);
           this.showInventoryImportTipDialog = false;
           this.fetchDashboardMetrics();
@@ -729,7 +728,7 @@ export default {
         }
       } catch (e) {
         this.isLoggedIn = false;
-        this.$message.error('⚠️ 伺服器未連線，請確認地端桌機 start_tunnel.bat 是否已啟動！');
+        this.$message.error('⚠️️ 伺服器未連線，請確認地端桌機 start_tunnel.bat 是否已啟動！');
       } finally { 
         this.loginLoading = false; 
       }
