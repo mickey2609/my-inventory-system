@@ -28,7 +28,6 @@
         </div>
 
         <div class="btn-group">
-          <!-- 重新整理按鈕 -->
           <el-button 
             type="primary" 
             size="small" 
@@ -39,7 +38,6 @@
             重新整理數據
           </el-button>
 
-          <!-- 🌟 匯出 XLSX 按鈕 (依權限控制顯示) 🌟 -->
           <el-button 
             v-if="exportPerms.xlsx"
             type="success" 
@@ -52,7 +50,6 @@
             📊 匯出 xlsx (3工作表)
           </el-button>
 
-          <!-- 🌟 匯出 PDF 按鈕 (依權限控制顯示，預設關閉) 🌟 -->
           <el-button 
             v-if="exportPerms.pdf"
             type="danger" 
@@ -65,7 +62,6 @@
             🖨️ 匯出 PDF (3頁)
           </el-button>
 
-          <!-- 🌟 儲位定義設定按鈕 (只有系統管理員 sys_admin 看的到) 🌟 -->
           <el-button 
             v-if="isAdmin"
             type="warning" 
@@ -78,7 +74,7 @@
         </div>
       </div>
 
-      <!-- 7 大數據指標卡片 (自動響應即時 / 歷史快照數據) -->
+      <!-- 7 大數據指標卡片 -->
       <div class="stats-overview-grid">
         <div class="stat-card">
           <span class="stat-lbl">規劃總儲格數</span>
@@ -105,7 +101,7 @@
           <span class="stat-val text-orange">{{ formatNumber(activeStats.total_rem_vol) }}</span>
         </div>
         <div class="stat-card highlight-health">
-          <span class="stat-lbl">儲位整體健康度</span>
+          <span class="stat-lbl">儲位整體健康度 (使用率)</span>
           <span class="stat-val text-cyan">{{ activeStats.total_health || '0.0%' }}</span>
         </div>
       </div>
@@ -118,7 +114,7 @@
 
       <!-- 數據表格與圖表頁籤區 -->
       <div v-else class="tables-main-wrapper">
-        <el-tabs type="border-card" class="dark-tabs" v-model="activeTab" @tab-click="handleTabClick">
+        <el-tabs type="border-card" class="dark-tabs" v-model="activeTab">
           <!-- 頁籤 1：儲格數交叉統計表 -->
           <el-tab-pane label="📊 儲格數交叉統計表" name="grid">
             <el-table 
@@ -132,7 +128,6 @@
               <el-table-column prop="floor" label="樓層" width="75" align="center" fixed="left"></el-table-column>
               <el-table-column prop="loc_type" label="儲位類型" width="130" fixed="left" class-name="section-border-right"></el-table-column>
 
-              <!-- 規劃 -->
               <el-table-column label="規劃" align="center" class-name="section-border-right">
                 <el-table-column prop="plan_A區" label="A區" width="80" align="right"></el-table-column>
                 <el-table-column prop="plan_B區" label="B區" width="80" align="right"></el-table-column>
@@ -140,7 +135,6 @@
                 <el-table-column prop="plan_D區" label="D區" width="80" align="right" class-name="section-border-right"></el-table-column>
               </el-table-column>
 
-              <!-- 已使用 -->
               <el-table-column label="已使用" align="center" class-name="section-border-right">
                 <el-table-column prop="used_A區" label="A區" width="80" align="right"></el-table-column>
                 <el-table-column prop="used_B區" label="B區" width="80" align="right"></el-table-column>
@@ -148,7 +142,6 @@
                 <el-table-column prop="used_D區" label="D區" width="80" align="right" class-name="section-border-right"></el-table-column>
               </el-table-column>
 
-              <!-- 未使用率 (%) -->
               <el-table-column label="未使用率 (%)" align="center" class-name="section-border-right">
                 <el-table-column prop="unrate_A區" label="A區" width="80" align="right"></el-table-column>
                 <el-table-column prop="unrate_B區" label="B區" width="80" align="right"></el-table-column>
@@ -156,7 +149,6 @@
                 <el-table-column prop="unrate_D區" label="D區" width="80" align="right" class-name="section-border-right"></el-table-column>
               </el-table-column>
 
-              <!-- 剩餘 -->
               <el-table-column label="剩餘" align="center" class-name="section-border-right">
                 <el-table-column prop="rem_A區" label="A區" width="80" align="right"></el-table-column>
                 <el-table-column prop="rem_B區" label="B區" width="80" align="right"></el-table-column>
@@ -164,7 +156,6 @@
                 <el-table-column prop="rem_D區" label="D區" width="80" align="right" class-name="section-border-right"></el-table-column>
               </el-table-column>
 
-              <!--【儲位格數彙總】-->
               <el-table-column label="【儲位格數彙總】" align="center" class-name="summary-header-group">
                 <el-table-column label="規劃數" width="85" align="right">
                   <template #default="scope">
@@ -208,7 +199,6 @@
               <el-table-column prop="floor" label="樓層" width="75" align="center" fixed="left"></el-table-column>
               <el-table-column prop="loc_type" label="儲位類型" width="130" fixed="left" class-name="section-border-right"></el-table-column>
 
-              <!-- 規劃總才數 -->
               <el-table-column label="規劃總才數" align="center" class-name="section-border-right">
                 <el-table-column prop="plan_A區" label="A區" width="80" align="right"></el-table-column>
                 <el-table-column prop="plan_B區" label="B區" width="80" align="right"></el-table-column>
@@ -216,7 +206,6 @@
                 <el-table-column prop="plan_D區" label="D區" width="80" align="right" class-name="section-border-right"></el-table-column>
               </el-table-column>
 
-              <!-- 使用中才數 -->
               <el-table-column label="使用中才數" align="center" class-name="section-border-right">
                 <el-table-column prop="used_A區" label="A區" width="80" align="right"></el-table-column>
                 <el-table-column prop="used_B區" label="B區" width="80" align="right"></el-table-column>
@@ -224,7 +213,6 @@
                 <el-table-column prop="used_D區" label="D區" width="80" align="right" class-name="section-border-right"></el-table-column>
               </el-table-column>
 
-              <!-- 剩餘才數 -->
               <el-table-column label="剩餘才數" align="center" class-name="section-border-right">
                 <el-table-column prop="rem_A區" label="A區" width="80" align="right"></el-table-column>
                 <el-table-column prop="rem_B區" label="B區" width="80" align="right"></el-table-column>
@@ -232,7 +220,6 @@
                 <el-table-column prop="rem_D區" label="D區" width="80" align="right" class-name="section-border-right"></el-table-column>
               </el-table-column>
 
-              <!--【才數彙總】-->
               <el-table-column label="【才數彙總】" align="center" class-name="summary-header-group">
                 <el-table-column label="規劃數" width="90" align="right">
                   <template #default="scope">
@@ -277,7 +264,6 @@
               <el-table-column prop="displayFloor" label="樓層" width="100" align="center" fixed="left"></el-table-column>
               <el-table-column prop="displayType" label="儲位類型" width="130" fixed="left" class-name="section-border-right"></el-table-column>
 
-              <!--【儲位格數彙總】-->
               <el-table-column label="【儲位格數彙總】" align="center" class-name="summary-header-group section-border-right">
                 <el-table-column label="規劃數" width="100" align="right">
                   <template #default="scope">
@@ -302,7 +288,6 @@
                 </el-table-column>
               </el-table-column>
 
-              <!--【才數彙總】-->
               <el-table-column label="【才數彙總】" align="center" class-name="summary-header-group-vol">
                 <el-table-column label="規劃數" width="110" align="right">
                   <template #default="scope">
@@ -329,28 +314,126 @@
             </el-table>
           </el-tab-pane>
 
-          <!-- 🌟 頁籤 4：📈 空間與健康度歷史趨勢圖 (Chart.js 動態雙曲線) 🌟 -->
+          <!-- 🌟 頁籤 4：📈 空間與健康度歷史趨勢圖 (100% 免套件 SVG 向量曲線圖) 🌟 -->
           <el-tab-pane label="📈 空間與健康度歷史趨勢圖" name="trend">
-            <div v-if="historyList.length === 0" class="no-trend-box">
+            <div v-if="sortedHistoryList.length === 0" class="no-trend-box">
               ⚠️ 尚無歷史快照紀錄，上傳庫存 CSV 檔案後將自動產生趨勢分析！
             </div>
-            <div v-else class="charts-wrapper">
-              <div class="chart-card">
-                <div class="chart-header">📊 80 庫「使用中儲格數」與「使用中才數」歷史推移曲線</div>
-                <div class="canvas-container">
-                  <canvas ref="capacityChartCanvas"></canvas>
+            <div v-else class="svg-charts-container">
+              <!-- 圖一：使用中儲格數與才數曲線 -->
+              <div class="svg-chart-card">
+                <div class="chart-title">
+                  <span>📊 一、80 庫「使用中儲格數」與「使用中才數」歷史推移曲線</span>
+                  <div class="chart-legend">
+                    <span class="legend-item"><i class="dot blue"></i> 使用中儲格數</span>
+                    <span class="legend-item"><i class="dot green"></i> 使用中才數</span>
+                  </div>
+                </div>
+                <div class="svg-stage">
+                  <svg viewBox="0 0 800 200" class="svg-graph">
+                    <!-- 背景網格 -->
+                    <line x1="50" y1="30" x2="750" y2="30" stroke="#1e293b" stroke-dasharray="4" />
+                    <line x1="50" y1="90" x2="750" y2="90" stroke="#1e293b" stroke-dasharray="4" />
+                    <line x1="50" y1="150" x2="750" y2="150" stroke="#1e293b" stroke-dasharray="4" />
+
+                    <!-- 曲線 1: 使用儲格 (藍色) -->
+                    <path :d="gridSvgPath" fill="none" stroke="#38bdf8" stroke-width="3" stroke-linecap="round" />
+                    <polygon :d="gridSvgArea" fill="url(#blueGradient)" opacity="0.25" />
+
+                    <!-- 曲線 2: 使用才數 (綠色) -->
+                    <path :d="volSvgPath" fill="none" stroke="#4ade80" stroke-width="3" stroke-linecap="round" />
+
+                    <!-- 數據點 & 標籤 -->
+                    <g v-for="(p, idx) in chartPoints" :key="'p1-'+idx">
+                      <circle :cx="p.x" :cy="p.yGrid" r="5" fill="#38bdf8" stroke="#0f172a" stroke-width="2" />
+                      <text :x="p.x" :y="p.yGrid - 10" fill="#38bdf8" font-size="11" text-anchor="middle" font-weight="bold">{{ formatNumber(p.item.used_grid) }} 格</text>
+
+                      <circle :cx="p.x" :cy="p.yVol" r="5" fill="#4ade80" stroke="#0f172a" stroke-width="2" />
+                      <text :x="p.x" :y="p.yVol + 18" fill="#4ade80" font-size="11" text-anchor="middle" font-weight="bold">{{ formatNumber(p.item.used_vol) }} 才</text>
+
+                      <text :x="p.x" y="180" fill="#94a3b8" font-size="12" text-anchor="middle">{{ p.item.record_date }}</text>
+                    </g>
+
+                    <defs>
+                      <linearGradient id="blueGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stop-color="#38bdf8" />
+                        <stop offset="100%" stop-color="#38bdf8" stop-opacity="0" />
+                      </linearGradient>
+                    </defs>
+                  </svg>
                 </div>
               </div>
-              <div class="chart-card">
-                <div class="chart-header">🩺 80 庫「儲位整體健康度 %」歷史趨勢曲線</div>
-                <div class="canvas-container">
-                  <canvas ref="healthChartCanvas"></canvas>
+
+              <!-- 圖二：儲位健康度 (使用率 %) 走勢 -->
+              <div class="svg-chart-card">
+                <div class="chart-title">
+                  <span>🩺 二、80 庫「儲位整體健康度 (儲位使用率 %)」歷史走勢曲線（越高越好）</span>
+                  <span class="tip-text">💡 儲位使用率越高，代表倉庫空間利用越充分、健康度佳</span>
+                </div>
+                <div class="svg-stage">
+                  <svg viewBox="0 0 800 180" class="svg-graph">
+                    <line x1="50" y1="30" x2="750" y2="30" stroke="#1e293b" stroke-dasharray="4" />
+                    <line x1="50" y1="85" x2="750" y2="85" stroke="#1e293b" stroke-dasharray="4" />
+                    <line x1="50" y1="140" x2="750" y2="140" stroke="#1e293b" stroke-dasharray="4" />
+
+                    <!-- 健康度曲線 (青色) -->
+                    <path :d="healthSvgPath" fill="none" stroke="#22d3ee" stroke-width="3.5" stroke-linecap="round" />
+                    <polygon :d="healthSvgArea" fill="url(#cyanGradient)" opacity="0.25" />
+
+                    <!-- 數據點 -->
+                    <g v-for="(p, idx) in chartPoints" :key="'p2-'+idx">
+                      <circle :cx="p.x" :cy="p.yHealth" r="5" fill="#22d3ee" stroke="#0f172a" stroke-width="2" />
+                      <text :x="p.x" :y="p.yHealth - 12" fill="#22d3ee" font-size="12" text-anchor="middle" font-weight="bold">{{ p.item.health_rate }}%</text>
+                      <text :x="p.x" y="165" fill="#94a3b8" font-size="12" text-anchor="middle">{{ p.item.record_date }}</text>
+                    </g>
+
+                    <defs>
+                      <linearGradient id="cyanGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stop-color="#22d3ee" />
+                        <stop offset="100%" stop-color="#22d3ee" stop-opacity="0" />
+                      </linearGradient>
+                    </defs>
+                  </svg>
+                </div>
+              </div>
+
+              <!-- 圖三：剩餘儲位數與剩餘才數曲線 -->
+              <div class="svg-chart-card">
+                <div class="chart-title">
+                  <span>📦 三、80 庫「剩餘空儲格數」與「剩餘空才數」歷史推移曲線</span>
+                  <div class="chart-legend">
+                    <span class="legend-item"><i class="dot orange"></i> 剩餘空儲格數</span>
+                    <span class="legend-item"><i class="dot yellow"></i> 剩餘空才數</span>
+                  </div>
+                </div>
+                <div class="svg-stage">
+                  <svg viewBox="0 0 800 200" class="svg-graph">
+                    <line x1="50" y1="30" x2="750" y2="30" stroke="#1e293b" stroke-dasharray="4" />
+                    <line x1="50" y1="90" x2="750" y2="90" stroke="#1e293b" stroke-dasharray="4" />
+                    <line x1="50" y1="150" x2="750" y2="150" stroke="#1e293b" stroke-dasharray="4" />
+
+                    <!-- 曲線 1: 剩餘儲格 (橘色) -->
+                    <path :d="remGridSvgPath" fill="none" stroke="#f97316" stroke-width="3" stroke-linecap="round" />
+
+                    <!-- 曲線 2: 剩餘才數 (黃色) -->
+                    <path :d="remVolSvgPath" fill="none" stroke="#eab308" stroke-width="3" stroke-linecap="round" />
+
+                    <g v-for="(p, idx) in chartPoints" :key="'p3-'+idx">
+                      <circle :cx="p.x" :cy="p.yRemGrid" r="5" fill="#f97316" stroke="#0f172a" stroke-width="2" />
+                      <text :x="p.x" :y="p.yRemGrid - 10" fill="#f97316" font-size="11" text-anchor="middle" font-weight="bold">{{ formatNumber(p.item.rem_grid) }} 格</text>
+
+                      <circle :cx="p.x" :cy="p.yRemVol" r="5" fill="#eab308" stroke="#0f172a" stroke-width="2" />
+                      <text :x="p.x" :y="p.yRemVol + 18" fill="#eab308" font-size="11" text-anchor="middle" font-weight="bold">{{ formatNumber(p.item.rem_vol) }} 才</text>
+
+                      <text :x="p.x" y="180" fill="#94a3b8" font-size="12" text-anchor="middle">{{ p.item.record_date }}</text>
+                    </g>
+                  </svg>
                 </div>
               </div>
             </div>
           </el-tab-pane>
 
-          <!-- 🌟 頁籤 5：🗓️ 儲位 7 大 KPI 歷史快照管理清單 (獨立頁面呈現) 🌟 -->
+          <!-- 頁籤 5：🗓️ 儲位 7 大 KPI 歷史快照管理清單 (獨立頁面呈現) -->
           <el-tab-pane label="🗓️ 儲位 7 大 KPI 歷史快照管理清單" name="history_manager">
             <div class="history-page-wrapper">
               <div class="history-page-header">
@@ -370,7 +453,7 @@
                     <span class="text-green">{{ formatNumber(scope.row.used_vol) }}</span> / {{ formatNumber(scope.row.plan_vol) }}
                   </template>
                 </el-table-column>
-                <el-table-column prop="health_rate" label="健康度" width="110" align="right">
+                <el-table-column prop="health_rate" label="健康度 (使用率)" width="130" align="right">
                   <template #default="scope">
                     <span class="text-cyan font-bold">{{ scope.row.health_rate }}%</span>
                   </template>
@@ -514,10 +597,6 @@ export default {
       historyList: [],
       snapshotStats: null,
 
-      // Chart.js 實例
-      capacityChartInstance: null,
-      healthChartInstance: null,
-
       // 🌟 匯出功能權限控制
       exportPerms: {
         xlsx: true,
@@ -526,10 +605,76 @@ export default {
     }
   },
   computed: {
-    // 按日期正序排列（供趨勢圖左至右渲染）
+    // 歷史紀錄按日期正序排列（供折線圖左至右渲染）
     sortedHistoryList() {
       return [...this.historyList].reverse();
     },
+
+    // 🌟 原生 SVG 向量曲線數據座標點動態運算 🌟
+    chartPoints() {
+      const list = this.sortedHistoryList;
+      if (list.length === 0) return [];
+
+      const startX = 80;
+      const endX = 720;
+      const stepX = list.length > 1 ? (endX - startX) / (list.length - 1) : 0;
+
+      // 找出各極值供數值比例縮放
+      const minGrid = Math.min(...list.map(i => i.used_grid || 0));
+      const maxGrid = Math.max(...list.map(i => i.used_grid || 0)) || 1;
+      const minVol = Math.min(...list.map(i => i.used_vol || 0));
+      const maxVol = Math.max(...list.map(i => i.used_vol || 0)) || 1;
+
+      const minRemGrid = Math.min(...list.map(i => i.rem_grid || 0));
+      const maxRemGrid = Math.max(...list.map(i => i.rem_grid || 0)) || 1;
+      const minRemVol = Math.min(...list.map(i => i.rem_vol || 0));
+      const maxRemVol = Math.max(...list.map(i => i.rem_vol || 0)) || 1;
+
+      return list.map((item, idx) => {
+        const x = list.length === 1 ? 400 : startX + idx * stepX;
+
+        // 圖一: 已用儲格與才數
+        const gRatio = maxGrid === minGrid ? 0.5 : (item.used_grid - minGrid) / (maxGrid - minGrid);
+        const yGrid = 140 - gRatio * 90;
+
+        const vRatio = maxVol === minVol ? 0.5 : (item.used_vol - minVol) / (maxVol - minVol);
+        const yVol = 140 - vRatio * 90;
+
+        // 圖二: 健康度 %
+        const hRatio = (item.health_rate || 0) / 100;
+        const yHealth = 135 - hRatio * 85;
+
+        // 圖三: 剩餘儲格與才數
+        const rgRatio = maxRemGrid === minRemGrid ? 0.5 : (item.rem_grid - minRemGrid) / (maxRemGrid - minRemGrid);
+        const yRemGrid = 140 - rgRatio * 90;
+
+        const rvRatio = maxRemVol === minRemVol ? 0.5 : (item.rem_vol - minRemVol) / (maxRemVol - minRemVol);
+        const yRemVol = 140 - rvRatio * 90;
+
+        return { x, yGrid, yVol, yHealth, yRemGrid, yRemVol, item };
+      });
+    },
+
+    // 平滑曲線路徑計算輔助 (Smooth Path Generator)
+    gridSvgPath() { return this.generateSmoothPath(this.chartPoints.map(p => ({ x: p.x, y: p.yGrid }))); },
+    gridSvgArea() {
+      const pts = this.chartPoints.map(p => ({ x: p.x, y: p.yGrid }));
+      if (pts.length === 0) return '';
+      const path = this.generateSmoothPath(pts);
+      return `${path} L ${pts[pts.length - 1].x} 150 L ${pts[0].x} 150 Z`;
+    },
+    volSvgPath() { return this.generateSmoothPath(this.chartPoints.map(p => ({ x: p.x, y: p.yVol }))); },
+
+    healthSvgPath() { return this.generateSmoothPath(this.chartPoints.map(p => ({ x: p.x, y: p.yHealth }))); },
+    healthSvgArea() {
+      const pts = this.chartPoints.map(p => ({ x: p.x, y: p.yHealth }));
+      if (pts.length === 0) return '';
+      const path = this.generateSmoothPath(pts);
+      return `${path} L ${pts[pts.length - 1].x} 140 L ${pts[0].x} 140 Z`;
+    },
+
+    remGridSvgPath() { return this.generateSmoothPath(this.chartPoints.map(p => ({ x: p.x, y: p.yRemGrid }))); },
+    remVolSvgPath() { return this.generateSmoothPath(this.chartPoints.map(p => ({ x: p.x, y: p.yRemVol }))); },
 
     // 指標卡片資料源
     activeStats() {
@@ -636,9 +781,6 @@ export default {
       this.$emit('refresh-summary');
     }
   },
-  beforeUnmount() {
-    this.destroyCharts();
-  },
   methods: {
     formatNumber(val) {
       if (val === null || val === undefined || val === '') return '0';
@@ -646,109 +788,19 @@ export default {
       return isNaN(num) ? val : num.toLocaleString();
     },
 
-    handleTabClick(tab) {
-      if (tab.props.name === 'trend') {
-        this.$nextTick(() => {
-          this.renderCharts();
-        });
+    // 產生 SVG Bezier 平滑曲線指令
+    generateSmoothPath(points) {
+      if (points.length === 0) return '';
+      if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
+
+      let d = `M ${points[0].x} ${points[0].y}`;
+      for (let i = 0; i < points.length - 1; i++) {
+        const p0 = points[i];
+        const p1 = points[i + 1];
+        const cpX = (p0.x + p1.x) / 2;
+        d += ` C ${cpX} ${p0.y}, ${cpX} ${p1.y}, ${p1.x} ${p1.y}`;
       }
-    },
-
-    destroyCharts() {
-      if (this.capacityChartInstance) { this.capacityChartInstance.destroy(); this.capacityChartInstance = null; }
-      if (this.healthChartInstance) { this.healthChartInstance.destroy(); this.healthChartInstance = null; }
-    },
-
-    // 🌟 原生 Chart.js 渲染平滑趨勢圖 🌟
-    renderCharts() {
-      const Chart = window.Chart || (typeof Chart !== 'undefined' ? Chart : null);
-      if (!Chart || this.sortedHistoryList.length === 0) return;
-
-      this.destroyCharts();
-
-      const dates = this.sortedHistoryList.map(item => item.record_date);
-      const usedGrids = this.sortedHistoryList.map(item => item.used_grid);
-      const usedVols = this.sortedHistoryList.map(item => item.used_vol);
-      const healthRates = this.sortedHistoryList.map(item => item.health_rate);
-
-      // 1. 容量與才數雙 Y 軸曲線圖
-      if (this.$refs.capacityChartCanvas) {
-        const ctx1 = this.$refs.capacityChartCanvas.getContext('2d');
-        this.capacityChartInstance = new Chart(ctx1, {
-          type: 'line',
-          data: {
-            labels: dates,
-            datasets: [
-              {
-                label: '使用中儲格數',
-                data: usedGrids,
-                borderColor: '#38bdf8',
-                backgroundColor: 'rgba(56, 189, 248, 0.15)',
-                fill: true,
-                tension: 0.4,
-                yAxisID: 'yGrid'
-              },
-              {
-                label: '使用中才數',
-                data: usedVols,
-                borderColor: '#4ade80',
-                backgroundColor: 'rgba(74, 222, 128, 0.15)',
-                fill: true,
-                tension: 0.4,
-                yAxisID: 'yVol'
-              }
-            ]
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            interaction: { mode: 'index', intersect: false },
-            plugins: {
-              legend: { labels: { color: '#94a3b8' } }
-            },
-            scales: {
-              x: { grid: { color: '#1e293b' }, ticks: { color: '#94a3b8' } },
-              yGrid: {
-                type: 'linear', position: 'left', title: { display: true, text: '儲格數', color: '#38bdf8' },
-                grid: { color: '#1e293b' }, ticks: { color: '#38bdf8' }
-              },
-              yVol: {
-                type: 'linear', position: 'right', title: { display: true, text: '才數', color: '#4ade80' },
-                grid: { drawOnChartArea: false }, ticks: { color: '#4ade80' }
-              }
-            }
-          }
-        });
-      }
-
-      // 2. 健康度 % 曲線圖
-      if (this.$refs.healthChartCanvas) {
-        const ctx2 = this.$refs.healthChartCanvas.getContext('2d');
-        this.healthChartInstance = new Chart(ctx2, {
-          type: 'line',
-          data: {
-            labels: dates,
-            datasets: [{
-              label: '儲位健康度 (%)',
-              data: healthRates,
-              borderColor: '#22d3ee',
-              backgroundColor: 'rgba(34, 211, 238, 0.2)',
-              fill: true,
-              tension: 0.4,
-              borderWidth: 3
-            }]
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { labels: { color: '#94a3b8' } } },
-            scales: {
-              x: { grid: { color: '#1e293b' }, ticks: { color: '#94a3b8' } },
-              y: { min: 0, max: 100, grid: { color: '#1e293b' }, ticks: { color: '#22d3ee', callback: v => v + '%' } }
-            }
-          }
-        });
-      }
+      return d;
     },
 
     async fetchHistoryList() {
@@ -756,7 +808,6 @@ export default {
         const res = await axios.get('/api/location-stats/history');
         if (res.data && res.data.success) {
           this.historyList = res.data.data || [];
-          if (this.activeTab === 'trend') this.renderCharts();
         }
       } catch (e) {
         console.error('抓取歷史快照失敗:', e.message);
@@ -993,7 +1044,8 @@ export default {
         ws2['!merges'] = [
           { s: { r: 0, c: 0 }, e: { r: 1, c: 0 } }, { s: { r: 0, c: 1 }, e: { r: 1, c: 1 } },
           { s: { r: 0, c: 2 }, e: { r: 0, c: 5 } }, { s: { r: 0, c: 6 }, e: { r: 0, c: 9 } },
-          { s: { r: 0, c: 10 }, e: { r: 0, c: 13 } }, { s: { r: 0, c: 14 }, e: { r: 0, c: 18 } }
+          { s: { r: 0, c: 10 }, e: { r: 0, c: 13 } }, { s: { r: 0, c: 14 }, e: { r: 0, c: 17 } },
+          { s: { r: 0, c: 18 }, e: { r: 0, c: 22 } }
         ];
         XLSX.utils.book_append_sheet(wb, ws2, "才數交叉統計表");
 
@@ -1048,7 +1100,7 @@ export default {
           doc.addFont('NotoSansTC.otf', 'NotoSansTC', 'normal');
           doc.setFont('NotoSansTC');
         } catch (fontErr) {
-          console.warn('⚠️️ 中文字型載入失敗，採用系統預設', fontErr);
+          console.warn('⚠ 中文字型載入失敗，採用系統預設', fontErr);
         }
 
         doc.setFontSize(13);
@@ -1325,7 +1377,7 @@ export default {
   border-left: 3px solid #38bdf8 !important;
 }
 
-/* 📈 趨勢圖 Chart.js 容器與卡片 */
+/* 📈 向量 SVG 趨勢圖樣式 */
 .no-trend-box {
   padding: 40px;
   text-align: center;
@@ -1333,7 +1385,7 @@ export default {
   font-size: 14px;
 }
 
-.charts-wrapper {
+.svg-charts-container {
   display: flex;
   flex-direction: column;
   gap: 15px;
@@ -1342,24 +1394,65 @@ export default {
   padding: 5px;
 }
 
-.chart-card {
+.svg-chart-card {
   background: #0f172a;
   border: 1px solid #334155;
   border-radius: 8px;
   padding: 12px 16px;
 }
 
-.chart-header {
+.chart-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   font-size: 14px;
   font-weight: bold;
   color: #38bdf8;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 
-.canvas-container {
-  position: relative;
+.chart-legend {
+  display: flex;
+  gap: 15px;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.tip-text {
+  font-size: 11px;
+  color: #4ade80;
+  font-weight: normal;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.dot.blue { background-color: #38bdf8; }
+.dot.green { background-color: #4ade80; }
+.dot.orange { background-color: #f97316; }
+.dot.yellow { background-color: #eab308; }
+
+.svg-stage {
   width: 100%;
-  height: 220px;
+  background: #1e293b;
+  border-radius: 6px;
+  padding: 10px 0;
+}
+
+.svg-graph {
+  width: 100%;
+  height: auto;
+  overflow: visible;
 }
 
 /* 🗓️ 歷史快照管理頁面樣式 */
