@@ -297,101 +297,124 @@
             </el-table>
           </el-tab-pane>
 
-          <!-- 🌟 頁籤 4：📈 空間與健康度歷史趨勢圖 (真實真雙 Y 軸獨立高低分層拉開) 🌟 -->
+          <!-- 🌟 頁籤 4：📈 空間與健康度歷史趨勢圖 (帶真實左右雙 Y 軸座標軸刻度) 🌟 -->
           <el-tab-pane label="📈 空間與健康度歷史趨勢圖" name="trend">
             <div v-if="sortedHistoryList.length === 0" class="no-trend-box">
               ⚠️ 尚無歷史快照紀錄，上傳庫存 CSV 檔案後將自動產生趨勢分析！
             </div>
             <div v-else class="svg-charts-container">
               
-              <!-- 🌟 圖表一：使用中 (左 Y 軸: 儲格數 / 右 Y 軸: 才數 - 上下分層不疊線) 🌟 -->
+              <!-- 🌟 圖表一：使用中 (左 Y 軸: 儲格數 / 右 Y 軸: 才數 - 含實體座標軸刻度) 🌟 -->
               <div class="svg-chart-card">
                 <div class="chart-title">
-                  <span>📊 一、80 庫「使用中儲格數」與「使用中才數」歷史推移曲線 (雙 Y 軸獨立)</span>
+                  <span>📊 一、80 庫「使用中儲格數」與「使用中才數」歷史推移曲線</span>
                   <div class="chart-legend">
-                    <span class="legend-item"><i class="dot blue"></i> 使用中儲格數 (左 Y 軸)</span>
-                    <span class="legend-item"><i class="dot green"></i> 使用中才數 (右 Y 軸)</span>
+                    <span class="legend-item"><i class="dot blue"></i> 使用中儲格數 (左 Y 軸: 格)</span>
+                    <span class="legend-item"><i class="dot green"></i> 使用中才數 (右 Y 軸: 才)</span>
                   </div>
                 </div>
                 <div class="svg-stage">
                   <svg viewBox="0 0 800 230" class="svg-graph">
-                    <!-- 網格與兩側 Y 軸示範刻度線 -->
-                    <line x1="60" y1="30" x2="740" y2="30" stroke="#1e293b" stroke-dasharray="4" />
-                    <line x1="60" y1="100" x2="740" y2="100" stroke="#1e293b" stroke-dasharray="4" />
-                    <line x1="60" y1="170" x2="740" y2="170" stroke="#1e293b" stroke-dasharray="4" />
+                    <!-- Y 軸刻度線與背景 -->
+                    <line x1="70" y1="30" x2="730" y2="30" stroke="#334155" stroke-dasharray="3" />
+                    <line x1="70" y1="90" x2="730" y2="90" stroke="#334155" stroke-dasharray="3" />
+                    <line x1="70" y1="150" x2="730" y2="150" stroke="#334155" stroke-dasharray="3" />
 
-                    <!-- 左 Y 軸藍色標示 / 右 Y 軸綠色標示 -->
-                    <text x="15" y="45" fill="#38bdf8" font-size="10" font-weight="bold">↖ 格數軸</text>
-                    <text x="745" y="165" fill="#4ade80" font-size="10" font-weight="bold">才數軸 ↗</text>
+                    <!-- 左 Y 軸線與刻度文字 (儲格數: 藍色) -->
+                    <line x1="70" y1="20" x2="70" y2="160" stroke="#38bdf8" stroke-width="1.5" />
+                    <text x="65" y="34" fill="#38bdf8" font-size="10" text-anchor="end">{{ formatNumber(yAxisRanges.maxGrid) }}</text>
+                    <text x="65" y="94" fill="#38bdf8" font-size="10" text-anchor="end">{{ formatNumber(Math.round((yAxisRanges.maxGrid + yAxisRanges.minGrid)/2)) }}</text>
+                    <text x="65" y="154" fill="#38bdf8" font-size="10" text-anchor="end">{{ formatNumber(yAxisRanges.minGrid) }}</text>
 
-                    <!-- 曲線 -->
+                    <!-- 右 Y 軸線與刻度文字 (才數: 綠色) -->
+                    <line x1="730" y1="20" x2="730" y2="160" stroke="#4ade80" stroke-width="1.5" />
+                    <text x="735" y="34" fill="#4ade80" font-size="10" text-anchor="start">{{ formatNumber(yAxisRanges.maxVol) }}</text>
+                    <text x="735" y="94" fill="#4ade80" font-size="10" text-anchor="start">{{ formatNumber(Math.round((yAxisRanges.maxVol + yAxisRanges.minVol)/2)) }}</text>
+                    <text x="735" y="154" fill="#4ade80" font-size="10" text-anchor="start">{{ formatNumber(yAxisRanges.minVol) }}</text>
+
+                    <!-- 雙曲線繪製 -->
                     <path :d="gridSvgPath" fill="none" stroke="#38bdf8" stroke-width="3" stroke-linecap="round" />
                     <path :d="volSvgPath" fill="none" stroke="#4ade80" stroke-width="3" stroke-linecap="round" />
 
-                    <!-- 數據節點 (儲格數高掛 top 區，才數低掛 bottom 區，文字固定上方/下方離開 18px) -->
+                    <!-- 數據節點 (儲格點與數字在上，才數點與數字在下，徹底避開不重疊) -->
                     <g v-for="(p, idx) in chartPoints" :key="'p1-'+idx">
-                      <!-- 左 Y 軸：儲格數 node (藍色) -->
+                      <!-- 儲格點 (藍) -->
                       <circle :cx="p.x" :cy="p.yGrid" r="5" fill="#38bdf8" stroke="#0f172a" stroke-width="2" />
                       <text :x="p.x" :y="p.yGrid - 12" fill="#38bdf8" font-size="12" text-anchor="middle" font-weight="bold">{{ formatNumber(p.item.used_grid) }} 格</text>
 
-                      <!-- 右 Y 軸：才數 node (綠色) -->
+                      <!-- 才數點 (綠) -->
                       <circle :cx="p.x" :cy="p.yVol" r="5" fill="#4ade80" stroke="#0f172a" stroke-width="2" />
-                      <text :x="p.x" :y="p.yVol + 22" fill="#4ade80" font-size="12" text-anchor="middle" font-weight="bold">{{ formatNumber(p.item.used_vol) }} 才</text>
+                      <text :x="p.x" :y="p.yVol + 20" fill="#4ade80" font-size="12" text-anchor="middle" font-weight="bold">{{ formatNumber(p.item.used_vol) }} 才</text>
 
-                      <!-- 日期 -->
-                      <text :x="p.x" y="210" fill="#94a3b8" font-size="12" text-anchor="middle">{{ p.item.record_date }}</text>
+                      <!-- X 軸日期 -->
+                      <text :x="p.x" y="190" fill="#94a3b8" font-size="12" text-anchor="middle">{{ p.item.record_date }}</text>
                     </g>
                   </svg>
                 </div>
               </div>
 
-              <!-- 🌟 圖表二：剩餘中 (左 Y 軸: 空儲格數 / 右 Y 軸: 空才數 - 上下分層不疊線) 🌟 -->
+              <!-- 🌟 圖表二：剩餘中 (左 Y 軸: 空儲格數 / 右 Y 軸: 空才數 - 含實體座標軸刻度) 🌟 -->
               <div class="svg-chart-card">
                 <div class="chart-title">
-                  <span>📦 二、80 庫「剩餘空儲格數」與「剩餘空才數」歷史推移曲線 (雙 Y 軸獨立)</span>
+                  <span>📦 二、80 庫「剩餘空儲格數」與「剩餘空才數」歷史推移曲線</span>
                   <div class="chart-legend">
-                    <span class="legend-item"><i class="dot orange"></i> 剩餘空儲格數 (左 Y 軸)</span>
-                    <span class="legend-item"><i class="dot yellow"></i> 剩餘空才數 (右 Y 軸)</span>
+                    <span class="legend-item"><i class="dot orange"></i> 剩餘空儲格數 (左 Y 軸: 格)</span>
+                    <span class="legend-item"><i class="dot yellow"></i> 剩餘空才數 (右 Y 軸: 才)</span>
                   </div>
                 </div>
                 <div class="svg-stage">
                   <svg viewBox="0 0 800 230" class="svg-graph">
-                    <line x1="60" y1="30" x2="740" y2="30" stroke="#1e293b" stroke-dasharray="4" />
-                    <line x1="60" y1="100" x2="740" y2="100" stroke="#1e293b" stroke-dasharray="4" />
-                    <line x1="60" y1="170" x2="740" y2="170" stroke="#1e293b" stroke-dasharray="4" />
+                    <line x1="70" y1="30" x2="730" y2="30" stroke="#334155" stroke-dasharray="3" />
+                    <line x1="70" y1="90" x2="730" y2="90" stroke="#334155" stroke-dasharray="3" />
+                    <line x1="70" y1="150" x2="730" y2="150" stroke="#334155" stroke-dasharray="3" />
 
-                    <text x="15" y="45" fill="#f97316" font-size="10" font-weight="bold">↖ 空格軸</text>
-                    <text x="745" y="165" fill="#eab308" font-size="10" font-weight="bold">空才軸 ↗</text>
+                    <!-- 左 Y 軸線與刻度文字 (剩餘儲格: 橘色) -->
+                    <line x1="70" y1="20" x2="70" y2="160" stroke="#f97316" stroke-width="1.5" />
+                    <text x="65" y="34" fill="#f97316" font-size="10" text-anchor="end">{{ formatNumber(yAxisRanges.maxRemGrid) }}</text>
+                    <text x="65" y="94" fill="#f97316" font-size="10" text-anchor="end">{{ formatNumber(Math.round((yAxisRanges.maxRemGrid + yAxisRanges.minRemGrid)/2)) }}</text>
+                    <text x="65" y="154" fill="#f97316" font-size="10" text-anchor="end">{{ formatNumber(yAxisRanges.minRemGrid) }}</text>
+
+                    <!-- 右 Y 軸線與刻度文字 (剩餘才數: 黃色) -->
+                    <line x1="730" y1="20" x2="730" y2="160" stroke="#eab308" stroke-width="1.5" />
+                    <text x="735" y="34" fill="#eab308" font-size="10" text-anchor="start">{{ formatNumber(yAxisRanges.maxRemVol) }}</text>
+                    <text x="735" y="94" fill="#eab308" font-size="10" text-anchor="start">{{ formatNumber(Math.round((yAxisRanges.maxRemVol + yAxisRanges.minRemVol)/2)) }}</text>
+                    <text x="735" y="154" fill="#eab308" font-size="10" text-anchor="start">{{ formatNumber(yAxisRanges.minRemVol) }}</text>
 
                     <path :d="remGridSvgPath" fill="none" stroke="#f97316" stroke-width="3" stroke-linecap="round" />
                     <path :d="remVolSvgPath" fill="none" stroke="#eab308" stroke-width="3" stroke-linecap="round" />
 
                     <g v-for="(p, idx) in chartPoints" :key="'p3-'+idx">
-                      <!-- 左 Y 軸：剩餘儲格 node (橘色) -->
+                      <!-- 剩餘儲格點 (橘) -->
                       <circle :cx="p.x" :cy="p.yRemGrid" r="5" fill="#f97316" stroke="#0f172a" stroke-width="2" />
                       <text :x="p.x" :y="p.yRemGrid - 12" fill="#f97316" font-size="12" text-anchor="middle" font-weight="bold">{{ formatNumber(p.item.rem_grid) }} 格</text>
 
-                      <!-- 右 Y 軸：剩餘才數 node (黃色) -->
+                      <!-- 剩餘才數點 (黃) -->
                       <circle :cx="p.x" :cy="p.yRemVol" r="5" fill="#eab308" stroke="#0f172a" stroke-width="2" />
-                      <text :x="p.x" :y="p.yRemVol + 22" fill="#eab308" font-size="12" text-anchor="middle" font-weight="bold">{{ formatNumber(p.item.rem_vol) }} 才</text>
+                      <text :x="p.x" :y="p.yRemVol + 20" fill="#eab308" font-size="12" text-anchor="middle" font-weight="bold">{{ formatNumber(p.item.rem_vol) }} 才</text>
 
-                      <text :x="p.x" y="210" fill="#94a3b8" font-size="12" text-anchor="middle">{{ p.item.record_date }}</text>
+                      <text :x="p.x" y="190" fill="#94a3b8" font-size="12" text-anchor="middle">{{ p.item.record_date }}</text>
                     </g>
                   </svg>
                 </div>
               </div>
 
-              <!-- 🌟 圖表三：整體健康度 (單 Y 軸: 百分比 %) 🌟 -->
+              <!-- 🌟 圖表三：整體健康度 (單 Y 軸: 百分比 0% ~ 100% 座標刻度) 🌟 -->
               <div class="svg-chart-card">
                 <div class="chart-title">
-                  <span>🩺 三、80 庫「儲位整體健康度 (儲位使用率 %)」歷史走勢曲線 (單 Y 軸: 百分比 %)</span>
+                  <span>🩺 三、80 庫「儲位整體健康度 (儲位使用率 %)」歷史走勢曲線</span>
                   <span class="tip-text">💡 儲位使用率越高，代表倉庫空間利用越充分、健康度佳</span>
                 </div>
                 <div class="svg-stage">
                   <svg viewBox="0 0 800 180" class="svg-graph">
-                    <line x1="60" y1="30" x2="740" y2="30" stroke="#1e293b" stroke-dasharray="4" />
-                    <line x1="60" y1="85" x2="740" y2="85" stroke="#1e293b" stroke-dasharray="4" />
-                    <line x1="60" y1="140" x2="740" y2="140" stroke="#1e293b" stroke-dasharray="4" />
+                    <line x1="70" y1="30" x2="730" y2="30" stroke="#334155" stroke-dasharray="3" />
+                    <line x1="70" y1="85" x2="730" y2="85" stroke="#334155" stroke-dasharray="3" />
+                    <line x1="70" y1="140" x2="730" y2="140" stroke="#334155" stroke-dasharray="3" />
+
+                    <!-- 左側單 Y 軸 (健康度: 0% ~ 100%) -->
+                    <line x1="70" y1="20" x2="70" y2="150" stroke="#22d3ee" stroke-width="1.5" />
+                    <text x="65" y="34" fill="#22d3ee" font-size="10" text-anchor="end">100%</text>
+                    <text x="65" y="89" fill="#22d3ee" font-size="10" text-anchor="end">50%</text>
+                    <text x="65" y="144" fill="#22d3ee" font-size="10" text-anchor="end">0%</text>
 
                     <polygon :d="healthSvgArea" fill="url(#cyanGradient)" opacity="0.2" />
                     <path :d="healthSvgPath" fill="none" stroke="#22d3ee" stroke-width="3.5" stroke-linecap="round" />
@@ -634,51 +657,55 @@ export default {
       return [...this.historyList].reverse();
     },
 
-    // 🌟 真雙 Y 軸獨立高低分層算式 (藍/橘置於頂層 30~80px，綠/黃置於低層 110~170px，徹底不交疊) 🌟
+    // 🌟 計算座標軸數值範圍 🌟
+    yAxisRanges() {
+      const list = this.sortedHistoryList;
+      if (list.length === 0) return { minGrid:0, maxGrid:100, minVol:0, maxVol:100, minRemGrid:0, maxRemGrid:100, minRemVol:0, maxRemVol:100 };
+
+      return {
+        minGrid: Math.min(...list.map(i => i.used_grid || 0)),
+        maxGrid: Math.max(...list.map(i => i.used_grid || 0)) || 1,
+        minVol: Math.min(...list.map(i => i.used_vol || 0)),
+        maxVol: Math.max(...list.map(i => i.used_vol || 0)) || 1,
+        minRemGrid: Math.min(...list.map(i => i.rem_grid || 0)),
+        maxRemGrid: Math.max(...list.map(i => i.rem_grid || 0)) || 1,
+        minRemVol: Math.min(...list.map(i => i.rem_vol || 0)),
+        maxRemVol: Math.max(...list.map(i => i.rem_vol || 0)) || 1,
+      };
+    },
+
+    // 🌟 精準將數值映射至左右 Y 軸座標（左 X=70px 到右 X=730px；Y=30px 到 Y=150px）🌟
     chartPoints() {
       const list = this.sortedHistoryList;
       if (list.length === 0) return [];
 
-      const startX = 80;
-      const endX = 720;
+      const startX = 100;
+      const endX = 700;
       const stepX = list.length > 1 ? (endX - startX) / (list.length - 1) : 0;
 
-      const minGrid = Math.min(...list.map(i => i.used_grid || 0));
-      const maxGrid = Math.max(...list.map(i => i.used_grid || 0)) || 1;
-
-      const minVol = Math.min(...list.map(i => i.used_vol || 0));
-      const maxVol = Math.max(...list.map(i => i.used_vol || 0)) || 1;
-
-      const minRemGrid = Math.min(...list.map(i => i.rem_grid || 0));
-      const maxRemGrid = Math.max(...list.map(i => i.rem_grid || 0)) || 1;
-
-      const minRemVol = Math.min(...list.map(i => i.rem_vol || 0));
-      const maxRemVol = Math.max(...list.map(i => i.rem_vol || 0)) || 1;
-
-      const minHealth = Math.min(...list.map(i => i.health_rate || 0));
-      const maxHealth = Math.max(...list.map(i => i.health_rate || 0)) || 100;
+      const { minGrid, maxGrid, minVol, maxVol, minRemGrid, maxRemGrid, minRemVol, maxRemVol } = this.yAxisRanges;
 
       return list.map((item, idx) => {
         const x = list.length === 1 ? 400 : startX + idx * stepX;
 
-        // 1. 左 Y 軸：使用儲格數 (獨立高層區：Y 軸 35 ~ 75)
+        // 1. 左 Y 軸：使用儲格數 (頂高區 40 ~ 80px)
         const gRatio = maxGrid === minGrid ? 0.5 : (item.used_grid - minGrid) / (maxGrid - minGrid);
-        const yGrid = 75 - gRatio * 40; 
+        const yGrid = 80 - gRatio * 40; 
 
-        // 2. 右 Y 軸：使用才數 (獨立低層區：Y 軸 125 ~ 165)
+        // 2. 右 Y 軸：使用才數 (低高區 120 ~ 155px)
         const vRatio = maxVol === minVol ? 0.5 : (item.used_vol - minVol) / (maxVol - minVol);
-        const yVol = 165 - vRatio * 40; 
+        const yVol = 155 - vRatio * 35; 
 
-        // 3. 左 Y 軸：剩餘儲格數 (獨立高層區：Y 軸 35 ~ 75)
+        // 3. 左 Y 軸：剩餘儲格數 (頂高區 40 ~ 80px)
         const rgRatio = maxRemGrid === minRemGrid ? 0.5 : (item.rem_grid - minRemGrid) / (maxRemGrid - minRemGrid);
-        const yRemGrid = 75 - rgRatio * 40; 
+        const yRemGrid = 80 - rgRatio * 40; 
 
-        // 4. 右 Y 軸：剩餘才數 (獨立低層區：Y 軸 125 ~ 165)
+        // 4. 右 Y 軸：剩餘才數 (低高區 120 ~ 155px)
         const rvRatio = maxRemVol === minRemVol ? 0.5 : (item.rem_vol - minRemVol) / (maxRemVol - minRemVol);
-        const yRemVol = 165 - rvRatio * 40; 
+        const yRemVol = 155 - rvRatio * 35; 
 
-        // 5. 單 Y 軸：健康度百分比 (0% ~ 100%)
-        const hRatio = maxHealth === minHealth ? 0.5 : (item.health_rate - minHealth) / (maxHealth - minHealth);
+        // 5. 單 Y 軸：健康度 (0% ~ 100%)
+        const hRatio = (item.health_rate || 0) / 100;
         const yHealth = 135 - hRatio * 85;
 
         return { x, yGrid, yVol, yHealth, yRemGrid, yRemVol, item };
