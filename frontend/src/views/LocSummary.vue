@@ -297,92 +297,91 @@
             </el-table>
           </el-tab-pane>
 
-          <!-- 🌟 頁籤 4：📈 空間與健康度歷史趨勢圖 (雙 Y 軸獨立 + 數字上下拉開不重疊) 🌟 -->
+          <!-- 🌟 頁籤 4：📈 空間與健康度歷史趨勢圖 (真實真雙 Y 軸獨立高低分層拉開) 🌟 -->
           <el-tab-pane label="📈 空間與健康度歷史趨勢圖" name="trend">
             <div v-if="sortedHistoryList.length === 0" class="no-trend-box">
               ⚠️ 尚無歷史快照紀錄，上傳庫存 CSV 檔案後將自動產生趨勢分析！
             </div>
             <div v-else class="svg-charts-container">
               
-              <!-- 🌟 圖表一：使用中 (雙 Y 軸：左邊儲格數 / 右邊才數) 🌟 -->
+              <!-- 🌟 圖表一：使用中 (左 Y 軸: 儲格數 / 右 Y 軸: 才數 - 上下分層不疊線) 🌟 -->
               <div class="svg-chart-card">
                 <div class="chart-title">
-                  <span>📊 一、80 庫「使用中儲格數」與「使用中才數」歷史推移曲線 (雙 Y 軸)</span>
+                  <span>📊 一、80 庫「使用中儲格數」與「使用中才數」歷史推移曲線 (雙 Y 軸獨立)</span>
                   <div class="chart-legend">
                     <span class="legend-item"><i class="dot blue"></i> 使用中儲格數 (左 Y 軸)</span>
                     <span class="legend-item"><i class="dot green"></i> 使用中才數 (右 Y 軸)</span>
                   </div>
                 </div>
                 <div class="svg-stage">
-                  <svg viewBox="0 0 800 210" class="svg-graph">
-                    <!-- 虛線背景網格 -->
+                  <svg viewBox="0 0 800 230" class="svg-graph">
+                    <!-- 網格與兩側 Y 軸示範刻度線 -->
                     <line x1="60" y1="30" x2="740" y2="30" stroke="#1e293b" stroke-dasharray="4" />
-                    <line x1="60" y1="90" x2="740" y2="90" stroke="#1e293b" stroke-dasharray="4" />
-                    <line x1="60" y1="150" x2="740" y2="150" stroke="#1e293b" stroke-dasharray="4" />
+                    <line x1="60" y1="100" x2="740" y2="100" stroke="#1e293b" stroke-dasharray="4" />
+                    <line x1="60" y1="170" x2="740" y2="170" stroke="#1e293b" stroke-dasharray="4" />
 
-                    <!-- 曲線與漸層區塊 -->
-                    <polygon :d="gridSvgArea" fill="url(#blueGradient)" opacity="0.15" />
+                    <!-- 左 Y 軸藍色標示 / 右 Y 軸綠色標示 -->
+                    <text x="15" y="45" fill="#38bdf8" font-size="10" font-weight="bold">↖ 格數軸</text>
+                    <text x="745" y="165" fill="#4ade80" font-size="10" font-weight="bold">才數軸 ↗</text>
+
+                    <!-- 曲線 -->
                     <path :d="gridSvgPath" fill="none" stroke="#38bdf8" stroke-width="3" stroke-linecap="round" />
                     <path :d="volSvgPath" fill="none" stroke="#4ade80" stroke-width="3" stroke-linecap="round" />
 
-                    <!-- 數據節點 (儲格數在上方，才數在下方，徹底防重疊) -->
+                    <!-- 數據節點 (儲格數高掛 top 區，才數低掛 bottom 區，文字固定上方/下方離開 18px) -->
                     <g v-for="(p, idx) in chartPoints" :key="'p1-'+idx">
-                      <!-- 儲格數 node (藍色) -->
+                      <!-- 左 Y 軸：儲格數 node (藍色) -->
                       <circle :cx="p.x" :cy="p.yGrid" r="5" fill="#38bdf8" stroke="#0f172a" stroke-width="2" />
                       <text :x="p.x" :y="p.yGrid - 12" fill="#38bdf8" font-size="12" text-anchor="middle" font-weight="bold">{{ formatNumber(p.item.used_grid) }} 格</text>
 
-                      <!-- 才數 node (綠色) -->
+                      <!-- 右 Y 軸：才數 node (綠色) -->
                       <circle :cx="p.x" :cy="p.yVol" r="5" fill="#4ade80" stroke="#0f172a" stroke-width="2" />
-                      <text :x="p.x" :y="p.yVol + 20" fill="#4ade80" font-size="12" text-anchor="middle" font-weight="bold">{{ formatNumber(p.item.used_vol) }} 才</text>
+                      <text :x="p.x" :y="p.yVol + 22" fill="#4ade80" font-size="12" text-anchor="middle" font-weight="bold">{{ formatNumber(p.item.used_vol) }} 才</text>
 
                       <!-- 日期 -->
-                      <text :x="p.x" y="192" fill="#94a3b8" font-size="12" text-anchor="middle">{{ p.item.record_date }}</text>
+                      <text :x="p.x" y="210" fill="#94a3b8" font-size="12" text-anchor="middle">{{ p.item.record_date }}</text>
                     </g>
-
-                    <defs>
-                      <linearGradient id="blueGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stop-color="#38bdf8" />
-                        <stop offset="100%" stop-color="#38bdf8" stop-opacity="0" />
-                      </linearGradient>
-                    </defs>
                   </svg>
                 </div>
               </div>
 
-              <!-- 🌟 圖表二：剩餘中 (雙 Y 軸：左邊空儲格數 / 右邊空才數) 🌟 -->
+              <!-- 🌟 圖表二：剩餘中 (左 Y 軸: 空儲格數 / 右 Y 軸: 空才數 - 上下分層不疊線) 🌟 -->
               <div class="svg-chart-card">
                 <div class="chart-title">
-                  <span>📦 二、80 庫「剩餘空儲格數」與「剩餘空才數」歷史推移曲線 (雙 Y 軸)</span>
+                  <span>📦 二、80 庫「剩餘空儲格數」與「剩餘空才數」歷史推移曲線 (雙 Y 軸獨立)</span>
                   <div class="chart-legend">
                     <span class="legend-item"><i class="dot orange"></i> 剩餘空儲格數 (左 Y 軸)</span>
                     <span class="legend-item"><i class="dot yellow"></i> 剩餘空才數 (右 Y 軸)</span>
                   </div>
                 </div>
                 <div class="svg-stage">
-                  <svg viewBox="0 0 800 210" class="svg-graph">
+                  <svg viewBox="0 0 800 230" class="svg-graph">
                     <line x1="60" y1="30" x2="740" y2="30" stroke="#1e293b" stroke-dasharray="4" />
-                    <line x1="60" y1="90" x2="740" y2="90" stroke="#1e293b" stroke-dasharray="4" />
-                    <line x1="60" y1="150" x2="740" y2="150" stroke="#1e293b" stroke-dasharray="4" />
+                    <line x1="60" y1="100" x2="740" y2="100" stroke="#1e293b" stroke-dasharray="4" />
+                    <line x1="60" y1="170" x2="740" y2="170" stroke="#1e293b" stroke-dasharray="4" />
+
+                    <text x="15" y="45" fill="#f97316" font-size="10" font-weight="bold">↖ 空格軸</text>
+                    <text x="745" y="165" fill="#eab308" font-size="10" font-weight="bold">空才軸 ↗</text>
 
                     <path :d="remGridSvgPath" fill="none" stroke="#f97316" stroke-width="3" stroke-linecap="round" />
                     <path :d="remVolSvgPath" fill="none" stroke="#eab308" stroke-width="3" stroke-linecap="round" />
 
                     <g v-for="(p, idx) in chartPoints" :key="'p3-'+idx">
-                      <!-- 剩餘儲格 node (橘色) -->
+                      <!-- 左 Y 軸：剩餘儲格 node (橘色) -->
                       <circle :cx="p.x" :cy="p.yRemGrid" r="5" fill="#f97316" stroke="#0f172a" stroke-width="2" />
                       <text :x="p.x" :y="p.yRemGrid - 12" fill="#f97316" font-size="12" text-anchor="middle" font-weight="bold">{{ formatNumber(p.item.rem_grid) }} 格</text>
 
-                      <!-- 剩餘才數 node (黃色) -->
+                      <!-- 右 Y 軸：剩餘才數 node (黃色) -->
                       <circle :cx="p.x" :cy="p.yRemVol" r="5" fill="#eab308" stroke="#0f172a" stroke-width="2" />
-                      <text :x="p.x" :y="p.yRemVol + 20" fill="#eab308" font-size="12" text-anchor="middle" font-weight="bold">{{ formatNumber(p.item.rem_vol) }} 才</text>
+                      <text :x="p.x" :y="p.yRemVol + 22" fill="#eab308" font-size="12" text-anchor="middle" font-weight="bold">{{ formatNumber(p.item.rem_vol) }} 才</text>
 
-                      <text :x="p.x" y="192" fill="#94a3b8" font-size="12" text-anchor="middle">{{ p.item.record_date }}</text>
+                      <text :x="p.x" y="210" fill="#94a3b8" font-size="12" text-anchor="middle">{{ p.item.record_date }}</text>
                     </g>
                   </svg>
                 </div>
               </div>
 
-              <!-- 🌟 圖表三：整體健康度 (單 Y 軸：百分比 0% ~ 100%) 🌟 -->
+              <!-- 🌟 圖表三：整體健康度 (單 Y 軸: 百分比 %) 🌟 -->
               <div class="svg-chart-card">
                 <div class="chart-title">
                   <span>🩺 三、80 庫「儲位整體健康度 (儲位使用率 %)」歷史走勢曲線 (單 Y 軸: 百分比 %)</span>
@@ -635,7 +634,7 @@ export default {
       return [...this.historyList].reverse();
     },
 
-    // 🌟 核心雙 Y 軸獨立映射與動態防重疊計算 🌟
+    // 🌟 真雙 Y 軸獨立高低分層算式 (藍/橘置於頂層 30~80px，綠/黃置於低層 110~170px，徹底不交疊) 🌟
     chartPoints() {
       const list = this.sortedHistoryList;
       if (list.length === 0) return [];
@@ -644,7 +643,6 @@ export default {
       const endX = 720;
       const stepX = list.length > 1 ? (endX - startX) / (list.length - 1) : 0;
 
-      // 1. 各指標最大最小值算式
       const minGrid = Math.min(...list.map(i => i.used_grid || 0));
       const maxGrid = Math.max(...list.map(i => i.used_grid || 0)) || 1;
 
@@ -663,21 +661,23 @@ export default {
       return list.map((item, idx) => {
         const x = list.length === 1 ? 400 : startX + idx * stepX;
 
-        // 🌟 雙 Y 軸 1：使用儲格 (左 Y 軸 40~140) 與 使用才數 (右 Y 軸 50~150)，上下開展
+        // 1. 左 Y 軸：使用儲格數 (獨立高層區：Y 軸 35 ~ 75)
         const gRatio = maxGrid === minGrid ? 0.5 : (item.used_grid - minGrid) / (maxGrid - minGrid);
-        const yGrid = 120 - gRatio * 75; // 上移儲格數
+        const yGrid = 75 - gRatio * 40; 
 
+        // 2. 右 Y 軸：使用才數 (獨立低層區：Y 軸 125 ~ 165)
         const vRatio = maxVol === minVol ? 0.5 : (item.used_vol - minVol) / (maxVol - minVol);
-        const yVol = 160 - vRatio * 75; // 下移才數
+        const yVol = 165 - vRatio * 40; 
 
-        // 🌟 雙 Y 軸 2：剩餘儲格 (左 Y 軸) 與 剩餘才數 (右 Y 軸)
+        // 3. 左 Y 軸：剩餘儲格數 (獨立高層區：Y 軸 35 ~ 75)
         const rgRatio = maxRemGrid === minRemGrid ? 0.5 : (item.rem_grid - minRemGrid) / (maxRemGrid - minRemGrid);
-        const yRemGrid = 115 - rgRatio * 75; // 上移剩餘格
+        const yRemGrid = 75 - rgRatio * 40; 
 
+        // 4. 右 Y 軸：剩餘才數 (獨立低層區：Y 軸 125 ~ 165)
         const rvRatio = maxRemVol === minRemVol ? 0.5 : (item.rem_vol - minRemVol) / (maxRemVol - minRemVol);
-        const yRemVol = 165 - rvRatio * 75; // 下移剩餘才
+        const yRemVol = 165 - rvRatio * 40; 
 
-        // 🌟 單 Y 軸：健康度百分比 (0% ~ 100%)
+        // 5. 單 Y 軸：健康度百分比 (0% ~ 100%)
         const hRatio = maxHealth === minHealth ? 0.5 : (item.health_rate - minHealth) / (maxHealth - minHealth);
         const yHealth = 135 - hRatio * 85;
 
@@ -686,12 +686,6 @@ export default {
     },
 
     gridSvgPath() { return this.generateSmoothPath(this.chartPoints.map(p => ({ x: p.x, y: p.yGrid }))); },
-    gridSvgArea() {
-      const pts = this.chartPoints.map(p => ({ x: p.x, y: p.yGrid }));
-      if (pts.length === 0) return '';
-      const path = this.generateSmoothPath(pts);
-      return `${path} L ${pts[pts.length - 1].x} 180 L ${pts[0].x} 180 Z`;
-    },
     volSvgPath() { return this.generateSmoothPath(this.chartPoints.map(p => ({ x: p.x, y: p.yVol }))); },
 
     healthSvgPath() { return this.generateSmoothPath(this.chartPoints.map(p => ({ x: p.x, y: p.yHealth }))); },
