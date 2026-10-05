@@ -297,37 +297,41 @@
             </el-table>
           </el-tab-pane>
 
-          <!-- 頁籤 4：📈 空間與健康度歷史趨勢圖 (全區總體趨勢圖) -->
+          <!-- 頁籤 4：📈 空間與健康度歷史趨勢圖 (含 100% 滿度上限刻度) -->
           <el-tab-pane label="📈 空間與健康度歷史趨勢圖" name="trend">
             <div v-if="sortedHistoryList.length === 0" class="no-trend-box">
-              ⚠️ 尚無歷史快照紀錄，上傳庫存 CSV 檔案後將自動產生趨勢分析！
+              ⚠️️ 尚無歷史快照紀錄，上傳庫存 CSV 檔案後將自動產生趨勢分析！
             </div>
             <div v-else class="svg-charts-container">
               
-              <!-- 圖表一：全區總體使用中 (雙 Y 軸) -->
+              <!-- 圖表一：全區總體使用中 (包含 100% 滿度基準) -->
               <div class="svg-chart-card">
                 <div class="chart-title">
                   <span>📊 一、80 庫全區「使用中儲格數」與「使用中才數」歷史推移曲線</span>
                   <div class="chart-legend">
                     <span class="legend-item"><i class="dot blue"></i> 使用中儲格數 (左 Y 軸)</span>
                     <span class="legend-item"><i class="dot green"></i> 使用中才數 (右 Y 軸)</span>
+                    <span class="legend-item"><i class="line-red"></i> 100% 滿度上限</span>
                   </div>
                 </div>
                 <div class="svg-stage">
                   <svg viewBox="0 0 800 230" class="svg-graph">
-                    <line x1="70" y1="30" x2="730" y2="30" stroke="#334155" stroke-dasharray="3" />
+                    <!-- 100% 滿度上限虛線 -->
+                    <line x1="70" y1="30" x2="730" y2="30" stroke="#f43f5e" stroke-dasharray="4" stroke-width="1.5" />
                     <line x1="70" y1="90" x2="730" y2="90" stroke="#334155" stroke-dasharray="3" />
                     <line x1="70" y1="150" x2="730" y2="150" stroke="#334155" stroke-dasharray="3" />
 
+                    <!-- 左 Y 軸刻度 (儲格數：以 規劃總儲格 為滿度上限 100%) -->
                     <line x1="70" y1="20" x2="70" y2="160" stroke="#38bdf8" stroke-width="1.5" />
-                    <text x="65" y="34" fill="#38bdf8" font-size="10" text-anchor="end">{{ formatNumber(yAxisRanges.maxGrid) }}</text>
-                    <text x="65" y="94" fill="#38bdf8" font-size="10" text-anchor="end">{{ formatNumber(Math.round((yAxisRanges.maxGrid + yAxisRanges.minGrid)/2)) }}</text>
-                    <text x="65" y="154" fill="#38bdf8" font-size="10" text-anchor="end">{{ formatNumber(yAxisRanges.minGrid) }}</text>
+                    <text x="65" y="34" fill="#f43f5e" font-size="10" text-anchor="end" font-weight="bold">{{ formatNumber(yAxisRanges.planGrid) }} (滿度)</text>
+                    <text x="65" y="94" fill="#38bdf8" font-size="10" text-anchor="end">{{ formatNumber(Math.round(yAxisRanges.planGrid / 2)) }}</text>
+                    <text x="65" y="154" fill="#38bdf8" font-size="10" text-anchor="end">0</text>
 
+                    <!-- 右 Y 軸刻度 (才數：以 規劃總才數 為滿度上限 100%) -->
                     <line x1="730" y1="20" x2="730" y2="160" stroke="#4ade80" stroke-width="1.5" />
-                    <text x="735" y="34" fill="#4ade80" font-size="10" text-anchor="start">{{ formatNumber(yAxisRanges.maxVol) }}</text>
-                    <text x="735" y="94" fill="#4ade80" font-size="10" text-anchor="start">{{ formatNumber(Math.round((yAxisRanges.maxVol + yAxisRanges.minVol)/2)) }}</text>
-                    <text x="735" y="154" fill="#4ade80" font-size="10" text-anchor="start">{{ formatNumber(yAxisRanges.minVol) }}</text>
+                    <text x="735" y="34" fill="#f43f5e" font-size="10" text-anchor="start" font-weight="bold">{{ formatNumber(Math.round(yAxisRanges.planVol)) }} (滿度)</text>
+                    <text x="735" y="94" fill="#4ade80" font-size="10" text-anchor="start">{{ formatNumber(Math.round(yAxisRanges.planVol / 2)) }}</text>
+                    <text x="735" y="154" fill="#4ade80" font-size="10" text-anchor="start">0</text>
 
                     <path :d="gridSvgPath" fill="none" stroke="#38bdf8" stroke-width="3" stroke-linecap="round" />
                     <path :d="volSvgPath" fill="none" stroke="#4ade80" stroke-width="3" stroke-linecap="round" />
@@ -352,23 +356,24 @@
                   <div class="chart-legend">
                     <span class="legend-item"><i class="dot orange"></i> 剩餘空儲格數 (左 Y 軸)</span>
                     <span class="legend-item"><i class="dot yellow"></i> 剩餘空才數 (右 Y 軸)</span>
+                    <span class="legend-item"><i class="line-red"></i> 100% 空倉上限</span>
                   </div>
                 </div>
                 <div class="svg-stage">
                   <svg viewBox="0 0 800 230" class="svg-graph">
-                    <line x1="70" y1="30" x2="730" y2="30" stroke="#334155" stroke-dasharray="3" />
+                    <line x1="70" y1="30" x2="730" y2="30" stroke="#f43f5e" stroke-dasharray="4" stroke-width="1.5" />
                     <line x1="70" y1="90" x2="730" y2="90" stroke="#334155" stroke-dasharray="3" />
                     <line x1="70" y1="150" x2="730" y2="150" stroke="#334155" stroke-dasharray="3" />
 
                     <line x1="70" y1="20" x2="70" y2="160" stroke="#f97316" stroke-width="1.5" />
-                    <text x="65" y="34" fill="#f97316" font-size="10" text-anchor="end">{{ formatNumber(yAxisRanges.maxRemGrid) }}</text>
-                    <text x="65" y="94" fill="#f97316" font-size="10" text-anchor="end">{{ formatNumber(Math.round((yAxisRanges.maxRemGrid + yAxisRanges.minRemGrid)/2)) }}</text>
-                    <text x="65" y="154" fill="#f97316" font-size="10" text-anchor="end">{{ formatNumber(yAxisRanges.minRemGrid) }}</text>
+                    <text x="65" y="34" fill="#f43f5e" font-size="10" text-anchor="end" font-weight="bold">{{ formatNumber(yAxisRanges.planGrid) }} (空滿)</text>
+                    <text x="65" y="94" fill="#f97316" font-size="10" text-anchor="end">{{ formatNumber(Math.round(yAxisRanges.planGrid / 2)) }}</text>
+                    <text x="65" y="154" fill="#f97316" font-size="10" text-anchor="end">0</text>
 
                     <line x1="730" y1="20" x2="730" y2="160" stroke="#eab308" stroke-width="1.5" />
-                    <text x="735" y="34" fill="#eab308" font-size="10" text-anchor="start">{{ formatNumber(yAxisRanges.maxRemVol) }}</text>
-                    <text x="735" y="94" fill="#eab308" font-size="10" text-anchor="start">{{ formatNumber(Math.round((yAxisRanges.maxRemVol + yAxisRanges.minRemVol)/2)) }}</text>
-                    <text x="735" y="154" fill="#eab308" font-size="10" text-anchor="start">{{ formatNumber(yAxisRanges.minRemVol) }}</text>
+                    <text x="735" y="34" fill="#f43f5e" font-size="10" text-anchor="start" font-weight="bold">{{ formatNumber(Math.round(yAxisRanges.planVol)) }} (空滿)</text>
+                    <text x="735" y="94" fill="#eab308" font-size="10" text-anchor="start">{{ formatNumber(Math.round(yAxisRanges.planVol / 2)) }}</text>
+                    <text x="735" y="154" fill="#eab308" font-size="10" text-anchor="start">0</text>
 
                     <path :d="remGridSvgPath" fill="none" stroke="#f97316" stroke-width="3" stroke-linecap="round" />
                     <path :d="remVolSvgPath" fill="none" stroke="#eab308" stroke-width="3" stroke-linecap="round" />
@@ -394,12 +399,12 @@
                 </div>
                 <div class="svg-stage">
                   <svg viewBox="0 0 800 180" class="svg-graph">
-                    <line x1="70" y1="30" x2="730" y2="30" stroke="#334155" stroke-dasharray="3" />
+                    <line x1="70" y1="30" x2="730" y2="30" stroke="#f43f5e" stroke-dasharray="4" stroke-width="1.5" />
                     <line x1="70" y1="85" x2="730" y2="85" stroke="#334155" stroke-dasharray="3" />
                     <line x1="70" y1="140" x2="730" y2="140" stroke="#334155" stroke-dasharray="3" />
 
                     <line x1="70" y1="20" x2="70" y2="150" stroke="#22d3ee" stroke-width="1.5" />
-                    <text x="65" y="34" fill="#22d3ee" font-size="10" text-anchor="end">100%</text>
+                    <text x="65" y="34" fill="#f43f5e" font-size="10" text-anchor="end" font-weight="bold">100% (滿度)</text>
                     <text x="65" y="89" fill="#22d3ee" font-size="10" text-anchor="end">50%</text>
                     <text x="65" y="144" fill="#22d3ee" font-size="10" text-anchor="end">0%</text>
 
@@ -425,7 +430,7 @@
             </div>
           </el-tab-pane>
 
-          <!-- 🌟 獨立頁籤：「🏷️ 各儲位類型歷史趨勢」（包含 使用中、剩餘、健康度 3 張完整圖表） 🌟 -->
+          <!-- 🌟 獨立頁籤：「🏷️ 各儲位類型歷史趨勢」（包含 100% 滿度基準） 🌟 -->
           <el-tab-pane label="🏷️ 各儲位類型歷史趨勢" name="type_trend">
             <div v-if="sortedHistoryList.length === 0" class="no-trend-box">
               ⚠️ 尚無歷史快照紀錄，上傳庫存 CSV 檔案後將自動產生趨勢分析！
@@ -448,32 +453,33 @@
               </div>
 
               <div class="svg-charts-container">
-                <!-- 🌟 1. 各類型：使用中儲格數與才數 (雙 Y 軸) 🌟 -->
+                <!-- 1. 各類型：使用中儲格數與才數 (滿度基準) -->
                 <div class="svg-chart-card">
                   <div class="chart-title">
                     <span>📊 一、【{{ selectedLocType }}】使用中儲格數 (左 Y 軸) 與 使用中才數 (右 Y 軸) 推移曲線</span>
                     <div class="chart-legend">
                       <span class="legend-item"><i class="dot blue"></i> 使用中儲格數</span>
                       <span class="legend-item"><i class="dot green"></i> 使用中才數</span>
+                      <span class="legend-item"><i class="line-red"></i> 100% 滿度上限</span>
                     </div>
                   </div>
                   <div class="svg-stage">
                     <svg viewBox="0 0 800 230" class="svg-graph">
-                      <line x1="70" y1="30" x2="730" y2="30" stroke="#334155" stroke-dasharray="3" />
+                      <line x1="70" y1="30" x2="730" y2="30" stroke="#f43f5e" stroke-dasharray="4" stroke-width="1.5" />
                       <line x1="70" y1="90" x2="730" y2="90" stroke="#334155" stroke-dasharray="3" />
                       <line x1="70" y1="150" x2="730" y2="150" stroke="#334155" stroke-dasharray="3" />
 
-                      <!-- 左 Y 軸刻度 (儲格數) -->
+                      <!-- 左 Y 軸刻度 (規劃儲格 100% 滿度) -->
                       <line x1="70" y1="20" x2="70" y2="160" stroke="#38bdf8" stroke-width="1.5" />
-                      <text x="65" y="34" fill="#38bdf8" font-size="10" text-anchor="end">{{ formatNumber(typeYAxisRanges.maxGrid) }}</text>
-                      <text x="65" y="94" fill="#38bdf8" font-size="10" text-anchor="end">{{ formatNumber(Math.round((typeYAxisRanges.maxGrid + typeYAxisRanges.minGrid)/2)) }}</text>
-                      <text x="65" y="154" fill="#38bdf8" font-size="10" text-anchor="end">{{ formatNumber(typeYAxisRanges.minGrid) }}</text>
+                      <text x="65" y="34" fill="#f43f5e" font-size="10" text-anchor="end" font-weight="bold">{{ formatNumber(typeYAxisRanges.planGrid) }} (滿度)</text>
+                      <text x="65" y="94" fill="#38bdf8" font-size="10" text-anchor="end">{{ formatNumber(Math.round(typeYAxisRanges.planGrid / 2)) }}</text>
+                      <text x="65" y="154" fill="#38bdf8" font-size="10" text-anchor="end">0</text>
 
-                      <!-- 右 Y 軸刻度 (才數) -->
+                      <!-- 右 Y 軸刻度 (規劃才數 100% 滿度) -->
                       <line x1="730" y1="20" x2="730" y2="160" stroke="#4ade80" stroke-width="1.5" />
-                      <text x="735" y="34" fill="#4ade80" font-size="10" text-anchor="start">{{ formatNumber(typeYAxisRanges.maxVol) }}</text>
-                      <text x="735" y="94" fill="#4ade80" font-size="10" text-anchor="start">{{ formatNumber(Math.round((typeYAxisRanges.maxVol + typeYAxisRanges.minVol)/2)) }}</text>
-                      <text x="735" y="154" fill="#4ade80" font-size="10" text-anchor="start">{{ formatNumber(typeYAxisRanges.minVol) }}</text>
+                      <text x="735" y="34" fill="#f43f5e" font-size="10" text-anchor="start" font-weight="bold">{{ formatNumber(Math.round(typeYAxisRanges.planVol)) }} (滿度)</text>
+                      <text x="735" y="94" fill="#4ade80" font-size="10" text-anchor="start">{{ formatNumber(Math.round(typeYAxisRanges.planVol / 2)) }}</text>
+                      <text x="735" y="154" fill="#4ade80" font-size="10" text-anchor="start">0</text>
 
                       <path :d="typeGridSvgPath" fill="none" stroke="#38bdf8" stroke-width="3" stroke-linecap="round" />
                       <path :d="typeVolSvgPath" fill="none" stroke="#4ade80" stroke-width="3" stroke-linecap="round" />
@@ -491,30 +497,31 @@
                   </div>
                 </div>
 
-                <!-- 🌟 2. 各類型追加項目一：剩餘空儲格數與剩餘空才數 (雙 Y 軸) 🌟 -->
+                <!-- 2. 各類型：剩餘空儲格數與才數 (滿度基準) -->
                 <div class="svg-chart-card">
                   <div class="chart-title">
                     <span>📦 二、【{{ selectedLocType }}】剩餘空儲格數 (左 Y 軸) 與 剩餘空才數 (右 Y 軸) 推移曲線</span>
                     <div class="chart-legend">
                       <span class="legend-item"><i class="dot orange"></i> 剩餘空儲格數</span>
                       <span class="legend-item"><i class="dot yellow"></i> 剩餘空才數</span>
+                      <span class="legend-item"><i class="line-red"></i> 100% 空倉上限</span>
                     </div>
                   </div>
                   <div class="svg-stage">
                     <svg viewBox="0 0 800 230" class="svg-graph">
-                      <line x1="70" y1="30" x2="730" y2="30" stroke="#334155" stroke-dasharray="3" />
+                      <line x1="70" y1="30" x2="730" y2="30" stroke="#f43f5e" stroke-dasharray="4" stroke-width="1.5" />
                       <line x1="70" y1="90" x2="730" y2="90" stroke="#334155" stroke-dasharray="3" />
                       <line x1="70" y1="150" x2="730" y2="150" stroke="#334155" stroke-dasharray="3" />
 
                       <line x1="70" y1="20" x2="70" y2="160" stroke="#f97316" stroke-width="1.5" />
-                      <text x="65" y="34" fill="#f97316" font-size="10" text-anchor="end">{{ formatNumber(typeYAxisRanges.maxRemGrid) }}</text>
-                      <text x="65" y="94" fill="#f97316" font-size="10" text-anchor="end">{{ formatNumber(Math.round((typeYAxisRanges.maxRemGrid + typeYAxisRanges.minRemGrid)/2)) }}</text>
-                      <text x="65" y="154" fill="#f97316" font-size="10" text-anchor="end">{{ formatNumber(typeYAxisRanges.minRemGrid) }}</text>
+                      <text x="65" y="34" fill="#f43f5e" font-size="10" text-anchor="end" font-weight="bold">{{ formatNumber(typeYAxisRanges.planGrid) }} (空滿)</text>
+                      <text x="65" y="94" fill="#f97316" font-size="10" text-anchor="end">{{ formatNumber(Math.round(typeYAxisRanges.planGrid / 2)) }}</text>
+                      <text x="65" y="154" fill="#f97316" font-size="10" text-anchor="end">0</text>
 
                       <line x1="730" y1="20" x2="730" y2="160" stroke="#eab308" stroke-width="1.5" />
-                      <text x="735" y="34" fill="#eab308" font-size="10" text-anchor="start">{{ formatNumber(typeYAxisRanges.maxRemVol) }}</text>
-                      <text x="735" y="94" fill="#eab308" font-size="10" text-anchor="start">{{ formatNumber(Math.round((typeYAxisRanges.maxRemVol + typeYAxisRanges.minRemVol)/2)) }}</text>
-                      <text x="735" y="154" fill="#eab308" font-size="10" text-anchor="start">{{ formatNumber(typeYAxisRanges.minRemVol) }}</text>
+                      <text x="735" y="34" fill="#f43f5e" font-size="10" text-anchor="start" font-weight="bold">{{ formatNumber(Math.round(typeYAxisRanges.planVol)) }} (空滿)</text>
+                      <text x="735" y="94" fill="#eab308" font-size="10" text-anchor="start">{{ formatNumber(Math.round(typeYAxisRanges.planVol / 2)) }}</text>
+                      <text x="735" y="154" fill="#eab308" font-size="10" text-anchor="start">0</text>
 
                       <path :d="typeRemGridSvgPath" fill="none" stroke="#f97316" stroke-width="3" stroke-linecap="round" />
                       <path :d="typeRemVolSvgPath" fill="none" stroke="#eab308" stroke-width="3" stroke-linecap="round" />
@@ -532,7 +539,7 @@
                   </div>
                 </div>
 
-                <!-- 🌟 3. 各類型追加項目二：類型健康度 (使用率 %) 🌟 -->
+                <!-- 3. 各類型：類型健康度 (使用率 %) -->
                 <div class="svg-chart-card">
                   <div class="chart-title">
                     <span>🩺 三、【{{ selectedLocType }}】類型健康度 (使用率 %) 歷史走勢曲線</span>
@@ -540,12 +547,12 @@
                   </div>
                   <div class="svg-stage">
                     <svg viewBox="0 0 800 180" class="svg-graph">
-                      <line x1="70" y1="30" x2="730" y2="30" stroke="#334155" stroke-dasharray="3" />
+                      <line x1="70" y1="30" x2="730" y2="30" stroke="#f43f5e" stroke-dasharray="4" stroke-width="1.5" />
                       <line x1="70" y1="85" x2="730" y2="85" stroke="#334155" stroke-dasharray="3" />
                       <line x1="70" y1="140" x2="730" y2="140" stroke="#334155" stroke-dasharray="3" />
 
                       <line x1="70" y1="20" x2="70" y2="150" stroke="#22d3ee" stroke-width="1.5" />
-                      <text x="65" y="34" fill="#22d3ee" font-size="10" text-anchor="end">100%</text>
+                      <text x="65" y="34" fill="#f43f5e" font-size="10" text-anchor="end" font-weight="bold">100% (滿度)</text>
                       <text x="65" y="89" fill="#22d3ee" font-size="10" text-anchor="end">50%</text>
                       <text x="65" y="144" fill="#22d3ee" font-size="10" text-anchor="end">0%</text>
 
@@ -804,7 +811,6 @@ export default {
       return list.length > 0 ? list : ['AGV層架', 'AGV層架-紙抽', '中型層架(格)', '小藍格', '落地儲位', '重型層架', '重型層架-低', '鐵櫃'];
     },
 
-    // 🌟 選取類型之歷史數據算式 (包含 使用中、剩餘空數、健康度) 🌟
     selectedTypeHistoryList() {
       const targetType = this.selectedLocType;
       return this.sortedHistoryList.map(item => {
@@ -822,24 +828,29 @@ export default {
       });
     },
 
-    // 🌟 選取類型之 Y 軸極值算式 🌟
+    // 🌟 核心修正：將 Y 軸上限改為「規劃總儲格」與「規劃總才數」（即 100% 滿度基準）🌟
     typeYAxisRanges() {
       const list = this.selectedTypeHistoryList;
-      if (list.length === 0) return { minGrid:0, maxGrid:100, minVol:0, maxVol:100, minRemGrid:0, maxRemGrid:100, minRemVol:0, maxRemVol:100 };
+      if (list.length === 0) return { planGrid: 100, planVol: 100 };
+
+      // 抓取最後一次/最大的規劃儲格與才數作為 100% 滿度上限
+      const planGrid = Math.max(...list.map(i => i.plan_grid || 0)) || 100;
+      const planVol = Math.max(...list.map(i => i.plan_vol || 0)) || 100;
 
       return {
-        minGrid: Math.min(...list.map(i => i.used_grid || 0)),
-        maxGrid: Math.max(...list.map(i => i.used_grid || 0)) || 1,
-        minVol: Math.min(...list.map(i => i.used_vol || 0)),
-        maxVol: Math.max(...list.map(i => i.used_vol || 0)) || 1,
-        minRemGrid: Math.min(...list.map(i => i.rem_grid || 0)),
-        maxRemGrid: Math.max(...list.map(i => i.rem_grid || 0)) || 1,
-        minRemVol: Math.min(...list.map(i => i.rem_vol || 0)),
-        maxRemVol: Math.max(...list.map(i => i.rem_vol || 0)) || 1
+        planGrid,
+        planVol,
+        maxGrid: planGrid,
+        minGrid: 0,
+        maxVol: planVol,
+        minVol: 0,
+        maxRemGrid: planGrid,
+        minRemGrid: 0,
+        maxRemVol: planVol,
+        minRemVol: 0
       };
     },
 
-    // 🌟 選取類型之繪製座標算式 🌟
     typeChartPoints() {
       const list = this.selectedTypeHistoryList;
       if (list.length === 0) return [];
@@ -848,28 +859,26 @@ export default {
       const endX = 700;
       const stepX = list.length > 1 ? (endX - startX) / (list.length - 1) : 0;
 
-      const { minGrid, maxGrid, minVol, maxVol, minRemGrid, maxRemGrid, minRemVol, maxRemVol } = this.typeYAxisRanges;
+      const { planGrid, planVol } = this.typeYAxisRanges;
 
       return list.map((item, idx) => {
         const x = list.length === 1 ? 400 : startX + idx * stepX;
 
-        // 使用中
-        const gRatio = maxGrid === minGrid ? 0.5 : (item.used_grid - minGrid) / (maxGrid - minGrid);
-        const yGrid = 80 - gRatio * 40; 
+        // 依據「當前使用數 / 規劃總數 (滿度)」算出比例，滿度為最上方 (Y=30)
+        const gRatio = planGrid > 0 ? (item.used_grid / planGrid) : 0;
+        const yGrid = 150 - gRatio * 120; 
 
-        const vRatio = maxVol === minVol ? 0.5 : (item.used_vol - minVol) / (maxVol - minVol);
-        const yVol = 155 - vRatio * 35; 
+        const vRatio = planVol > 0 ? (item.used_vol / planVol) : 0;
+        const yVol = 150 - vRatio * 120; 
 
-        // 剩餘中
-        const rgRatio = maxRemGrid === minRemGrid ? 0.5 : (item.rem_grid - minRemGrid) / (maxRemGrid - minRemGrid);
-        const yRemGrid = 80 - rgRatio * 40; 
+        const rgRatio = planGrid > 0 ? (item.rem_grid / planGrid) : 0;
+        const yRemGrid = 150 - rgRatio * 120; 
 
-        const rvRatio = maxRemVol === minRemVol ? 0.5 : (item.rem_vol - minRemVol) / (maxRemVol - minRemVol);
-        const yRemVol = 155 - rvRatio * 35; 
+        const rvRatio = planVol > 0 ? (item.rem_vol / planVol) : 0;
+        const yRemVol = 150 - rvRatio * 120; 
 
-        // 健康度
         const hRatio = (item.health_rate || 0) / 100;
-        const yHealth = 135 - hRatio * 85;
+        const yHealth = 135 - hRatio * 105;
 
         return { x, yGrid, yVol, yRemGrid, yRemVol, yHealth, item };
       });
@@ -889,19 +898,25 @@ export default {
       return `${path} L ${pts[pts.length - 1].x} 150 L ${pts[0].x} 150 Z`;
     },
 
+    // 🌟 核心修正：全區總體 Y 軸上限改為「全區規劃總儲格」與「全區規劃總才數」🌟
     yAxisRanges() {
       const list = this.sortedHistoryList;
-      if (list.length === 0) return { minGrid:0, maxGrid:100, minVol:0, maxVol:100, minRemGrid:0, maxRemGrid:100, minRemVol:0, maxRemVol:100 };
+      if (list.length === 0) return { planGrid: 49449, planVol: 830407 };
+
+      const planGrid = Math.max(...list.map(i => i.plan_grid || 0)) || 49449;
+      const planVol = Math.max(...list.map(i => i.plan_vol || 0)) || 830407;
 
       return {
-        minGrid: Math.min(...list.map(i => i.used_grid || 0)),
-        maxGrid: Math.max(...list.map(i => i.used_grid || 0)) || 1,
-        minVol: Math.min(...list.map(i => i.used_vol || 0)),
-        maxVol: Math.max(...list.map(i => i.used_vol || 0)) || 1,
-        minRemGrid: Math.min(...list.map(i => i.rem_grid || 0)),
-        maxRemGrid: Math.max(...list.map(i => i.rem_grid || 0)) || 1,
-        minRemVol: Math.min(...list.map(i => i.rem_vol || 0)),
-        maxRemVol: Math.max(...list.map(i => i.rem_vol || 0)) || 1,
+        planGrid,
+        planVol,
+        maxGrid: planGrid,
+        minGrid: 0,
+        maxVol: planVol,
+        minVol: 0,
+        maxRemGrid: planGrid,
+        minRemGrid: 0,
+        maxRemVol: planVol,
+        minRemVol: 0
       };
     },
 
@@ -913,25 +928,26 @@ export default {
       const endX = 700;
       const stepX = list.length > 1 ? (endX - startX) / (list.length - 1) : 0;
 
-      const { minGrid, maxGrid, minVol, maxVol, minRemGrid, maxRemGrid, minRemVol, maxRemVol } = this.yAxisRanges;
+      const { planGrid, planVol } = this.yAxisRanges;
 
       return list.map((item, idx) => {
         const x = list.length === 1 ? 400 : startX + idx * stepX;
 
-        const gRatio = maxGrid === minGrid ? 0.5 : (item.used_grid - minGrid) / (maxGrid - minGrid);
-        const yGrid = 80 - gRatio * 40; 
+        // 依真實滿度比例映射 (滿度 100% 位於 Y=30px，0% 位於 Y=150px)
+        const gRatio = planGrid > 0 ? (item.used_grid / planGrid) : 0;
+        const yGrid = 150 - gRatio * 120; 
 
-        const vRatio = maxVol === minVol ? 0.5 : (item.used_vol - minVol) / (maxVol - minVol);
-        const yVol = 155 - vRatio * 35; 
+        const vRatio = planVol > 0 ? (item.used_vol / planVol) : 0;
+        const yVol = 150 - vRatio * 120; 
 
-        const rgRatio = maxRemGrid === minRemGrid ? 0.5 : (item.rem_grid - minRemGrid) / (maxRemGrid - minRemGrid);
-        const yRemGrid = 80 - rgRatio * 40; 
+        const rgRatio = planGrid > 0 ? (item.rem_grid / planGrid) : 0;
+        const yRemGrid = 150 - rgRatio * 120; 
 
-        const rvRatio = maxRemVol === minRemVol ? 0.5 : (item.rem_vol - minRemVol) / (maxRemVol - minRemVol);
-        const yRemVol = 155 - rvRatio * 35; 
+        const rvRatio = planVol > 0 ? (item.rem_vol / planVol) : 0;
+        const yRemVol = 150 - rvRatio * 120; 
 
         const hRatio = (item.health_rate || 0) / 100;
-        const yHealth = 135 - hRatio * 85;
+        const yHealth = 135 - hRatio * 105;
 
         return { x, yGrid, yVol, yHealth, yRemGrid, yRemVol, item };
       });
@@ -1598,20 +1614,6 @@ export default {
   border-radius: 6px;
 }
 
-.type-chart-stage {
-  background: #1e293b;
-  border-radius: 6px;
-  padding: 10px;
-  border: 1px dashed #38bdf8;
-  flex: 1;
-}
-
-.type-chart-title {
-  font-size: 13px;
-  color: #f8fafc;
-  margin-bottom: 8px;
-}
-
 .chart-title {
   display: flex;
   justify-content: space-between;
@@ -1652,6 +1654,13 @@ export default {
 .dot.green { background-color: #4ade80; }
 .dot.orange { background-color: #f97316; }
 .dot.yellow { background-color: #eab308; }
+
+.line-red {
+  display: inline-block;
+  width: 16px;
+  height: 0;
+  border-top: 2px dashed #f43f5e;
+}
 
 .svg-stage {
   width: 100%;
