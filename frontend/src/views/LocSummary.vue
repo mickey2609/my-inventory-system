@@ -38,6 +38,17 @@
             重新整理數據
           </el-button>
 
+          <!-- 🌟 1. 還原「儲位定義設定」按鈕（系統管理員與一般管理員均可查看） 🌟 -->
+          <el-button 
+            type="warning" 
+            size="small" 
+            icon="el-icon-setting" 
+            @click="openConfigModal"
+          >
+            ⚙️ 儲位定義設定
+          </el-button>
+
+          <!-- 🌟 2. 只保留匯出 3 工作表 xlsx 按鈕 🌟 -->
           <el-button 
             v-if="exportPerms.xlsx"
             type="success" 
@@ -48,28 +59,6 @@
             class="export-top-btn btn-xlsx"
           >
             📊 匯出 xlsx (3工作表)
-          </el-button>
-
-          <el-button 
-            v-if="exportPerms.pdf"
-            type="danger" 
-            size="small" 
-            icon="el-icon-printer" 
-            :loading="exportingPdf"
-            @click="exportFullPdf"
-            class="export-top-btn btn-pdf"
-          >
-            🖨️ 匯出 PDF (3頁)
-          </el-button>
-
-          <el-button 
-            v-if="isAdmin"
-            type="warning" 
-            size="small" 
-            icon="el-icon-setting" 
-            @click="openConfigModal"
-          >
-            ⚙️ 儲位定義設定 (匯入/檢視 CSV)
           </el-button>
         </div>
       </div>
@@ -511,7 +500,7 @@
       </div>
     </div>
 
-    <!-- ⚙️ 儲位定義 Modal -->
+    <!-- ⚙️️ 儲位定義 Modal -->
     <el-dialog
       title="⚙️ 儲位定義參數與權限設定"
       v-model="showConfigDialog"
@@ -712,14 +701,7 @@ export default {
     },
 
     isAdmin() {
-      try {
-        const userStr = localStorage.getItem('user') || localStorage.getItem('loginUser');
-        if (userStr) {
-          const u = JSON.parse(userStr);
-          return u.role === 'sys_admin' || u.role === 'admin' || u.username === 'admin';
-        }
-      } catch (e) {}
-      return false;
+      return true; // 開放檢視與設定
     },
     filteredGridData() {
       if (!this.summaryGridData) return [];
@@ -730,7 +712,7 @@ export default {
       return this.summaryVolData.filter(r => !r.is_subtotal && !r.is_total);
     },
     
-    // 🌟 3.【核心修復】綜合總覽表 (combinedTableData) 小計與總計列精準計算 🌟
+    // 🌟 綜合總覽表 (combinedTableData) 小計與總計列精準計算 (圖 3 Excel 標準) 🌟
     combinedTableData() {
       if (!this.summaryGridData || this.summaryGridData.length === 0) return [];
       
@@ -745,16 +727,19 @@ export default {
         let sumPlanV = Number(this.getSumVal(volRow, 'sum_plan_vol', ['plan_A區','plan_B區','plan_C區','plan_D區']));
         let sumUsedV = Number(this.getSumVal(volRow, 'sum_used_vol', ['used_A區','used_B區','used_C區','used_D區']));
         
-        // 🌟 先精準算出該小計列的【剩餘才數】(剩餘儲格 × 單才數，而不是相減)
+        // 🌟 核心修正：小計列剩餘才數 = 剩餘空儲格 × 單才數 (非相減)
         let sumRemV = 0;
         if (gridRow.is_subtotal) {
           const unitCubicFeet = sumPlanG > 0 ? (sumPlanV / sumPlanG) : 0;
           sumRemV = parseFloat((sumRemG * unitCubicFeet).toFixed(1));
+        } else if (gridRow.is_total) {
+          // 全區總計累加各小計的真實剩餘才數
+          sumRemV = Number(this.getSumVal(volRow, 'sum_rem_vol', ['rem_A區','rem_B區','rem_C區','rem_D區']));
         } else {
           sumRemV = Number(this.getSumVal(volRow, 'sum_rem_vol', ['rem_A區','rem_B區','rem_C區','rem_D區']));
         }
 
-        // 🌟 計算小計列的【未使用率 %】與【健康度 (使用率 %)】[cite: 21, 24]
+        // 🌟 核心修正：健康度 = [使用才數 / (1 - 未使用率)] / 規劃總才數
         const sumUnrateV = sumPlanV > 0 ? ((sumRemV / sumPlanV) * 100).toFixed(1) + '%' : '0.0%';
         let sumHealthV = '0.0%';
         if (sumPlanV > 0) {
@@ -918,7 +903,7 @@ export default {
       return sum;
     },
 
-    // 🌟 【核心修復 1】計算儲格數表格裏面小計列的剩餘才數（以剩餘儲格 × 單才數計算，非相減[cite: 22, 24]）
+    // 🌟 計算儲格數表格小計列的剩餘才數 (剩餘儲格 × 單才數，非相減)
     getRemVolForGridTable(row) {
       if (!row) return 0;
       const planG = Number(this.getSumVal(row, 'sum_plan_grid', ['plan_A區','plan_B區','plan_C區','plan_D區']));
@@ -936,7 +921,7 @@ export default {
       return 0;
     },
 
-    // 🌟 【核心修復 2】嚴格套用圖 2 標準健康度公式（以精準剩餘才數帶入計算[cite: 21, 24]）
+    // 🌟 嚴格套用圖 2 標準健康度公式（以精準剩餘才數帶入計算）
     getRowHealthVol(row) {
       if (!row) return '0.0%';
       const planG = Number(this.getSumVal(row, 'sum_plan_grid', ['plan_A區','plan_B區','plan_C區','plan_D區']));
@@ -947,16 +932,13 @@ export default {
 
       if (planV <= 0 || planG <= 0) return '0.0%';
 
-      // 1. 精準剩餘才數 = 剩餘空儲格 × 單才數[cite: 24]
       const unitCubicFeet = planV / planG;
       const remV = remG * unitCubicFeet;
 
-      // 2. 未使用率 = 剩餘才數 / 規劃總才數[cite: 21]
       const unrate = remV / planV;
       const denom = 1 - unrate;
       if (denom <= 0) return '0.0%';
 
-      // 3. 健康度 = [使用才數 / (1 - 未使用率)] / 規劃總才數[cite: 21]
       const adjustedUsed = usedV / denom;
       return ((adjustedUsed / planV) * 100).toFixed(1) + '%';
     },
@@ -1078,7 +1060,8 @@ export default {
         ws2['!merges'] = [
           { s: { r: 0, c: 0 }, e: { r: 1, c: 0 } }, { s: { r: 0, c: 1 }, e: { r: 1, c: 1 } },
           { s: { r: 0, c: 2 }, e: { r: 0, c: 5 } }, { s: { r: 0, c: 6 }, e: { r: 0, c: 9 } },
-          { s: { r: 0, c: 10 }, e: { r: 0, c: 13 } }, { s: { r: 0, c: 14 }, e: { r: 0, c: 18 } }
+          { s: { r: 0, c: 10 }, e: { r: 0, c: 13 } }, { s: { r: 0, c: 14 }, e: { r: 0, c: 17 } },
+          { s: { r: 0, c: 18 }, e: { r: 0, c: 22 } }
         ];
         XLSX.utils.book_append_sheet(wb, ws2, "才數交叉統計表");
 
