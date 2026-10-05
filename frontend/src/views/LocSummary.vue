@@ -38,7 +38,6 @@
             重新整理數據
           </el-button>
 
-          <!-- 🌟 還原「儲位定義設定」按鈕 🌟 -->
           <el-button 
             type="warning" 
             size="small" 
@@ -48,7 +47,6 @@
             ⚙️ 儲位定義設定
           </el-button>
 
-          <!-- 🌟 僅保留匯出 xlsx (3工作表) 按鈕 🌟 -->
           <el-button 
             v-if="exportPerms.xlsx"
             type="success" 
@@ -303,12 +301,13 @@
             </el-table>
           </el-tab-pane>
 
-          <!-- 頁籤 4：📈 空間與健康度歷史趨勢圖 -->
+          <!-- 頁籤 4：📈 空間與健康度歷史趨勢圖 (第二與第三項目對調完成) -->
           <el-tab-pane label="📈 空間與健康度歷史趨勢圖" name="trend">
             <div v-if="sortedHistoryList.length === 0" class="no-trend-box">
               ⚠️ 尚無歷史快照紀錄，上傳庫存 CSV 檔案後將自動產生趨勢分析！
             </div>
             <div v-else class="svg-charts-container">
+              <!-- 一、使用中儲格數與才數 -->
               <div class="svg-chart-card">
                 <div class="chart-title">
                   <span>📊 一、80 庫「使用中儲格數」與「使用中才數」歷史推移曲線</span>
@@ -347,9 +346,41 @@
                 </div>
               </div>
 
+              <!-- 🌟 二、原第三項目對調至此：剩餘空儲格數與剩餘空才數 🌟 -->
               <div class="svg-chart-card">
                 <div class="chart-title">
-                  <span>🩺 二、80 庫「儲位整體健康度 (儲位使用率 %)」歷史走勢曲線（越高越好）</span>
+                  <span>📦 二、80 庫「剩餘空儲格數」與「剩餘空才數」歷史推移曲線</span>
+                  <div class="chart-legend">
+                    <span class="legend-item"><i class="dot orange"></i> 剩餘空儲格數</span>
+                    <span class="legend-item"><i class="dot yellow"></i> 剩餘空才數</span>
+                  </div>
+                </div>
+                <div class="svg-stage">
+                  <svg viewBox="0 0 800 200" class="svg-graph">
+                    <line x1="50" y1="30" x2="750" y2="30" stroke="#1e293b" stroke-dasharray="4" />
+                    <line x1="50" y1="90" x2="750" y2="90" stroke="#1e293b" stroke-dasharray="4" />
+                    <line x1="50" y1="150" x2="750" y2="150" stroke="#1e293b" stroke-dasharray="4" />
+
+                    <path :d="remGridSvgPath" fill="none" stroke="#f97316" stroke-width="3" stroke-linecap="round" />
+                    <path :d="remVolSvgPath" fill="none" stroke="#eab308" stroke-width="3" stroke-linecap="round" />
+
+                    <g v-for="(p, idx) in chartPoints" :key="'p3-'+idx">
+                      <circle :cx="p.x" :cy="p.yRemGrid" r="5" fill="#f97316" stroke="#0f172a" stroke-width="2" />
+                      <text :x="p.x" :y="p.yRemGrid - 10" fill="#f97316" font-size="11" text-anchor="middle" font-weight="bold">{{ formatNumber(p.item.rem_grid) }} 格</text>
+
+                      <circle :cx="p.x" :cy="p.yRemVol" r="5" fill="#eab308" stroke="#0f172a" stroke-width="2" />
+                      <text :x="p.x" :y="p.yRemVol + 18" fill="#eab308" font-size="11" text-anchor="middle" font-weight="bold">{{ formatNumber(p.item.rem_vol) }} 才</text>
+
+                      <text :x="p.x" y="180" fill="#94a3b8" font-size="12" text-anchor="middle">{{ p.item.record_date }}</text>
+                    </g>
+                  </svg>
+                </div>
+              </div>
+
+              <!-- 🌟 三、原第二項目對調至此：儲位整體健康度 🌟 -->
+              <div class="svg-chart-card">
+                <div class="chart-title">
+                  <span>🩺 三、80 庫「儲位整體健康度 (儲位使用率 %)」歷史走勢曲線（越高越好）</span>
                   <span class="tip-text">💡 儲位使用率越高，代表倉庫空間利用越充分、健康度佳</span>
                 </div>
                 <div class="svg-stage">
@@ -373,36 +404,6 @@
                         <stop offset="100%" stop-color="#22d3ee" stop-opacity="0" />
                       </linearGradient>
                     </defs>
-                  </svg>
-                </div>
-              </div>
-
-              <div class="svg-chart-card">
-                <div class="chart-title">
-                  <span>📦 三、80 庫「剩餘空儲格數」與「剩餘空才數」歷史推移曲線</span>
-                  <div class="chart-legend">
-                    <span class="legend-item"><i class="dot orange"></i> 剩餘空儲格數</span>
-                    <span class="legend-item"><i class="dot yellow"></i> 剩餘空才數</span>
-                  </div>
-                </div>
-                <div class="svg-stage">
-                  <svg viewBox="0 0 800 200" class="svg-graph">
-                    <line x1="50" y1="30" x2="750" y2="30" stroke="#1e293b" stroke-dasharray="4" />
-                    <line x1="50" y1="90" x2="750" y2="90" stroke="#1e293b" stroke-dasharray="4" />
-                    <line x1="50" y1="150" x2="750" y2="150" stroke="#1e293b" stroke-dasharray="4" />
-
-                    <path :d="remGridSvgPath" fill="none" stroke="#f97316" stroke-width="3" stroke-linecap="round" />
-                    <path :d="remVolSvgPath" fill="none" stroke="#eab308" stroke-width="3" stroke-linecap="round" />
-
-                    <g v-for="(p, idx) in chartPoints" :key="'p3-'+idx">
-                      <circle :cx="p.x" :cy="p.yRemGrid" r="5" fill="#f97316" stroke="#0f172a" stroke-width="2" />
-                      <text :x="p.x" :y="p.yRemGrid - 10" fill="#f97316" font-size="11" text-anchor="middle" font-weight="bold">{{ formatNumber(p.item.rem_grid) }} 格</text>
-
-                      <circle :cx="p.x" :cy="p.yRemVol" r="5" fill="#eab308" stroke="#0f172a" stroke-width="2" />
-                      <text :x="p.x" :y="p.yVol + 18" fill="#eab308" font-size="11" text-anchor="middle" font-weight="bold">{{ formatNumber(p.item.rem_vol) }} 才</text>
-
-                      <text :x="p.x" y="180" fill="#94a3b8" font-size="12" text-anchor="middle">{{ p.item.record_date }}</text>
-                    </g>
                   </svg>
                 </div>
               </div>
@@ -712,7 +713,6 @@ export default {
       return this.summaryVolData.filter(r => !r.is_subtotal && !r.is_total);
     },
     
-    // 🌟 綜合總覽表：精準對齊各樓層直接加總邏輯 🌟
     combinedTableData() {
       if (!this.summaryGridData || this.summaryGridData.length === 0) return [];
       
@@ -727,7 +727,6 @@ export default {
         let sumPlanV = Number(this.getSumVal(volRow, 'sum_plan_vol', ['plan_A區','plan_B區','plan_C區','plan_D區']));
         let sumUsedV = Number(this.getSumVal(volRow, 'sum_used_vol', ['used_A區','used_B區','used_C區','used_D區']));
         
-        // 🌟 小計列剩餘才數：直接將該儲位類型在各樓層的剩餘才數相加（加總法）
         let sumRemV = 0;
         if (gridRow.is_subtotal) {
           const targetType = gridRow.loc_type;
@@ -743,7 +742,6 @@ export default {
           sumRemV = Number(this.getSumVal(volRow, 'sum_rem_vol', ['rem_A區','rem_B區','rem_C區','rem_D區']));
         }
 
-        // 🌟 帶入正確加總的剩餘才數計算健康度
         const sumUnrateV = sumPlanV > 0 ? ((sumRemV / sumPlanV) * 100).toFixed(1) + '%' : '0.0%';
         let sumHealthV = '0.0%';
         if (sumPlanV > 0) {
@@ -907,7 +905,6 @@ export default {
       return sum;
     },
 
-    // 🌟 格數統計表上的小計列：直接累加各樓層的剩餘才數
     getRemVolForGridTable(row) {
       if (!row) return 0;
       let remV = 0;
@@ -927,7 +924,6 @@ export default {
       return parseFloat(remV.toFixed(1));
     },
 
-    // 🌟 健康度帶入加總的真實剩餘才數算式
     getRowHealthVol(row) {
       if (!row) return '0.0%';
       const idx = this.summaryGridData.indexOf(row);
