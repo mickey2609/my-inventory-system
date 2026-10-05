@@ -210,11 +210,3 @@ module.exports = function(db) {
 
   return router;
 };
-// 啟動時自動更正資料庫內健康度已被寫成 100 的舊紀錄
-  db.run(`
-    UPDATE location_type_stats_history 
-    SET health_rate = ROUND(
-      (used_vol / (1.0 - (rem_vol / plan_vol)) / plan_vol) * 100.0, 1
-    )
-    WHERE plan_vol > 0 AND (1.0 - (rem_vol / plan_vol)) > 0 AND health_rate = 100.0;
-  `);
