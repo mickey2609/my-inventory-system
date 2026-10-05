@@ -10,7 +10,6 @@ const getRowValue = (row, col) => {
   return '-';
 };
 
-// 🌟 1. 從檔名自動提取日期 (支援 YYYYMMDD, YYYY-MM-DD, YYYY_MM_DD 等格式)
 export function extractDateFromFilename(fileName) {
   if (!fileName) return new Date().toISOString().split('T')[0];
   const match = fileName.match(/(20\d{2}[-_/]?\d{2}[-_/]?\d{2})/);
@@ -20,20 +19,19 @@ export function extractDateFromFilename(fileName) {
       return `${raw.substring(0, 4)}-${raw.substring(4, 6)}-${raw.substring(6, 8)}`;
     }
   }
-  return new Date().toISOString().split('T')[0]; // 檔名無日期時預設為今天
+  return new Date().toISOString().split('T')[0];
 }
 
-// 🌟 匯入成功後，自動呼叫 API 重新計算並寫入 80 庫總體 KPI 與各儲位類型細節快照
+// 🌟 匯入成功後，精準計算並寫入 80 庫總體與各儲位類型快照
 export async function triggerSaveLocationHistory(fileName) {
   try {
     const recordDate = extractDateFromFilename(fileName);
-    // 呼叫交叉試算 API 取得最新 7 大 KPI 與小計數據
     const res = await axios.get('/api/calc-location-summary');
     if (res.data && res.data.success && res.data.summaryStats) {
       
       const typeSubtotals = [];
-      const gridSummary = res.data.grid_summary || [];
-      const volSummary = res.data.vol_summary || [];
+      const gridSummary = res.data.grid_summary || res.data.summary_grid || [];
+      const volSummary = res.data.vol_summary || res.data.summary_vol || [];
 
       gridSummary.forEach((gRow, idx) => {
         if (gRow.is_subtotal && gRow.loc_type) {
@@ -45,16 +43,15 @@ export async function triggerSaveLocationHistory(fileName) {
 
           const planV = Number(vRow.sum_plan_vol || vRow.sumPlanVol || 0);
           const usedV = Number(vRow.sum_used_vol || vRow.sumUsedVol || 0);
-          // 🌟 1. 精準取得試算表算出的剩餘才數（以剩餘儲格數 × 儲位才數算出）
+          // 🌟 1. 精準取得試算表算出的剩餘才數（剩餘儲格數 × 儲位才數）
           const remV = Number(vRow.sum_rem_vol || vRow.sumRemVol || 0);
 
-          // 🌟 2. 嚴格套用標準健康度公式
+          // 🌟 2. 嚴格套用圖 2 標準健康度公式：[使用才數 / (1 - 未使用率)] / 儲位總才數
           let health = 0;
           if (planV > 0) {
             const unrate = remV / planV; // 未使用率 = 剩餘才數 / 儲位總才數
             const denom = 1 - unrate;    // (1 - 未使用率)
             if (denom > 0) {
-              // 健康度 = [使用才數 / (1 - 未使用率)] / 儲位總才數
               const adjustedUsed = usedV / denom;
               health = parseFloat(((adjustedUsed / planV) * 100).toFixed(1));
             }
@@ -73,7 +70,6 @@ export async function triggerSaveLocationHistory(fileName) {
         }
       });
 
-      // 儲存至歷史快照資料表
       await axios.post('/api/location-stats/save', {
         record_date: recordDate,
         file_name: fileName,
@@ -87,7 +83,6 @@ export async function triggerSaveLocationHistory(fileName) {
   }
 }
 
-// 3. CSV 批次寫入地端 SQLite (100% 寫入 48 欄位)
 export async function processCsvUpload(file, onProgress, sendLogCallback) {
   return new Promise((resolve, reject) => {
     const papa = window.Papa || (typeof Papa !== 'undefined' ? Papa : null);
@@ -117,7 +112,6 @@ export async function processCsvUpload(file, onProgress, sendLogCallback) {
           for (let i = 0; i < totalRows; i += batchSize) {
             const chunk = allData.slice(i, i + batchSize);
 
-            // 精準映射 48 個欄位
             const parsedChunk = chunk.map(row => ({
               item_id: row['商品ID'] || row['item_id'] || '',
               item_name: row['商品名稱'] || row['item_name'] || '',
@@ -193,14 +187,13 @@ export async function processCsvUpload(file, onProgress, sendLogCallback) {
         }
       },
       error: (err) => {
-        if (sendLogCallback) sendLogCallback('資料匯入', '⚠️ 解析 CSV 檔案失敗: ' + err.message);
+        if (sendLogCallback) sendLogCallback('資料匯入', '⚠️️ 解析 CSV 檔案失敗: ' + err.message);
         reject(err);
       }
     });
   });
 }
 
-// 4. 報表匯出 (PDF / Excel / CSV)
 export function processExportData({ fmt, tableData, exportCols, moduleName, summary, searchTime, sendLogCallback, formatNumber }) {
   const now = new Date();
   const dateStr = now.getFullYear() + String(now.getMonth() + 1).padStart(2, '0') + String(now.getDate()).padStart(2, '0');
