@@ -22,7 +22,7 @@ export function extractDateFromFilename(fileName) {
   return new Date().toISOString().split('T')[0];
 }
 
-// 🌟 匯入成功後，精準計算並寫入 80 庫總體與各儲位類型快照
+// 🌟 自動試算並寫入 80 庫總體與小計歷史快照 (不相減，精準以 剩餘儲格 × 單才數 算才數與健康度)
 export async function triggerSaveLocationHistory(fileName) {
   try {
     const recordDate = extractDateFromFilename(fileName);
@@ -37,29 +37,29 @@ export async function triggerSaveLocationHistory(fileName) {
         if (gRow.is_subtotal && gRow.loc_type) {
           const vRow = volSummary[idx] || {};
           
-          const planG = Number(gRow.sum_plan_grid || gRow.sumPlanGrid || gRow.plan_grid || 0);
-          const usedG = Number(gRow.sum_used_grid || gRow.sumUsedGrid || gRow.used_grid || 0);
-          const remG = Number(gRow.sum_rem_grid || gRow.sumRemGrid || Math.max(0, planG - usedG));
+          const planG = Number(gRow.sum_plan_grid || gRow.plan_grid || 0);
+          const usedG = Number(gRow.sum_used_grid || gRow.used_grid || 0);
+          const remG = Number(gRow.sum_rem_grid || gRow.rem_grid || Math.max(0, planG - usedG));
 
-          const planV = Number(vRow.sum_plan_vol || vRow.sumPlanVol || vRow.plan_vol || 0);
-          const usedV = Number(vRow.sum_used_vol || vRow.sumUsedVol || vRow.used_vol || 0);
+          const planV = Number(vRow.sum_plan_vol || vRow.plan_vol || 0);
+          const usedV = Number(vRow.sum_used_vol || vRow.used_vol || 0);
           
-          // 🌟 核心修正 1：取得該儲位類型的單儲位才數（規劃才數 / 規劃儲格數）
+          // 🌟 1. 精準取得單儲位才數 (規劃總才數 / 規劃總儲格)
           const unitCubicFeet = planG > 0 ? (planV / planG) : 0;
 
-          // 🌟 核心修正 2：剩餘才數 = 剩餘空儲格數 × 單儲位才數
+          // 🌟 2. 剩餘才數 = 剩餘空儲格數 × 單儲位才數
           let remV = 0;
-          if (vRow.sum_rem_vol !== undefined && vRow.sum_rem_vol !== null && vRow.sum_rem_vol !== '') {
+          if (vRow.sum_rem_vol !== undefined && vRow.sum_rem_vol !== null && vRow.sum_rem_vol !== 0) {
             remV = Number(vRow.sum_rem_vol);
           } else {
             remV = parseFloat((remG * unitCubicFeet).toFixed(1));
           }
 
-          // 🌟 核心修正 3：套用圖 2 標準健康度公式 (使用才數 / (1 - 未使用率)) / 規劃總才數
+          // 🌟 3. 嚴格套用圖 2 標準健康度公式: [使用才數 / (1 - 未使用率)] / 規劃總才數
           let health = 0;
           if (planV > 0) {
             const unrate = remV / planV; // 未使用率 = 剩餘才數 / 規劃總才數
-            const denom = 1 - unrate;    // 1 - 未使用率
+            const denom = 1 - unrate;    // (1 - 未使用率)
             if (denom > 0) {
               const adjustedUsed = usedV / denom;
               health = parseFloat(((adjustedUsed / planV) * 100).toFixed(1));
@@ -85,7 +85,7 @@ export async function triggerSaveLocationHistory(fileName) {
         stats: res.data.summaryStats,
         type_subtotals: typeSubtotals
       });
-      console.log(`✅ 已自動儲存 ${recordDate} (${fileName}) 之 80 庫總體與 ${typeSubtotals.length} 個儲位類型歷史快照！`);
+      console.log(`✅ 已自動儲存 ${recordDate} (${fileName}) 之 80 庫歷史快照！`);
     }
   } catch (e) {
     console.error('⚠️ 自動儲存儲位歷史快照失敗:', e.message);
@@ -191,7 +191,7 @@ export async function processCsvUpload(file, onProgress, sendLogCallback) {
           resolve(totalRows);
         } catch (err) {
           const errorMsg = err.response?.data?.error || err.message;
-          if (sendLogCallback) sendLogCallback('資料匯入', '⚠️️ 寫入地端 SQLite 失敗: ' + errorMsg);
+          if (sendLogCallback) sendLogCallback('資料匯入', '⚠️ 寫入地端 SQLite 失敗: ' + errorMsg);
           reject(new Error(errorMsg));
         }
       },

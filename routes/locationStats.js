@@ -8,7 +8,6 @@ function initLocationStatsTable(db) {
     db.run(`PRAGMA journal_mode = WAL;`);
     db.run(`PRAGMA synchronous = OFF;`);
 
-    // 1. 建立 80 庫總體 7 大 KPI 快照表
     db.run(`
       CREATE TABLE IF NOT EXISTS location_stats_history (
         record_date TEXT PRIMARY KEY,
@@ -25,7 +24,6 @@ function initLocationStatsTable(db) {
       );
     `);
 
-    // 2. 建立各儲位類型 (loc_type) 細節快照表
     db.run(`
       CREATE TABLE IF NOT EXISTS location_type_stats_history (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -46,11 +44,11 @@ function initLocationStatsTable(db) {
     db.run(`CREATE INDEX IF NOT EXISTS idx_loc_stats_date ON location_stats_history(record_date);`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_loc_type_date ON location_type_stats_history(record_date);`);
 
-    // 🌟 服務啟動時自動修正過去寫錯的剩餘才數與健康度 🌟
+    // 🌟 自動校正資料庫：修正過去被寫成相減或被寫成 100% 的健康度歷史數據 🌟
     db.run(`
       UPDATE location_type_stats_history 
       SET rem_vol = ROUND(rem_grid * (plan_vol * 1.0 / plan_grid), 1)
-      WHERE plan_grid > 0 AND (rem_vol = plan_vol - used_vol OR rem_vol IS NULL);
+      WHERE plan_grid > 0 AND (rem_vol = plan_vol - used_vol OR rem_vol IS NULL OR rem_vol = 0);
     `);
 
     db.run(`
@@ -66,7 +64,6 @@ function initLocationStatsTable(db) {
 module.exports = function(db) {
   initLocationStatsTable(db);
 
-  // [GET] /api/location-stats/history
   router.get('/history', (req, res) => {
     const sqlMaster = `
       SELECT 
@@ -107,7 +104,6 @@ module.exports = function(db) {
     });
   });
 
-  // [POST] /api/location-stats/save
   router.post('/save', (req, res) => {
     const { record_date, file_name, stats, type_subtotals } = req.body;
     if (!record_date || !stats) {
@@ -175,9 +171,8 @@ module.exports = function(db) {
           const planV = Number(t.plan_vol || 0);
           const usedV = Number(t.used_vol || 0);
           
-          // 🌟 剩餘才數 = 剩餘空儲格數 × 單儲位才數
           const unitVol = planG > 0 ? (planV / planG) : 0;
-          const remV = Number(t.rem_vol !== undefined ? t.rem_vol : (remG * unitVol));
+          const remV = Number(t.rem_vol !== undefined && t.rem_vol !== 0 ? t.rem_vol : (remG * unitVol));
 
           let calcHealth = 0;
           if (planV > 0) {
@@ -210,7 +205,6 @@ module.exports = function(db) {
     });
   });
 
-  // [DELETE] /api/location-stats/delete
   router.delete('/delete', (req, res) => {
     const { record_date } = req.body;
     if (!record_date) {
