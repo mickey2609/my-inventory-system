@@ -59,7 +59,7 @@
             @click="exportFullPdf"
             class="export-top-btn btn-pdf"
           >
-            🖨️️ 匯出 PDF (3頁)
+            🖨️ 匯出 PDF (3頁)
           </el-button>
 
           <el-button 
@@ -320,7 +320,6 @@
               ⚠️ 尚無歷史快照紀錄，上傳庫存 CSV 檔案後將自動產生趨勢分析！
             </div>
             <div v-else class="svg-charts-container">
-              <!-- 圖一：使用中儲格數與才數曲線 -->
               <div class="svg-chart-card">
                 <div class="chart-title">
                   <span>📊 一、80 庫「使用中儲格數」與「使用中才數」歷史推移曲線</span>
@@ -359,7 +358,6 @@
                 </div>
               </div>
 
-              <!-- 圖二：儲位健康度走勢 -->
               <div class="svg-chart-card">
                 <div class="chart-title">
                   <span>🩺 二、80 庫「儲位整體健康度 (儲位使用率 %)」歷史走勢曲線（越高越好）</span>
@@ -390,7 +388,6 @@
                 </div>
               </div>
 
-              <!-- 圖三：剩餘儲位數與才數曲線 -->
               <div class="svg-chart-card">
                 <div class="chart-title">
                   <span>📦 三、80 庫「剩餘空儲格數」與「剩餘空才數」歷史推移曲線</span>
@@ -423,7 +420,7 @@
             </div>
           </el-tab-pane>
 
-          <!-- 🌟 頁籤 5：🗓️ 儲位 7 大 KPI 歷史快照管理清單 (含可展開各儲位類型小計) 🌟 -->
+          <!-- 🌟 頁籤 5：🗓️ 儲位 7 大 KPI 歷史快照管理清單 🌟 -->
           <el-tab-pane label="🗓️ 儲位 7 大 KPI 歷史快照管理清單" name="history_manager">
             <div class="history-page-wrapper">
               <div class="history-page-header">
@@ -439,7 +436,6 @@
                 class="dark-table" 
                 height="calc(100vh - 280px)"
               >
-                <!-- 🌟 展開欄位：展開後呈現該日期下「重型架、AGV層架...各小計」 🌟 -->
                 <el-table-column type="expand">
                   <template #default="props">
                     <div class="type-details-nested-box">
@@ -733,6 +729,8 @@ export default {
       if (!this.summaryVolData) return [];
       return this.summaryVolData.filter(r => !r.is_subtotal && !r.is_total);
     },
+    
+    // 🌟 3.【核心修復】綜合總覽表 (combinedTableData) 小計與總計列精準計算 🌟
     combinedTableData() {
       if (!this.summaryGridData || this.summaryGridData.length === 0) return [];
       
@@ -746,31 +744,25 @@ export default {
 
         let sumPlanV = Number(this.getSumVal(volRow, 'sum_plan_vol', ['plan_A區','plan_B區','plan_C區','plan_D區']));
         let sumUsedV = Number(this.getSumVal(volRow, 'sum_used_vol', ['used_A區','used_B區','used_C區','used_D區']));
-        let sumRemV = Number(this.getSumVal(volRow, 'sum_rem_vol', ['rem_A區','rem_B區','rem_C區','rem_D區']));
-
-        if (gridRow.is_subtotal && sumPlanV === 0) {
-          const targetType = gridRow.loc_type;
-          this.summaryVolData.forEach((vr) => {
-            if (!vr.is_subtotal && !vr.is_total && vr.loc_type === targetType) {
-              sumPlanV += Number(this.getSumVal(vr, 'sum_plan_vol', ['plan_A區','plan_B區','plan_C區','plan_D區']));
-              sumUsedV += Number(this.getSumVal(vr, 'sum_used_vol', ['used_A區','used_B區','used_C區','used_D區']));
-              sumRemV += Number(this.getSumVal(vr, 'sum_rem_vol', ['rem_A區','rem_B區','rem_C區','rem_D區']));
-            }
-          });
-        } else if (gridRow.is_total && sumPlanV === 0) {
-          this.summaryVolData.forEach(vr => {
-            if (!vr.is_subtotal && !vr.is_total) {
-              sumPlanV += Number(this.getSumVal(vr, 'sum_plan_vol', ['plan_A區','plan_B區','plan_C區','plan_D區']));
-              sumUsedV += Number(this.getSumVal(vr, 'sum_used_vol', ['used_A區','used_B區','used_C區','used_D區']));
-              sumRemV += Number(this.getSumVal(vr, 'sum_rem_vol', ['rem_A區','rem_B區','rem_C區','rem_D區']));
-            }
-          });
+        
+        // 🌟 先精準算出該小計列的【剩餘才數】(剩餘儲格 × 單才數，而不是相減)
+        let sumRemV = 0;
+        if (gridRow.is_subtotal) {
+          const unitCubicFeet = sumPlanG > 0 ? (sumPlanV / sumPlanG) : 0;
+          sumRemV = parseFloat((sumRemG * unitCubicFeet).toFixed(1));
+        } else {
+          sumRemV = Number(this.getSumVal(volRow, 'sum_rem_vol', ['rem_A區','rem_B區','rem_C區','rem_D區']));
         }
 
+        // 🌟 計算小計列的【未使用率 %】與【健康度 (使用率 %)】[cite: 21, 24]
         const sumUnrateV = sumPlanV > 0 ? ((sumRemV / sumPlanV) * 100).toFixed(1) + '%' : '0.0%';
         let sumHealthV = '0.0%';
-        if (sumPlanV > 0 && (1 - sumRemV / sumPlanV) > 0) {
-          sumHealthV = (((sumUsedV / (1 - sumRemV / sumPlanV)) / sumPlanV) * 100).toFixed(1) + '%';
+        if (sumPlanV > 0) {
+          const unrate = sumRemV / sumPlanV;
+          const denom = 1 - unrate;
+          if (denom > 0) {
+            sumHealthV = (((sumUsedV / denom) / sumPlanV) * 100).toFixed(1) + '%';
+          }
         }
 
         let dispFloor = gridRow.floor || '';
@@ -925,32 +917,50 @@ export default {
       }
       return sum;
     },
+
+    // 🌟 【核心修復 1】計算儲格數表格裏面小計列的剩餘才數（以剩餘儲格 × 單才數計算，非相減[cite: 22, 24]）
     getRemVolForGridTable(row) {
       if (!row) return 0;
-      if (row.sum_rem_vol) return row.sum_rem_vol;
-      if (row.sumRemVol) return row.sumRemVol;
+      const planG = Number(this.getSumVal(row, 'sum_plan_grid', ['plan_A區','plan_B區','plan_C區','plan_D區']));
+      const remG = Number(this.getSumVal(row, 'sum_rem_grid', ['rem_A區','rem_B區','rem_C區','rem_D區']));
       
       const idx = this.summaryGridData.indexOf(row);
       if (idx >= 0 && this.summaryVolData && this.summaryVolData[idx]) {
-        return this.getSumVal(this.summaryVolData[idx], 'sum_rem_vol', ['rem_A區','rem_B區','rem_C區','rem_D區']);
+        const vRow = this.summaryVolData[idx];
+        const planV = Number(this.getSumVal(vRow, 'sum_plan_vol', ['plan_A區','plan_B區','plan_C區','plan_D區']));
+        if (planG > 0 && planV > 0) {
+          const unitCubicFeet = planV / planG;
+          return parseFloat((remG * unitCubicFeet).toFixed(1));
+        }
       }
       return 0;
     },
-    // 🌟 嚴格套用圖 2 標準健康度公式 🌟
+
+    // 🌟 【核心修復 2】嚴格套用圖 2 標準健康度公式（以精準剩餘才數帶入計算[cite: 21, 24]）
     getRowHealthVol(row) {
       if (!row) return '0.0%';
-      const plan = Number(this.getSumVal(row, 'sum_plan_vol', ['plan_A區','plan_B區','plan_C區','plan_D區']));
-      const used = Number(this.getSumVal(row, 'sum_used_vol', ['used_A區','used_B區','used_C區','used_D區']));
-      const rem = Number(this.getSumVal(row, 'sum_rem_vol', ['rem_A區','rem_B區','rem_C區','rem_D區']));
+      const planG = Number(this.getSumVal(row, 'sum_plan_grid', ['plan_A區','plan_B區','plan_C區','plan_D區']));
+      const remG = Number(this.getSumVal(row, 'sum_rem_grid', ['rem_A區','rem_B區','rem_C區','rem_D區']));
+      
+      const planV = Number(this.getSumVal(row, 'sum_plan_vol', ['plan_A區','plan_B區','plan_C區','plan_D區']));
+      const usedV = Number(this.getSumVal(row, 'sum_used_vol', ['used_A區','used_B區','used_C區','used_D區']));
 
-      if (plan <= 0) return '0.0%';
-      const unrate = rem / plan; // 未使用率 = 剩餘才數 / 儲位總才數[cite: 20]
-      const denom = 1 - unrate;  // (1 - 未使用率)[cite: 20]
+      if (planV <= 0 || planG <= 0) return '0.0%';
+
+      // 1. 精準剩餘才數 = 剩餘空儲格 × 單才數[cite: 24]
+      const unitCubicFeet = planV / planG;
+      const remV = remG * unitCubicFeet;
+
+      // 2. 未使用率 = 剩餘才數 / 規劃總才數[cite: 21]
+      const unrate = remV / planV;
+      const denom = 1 - unrate;
       if (denom <= 0) return '0.0%';
 
-      const adjustedUsed = used / denom; // [使用才數 / (1 - 未使用率)][cite: 20]
-      return ((adjustedUsed / plan) * 100).toFixed(1) + '%';
+      // 3. 健康度 = [使用才數 / (1 - 未使用率)] / 規劃總才數[cite: 21]
+      const adjustedUsed = usedV / denom;
+      return ((adjustedUsed / planV) * 100).toFixed(1) + '%';
     },
+
     getUnrateVal(row, unrateKey, planKey, usedKey, isVol = false) {
       if (!row) return '0.0%';
       if (row[unrateKey]) return row[unrateKey];
@@ -1068,8 +1078,7 @@ export default {
         ws2['!merges'] = [
           { s: { r: 0, c: 0 }, e: { r: 1, c: 0 } }, { s: { r: 0, c: 1 }, e: { r: 1, c: 1 } },
           { s: { r: 0, c: 2 }, e: { r: 0, c: 5 } }, { s: { r: 0, c: 6 }, e: { r: 0, c: 9 } },
-          { s: { r: 0, c: 10 }, e: { r: 0, c: 13 } }, { s: { r: 0, c: 14 }, e: { r: 0, c: 17 } },
-          { s: { r: 0, c: 18 }, e: { r: 0, c: 22 } }
+          { s: { r: 0, c: 10 }, e: { r: 0, c: 13 } }, { s: { r: 0, c: 14 }, e: { r: 0, c: 18 } }
         ];
         XLSX.utils.book_append_sheet(wb, ws2, "才數交叉統計表");
 
