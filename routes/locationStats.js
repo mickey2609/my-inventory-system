@@ -135,7 +135,7 @@ module.exports = function(db) {
       ]);
       stmtMaster.finalize();
 
-      // 2. 🌟 寫入/更新各儲位類型 (loc_type) 快照 🌟
+      // 2. 寫入/更新各儲位類型 (loc_type) 快照 (精準套用公式)
       if (Array.isArray(type_subtotals) && type_subtotals.length > 0) {
         const stmtType = db.prepare(`
           INSERT INTO location_type_stats_history (
@@ -155,16 +155,31 @@ module.exports = function(db) {
 
         for (const t of type_subtotals) {
           if (!t.loc_type) continue;
+
+          const planV = Number(t.plan_vol || 0);
+          const usedV = Number(t.used_vol || 0);
+          const remV = Number(t.rem_vol || 0);
+
+          // 套用標準公式：未使用率 = 剩餘才數 / 規劃才數；健康度 = [使用才數 / (1 - 未使用率)] / 規劃才數
+          let calcHealth = 0;
+          if (planV > 0) {
+            const unrate = remV / planV;
+            const denom = 1 - unrate;
+            if (denom > 0) {
+              calcHealth = parseFloat((((usedV / denom) / planV) * 100).toFixed(1));
+            }
+          }
+
           stmtType.run([
             record_date,
             t.loc_type,
             t.plan_grid || 0,
             t.used_grid || 0,
             t.rem_grid || 0,
-            t.plan_vol || 0,
-            t.used_vol || 0,
-            t.rem_vol || 0,
-            t.health_rate || 0
+            planV,
+            usedV,
+            remV,
+            calcHealth
           ]);
         }
         stmtType.finalize();
@@ -172,7 +187,7 @@ module.exports = function(db) {
 
       db.run('COMMIT', (err) => {
         if (err) return res.status(500).json({ success: false, error: err.message });
-        res.json({ success: true, message: `已成功儲存 ${record_date} 之 80 庫總體與各儲位類型歷史快照！` });
+        res.json({ success: true, message: `已成功儲存 ${record_date} 之歷史快照紀錄！` });
       });
     });
   });
@@ -195,3 +210,11 @@ module.exports = function(db) {
 
   return router;
 };
+// 啟動時自動更正資料庫內健康度已被寫成 100 的舊紀錄
+  db.run(`
+    UPDATE location_type_stats_history 
+    SET health_rate = ROUND(
+      (used_vol / (1.0 - (rem_vol / plan_vol)) / plan_vol) * 100.0, 1
+    )
+    WHERE plan_vol > 0 AND (1.0 - (rem_vol / plan_vol)) > 0 AND health_rate = 100.0;
+  `);
