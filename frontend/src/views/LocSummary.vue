@@ -38,7 +38,7 @@
             重新整理數據
           </el-button>
 
-          <!-- 🌟 1. 還原「儲位定義設定」按鈕（系統管理員與一般管理員均可查看） 🌟 -->
+          <!-- 🌟 還原「儲位定義設定」按鈕 🌟 -->
           <el-button 
             type="warning" 
             size="small" 
@@ -48,7 +48,7 @@
             ⚙️ 儲位定義設定
           </el-button>
 
-          <!-- 🌟 2. 只保留匯出 3 工作表 xlsx 按鈕 🌟 -->
+          <!-- 🌟 僅保留匯出 xlsx (3工作表) 按鈕 🌟 -->
           <el-button 
             v-if="exportPerms.xlsx"
             type="success" 
@@ -303,7 +303,7 @@
             </el-table>
           </el-tab-pane>
 
-          <!-- 🌟 頁籤 4：📈 空間與健康度歷史趨勢圖 🌟 -->
+          <!-- 頁籤 4：📈 空間與健康度歷史趨勢圖 -->
           <el-tab-pane label="📈 空間與健康度歷史趨勢圖" name="trend">
             <div v-if="sortedHistoryList.length === 0" class="no-trend-box">
               ⚠️ 尚無歷史快照紀錄，上傳庫存 CSV 檔案後將自動產生趨勢分析！
@@ -399,7 +399,7 @@
                       <text :x="p.x" :y="p.yRemGrid - 10" fill="#f97316" font-size="11" text-anchor="middle" font-weight="bold">{{ formatNumber(p.item.rem_grid) }} 格</text>
 
                       <circle :cx="p.x" :cy="p.yRemVol" r="5" fill="#eab308" stroke="#0f172a" stroke-width="2" />
-                      <text :x="p.x" :y="p.yRemVol + 18" fill="#eab308" font-size="11" text-anchor="middle" font-weight="bold">{{ formatNumber(p.item.rem_vol) }} 才</text>
+                      <text :x="p.x" :y="p.yVol + 18" fill="#eab308" font-size="11" text-anchor="middle" font-weight="bold">{{ formatNumber(p.item.rem_vol) }} 才</text>
 
                       <text :x="p.x" y="180" fill="#94a3b8" font-size="12" text-anchor="middle">{{ p.item.record_date }}</text>
                     </g>
@@ -409,7 +409,7 @@
             </div>
           </el-tab-pane>
 
-          <!-- 🌟 頁籤 5：🗓️ 儲位 7 大 KPI 歷史快照管理清單 🌟 -->
+          <!-- 頁籤 5：🗓️ 儲位 7 大 KPI 歷史快照管理清單 -->
           <el-tab-pane label="🗓️ 儲位 7 大 KPI 歷史快照管理清單" name="history_manager">
             <div class="history-page-wrapper">
               <div class="history-page-header">
@@ -500,7 +500,7 @@
       </div>
     </div>
 
-    <!-- ⚙️️ 儲位定義 Modal -->
+    <!-- ⚙ 儲位定義 Modal -->
     <el-dialog
       title="⚙️ 儲位定義參數與權限設定"
       v-model="showConfigDialog"
@@ -701,7 +701,7 @@ export default {
     },
 
     isAdmin() {
-      return true; // 開放檢視與設定
+      return true;
     },
     filteredGridData() {
       if (!this.summaryGridData) return [];
@@ -712,7 +712,7 @@ export default {
       return this.summaryVolData.filter(r => !r.is_subtotal && !r.is_total);
     },
     
-    // 🌟 綜合總覽表 (combinedTableData) 小計與總計列精準計算 (圖 3 Excel 標準) 🌟
+    // 🌟 綜合總覽表：精準對齊各樓層直接加總邏輯 🌟
     combinedTableData() {
       if (!this.summaryGridData || this.summaryGridData.length === 0) return [];
       
@@ -727,19 +727,23 @@ export default {
         let sumPlanV = Number(this.getSumVal(volRow, 'sum_plan_vol', ['plan_A區','plan_B區','plan_C區','plan_D區']));
         let sumUsedV = Number(this.getSumVal(volRow, 'sum_used_vol', ['used_A區','used_B區','used_C區','used_D區']));
         
-        // 🌟 核心修正：小計列剩餘才數 = 剩餘空儲格 × 單才數 (非相減)
+        // 🌟 小計列剩餘才數：直接將該儲位類型在各樓層的剩餘才數相加（加總法）
         let sumRemV = 0;
         if (gridRow.is_subtotal) {
-          const unitCubicFeet = sumPlanG > 0 ? (sumPlanV / sumPlanG) : 0;
-          sumRemV = parseFloat((sumRemG * unitCubicFeet).toFixed(1));
-        } else if (gridRow.is_total) {
-          // 全區總計累加各小計的真實剩餘才數
-          sumRemV = Number(this.getSumVal(volRow, 'sum_rem_vol', ['rem_A區','rem_B區','rem_C區','rem_D區']));
+          const targetType = gridRow.loc_type;
+          this.summaryVolData.forEach((vr) => {
+            if (!vr.is_subtotal && !vr.is_total && vr.loc_type === targetType) {
+              sumRemV += Number(this.getSumVal(vr, 'sum_rem_vol', ['rem_A區','rem_B區','rem_C區','rem_D區']));
+            }
+          });
+          if (sumRemV === 0) {
+            sumRemV = Number(this.getSumVal(volRow, 'sum_rem_vol', ['rem_A區','rem_B區','rem_C區','rem_D區']));
+          }
         } else {
           sumRemV = Number(this.getSumVal(volRow, 'sum_rem_vol', ['rem_A區','rem_B區','rem_C區','rem_D區']));
         }
 
-        // 🌟 核心修正：健康度 = [使用才數 / (1 - 未使用率)] / 規劃總才數
+        // 🌟 帶入正確加總的剩餘才數計算健康度
         const sumUnrateV = sumPlanV > 0 ? ((sumRemV / sumPlanV) * 100).toFixed(1) + '%' : '0.0%';
         let sumHealthV = '0.0%';
         if (sumPlanV > 0) {
@@ -903,37 +907,48 @@ export default {
       return sum;
     },
 
-    // 🌟 計算儲格數表格小計列的剩餘才數 (剩餘儲格 × 單才數，非相減)
+    // 🌟 格數統計表上的小計列：直接累加各樓層的剩餘才數
     getRemVolForGridTable(row) {
       if (!row) return 0;
-      const planG = Number(this.getSumVal(row, 'sum_plan_grid', ['plan_A區','plan_B區','plan_C區','plan_D區']));
-      const remG = Number(this.getSumVal(row, 'sum_rem_grid', ['rem_A區','rem_B區','rem_C區','rem_D區']));
-      
-      const idx = this.summaryGridData.indexOf(row);
-      if (idx >= 0 && this.summaryVolData && this.summaryVolData[idx]) {
-        const vRow = this.summaryVolData[idx];
-        const planV = Number(this.getSumVal(vRow, 'sum_plan_vol', ['plan_A區','plan_B區','plan_C區','plan_D區']));
-        if (planG > 0 && planV > 0) {
-          const unitCubicFeet = planV / planG;
-          return parseFloat((remG * unitCubicFeet).toFixed(1));
+      let remV = 0;
+      if (row.is_subtotal && this.summaryVolData) {
+        const targetType = row.loc_type;
+        this.summaryVolData.forEach((vr) => {
+          if (!vr.is_subtotal && !vr.is_total && vr.loc_type === targetType) {
+            remV += Number(this.getSumVal(vr, 'sum_rem_vol', ['rem_A區','rem_B區','rem_C區','rem_D區']));
+          }
+        });
+      } else {
+        const idx = this.summaryGridData.indexOf(row);
+        if (idx >= 0 && this.summaryVolData && this.summaryVolData[idx]) {
+          remV = Number(this.getSumVal(this.summaryVolData[idx], 'sum_rem_vol', ['rem_A區','rem_B區','rem_C區','rem_D區']));
         }
       }
-      return 0;
+      return parseFloat(remV.toFixed(1));
     },
 
-    // 🌟 嚴格套用圖 2 標準健康度公式（以精準剩餘才數帶入計算）
+    // 🌟 健康度帶入加總的真實剩餘才數算式
     getRowHealthVol(row) {
       if (!row) return '0.0%';
-      const planG = Number(this.getSumVal(row, 'sum_plan_grid', ['plan_A區','plan_B區','plan_C區','plan_D區']));
-      const remG = Number(this.getSumVal(row, 'sum_rem_grid', ['rem_A區','rem_B區','rem_C區','rem_D區']));
+      const idx = this.summaryGridData.indexOf(row);
+      const vRow = (idx >= 0 && this.summaryVolData) ? this.summaryVolData[idx] : row;
+
+      const planV = Number(this.getSumVal(vRow, 'sum_plan_vol', ['plan_A區','plan_B區','plan_C區','plan_D區']));
+      const usedV = Number(this.getSumVal(vRow, 'sum_used_vol', ['used_A區','used_B區','used_C區','used_D區']));
       
-      const planV = Number(this.getSumVal(row, 'sum_plan_vol', ['plan_A區','plan_B區','plan_C區','plan_D區']));
-      const usedV = Number(this.getSumVal(row, 'sum_used_vol', ['used_A區','used_B區','used_C區','used_D區']));
+      let remV = 0;
+      if (row.is_subtotal && this.summaryVolData) {
+        const targetType = row.loc_type;
+        this.summaryVolData.forEach((vr) => {
+          if (!vr.is_subtotal && !vr.is_total && vr.loc_type === targetType) {
+            remV += Number(this.getSumVal(vr, 'sum_rem_vol', ['rem_A區','rem_B區','rem_C區','rem_D區']));
+          }
+        });
+      } else {
+        remV = Number(this.getSumVal(vRow, 'sum_rem_vol', ['rem_A區','rem_B區','rem_C區','rem_D區']));
+      }
 
-      if (planV <= 0 || planG <= 0) return '0.0%';
-
-      const unitCubicFeet = planV / planG;
-      const remV = remG * unitCubicFeet;
+      if (planV <= 0) return '0.0%';
 
       const unrate = remV / planV;
       const denom = 1 - unrate;
@@ -1092,119 +1107,6 @@ export default {
       } finally {
         this.exportingXlsx = false;
       }
-    },
-
-    // 匯出 PDF
-    async exportFullPdf() {
-      if (!this.exportPerms.pdf) {
-        return this.$message.warning('權限受限：管理者尚未開放匯出 PDF 功能');
-      }
-      this.exportingPdf = true;
-      this.$message.info('⚡ 正在生成純向量 PDF 3 頁報表中...');
-
-      try {
-        const doc = new jsPDF('landscape', 'pt', 'a4');
-
-        try {
-          const fontUrl = 'https://raw.githubusercontent.com/googlefonts/noto-cjk/main/Sans/OTF/TraditionalChinese/NotoSansCJKtc-Regular.otf';
-          const fontBytes = await fetch(fontUrl).then(res => res.arrayBuffer());
-          const fontBase64 = btoa(
-            new Uint8Array(fontBytes).reduce((data, byte) => data + String.fromCharCode(byte), '')
-          );
-          
-          doc.addFileToVFS('NotoSansTC.otf', fontBase64);
-          doc.addFont('NotoSansTC.otf', 'NotoSansTC', 'normal');
-          doc.setFont('NotoSansTC');
-        } catch (fontErr) {
-          console.warn('⚠️ 中文字型載入失敗，採用系統預設', fontErr);
-        }
-
-        doc.setFontSize(13);
-        doc.setTextColor(56, 189, 248);
-        doc.text('儲位管理系統 - 儲格數交叉統計表', 20, 25);
-
-        const gridHead = [
-          ['樓層', '儲位類型', '規劃 A區', 'B區', 'C區', 'D區', '已使用 A區', 'B區', 'C區', 'D區', '剩餘 A區', 'B區', 'C區', 'D區', '規劃數', '已使用', '剩餘儲位', '剩餘才數']
-        ];
-        const gridBody = this.filteredGridData.map(r => [
-          r.floor || '', r.loc_type || '',
-          r.plan_A區 || '', r.plan_B區 || '', r.plan_C區 || '', r.plan_D區 || '',
-          r.used_A區 || '', r.used_B區 || '', r.used_C區 || '', r.used_D區 || '',
-          r.rem_A區 || '', r.rem_B區 || '', r.rem_C區 || '', r.rem_D區 || '',
-          this.getSumVal(r, 'sum_plan_grid', ['plan_A區','plan_B區','plan_C區','plan_D區']),
-          this.getSumVal(r, 'sum_used_grid', ['used_A區','used_B區','used_C區','used_D區']),
-          this.getSumVal(r, 'sum_rem_grid', ['rem_A區','rem_B區','rem_C區','rem_D區']),
-          this.getRemVolForGridTable(r)
-        ]);
-
-        autoTable(doc, {
-          head: gridHead,
-          body: gridBody,
-          startY: 35,
-          styles: { font: 'NotoSansTC', fontSize: 7, cellPadding: 3, halign: 'center' },
-          headStyles: { fillColor: [15, 23, 42], textColor: [56, 189, 248] },
-          theme: 'grid'
-        });
-
-        doc.addPage();
-        doc.setFontSize(13);
-        doc.setTextColor(56, 189, 248);
-        doc.text('儲位管理系統 - 才數交叉統計表', 20, 25);
-
-        const volHead = [
-          ['樓層', '儲位類型', '規劃才數 A區', 'B區', 'C區', 'D區', '使用才數 A區', 'B區', 'C區', 'D區', '剩餘才數 A區', 'B區', 'C區', 'D區', '規劃數', '已使用', '剩餘才數', '健康度']
-        ];
-        const volBody = this.filteredVolData.map(r => [
-          r.floor || '', r.loc_type || '',
-          r.plan_A區 || '', r.plan_B區 || '', r.plan_C區 || '', r.plan_D區 || '',
-          r.used_A區 || '', r.used_B區 || '', r.used_C區 || '', r.used_D區 || '',
-          r.rem_A區 || '', r.rem_B區 || '', r.rem_C區 || '', r.rem_D區 || '',
-          this.getSumVal(r, 'sum_plan_vol', ['plan_A區','plan_B區','plan_C區','plan_D區']),
-          this.getSumVal(r, 'sum_used_vol', ['used_A區','used_B區','used_C區','used_D區']),
-          this.getSumVal(r, 'sum_rem_vol', ['rem_A區','rem_B區','rem_C區','rem_D區']),
-          this.getRowHealthVol(r)
-        ]);
-
-        autoTable(doc, {
-          head: volHead,
-          body: volBody,
-          startY: 35,
-          styles: { font: 'NotoSansTC', fontSize: 7, cellPadding: 3, halign: 'center' },
-          headStyles: { fillColor: [15, 23, 42], textColor: [56, 189, 248] },
-          theme: 'grid'
-        });
-
-        doc.addPage();
-        doc.setFontSize(13);
-        doc.setTextColor(56, 189, 248);
-        doc.text('儲位管理系統 - 儲位與才數綜合總覽表', 20, 25);
-
-        const combHead = [
-          ['樓層', '儲位類型', '格數-規劃數', '格數-已使用', '格數-未使用率', '剩餘儲位數', '剩餘才數', '才數-規劃數', '才數-已使用', '才數-未使用率', '才數-剩餘才數', '儲位健康度']
-        ];
-        const combBody = this.combinedTableData.map(r => [
-          r.displayFloor || r.floor || '', r.displayType || r.loc_type || '',
-          r.sum_plan_grid, r.sum_used_grid, r.sum_unrate_grid, r.sum_rem_grid, r.sum_rem_vol,
-          r.sum_plan_vol, r.sum_used_vol, r.sum_unrate_vol, r.sum_rem_vol, r.sum_health_vol
-        ]);
-
-        autoTable(doc, {
-          head: combHead,
-          body: combBody,
-          startY: 35,
-          styles: { font: 'NotoSansTC', fontSize: 8, cellPadding: 4, halign: 'center' },
-          headStyles: { fillColor: [2, 132, 199], textColor: [255, 255, 255] },
-          theme: 'grid'
-        });
-
-        const dateStr = new Date().toISOString().split('T')[0];
-        doc.save(`儲位管理系統_跨區交叉矩陣報表_${dateStr}.pdf`);
-        this.$message.success('🎉 成功匯出 3 頁純向量中文 PDF 報表！');
-      } catch (err) {
-        this.$message.error('匯出 PDF 失敗：' + err.message);
-      } finally {
-        this.exportingPdf = false;
-      }
     }
   }
 }
@@ -1269,12 +1171,6 @@ export default {
 .btn-xlsx {
   background-color: #65a30d !important;
   border-color: #4d7c0f !important;
-  color: #ffffff !important;
-}
-
-.btn-pdf {
-  background-color: #f43f5e !important;
-  border-color: #e11d48 !important;
   color: #ffffff !important;
 }
 
@@ -1374,26 +1270,22 @@ export default {
   border-bottom: 1px solid #334155 !important;
 }
 
-/* 五大區塊藍色粗框分隔線 */
 :deep(.pivot-table .section-border-right) {
   border-right: 3px solid #38bdf8 !important;
 }
 
-/* 儲位格數總覽頭部醒目藍色 */
 :deep(.pivot-table th.summary-header-group) {
   background-color: #0284c7 !important;
   color: #ffffff !important;
   border-left: 3px solid #38bdf8 !important;
 }
 
-/* 才數總覽頭部醒目紫深藍色 */
 :deep(.pivot-table th.summary-header-group-vol) {
   background-color: #4338ca !important;
   color: #ffffff !important;
   border-left: 3px solid #38bdf8 !important;
 }
 
-/* 📈 向量 SVG 趨勢圖樣式 */
 .no-trend-box {
   padding: 40px;
   text-align: center;
@@ -1471,7 +1363,6 @@ export default {
   overflow: visible;
 }
 
-/* 🗓️ 歷史快照管理與嵌套子表格樣式 */
 .history-page-wrapper {
   display: flex;
   flex-direction: column;
