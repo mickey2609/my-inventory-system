@@ -22,7 +22,7 @@ export function extractDateFromFilename(fileName) {
   return new Date().toISOString().split('T')[0];
 }
 
-// 🌟 自動試算並寫入 80 庫總體與小計歷史快照 (不相減，精準以 剩餘儲格 × 單才數 算才數與健康度)
+// 🌟 自動試算並寫入歷史快照（各儲位類型剩餘才數，嚴格採用各樓層明細直接加總法）
 export async function triggerSaveLocationHistory(fileName) {
   try {
     const recordDate = extractDateFromFilename(fileName);
@@ -44,22 +44,34 @@ export async function triggerSaveLocationHistory(fileName) {
           const planV = Number(vRow.sum_plan_vol || vRow.plan_vol || 0);
           const usedV = Number(vRow.sum_used_vol || vRow.used_vol || 0);
           
-          // 🌟 1. 精準取得單儲位才數 (規劃總才數 / 規劃總儲格)
-          const unitCubicFeet = planG > 0 ? (planV / planG) : 0;
-
-          // 🌟 2. 剩餘才數 = 剩餘空儲格數 × 單儲位才數
+          // 🌟 核心同步：比照前台總覽，直接加總該儲位類型在各樓層明細列的剩餘才數
           let remV = 0;
-          if (vRow.sum_rem_vol !== undefined && vRow.sum_rem_vol !== null && vRow.sum_rem_vol !== 0) {
-            remV = Number(vRow.sum_rem_vol);
-          } else {
-            remV = parseFloat((remG * unitCubicFeet).toFixed(1));
+          const targetType = gRow.loc_type;
+          volSummary.forEach((vr) => {
+            if (!vr.is_subtotal && !vr.is_total && vr.loc_type === targetType) {
+              const rA = Number(String(vr.rem_A區 || 0).replace(/,/g, ''));
+              const rB = Number(String(vr.rem_B區 || 0).replace(/,/g, ''));
+              const rC = Number(String(vr.rem_C區 || 0).replace(/,/g, ''));
+              const rD = Number(String(vr.rem_D區 || 0).replace(/,/g, ''));
+              if (rA || rB || rC || rD) {
+                remV += (rA + rB + rC + rD);
+              } else {
+                remV += Number(vr.sum_rem_vol || vr.rem_vol || 0);
+              }
+            }
+          });
+
+          if (remV === 0) {
+            remV = Number(vRow.sum_rem_vol || vRow.rem_vol || 0);
           }
 
-          // 🌟 3. 嚴格套用圖 2 標準健康度公式: [使用才數 / (1 - 未使用率)] / 規劃總才數
+          remV = parseFloat(remV.toFixed(1));
+
+          // 🌟 健康度同步：[使用才數 / (1 - 未使用率)] / 規劃才數
           let health = 0;
           if (planV > 0) {
-            const unrate = remV / planV; // 未使用率 = 剩餘才數 / 規劃總才數
-            const denom = 1 - unrate;    // (1 - 未使用率)
+            const unrate = remV / planV;
+            const denom = 1 - unrate;
             if (denom > 0) {
               const adjustedUsed = usedV / denom;
               health = parseFloat(((adjustedUsed / planV) * 100).toFixed(1));
@@ -85,7 +97,7 @@ export async function triggerSaveLocationHistory(fileName) {
         stats: res.data.summaryStats,
         type_subtotals: typeSubtotals
       });
-      console.log(`✅ 已自動儲存 ${recordDate} (${fileName}) 之 80 庫歷史快照！`);
+      console.log(`✅ 已自動儲存 ${recordDate} (${fileName}) 之歷史快照！`);
     }
   } catch (e) {
     console.error('⚠️ 自動儲存儲位歷史快照失敗:', e.message);

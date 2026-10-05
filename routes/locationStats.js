@@ -43,21 +43,6 @@ function initLocationStatsTable(db) {
 
     db.run(`CREATE INDEX IF NOT EXISTS idx_loc_stats_date ON location_stats_history(record_date);`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_loc_type_date ON location_type_stats_history(record_date);`);
-
-    // 🌟 自動校正資料庫：修正過去被寫成相減或被寫成 100% 的健康度歷史數據 🌟
-    db.run(`
-      UPDATE location_type_stats_history 
-      SET rem_vol = ROUND(rem_grid * (plan_vol * 1.0 / plan_grid), 1)
-      WHERE plan_grid > 0 AND (rem_vol = plan_vol - used_vol OR rem_vol IS NULL OR rem_vol = 0);
-    `);
-
-    db.run(`
-      UPDATE location_type_stats_history 
-      SET health_rate = ROUND(
-        (used_vol / (1.0 - (rem_vol / plan_vol)) / plan_vol) * 100.0, 1
-      )
-      WHERE plan_vol > 0 AND (1.0 - (rem_vol / plan_vol)) > 0;
-    `);
   });
 }
 
@@ -164,35 +149,16 @@ module.exports = function(db) {
         for (const t of type_subtotals) {
           if (!t.loc_type) continue;
 
-          const planG = Number(t.plan_grid || 0);
-          const usedG = Number(t.used_grid || 0);
-          const remG = Number(t.rem_grid || 0);
-
-          const planV = Number(t.plan_vol || 0);
-          const usedV = Number(t.used_vol || 0);
-          
-          const unitVol = planG > 0 ? (planV / planG) : 0;
-          const remV = Number(t.rem_vol !== undefined && t.rem_vol !== 0 ? t.rem_vol : (remG * unitVol));
-
-          let calcHealth = 0;
-          if (planV > 0) {
-            const unrate = remV / planV;
-            const denom = 1 - unrate;
-            if (denom > 0) {
-              calcHealth = parseFloat((((usedV / denom) / planV) * 100).toFixed(1));
-            }
-          }
-
           stmtType.run([
             record_date,
             t.loc_type,
-            planG,
-            usedG,
-            remG,
-            planV,
-            usedV,
-            remV,
-            calcHealth
+            t.plan_grid || 0,
+            t.used_grid || 0,
+            t.rem_grid || 0,
+            t.plan_vol || 0,
+            t.used_vol || 0,
+            t.rem_vol || 0,
+            t.health_rate || 0
           ]);
         }
         stmtType.finalize();
