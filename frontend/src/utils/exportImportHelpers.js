@@ -1,219 +1,282 @@
-// routes/locationStats.js
-// 80 庫儲位 7 大 KPI 與各儲位類型細節歷史快照專屬模組
-const express = require('express');
-const router = express.Router();
+// frontend/src/utils/exportImportHelpers.js
+import axios from 'axios';
 
-function initLocationStatsTable(db) {
-  db.serialize(() => {
-    db.run(`PRAGMA journal_mode = WAL;`);
-    db.run(`PRAGMA synchronous = OFF;`);
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-    // 1. 建立 80 庫總體 7 大 KPI 快照表
-    db.run(`
-      CREATE TABLE IF NOT EXISTS location_stats_history (
-        record_date TEXT PRIMARY KEY,
-        source_module TEXT,
-        file_name TEXT,
-        plan_grid INTEGER,
-        used_grid INTEGER,
-        rem_grid INTEGER,
-        plan_vol REAL,
-        used_vol REAL,
-        rem_vol REAL,
-        health_rate REAL,
-        created_at TEXT
-      );
-    `);
+const getRowValue = (row, col) => {
+  if (!row) return '-';
+  const val = row[col];
+  if (val !== null && val !== undefined && String(val).trim() !== '') return val;
+  return '-';
+};
 
-    // 2. 建立各儲位類型 (loc_type) 細節快照表
-    db.run(`
-      CREATE TABLE IF NOT EXISTS location_type_stats_history (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        record_date TEXT,
-        loc_type TEXT,
-        plan_grid INTEGER,
-        used_grid INTEGER,
-        rem_grid INTEGER,
-        plan_vol REAL,
-        used_vol REAL,
-        rem_vol REAL,
-        health_rate REAL,
-        created_at TEXT,
-        UNIQUE(record_date, loc_type)
-      );
-    `);
-
-    db.run(`CREATE INDEX IF NOT EXISTS idx_loc_stats_date ON location_stats_history(record_date);`);
-    db.run(`CREATE INDEX IF NOT EXISTS idx_loc_type_date ON location_type_stats_history(record_date);`);
-
-    // 3. 🌟 安全修復：服務啟動時自動更正舊紀錄中健康度被誤寫為 100% 的數據 🌟
-    db.run(`
-      UPDATE location_type_stats_history 
-      SET health_rate = ROUND(
-        (used_vol / (1.0 - (rem_vol / plan_vol)) / plan_vol) * 100.0, 1
-      )
-      WHERE plan_vol > 0 AND (1.0 - (rem_vol / plan_vol)) > 0 AND health_rate = 100.0;
-    `);
-  });
+export function extractDateFromFilename(fileName) {
+  if (!fileName) return new Date().toISOString().split('T')[0];
+  const match = fileName.match(/(20\d{2}[-_/]?\d{2}[-_/]?\d{2})/);
+  if (match) {
+    const raw = match[1].replace(/[-_/]/g, '');
+    if (raw.length === 8) {
+      return `${raw.substring(0, 4)}-${raw.substring(4, 6)}-${raw.substring(6, 8)}`;
+    }
+  }
+  return new Date().toISOString().split('T')[0];
 }
 
-module.exports = function(db) {
-  initLocationStatsTable(db);
-
-  // [GET] /api/location-stats/history - 取得歷史總體快照與類型細節
-  router.get('/history', (req, res) => {
-    const sqlMaster = `
-      SELECT 
-        record_date, source_module, file_name,
-        plan_grid, used_grid, rem_grid,
-        plan_vol, used_vol, rem_vol, health_rate, created_at
-      FROM location_stats_history 
-      WHERE source_module = 'inv80' 
-      ORDER BY record_date DESC 
-      LIMIT 180
-    `;
-
-    const sqlTypeDetails = `
-      SELECT record_date, loc_type, plan_grid, used_grid, rem_grid, plan_vol, used_vol, rem_vol, health_rate
-      FROM location_type_stats_history
-      ORDER BY record_date DESC, loc_type ASC
-    `;
-
-    db.all(sqlMaster, [], (err, masterRows) => {
-      if (err) return res.status(500).json({ success: false, error: err.message });
+// 🌟 匯入成功後，精準計算並寫入 80 庫總體與各儲位類型快照
+export async function triggerSaveLocationHistory(fileName) {
+  try {
+    const recordDate = extractDateFromFilename(fileName);
+    const res = await axios.get('/api/calc-location-summary');
+    if (res.data && res.data.success && res.data.summaryStats) {
       
-      db.all(sqlTypeDetails, [], (err2, typeRows) => {
-        if (err2) return res.status(500).json({ success: false, error: err2.message });
+      const typeSubtotals = [];
+      const gridSummary = res.data.summaryGridData || res.data.grid_summary || res.data.summary_grid || [];
+      const volSummary = res.data.summaryVolData || res.data.vol_summary || res.data.summary_vol || [];
 
-        const typeMap = {};
-        (typeRows || []).forEach(r => {
-          if (!typeMap[r.record_date]) typeMap[r.record_date] = [];
-          typeMap[r.record_date].push(r);
-        });
+      gridSummary.forEach((gRow, idx) => {
+        if (gRow.is_subtotal && gRow.loc_type) {
+          const vRow = volSummary[idx] || {};
+          
+          const planG = Number(gRow.sum_plan_grid || gRow.sumPlanGrid || gRow.plan_grid || 0);
+          const usedG = Number(gRow.sum_used_grid || gRow.sumUsedGrid || gRow.used_grid || 0);
+          const remG = Number(gRow.sum_rem_grid || gRow.sumRemGrid || Math.max(0, planG - usedG));
 
-        const combinedData = (masterRows || []).map(m => ({
-          ...m,
-          type_details: typeMap[m.record_date] || []
-        }));
+          const planV = Number(vRow.sum_plan_vol || vRow.sumPlanVol || vRow.plan_vol || 0);
+          const usedV = Number(vRow.sum_used_vol || vRow.sumUsedVol || vRow.used_vol || 0);
+          
+          // 🌟 核心修正 1：取得該儲位類型的單儲位才數（規劃才數 / 規劃儲格數）
+          const unitCubicFeet = planG > 0 ? (planV / planG) : 0;
 
-        res.json({ success: true, data: combinedData });
-      });
-    });
-  });
+          // 🌟 核心修正 2：剩餘才數 = 剩餘空儲格數 × 單儲位才數
+          let remV = 0;
+          if (vRow.sum_rem_vol !== undefined && vRow.sum_rem_vol !== null && vRow.sum_rem_vol !== '') {
+            remV = Number(vRow.sum_rem_vol);
+          } else {
+            remV = parseFloat((remG * unitCubicFeet).toFixed(1));
+          }
 
-  // [POST] /api/location-stats/save - 儲存/更新指定日期的總體與各儲位類型快照
-  router.post('/save', (req, res) => {
-    const { record_date, file_name, stats, type_subtotals } = req.body;
-    if (!record_date || !stats) {
-      return res.status(400).json({ success: false, message: '缺少 record_date 或 stats 數據' });
-    }
-
-    db.serialize(() => {
-      db.run('BEGIN TRANSACTION');
-
-      // 1. 寫入/更新總體 7 大 KPI 快照
-      const stmtMaster = db.prepare(`
-        INSERT INTO location_stats_history (
-          record_date, source_module, file_name,
-          plan_grid, used_grid, rem_grid,
-          plan_vol, used_vol, rem_vol, health_rate, created_at
-        ) VALUES (?, 'inv80', ?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now', 'localtime'))
-        ON CONFLICT(record_date) DO UPDATE SET
-          file_name = excluded.file_name,
-          plan_grid = excluded.plan_grid,
-          used_grid = excluded.used_grid,
-          rem_grid = excluded.rem_grid,
-          plan_vol = excluded.plan_vol,
-          used_vol = excluded.used_vol,
-          rem_vol = excluded.rem_vol,
-          health_rate = excluded.health_rate,
-          created_at = DATETIME('now', 'localtime')
-      `);
-
-      stmtMaster.run([
-        record_date,
-        file_name || 'latest_inventory.csv',
-        stats.total_plan_grid || 0,
-        stats.total_used_grid || 0,
-        stats.total_rem_grid || 0,
-        stats.total_plan_vol || 0,
-        stats.total_used_vol || 0,
-        stats.total_rem_vol || 0,
-        parseFloat(String(stats.total_health || '0').replace('%', '')) || 0
-      ]);
-      stmtMaster.finalize();
-
-      // 2. 寫入/更新各儲位類型 (loc_type) 快照 (精準套用健康度公式)
-      if (Array.isArray(type_subtotals) && type_subtotals.length > 0) {
-        const stmtType = db.prepare(`
-          INSERT INTO location_type_stats_history (
-            record_date, loc_type, plan_grid, used_grid, rem_grid,
-            plan_vol, used_vol, rem_vol, health_rate, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now', 'localtime'))
-          ON CONFLICT(record_date, loc_type) DO UPDATE SET
-            plan_grid = excluded.plan_grid,
-            used_grid = excluded.used_grid,
-            rem_grid = excluded.rem_grid,
-            plan_vol = excluded.plan_vol,
-            used_vol = excluded.used_vol,
-            rem_vol = excluded.rem_vol,
-            health_rate = excluded.health_rate,
-            created_at = DATETIME('now', 'localtime')
-        `);
-
-        for (const t of type_subtotals) {
-          if (!t.loc_type) continue;
-
-          const planV = Number(t.plan_vol || 0);
-          const usedV = Number(t.used_vol || 0);
-          const remV = Number(t.rem_vol || 0);
-
-          let calcHealth = 0;
+          // 🌟 核心修正 3：套用圖 2 標準健康度公式 (使用才數 / (1 - 未使用率)) / 規劃總才數
+          let health = 0;
           if (planV > 0) {
-            const unrate = remV / planV; // 未使用率 = 剩餘才數 / 儲位總才數
-            const denom = 1 - unrate;    // (1 - 未使用率)
+            const unrate = remV / planV; // 未使用率 = 剩餘才數 / 規劃總才數
+            const denom = 1 - unrate;    // 1 - 未使用率
             if (denom > 0) {
-              calcHealth = parseFloat((((usedV / denom) / planV) * 100).toFixed(1));
+              const adjustedUsed = usedV / denom;
+              health = parseFloat(((adjustedUsed / planV) * 100).toFixed(1));
             }
           }
 
-          stmtType.run([
-            record_date,
-            t.loc_type,
-            t.plan_grid || 0,
-            t.used_grid || 0,
-            t.rem_grid || 0,
-            planV,
-            usedV,
-            remV,
-            calcHealth
-          ]);
+          typeSubtotals.push({
+            loc_type: gRow.loc_type,
+            plan_grid: planG,
+            used_grid: usedG,
+            rem_grid: remG,
+            plan_vol: planV,
+            used_vol: usedV,
+            rem_vol: remV,
+            health_rate: health
+          });
         }
-        stmtType.finalize();
-      }
-
-      db.run('COMMIT', (err) => {
-        if (err) return res.status(500).json({ success: false, error: err.message });
-        res.json({ success: true, message: `已成功儲存 ${record_date} 之歷史快照紀錄！` });
       });
-    });
-  });
 
-  // [DELETE] /api/location-stats/delete - 刪除指定日期的快照紀錄 (同步刪除類型細節)
-  router.delete('/delete', (req, res) => {
-    const { record_date } = req.body;
-    if (!record_date) {
-      return res.status(400).json({ success: false, message: '缺少 record_date 參數' });
+      await axios.post('/api/location-stats/save', {
+        record_date: recordDate,
+        file_name: fileName,
+        stats: res.data.summaryStats,
+        type_subtotals: typeSubtotals
+      });
+      console.log(`✅ 已自動儲存 ${recordDate} (${fileName}) 之 80 庫總體與 ${typeSubtotals.length} 個儲位類型歷史快照！`);
+    }
+  } catch (e) {
+    console.error('⚠️ 自動儲存儲位歷史快照失敗:', e.message);
+  }
+}
+
+export async function processCsvUpload(file, onProgress, sendLogCallback) {
+  return new Promise((resolve, reject) => {
+    const papa = window.Papa || (typeof Papa !== 'undefined' ? Papa : null);
+    if (!papa) {
+      reject(new Error('PapaParse 解析庫尚未載入完成，請重新整理頁面再試'));
+      return;
     }
 
-    db.serialize(() => {
-      db.run('DELETE FROM location_stats_history WHERE record_date = ? AND source_module = "inv80"', [record_date]);
-      db.run('DELETE FROM location_type_stats_history WHERE record_date = ?', [record_date], function(err) {
-        if (err) return res.status(500).json({ success: false, error: err.message });
-        res.json({ success: true, message: `已成功刪除 ${record_date} 之歷史快照紀錄！` });
-      });
+    papa.parse(file, {
+      header: true,
+      skipEmptyLines: 'greedy',
+      transformHeader: (h) => h.replace(/^\uFEFF/, '').trim(),
+      complete: async (results) => {
+        const allData = results.data;
+        const totalRows = allData.length;
+
+        try {
+          if (!allData || totalRows === 0) {
+            throw new Error('CSV 檔案為空或無有效資料！');
+          }
+
+          if (onProgress) onProgress(0);
+
+          const batchSize = 5000;
+          let inserted = 0;
+
+          for (let i = 0; i < totalRows; i += batchSize) {
+            const chunk = allData.slice(i, i + batchSize);
+
+            const parsedChunk = chunk.map(row => ({
+              item_id: row['商品ID'] || row['item_id'] || '',
+              item_name: row['商品名稱'] || row['item_name'] || '',
+              borrow_proc: row['借/採'] || row['borrow_proc'] || '',
+              location: row['儲位'] || row['location'] || '',
+              qty: row['儲位庫存數'] || row['qty'] || 0,
+              age: row['庫齡'] || row['age'] || 0,
+              zone_id: row['區編'] || row['zone_id'] || '',
+              zone_name: row['區名'] || row['zone_name'] || '',
+              hall_id: row['館編'] || row['hall_id'] || '',
+              hall_name: row['館名'] || row['hall_name'] || '',
+              length: row['長(cm)'] || row['length'] || 0,
+              width: row['寬(cm)'] || row['width'] || 0,
+              height: row['高(cm)'] || row['height'] || 0,
+              weight: row['重量(kg)'] || row['weight'] || 0,
+              monthly_sales: row['(近)月銷量'] || row['monthly_sales'] || 0,
+              pick_days_m: row['(近)月-有揀貨單天數'] || row['pick_days_m'] || 0,
+              sales_90d: row['(近)90日銷量'] || row['sales_90d'] || 0,
+              pick_days_90d: row['(近)90日-有揀貨單天數'] || row['pick_days_90d'] || 0,
+              supplier_id: row['供應商ID'] || row['supplier_id'] || '',
+              supplier_name: row['供應商名稱'] || row['supplier_name'] || '',
+              pm: row['所屬PM'] || row['pm'] || '',
+              total_qty: row['總庫存數'] || row['total_qty'] || 0,
+              turn_days_total: row['總庫存_迴轉天數'] || row['turn_days_total'] || 0,
+              cubic_feet: row['才數'] || row['cubic_feet'] || 0,
+              vol_type: row['材積別'] || row['vol_type'] || '',
+              loc_code_3: row['儲位編碼-3'] || row['loc_code_3'] || '',
+              loc_code_full: row['儲位編碼'] || row['loc_code_full'] || '',
+              loc_code_5: row['儲位編碼5'] || row['loc_code_5'] || '',
+              floor: row['樓層'] || row['floor'] || '',
+              floor_zone: row['樓層區域'] || row['floor_zone'] || '',
+              loc_type: row['儲位型態'] || row['loc_type'] || '',
+              big_zone_id: row['大區編'] || row['big_zone_id'] || '',
+              big_zone: row['大區名'] || row['big_zone'] || '',
+              dim_sum: row['三邊長'] || row['dim_sum'] || 0,
+              max_dim: row['最長邊'] || row['max_dim'] || 0,
+              min_dim: row['最短邊'] || row['min_dim'] || 0,
+              loc_cubic_feet: row['儲位才數'] || row['loc_cubic_feet'] || 0,
+              loc_health: row['儲位健康度'] || row['loc_health'] || '',
+              non_compliant: row['不符合'] || row['non_compliant'] || '',
+              vol_check: row['材積判斷'] || row['vol_check'] || '',
+              total_cubic_feet: row['總才數'] || row['total_cubic_feet'] || 0,
+              auto_type: row['人工/自動'] || row['auto_type'] || '',
+              shelf_level: row['儲位層標示'] || row['shelf_level'] || '',
+              age_bracket: row['庫齡級距'] || row['age_bracket'] || '',
+              floor_config: row['樓層設定'] || row['floor_config'] || '',
+              heavy_rack_check: row['重型架判斷'] || row['heavy_rack_check'] || '',
+              assigned_floor: row['ID指定樓層'] || row['assigned_floor'] || '',
+              remark: row['備註'] || row['remark'] || ''
+            }));
+            
+            const response = await axios.post('/api/upload', { 
+              items: parsedChunk,
+              isFirstChunk: i === 0 
+            });
+
+            if (!response.data || !response.data.success) {
+              throw new Error(response.data?.message || `第 ${i + 1} ~ ${i + chunk.length} 筆寫入失敗`);
+            }
+
+            inserted += chunk.length;
+            const percent = Math.min(100, Math.round((inserted / totalRows) * 100));
+            if (onProgress) onProgress(percent);
+            await sleep(20);
+          }
+
+          if (sendLogCallback) sendLogCallback('資料匯入', `成功匯入 ${totalRows.toLocaleString()} 筆資料至地端 SQLite：` + file.name);
+          resolve(totalRows);
+        } catch (err) {
+          const errorMsg = err.response?.data?.error || err.message;
+          if (sendLogCallback) sendLogCallback('資料匯入', '⚠️️ 寫入地端 SQLite 失敗: ' + errorMsg);
+          reject(new Error(errorMsg));
+        }
+      },
+      error: (err) => {
+        if (sendLogCallback) sendLogCallback('資料匯入', '⚠️ 解析 CSV 檔案失敗: ' + err.message);
+        reject(err);
+      }
     });
   });
+}
 
-  return router;
-};
+export function processExportData({ fmt, tableData, exportCols, moduleName, summary, searchTime, sendLogCallback, formatNumber }) {
+  const now = new Date();
+  const dateStr = now.getFullYear() + String(now.getMonth() + 1).padStart(2, '0') + String(now.getDate()).padStart(2, '0');
+  const timeStr = String(now.getHours()).padStart(2, '0') + String(now.getMinutes()).padStart(2, '0') + String(now.getSeconds()).padStart(2, '0');
+  const fileName = `${moduleName}_${dateStr}_${timeStr}`;
+
+  const safeFormat = formatNumber || (val => val || 0);
+  const targetFmt = String(fmt).toLowerCase();
+
+  if (targetFmt === 'excel' || targetFmt === 'xlsx') {
+    const xlsxLib = window.XLSX || (typeof XLSX !== 'undefined' ? XLSX : null);
+    if (xlsxLib) {
+      const excelRows = [];
+      excelRows.push([`📊 ${moduleName} - 庫存明細`]);
+      excelRows.push([]);
+      const summaryStr = `總品項：${safeFormat(summary?.total_items || 0)} | 總列數：${safeFormat(summary?.total_rows || 0)} | 總庫存：${safeFormat(summary?.total_pcs || 0)} | 總才數：${safeFormat(summary?.total_ao || 0)} | 時間：${searchTime || new Date().toLocaleString()}`;
+      excelRows.push([summaryStr]);
+      excelRows.push([]);
+      excelRows.push(exportCols);
+
+      tableData.forEach(row => {
+        const r = exportCols.map(c => getRowValue(row, c));
+        excelRows.push(r);
+      });
+
+      const worksheet = xlsxLib.utils.aoa_to_sheet(excelRows);
+      const totalCols = exportCols.length;
+      worksheet['!merges'] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: totalCols - 1 } },
+        { s: { r: 2, c: 0 }, e: { r: 2, c: totalCols - 1 } }
+      ];
+
+      const colWidths = exportCols.map(colName => {
+        let maxLen = String(colName).length * 2;
+        tableData.slice(0, 100).forEach(r => {
+          const valStr = String(getRowValue(r, colName) || '');
+          const len = valStr.replace(/[^\x00-\xff]/g, 'aa').length;
+          if (len > maxLen) maxLen = len;
+        });
+        return { wch: Math.min(Math.max(maxLen + 4, 12), 50) };
+      });
+      worksheet['!cols'] = colWidths;
+
+      const workbook = xlsxLib.utils.book_new();
+      xlsxLib.utils.book_append_sheet(workbook, worksheet, "庫存明細");
+      xlsxLib.writeFile(workbook, fileName + ".xlsx");
+
+      if (sendLogCallback) sendLogCallback('資料匯入', '匯出美化版 ' + fileName + '.xlsx 成功');
+      return fileName;
+    }
+  }
+
+  if (targetFmt === 'csv') {
+    let csvContent = "\uFEFF";
+    csvContent += `"${moduleName} - 庫存明細"\n`;
+    const summaryStr = `總品項：${safeFormat(summary?.total_items || 0)} | 總列數：${safeFormat(summary?.total_rows || 0)} | 總庫存：${safeFormat(summary?.total_pcs || 0)} | 總才數：${safeFormat(summary?.total_ao || 0)} | 時間：${searchTime || new Date().toLocaleString()}`;
+    csvContent += `"${summaryStr}"\n\n`;
+
+    csvContent += exportCols.map(c => `"${c}"`).join(",") + "\n";
+    tableData.forEach(row => {
+      let line = exportCols.map(c => {
+        let val = String(getRowValue(row, c));
+        return '"' + val.replace(/"/g, '""') + '"';
+      }).join(",");
+      csvContent += line + "\n";
+    });
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = fileName + '.csv';
+    link.click();
+
+    if (sendLogCallback) sendLogCallback('資料匯出', '匯出 ' + fileName + '.csv 成功');
+    return fileName;
+  }
+}

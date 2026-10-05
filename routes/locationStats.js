@@ -25,7 +25,7 @@ function initLocationStatsTable(db) {
       );
     `);
 
-    // 2. 🌟 新增：各儲位類型 (loc_type) 細節快照表 🌟
+    // 2. 建立各儲位類型 (loc_type) 細節快照表
     db.run(`
       CREATE TABLE IF NOT EXISTS location_type_stats_history (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -45,13 +45,28 @@ function initLocationStatsTable(db) {
 
     db.run(`CREATE INDEX IF NOT EXISTS idx_loc_stats_date ON location_stats_history(record_date);`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_loc_type_date ON location_type_stats_history(record_date);`);
+
+    // 🌟 服務啟動時自動修正過去寫錯的剩餘才數與健康度 🌟
+    db.run(`
+      UPDATE location_type_stats_history 
+      SET rem_vol = ROUND(rem_grid * (plan_vol * 1.0 / plan_grid), 1)
+      WHERE plan_grid > 0 AND (rem_vol = plan_vol - used_vol OR rem_vol IS NULL);
+    `);
+
+    db.run(`
+      UPDATE location_type_stats_history 
+      SET health_rate = ROUND(
+        (used_vol / (1.0 - (rem_vol / plan_vol)) / plan_vol) * 100.0, 1
+      )
+      WHERE plan_vol > 0 AND (1.0 - (rem_vol / plan_vol)) > 0;
+    `);
   });
 }
 
 module.exports = function(db) {
   initLocationStatsTable(db);
 
-  // [GET] /api/location-stats/history - 取得歷史總體快照與類型細節
+  // [GET] /api/location-stats/history
   router.get('/history', (req, res) => {
     const sqlMaster = `
       SELECT 
@@ -76,7 +91,6 @@ module.exports = function(db) {
       db.all(sqlTypeDetails, [], (err2, typeRows) => {
         if (err2) return res.status(500).json({ success: false, error: err2.message });
 
-        // 將各類型小計數據配對回對應日期的快照紀錄中
         const typeMap = {};
         (typeRows || []).forEach(r => {
           if (!typeMap[r.record_date]) typeMap[r.record_date] = [];
@@ -93,7 +107,7 @@ module.exports = function(db) {
     });
   });
 
-  // [POST] /api/location-stats/save - 儲存/更新指定日期的總體與各儲位類型快照
+  // [POST] /api/location-stats/save
   router.post('/save', (req, res) => {
     const { record_date, file_name, stats, type_subtotals } = req.body;
     if (!record_date || !stats) {
@@ -103,7 +117,6 @@ module.exports = function(db) {
     db.serialize(() => {
       db.run('BEGIN TRANSACTION');
 
-      // 1. 寫入/更新總體 7 大 KPI 快照
       const stmtMaster = db.prepare(`
         INSERT INTO location_stats_history (
           record_date, source_module, file_name,
@@ -135,7 +148,6 @@ module.exports = function(db) {
       ]);
       stmtMaster.finalize();
 
-      // 2. 寫入/更新各儲位類型 (loc_type) 快照 (精準套用公式)
       if (Array.isArray(type_subtotals) && type_subtotals.length > 0) {
         const stmtType = db.prepare(`
           INSERT INTO location_type_stats_history (
@@ -156,11 +168,17 @@ module.exports = function(db) {
         for (const t of type_subtotals) {
           if (!t.loc_type) continue;
 
+          const planG = Number(t.plan_grid || 0);
+          const usedG = Number(t.used_grid || 0);
+          const remG = Number(t.rem_grid || 0);
+
           const planV = Number(t.plan_vol || 0);
           const usedV = Number(t.used_vol || 0);
-          const remV = Number(t.rem_vol || 0);
+          
+          // 🌟 剩餘才數 = 剩餘空儲格數 × 單儲位才數
+          const unitVol = planG > 0 ? (planV / planG) : 0;
+          const remV = Number(t.rem_vol !== undefined ? t.rem_vol : (remG * unitVol));
 
-          // 套用標準公式：未使用率 = 剩餘才數 / 規劃才數；健康度 = [使用才數 / (1 - 未使用率)] / 規劃才數
           let calcHealth = 0;
           if (planV > 0) {
             const unrate = remV / planV;
@@ -173,9 +191,9 @@ module.exports = function(db) {
           stmtType.run([
             record_date,
             t.loc_type,
-            t.plan_grid || 0,
-            t.used_grid || 0,
-            t.rem_grid || 0,
+            planG,
+            usedG,
+            remG,
             planV,
             usedV,
             remV,
@@ -192,7 +210,7 @@ module.exports = function(db) {
     });
   });
 
-  // [DELETE] /api/location-stats/delete - 刪除指定日期的快照紀錄 (同步刪除類型細節)
+  // [DELETE] /api/location-stats/delete
   router.delete('/delete', (req, res) => {
     const { record_date } = req.body;
     if (!record_date) {
@@ -203,7 +221,7 @@ module.exports = function(db) {
       db.run('DELETE FROM location_stats_history WHERE record_date = ? AND source_module = "inv80"', [record_date]);
       db.run('DELETE FROM location_type_stats_history WHERE record_date = ?', [record_date], function(err) {
         if (err) return res.status(500).json({ success: false, error: err.message });
-        res.json({ success: true, message: `已成功刪除 ${record_date} 之歷史快照紀錄（含各儲位類型細節）！` });
+        res.json({ success: true, message: `已成功刪除 ${record_date} 之歷史快照紀錄！` });
       });
     });
   });
