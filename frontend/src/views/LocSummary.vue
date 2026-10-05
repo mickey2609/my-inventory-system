@@ -297,7 +297,7 @@
             </el-table>
           </el-tab-pane>
 
-          <!-- 🌟 頁籤 4：📈 空間與健康度歷史趨勢圖 (新增「各儲位類型獨立趨勢按鈕」區) 🌟 -->
+          <!-- 頁籤 4：📈 空間與健康度歷史趨勢圖 (全區總體趨勢圖) -->
           <el-tab-pane label="📈 空間與健康度歷史趨勢圖" name="trend">
             <div v-if="sortedHistoryList.length === 0" class="no-trend-box">
               ⚠️ 尚無歷史快照紀錄，上傳庫存 CSV 檔案後將自動產生趨勢分析！
@@ -345,66 +345,10 @@
                 </div>
               </div>
 
-              <!-- 🌟 核心需求：二、各儲位類型 (loc_type) 獨立歷史趨勢按鈕選擇面板 🌟 -->
-              <div class="type-selector-card">
-                <div class="selector-header">
-                  <span class="selector-title">🏷️ 選取儲位類型，檢視該類型的獨立歷史趨勢圖：</span>
-                </div>
-                <div class="type-btn-group">
-                  <el-button 
-                    v-for="t in availableLocTypes" 
-                    :key="t" 
-                    :type="selectedLocType === t ? 'primary' : 'info'" 
-                    size="small" 
-                    class="type-btn"
-                    @click="selectedLocType = t"
-                  >
-                    {{ t }}
-                  </el-button>
-                </div>
-
-                <!-- 各類型獨立雙 Y 軸趨勢圖 -->
-                <div class="svg-stage type-chart-stage">
-                  <div class="type-chart-title">
-                    📌 <strong>【{{ selectedLocType }}】</strong> 獨立使用中儲格數 (左 Y 軸) 與 使用中才數 (右 Y 軸) 推移曲線
-                  </div>
-                  <svg viewBox="0 0 800 230" class="svg-graph">
-                    <line x1="70" y1="30" x2="730" y2="30" stroke="#334155" stroke-dasharray="3" />
-                    <line x1="70" y1="90" x2="730" y2="90" stroke="#334155" stroke-dasharray="3" />
-                    <line x1="70" y1="150" x2="730" y2="150" stroke="#334155" stroke-dasharray="3" />
-
-                    <!-- 左 Y 軸刻度 (儲格數) -->
-                    <line x1="70" y1="20" x2="70" y2="160" stroke="#38bdf8" stroke-width="1.5" />
-                    <text x="65" y="34" fill="#38bdf8" font-size="10" text-anchor="end">{{ formatNumber(typeYAxisRanges.maxGrid) }}</text>
-                    <text x="65" y="94" fill="#38bdf8" font-size="10" text-anchor="end">{{ formatNumber(Math.round((typeYAxisRanges.maxGrid + typeYAxisRanges.minGrid)/2)) }}</text>
-                    <text x="65" y="154" fill="#38bdf8" font-size="10" text-anchor="end">{{ formatNumber(typeYAxisRanges.minGrid) }}</text>
-
-                    <!-- 右 Y 軸刻度 (才數) -->
-                    <line x1="730" y1="20" x2="730" y2="160" stroke="#4ade80" stroke-width="1.5" />
-                    <text x="735" y="34" fill="#4ade80" font-size="10" text-anchor="start">{{ formatNumber(typeYAxisRanges.maxVol) }}</text>
-                    <text x="735" y="94" fill="#4ade80" font-size="10" text-anchor="start">{{ formatNumber(Math.round((typeYAxisRanges.maxVol + typeYAxisRanges.minVol)/2)) }}</text>
-                    <text x="735" y="154" fill="#4ade80" font-size="10" text-anchor="start">{{ formatNumber(typeYAxisRanges.minVol) }}</text>
-
-                    <path :d="typeGridSvgPath" fill="none" stroke="#38bdf8" stroke-width="3" stroke-linecap="round" />
-                    <path :d="typeVolSvgPath" fill="none" stroke="#4ade80" stroke-width="3" stroke-linecap="round" />
-
-                    <g v-for="(p, idx) in typeChartPoints" :key="'tp-'+idx">
-                      <circle :cx="p.x" :cy="p.yGrid" r="5" fill="#38bdf8" stroke="#0f172a" stroke-width="2" />
-                      <text :x="p.x" :y="p.yGrid - 12" fill="#38bdf8" font-size="12" text-anchor="middle" font-weight="bold">{{ formatNumber(p.item.used_grid) }} 格</text>
-
-                      <circle :cx="p.x" :cy="p.yVol" r="5" fill="#4ade80" stroke="#0f172a" stroke-width="2" />
-                      <text :x="p.x" :y="p.yVol + 20" fill="#4ade80" font-size="12" text-anchor="middle" font-weight="bold">{{ formatNumber(p.item.used_vol) }} 才</text>
-
-                      <text :x="p.x" y="190" fill="#94a3b8" font-size="12" text-anchor="middle">{{ p.item.record_date }}</text>
-                    </g>
-                  </svg>
-                </div>
-              </div>
-
-              <!-- 圖表三：剩餘空儲格數與才數 -->
+              <!-- 圖表二：剩餘空儲格數與才數 -->
               <div class="svg-chart-card">
                 <div class="chart-title">
-                  <span>📦 三、80 庫全區「剩餘空儲格數」與「剩餘空才數」歷史推移曲線</span>
+                  <span>📦 二、80 庫全區「剩餘空儲格數」與「剩餘空才數」歷史推移曲線</span>
                   <div class="chart-legend">
                     <span class="legend-item"><i class="dot orange"></i> 剩餘空儲格數 (左 Y 軸)</span>
                     <span class="legend-item"><i class="dot yellow"></i> 剩餘空才數 (右 Y 軸)</span>
@@ -442,10 +386,10 @@
                 </div>
               </div>
 
-              <!-- 圖表四：整體健康度 -->
+              <!-- 圖表三：整體健康度 -->
               <div class="svg-chart-card">
                 <div class="chart-title">
-                  <span>🩺 四、80 庫「儲位整體健康度 (儲位使用率 %)」歷史走勢曲線</span>
+                  <span>🩺 三、80 庫「儲位整體健康度 (儲位使用率 %)」歷史走勢曲線</span>
                   <span class="tip-text">💡 儲位使用率越高，代表倉庫空間利用越充分、健康度佳</span>
                 </div>
                 <div class="svg-stage">
@@ -478,6 +422,67 @@
                 </div>
               </div>
 
+            </div>
+          </el-tab-pane>
+
+          <!-- 🌟 核心需求：獨立第 5 個頁籤：「🏷️ 各儲位類型歷史趨勢」 🌟 -->
+          <el-tab-pane label="🏷️ 各儲位類型歷史趨勢" name="type_trend">
+            <div v-if="sortedHistoryList.length === 0" class="no-trend-box">
+              ⚠️ 尚無歷史快照紀錄，上傳庫存 CSV 檔案後將自動產生趨勢分析！
+            </div>
+            <div v-else class="type-selector-card">
+              <div class="selector-header">
+                <span class="selector-title">🏷️ 請選取儲位類型，檢視該類型的獨立歷史趨勢圖：</span>
+              </div>
+              <div class="type-btn-group">
+                <el-button 
+                  v-for="t in availableLocTypes" 
+                  :key="t" 
+                  :type="selectedLocType === t ? 'primary' : 'info'" 
+                  size="small" 
+                  class="type-btn"
+                  @click="selectedLocType = t"
+                >
+                  {{ t }}
+                </el-button>
+              </div>
+
+              <!-- 各類型獨立雙 Y 軸趨勢圖 -->
+              <div class="svg-stage type-chart-stage">
+                <div class="type-chart-title">
+                  📌 <strong>【{{ selectedLocType }}】</strong> 獨立使用中儲格數 (左 Y 軸) 與 使用中才數 (右 Y 軸) 推移曲線
+                </div>
+                <svg viewBox="0 0 800 230" class="svg-graph">
+                  <line x1="70" y1="30" x2="730" y2="30" stroke="#334155" stroke-dasharray="3" />
+                  <line x1="70" y1="90" x2="730" y2="90" stroke="#334155" stroke-dasharray="3" />
+                  <line x1="70" y1="150" x2="730" y2="150" stroke="#334155" stroke-dasharray="3" />
+
+                  <!-- 左 Y 軸刻度 (儲格數) -->
+                  <line x1="70" y1="20" x2="70" y2="160" stroke="#38bdf8" stroke-width="1.5" />
+                  <text x="65" y="34" fill="#38bdf8" font-size="10" text-anchor="end">{{ formatNumber(typeYAxisRanges.maxGrid) }}</text>
+                  <text x="65" y="94" fill="#38bdf8" font-size="10" text-anchor="end">{{ formatNumber(Math.round((typeYAxisRanges.maxGrid + typeYAxisRanges.minGrid)/2)) }}</text>
+                  <text x="65" y="154" fill="#38bdf8" font-size="10" text-anchor="end">{{ formatNumber(typeYAxisRanges.minGrid) }}</text>
+
+                  <!-- 右 Y 軸刻度 (才數) -->
+                  <line x1="730" y1="20" x2="730" y2="160" stroke="#4ade80" stroke-width="1.5" />
+                  <text x="735" y="34" fill="#4ade80" font-size="10" text-anchor="start">{{ formatNumber(typeYAxisRanges.maxVol) }}</text>
+                  <text x="735" y="94" fill="#4ade80" font-size="10" text-anchor="start">{{ formatNumber(Math.round((typeYAxisRanges.maxVol + typeYAxisRanges.minVol)/2)) }}</text>
+                  <text x="735" y="154" fill="#4ade80" font-size="10" text-anchor="start">{{ formatNumber(typeYAxisRanges.minVol) }}</text>
+
+                  <path :d="typeGridSvgPath" fill="none" stroke="#38bdf8" stroke-width="3" stroke-linecap="round" />
+                  <path :d="typeVolSvgPath" fill="none" stroke="#4ade80" stroke-width="3" stroke-linecap="round" />
+
+                  <g v-for="(p, idx) in typeChartPoints" :key="'tp-'+idx">
+                    <circle :cx="p.x" :cy="p.yGrid" r="5" fill="#38bdf8" stroke="#0f172a" stroke-width="2" />
+                    <text :x="p.x" :y="p.yGrid - 12" fill="#38bdf8" font-size="12" text-anchor="middle" font-weight="bold">{{ formatNumber(p.item.used_grid) }} 格</text>
+
+                    <circle :cx="p.x" :cy="p.yVol" r="5" fill="#4ade80" stroke="#0f172a" stroke-width="2" />
+                    <text :x="p.x" :y="p.yVol + 20" fill="#4ade80" font-size="12" text-anchor="middle" font-weight="bold">{{ formatNumber(p.item.used_vol) }} 才</text>
+
+                    <text :x="p.x" y="190" fill="#94a3b8" font-size="12" text-anchor="middle">{{ p.item.record_date }}</text>
+                  </g>
+                </svg>
+              </div>
             </div>
           </el-tab-pane>
 
@@ -689,7 +694,6 @@ export default {
       historyList: [],
       snapshotStats: null,
 
-      // 🌟 當前選取的儲位類型 🌟
       selectedLocType: 'AGV層架',
 
       exportPerms: {
@@ -703,7 +707,6 @@ export default {
       return [...this.historyList].reverse();
     },
 
-    // 🌟 可選儲位類型清單 🌟
     availableLocTypes() {
       const typesSet = new Set();
       this.sortedHistoryList.forEach(item => {
@@ -715,7 +718,6 @@ export default {
       return list.length > 0 ? list : ['AGV層架', 'AGV層架-紙抽', '中型層架(格)', '小藍格', '落地儲位', '重型層架', '重型層架-低', '鐵櫃'];
     },
 
-    // 🌟 選取類型之歷史數據清單 🌟
     selectedTypeHistoryList() {
       const targetType = this.selectedLocType;
       return this.sortedHistoryList.map(item => {
@@ -731,7 +733,6 @@ export default {
       });
     },
 
-    // 🌟 選取類型之 Y 軸極值計算 🌟
     typeYAxisRanges() {
       const list = this.selectedTypeHistoryList;
       if (list.length === 0) return { minGrid:0, maxGrid:100, minVol:0, maxVol:100 };
@@ -744,7 +745,6 @@ export default {
       };
     },
 
-    // 🌟 選取類型之繪製座標 🌟
     typeChartPoints() {
       const list = this.selectedTypeHistoryList;
       if (list.length === 0) return [];
@@ -1448,12 +1448,14 @@ export default {
   padding: 12px 16px;
 }
 
-/* 🌟 各類型按鈕選擇區卡片樣式 🌟 */
 .type-selector-card {
   background: #0f172a;
   border: 1px solid #0284c7;
   border-radius: 8px;
   padding: 14px 16px;
+  height: calc(100% - 30px);
+  display: flex;
+  flex-direction: column;
 }
 
 .selector-header {
@@ -1483,6 +1485,7 @@ export default {
   border-radius: 6px;
   padding: 10px;
   border: 1px dashed #38bdf8;
+  flex: 1;
 }
 
 .type-chart-title {
