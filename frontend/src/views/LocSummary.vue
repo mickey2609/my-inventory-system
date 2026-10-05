@@ -425,7 +425,7 @@
             </div>
           </el-tab-pane>
 
-          <!-- 🌟 核心需求：獨立第 5 個頁籤：「🏷️ 各儲位類型歷史趨勢」 🌟 -->
+          <!-- 🌟 獨立頁籤：「🏷️ 各儲位類型歷史趨勢」（包含 使用中、剩餘、健康度 3 張完整圖表） 🌟 -->
           <el-tab-pane label="🏷️ 各儲位類型歷史趨勢" name="type_trend">
             <div v-if="sortedHistoryList.length === 0" class="no-trend-box">
               ⚠️ 尚無歷史快照紀錄，上傳庫存 CSV 檔案後將自動產生趨勢分析！
@@ -447,41 +447,127 @@
                 </el-button>
               </div>
 
-              <!-- 各類型獨立雙 Y 軸趨勢圖 -->
-              <div class="svg-stage type-chart-stage">
-                <div class="type-chart-title">
-                  📌 <strong>【{{ selectedLocType }}】</strong> 獨立使用中儲格數 (左 Y 軸) 與 使用中才數 (右 Y 軸) 推移曲線
+              <div class="svg-charts-container">
+                <!-- 🌟 1. 各類型：使用中儲格數與才數 (雙 Y 軸) 🌟 -->
+                <div class="svg-chart-card">
+                  <div class="chart-title">
+                    <span>📊 一、【{{ selectedLocType }}】使用中儲格數 (左 Y 軸) 與 使用中才數 (右 Y 軸) 推移曲線</span>
+                    <div class="chart-legend">
+                      <span class="legend-item"><i class="dot blue"></i> 使用中儲格數</span>
+                      <span class="legend-item"><i class="dot green"></i> 使用中才數</span>
+                    </div>
+                  </div>
+                  <div class="svg-stage">
+                    <svg viewBox="0 0 800 230" class="svg-graph">
+                      <line x1="70" y1="30" x2="730" y2="30" stroke="#334155" stroke-dasharray="3" />
+                      <line x1="70" y1="90" x2="730" y2="90" stroke="#334155" stroke-dasharray="3" />
+                      <line x1="70" y1="150" x2="730" y2="150" stroke="#334155" stroke-dasharray="3" />
+
+                      <!-- 左 Y 軸刻度 (儲格數) -->
+                      <line x1="70" y1="20" x2="70" y2="160" stroke="#38bdf8" stroke-width="1.5" />
+                      <text x="65" y="34" fill="#38bdf8" font-size="10" text-anchor="end">{{ formatNumber(typeYAxisRanges.maxGrid) }}</text>
+                      <text x="65" y="94" fill="#38bdf8" font-size="10" text-anchor="end">{{ formatNumber(Math.round((typeYAxisRanges.maxGrid + typeYAxisRanges.minGrid)/2)) }}</text>
+                      <text x="65" y="154" fill="#38bdf8" font-size="10" text-anchor="end">{{ formatNumber(typeYAxisRanges.minGrid) }}</text>
+
+                      <!-- 右 Y 軸刻度 (才數) -->
+                      <line x1="730" y1="20" x2="730" y2="160" stroke="#4ade80" stroke-width="1.5" />
+                      <text x="735" y="34" fill="#4ade80" font-size="10" text-anchor="start">{{ formatNumber(typeYAxisRanges.maxVol) }}</text>
+                      <text x="735" y="94" fill="#4ade80" font-size="10" text-anchor="start">{{ formatNumber(Math.round((typeYAxisRanges.maxVol + typeYAxisRanges.minVol)/2)) }}</text>
+                      <text x="735" y="154" fill="#4ade80" font-size="10" text-anchor="start">{{ formatNumber(typeYAxisRanges.minVol) }}</text>
+
+                      <path :d="typeGridSvgPath" fill="none" stroke="#38bdf8" stroke-width="3" stroke-linecap="round" />
+                      <path :d="typeVolSvgPath" fill="none" stroke="#4ade80" stroke-width="3" stroke-linecap="round" />
+
+                      <g v-for="(p, idx) in typeChartPoints" :key="'tp1-'+idx">
+                        <circle :cx="p.x" :cy="p.yGrid" r="5" fill="#38bdf8" stroke="#0f172a" stroke-width="2" />
+                        <text :x="p.x" :y="p.yGrid - 12" fill="#38bdf8" font-size="12" text-anchor="middle" font-weight="bold">{{ formatNumber(p.item.used_grid) }} 格</text>
+
+                        <circle :cx="p.x" :cy="p.yVol" r="5" fill="#4ade80" stroke="#0f172a" stroke-width="2" />
+                        <text :x="p.x" :y="p.yVol + 20" fill="#4ade80" font-size="12" text-anchor="middle" font-weight="bold">{{ formatNumber(p.item.used_vol) }} 才</text>
+
+                        <text :x="p.x" y="190" fill="#94a3b8" font-size="12" text-anchor="middle">{{ p.item.record_date }}</text>
+                      </g>
+                    </svg>
+                  </div>
                 </div>
-                <svg viewBox="0 0 800 230" class="svg-graph">
-                  <line x1="70" y1="30" x2="730" y2="30" stroke="#334155" stroke-dasharray="3" />
-                  <line x1="70" y1="90" x2="730" y2="90" stroke="#334155" stroke-dasharray="3" />
-                  <line x1="70" y1="150" x2="730" y2="150" stroke="#334155" stroke-dasharray="3" />
 
-                  <!-- 左 Y 軸刻度 (儲格數) -->
-                  <line x1="70" y1="20" x2="70" y2="160" stroke="#38bdf8" stroke-width="1.5" />
-                  <text x="65" y="34" fill="#38bdf8" font-size="10" text-anchor="end">{{ formatNumber(typeYAxisRanges.maxGrid) }}</text>
-                  <text x="65" y="94" fill="#38bdf8" font-size="10" text-anchor="end">{{ formatNumber(Math.round((typeYAxisRanges.maxGrid + typeYAxisRanges.minGrid)/2)) }}</text>
-                  <text x="65" y="154" fill="#38bdf8" font-size="10" text-anchor="end">{{ formatNumber(typeYAxisRanges.minGrid) }}</text>
+                <!-- 🌟 2. 各類型追加項目一：剩餘空儲格數與剩餘空才數 (雙 Y 軸) 🌟 -->
+                <div class="svg-chart-card">
+                  <div class="chart-title">
+                    <span>📦 二、【{{ selectedLocType }}】剩餘空儲格數 (左 Y 軸) 與 剩餘空才數 (右 Y 軸) 推移曲線</span>
+                    <div class="chart-legend">
+                      <span class="legend-item"><i class="dot orange"></i> 剩餘空儲格數</span>
+                      <span class="legend-item"><i class="dot yellow"></i> 剩餘空才數</span>
+                    </div>
+                  </div>
+                  <div class="svg-stage">
+                    <svg viewBox="0 0 800 230" class="svg-graph">
+                      <line x1="70" y1="30" x2="730" y2="30" stroke="#334155" stroke-dasharray="3" />
+                      <line x1="70" y1="90" x2="730" y2="90" stroke="#334155" stroke-dasharray="3" />
+                      <line x1="70" y1="150" x2="730" y2="150" stroke="#334155" stroke-dasharray="3" />
 
-                  <!-- 右 Y 軸刻度 (才數) -->
-                  <line x1="730" y1="20" x2="730" y2="160" stroke="#4ade80" stroke-width="1.5" />
-                  <text x="735" y="34" fill="#4ade80" font-size="10" text-anchor="start">{{ formatNumber(typeYAxisRanges.maxVol) }}</text>
-                  <text x="735" y="94" fill="#4ade80" font-size="10" text-anchor="start">{{ formatNumber(Math.round((typeYAxisRanges.maxVol + typeYAxisRanges.minVol)/2)) }}</text>
-                  <text x="735" y="154" fill="#4ade80" font-size="10" text-anchor="start">{{ formatNumber(typeYAxisRanges.minVol) }}</text>
+                      <line x1="70" y1="20" x2="70" y2="160" stroke="#f97316" stroke-width="1.5" />
+                      <text x="65" y="34" fill="#f97316" font-size="10" text-anchor="end">{{ formatNumber(typeYAxisRanges.maxRemGrid) }}</text>
+                      <text x="65" y="94" fill="#f97316" font-size="10" text-anchor="end">{{ formatNumber(Math.round((typeYAxisRanges.maxRemGrid + typeYAxisRanges.minRemGrid)/2)) }}</text>
+                      <text x="65" y="154" fill="#f97316" font-size="10" text-anchor="end">{{ formatNumber(typeYAxisRanges.minRemGrid) }}</text>
 
-                  <path :d="typeGridSvgPath" fill="none" stroke="#38bdf8" stroke-width="3" stroke-linecap="round" />
-                  <path :d="typeVolSvgPath" fill="none" stroke="#4ade80" stroke-width="3" stroke-linecap="round" />
+                      <line x1="730" y1="20" x2="730" y2="160" stroke="#eab308" stroke-width="1.5" />
+                      <text x="735" y="34" fill="#eab308" font-size="10" text-anchor="start">{{ formatNumber(typeYAxisRanges.maxRemVol) }}</text>
+                      <text x="735" y="94" fill="#eab308" font-size="10" text-anchor="start">{{ formatNumber(Math.round((typeYAxisRanges.maxRemVol + typeYAxisRanges.minRemVol)/2)) }}</text>
+                      <text x="735" y="154" fill="#eab308" font-size="10" text-anchor="start">{{ formatNumber(typeYAxisRanges.minRemVol) }}</text>
 
-                  <g v-for="(p, idx) in typeChartPoints" :key="'tp-'+idx">
-                    <circle :cx="p.x" :cy="p.yGrid" r="5" fill="#38bdf8" stroke="#0f172a" stroke-width="2" />
-                    <text :x="p.x" :y="p.yGrid - 12" fill="#38bdf8" font-size="12" text-anchor="middle" font-weight="bold">{{ formatNumber(p.item.used_grid) }} 格</text>
+                      <path :d="typeRemGridSvgPath" fill="none" stroke="#f97316" stroke-width="3" stroke-linecap="round" />
+                      <path :d="typeRemVolSvgPath" fill="none" stroke="#eab308" stroke-width="3" stroke-linecap="round" />
 
-                    <circle :cx="p.x" :cy="p.yVol" r="5" fill="#4ade80" stroke="#0f172a" stroke-width="2" />
-                    <text :x="p.x" :y="p.yVol + 20" fill="#4ade80" font-size="12" text-anchor="middle" font-weight="bold">{{ formatNumber(p.item.used_vol) }} 才</text>
+                      <g v-for="(p, idx) in typeChartPoints" :key="'tp2-'+idx">
+                        <circle :cx="p.x" :cy="p.yRemGrid" r="5" fill="#f97316" stroke="#0f172a" stroke-width="2" />
+                        <text :x="p.x" :y="p.yRemGrid - 12" fill="#f97316" font-size="12" text-anchor="middle" font-weight="bold">{{ formatNumber(p.item.rem_grid) }} 格</text>
 
-                    <text :x="p.x" y="190" fill="#94a3b8" font-size="12" text-anchor="middle">{{ p.item.record_date }}</text>
-                  </g>
-                </svg>
+                        <circle :cx="p.x" :cy="p.yRemVol" r="5" fill="#eab308" stroke="#0f172a" stroke-width="2" />
+                        <text :x="p.x" :y="p.yRemVol + 20" fill="#eab308" font-size="12" text-anchor="middle" font-weight="bold">{{ formatNumber(p.item.rem_vol) }} 才</text>
+
+                        <text :x="p.x" y="190" fill="#94a3b8" font-size="12" text-anchor="middle">{{ p.item.record_date }}</text>
+                      </g>
+                    </svg>
+                  </div>
+                </div>
+
+                <!-- 🌟 3. 各類型追加項目二：類型健康度 (使用率 %) 🌟 -->
+                <div class="svg-chart-card">
+                  <div class="chart-title">
+                    <span>🩺 三、【{{ selectedLocType }}】類型健康度 (使用率 %) 歷史走勢曲線</span>
+                    <span class="tip-text">💡 類型使用率越高，代表該儲位空間利用越充分</span>
+                  </div>
+                  <div class="svg-stage">
+                    <svg viewBox="0 0 800 180" class="svg-graph">
+                      <line x1="70" y1="30" x2="730" y2="30" stroke="#334155" stroke-dasharray="3" />
+                      <line x1="70" y1="85" x2="730" y2="85" stroke="#334155" stroke-dasharray="3" />
+                      <line x1="70" y1="140" x2="730" y2="140" stroke="#334155" stroke-dasharray="3" />
+
+                      <line x1="70" y1="20" x2="70" y2="150" stroke="#22d3ee" stroke-width="1.5" />
+                      <text x="65" y="34" fill="#22d3ee" font-size="10" text-anchor="end">100%</text>
+                      <text x="65" y="89" fill="#22d3ee" font-size="10" text-anchor="end">50%</text>
+                      <text x="65" y="144" fill="#22d3ee" font-size="10" text-anchor="end">0%</text>
+
+                      <polygon :d="typeHealthSvgArea" fill="url(#cyanGradient)" opacity="0.2" />
+                      <path :d="typeHealthSvgPath" fill="none" stroke="#22d3ee" stroke-width="3.5" stroke-linecap="round" />
+
+                      <g v-for="(p, idx) in typeChartPoints" :key="'tp3-'+idx">
+                        <circle :cx="p.x" :cy="p.yHealth" r="5" fill="#22d3ee" stroke="#0f172a" stroke-width="2" />
+                        <text :x="p.x" :y="p.yHealth - 12" fill="#22d3ee" font-size="13" text-anchor="middle" font-weight="bold">{{ p.item.health_rate }}%</text>
+                        <text :x="p.x" y="165" fill="#94a3b8" font-size="12" text-anchor="middle">{{ p.item.record_date }}</text>
+                      </g>
+
+                      <defs>
+                        <linearGradient id="cyanGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stop-color="#22d3ee" />
+                          <stop offset="100%" stop-color="#22d3ee" stop-opacity="0" />
+                        </linearGradient>
+                      </defs>
+                    </svg>
+                  </div>
+                </div>
+
               </div>
             </div>
           </el-tab-pane>
@@ -718,6 +804,7 @@ export default {
       return list.length > 0 ? list : ['AGV層架', 'AGV層架-紙抽', '中型層架(格)', '小藍格', '落地儲位', '重型層架', '重型層架-低', '鐵櫃'];
     },
 
+    // 🌟 選取類型之歷史數據算式 (包含 使用中、剩餘空數、健康度) 🌟
     selectedTypeHistoryList() {
       const targetType = this.selectedLocType;
       return this.sortedHistoryList.map(item => {
@@ -726,6 +813,8 @@ export default {
           record_date: item.record_date,
           used_grid: found.used_grid || 0,
           used_vol: found.used_vol || 0,
+          rem_grid: found.rem_grid || Math.max(0, (found.plan_grid || 0) - (found.used_grid || 0)),
+          rem_vol: found.rem_vol || Math.max(0, (found.plan_vol || 0) - (found.used_vol || 0)),
           plan_grid: found.plan_grid || 0,
           plan_vol: found.plan_vol || 0,
           health_rate: found.health_rate || 0
@@ -733,18 +822,24 @@ export default {
       });
     },
 
+    // 🌟 選取類型之 Y 軸極值算式 🌟
     typeYAxisRanges() {
       const list = this.selectedTypeHistoryList;
-      if (list.length === 0) return { minGrid:0, maxGrid:100, minVol:0, maxVol:100 };
+      if (list.length === 0) return { minGrid:0, maxGrid:100, minVol:0, maxVol:100, minRemGrid:0, maxRemGrid:100, minRemVol:0, maxRemVol:100 };
 
       return {
         minGrid: Math.min(...list.map(i => i.used_grid || 0)),
         maxGrid: Math.max(...list.map(i => i.used_grid || 0)) || 1,
         minVol: Math.min(...list.map(i => i.used_vol || 0)),
-        maxVol: Math.max(...list.map(i => i.used_vol || 0)) || 1
+        maxVol: Math.max(...list.map(i => i.used_vol || 0)) || 1,
+        minRemGrid: Math.min(...list.map(i => i.rem_grid || 0)),
+        maxRemGrid: Math.max(...list.map(i => i.rem_grid || 0)) || 1,
+        minRemVol: Math.min(...list.map(i => i.rem_vol || 0)),
+        maxRemVol: Math.max(...list.map(i => i.rem_vol || 0)) || 1
       };
     },
 
+    // 🌟 選取類型之繪製座標算式 🌟
     typeChartPoints() {
       const list = this.selectedTypeHistoryList;
       if (list.length === 0) return [];
@@ -753,23 +848,46 @@ export default {
       const endX = 700;
       const stepX = list.length > 1 ? (endX - startX) / (list.length - 1) : 0;
 
-      const { minGrid, maxGrid, minVol, maxVol } = this.typeYAxisRanges;
+      const { minGrid, maxGrid, minVol, maxVol, minRemGrid, maxRemGrid, minRemVol, maxRemVol } = this.typeYAxisRanges;
 
       return list.map((item, idx) => {
         const x = list.length === 1 ? 400 : startX + idx * stepX;
 
+        // 使用中
         const gRatio = maxGrid === minGrid ? 0.5 : (item.used_grid - minGrid) / (maxGrid - minGrid);
         const yGrid = 80 - gRatio * 40; 
 
         const vRatio = maxVol === minVol ? 0.5 : (item.used_vol - minVol) / (maxVol - minVol);
         const yVol = 155 - vRatio * 35; 
 
-        return { x, yGrid, yVol, item };
+        // 剩餘中
+        const rgRatio = maxRemGrid === minRemGrid ? 0.5 : (item.rem_grid - minRemGrid) / (maxRemGrid - minRemGrid);
+        const yRemGrid = 80 - rgRatio * 40; 
+
+        const rvRatio = maxRemVol === minRemVol ? 0.5 : (item.rem_vol - minRemVol) / (maxRemVol - minRemVol);
+        const yRemVol = 155 - rvRatio * 35; 
+
+        // 健康度
+        const hRatio = (item.health_rate || 0) / 100;
+        const yHealth = 135 - hRatio * 85;
+
+        return { x, yGrid, yVol, yRemGrid, yRemVol, yHealth, item };
       });
     },
 
     typeGridSvgPath() { return this.generateSmoothPath(this.typeChartPoints.map(p => ({ x: p.x, y: p.yGrid }))); },
     typeVolSvgPath() { return this.generateSmoothPath(this.typeChartPoints.map(p => ({ x: p.x, y: p.yVol }))); },
+
+    typeRemGridSvgPath() { return this.generateSmoothPath(this.typeChartPoints.map(p => ({ x: p.x, y: p.yRemGrid }))); },
+    typeRemVolSvgPath() { return this.generateSmoothPath(this.typeChartPoints.map(p => ({ x: p.x, y: p.yRemVol }))); },
+
+    typeHealthSvgPath() { return this.generateSmoothPath(this.typeChartPoints.map(p => ({ x: p.x, y: p.yHealth }))); },
+    typeHealthSvgArea() {
+      const pts = this.typeChartPoints.map(p => ({ x: p.x, y: p.yHealth }));
+      if (pts.length === 0) return '';
+      const path = this.generateSmoothPath(pts);
+      return `${path} L ${pts[pts.length - 1].x} 150 L ${pts[0].x} 150 Z`;
+    },
 
     yAxisRanges() {
       const list = this.sortedHistoryList;
