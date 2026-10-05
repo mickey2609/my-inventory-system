@@ -31,7 +31,6 @@ export async function triggerSaveLocationHistory(fileName) {
     const res = await axios.get('/api/calc-location-summary');
     if (res.data && res.data.success && res.data.summaryStats) {
       
-      // 🌟 解析每個儲位類型 (loc_type) 的小計列數據 🌟
       const typeSubtotals = [];
       const gridSummary = res.data.grid_summary || [];
       const volSummary = res.data.vol_summary || [];
@@ -46,14 +45,18 @@ export async function triggerSaveLocationHistory(fileName) {
 
           const planV = Number(vRow.sum_plan_vol || vRow.sumPlanVol || 0);
           const usedV = Number(vRow.sum_used_vol || vRow.sumUsedVol || 0);
-          const remV = Number(vRow.sum_rem_vol || vRow.sumRemVol || Math.max(0, planV - usedV));
+          // 🌟 1. 精準取得試算表算出的剩餘才數（以剩餘儲格數 × 儲位才數算出）
+          const remV = Number(vRow.sum_rem_vol || vRow.sumRemVol || 0);
 
+          // 🌟 2. 嚴格套用標準健康度公式
           let health = 0;
           if (planV > 0) {
-            const unrate = remV / planV;
-            const denom = 1 - unrate;
+            const unrate = remV / planV; // 未使用率 = 剩餘才數 / 儲位總才數
+            const denom = 1 - unrate;    // (1 - 未使用率)
             if (denom > 0) {
-              health = parseFloat((((usedV / denom) / planV) * 100).toFixed(1));
+              // 健康度 = [使用才數 / (1 - 未使用率)] / 儲位總才數
+              const adjustedUsed = usedV / denom;
+              health = parseFloat(((adjustedUsed / planV) * 100).toFixed(1));
             }
           }
 

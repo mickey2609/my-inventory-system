@@ -59,7 +59,7 @@
             @click="exportFullPdf"
             class="export-top-btn btn-pdf"
           >
-            🖨️ 匯出 PDF (3頁)
+            🖨️️ 匯出 PDF (3頁)
           </el-button>
 
           <el-button 
@@ -936,21 +936,19 @@ export default {
       }
       return 0;
     },
+    // 🌟 嚴格套用圖 2 標準健康度公式 🌟
     getRowHealthVol(row) {
       if (!row) return '0.0%';
-      if (row.sum_health_vol && row.sum_health_vol !== '0.0%') return row.sum_health_vol;
-      if (row.sumHealthVol && row.sumHealthVol !== '0.0%') return row.sumHealthVol;
-
       const plan = Number(this.getSumVal(row, 'sum_plan_vol', ['plan_A區','plan_B區','plan_C區','plan_D區']));
       const used = Number(this.getSumVal(row, 'sum_used_vol', ['used_A區','used_B區','used_C區','used_D區']));
       const rem = Number(this.getSumVal(row, 'sum_rem_vol', ['rem_A區','rem_B區','rem_C區','rem_D區']));
 
       if (plan <= 0) return '0.0%';
-      const unrate = rem / plan;
-      const denom = 1 - unrate;
+      const unrate = rem / plan; // 未使用率 = 剩餘才數 / 儲位總才數[cite: 20]
+      const denom = 1 - unrate;  // (1 - 未使用率)[cite: 20]
       if (denom <= 0) return '0.0%';
 
-      const adjustedUsed = used / denom;
+      const adjustedUsed = used / denom; // [使用才數 / (1 - 未使用率)][cite: 20]
       return ((adjustedUsed / plan) * 100).toFixed(1) + '%';
     },
     getUnrateVal(row, unrateKey, planKey, usedKey, isVol = false) {
@@ -969,7 +967,7 @@ export default {
     },
     openConfigModal() {
       this.loadExportPerms();
-      this.showConfigDialog = false;
+      this.showConfigDialog = true;
       this.fetchLocationsMaster();
     },
     async fetchLocationsMaster() {
@@ -1070,7 +1068,8 @@ export default {
         ws2['!merges'] = [
           { s: { r: 0, c: 0 }, e: { r: 1, c: 0 } }, { s: { r: 0, c: 1 }, e: { r: 1, c: 1 } },
           { s: { r: 0, c: 2 }, e: { r: 0, c: 5 } }, { s: { r: 0, c: 6 }, e: { r: 0, c: 9 } },
-          { s: { r: 0, c: 10 }, e: { r: 0, c: 13 } }, { s: { r: 0, c: 14 }, e: { r: 0, c: 18 } }
+          { s: { r: 0, c: 10 }, e: { r: 0, c: 13 } }, { s: { r: 0, c: 14 }, e: { r: 0, c: 17 } },
+          { s: { r: 0, c: 18 }, e: { r: 0, c: 22 } }
         ];
         XLSX.utils.book_append_sheet(wb, ws2, "才數交叉統計表");
 
