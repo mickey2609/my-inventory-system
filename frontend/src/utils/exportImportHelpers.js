@@ -104,7 +104,7 @@ export async function triggerSaveLocationHistory(fileName) {
   }
 }
 
-// 🌟 極速批次寫入與檔名傳送 🌟
+// 🌟 平滑進度條：微調單次批次大小至 2,500 筆 🌟
 export async function processCsvUpload(file, onProgress, sendLogCallback) {
   return new Promise((resolve, reject) => {
     const papa = window.Papa || (typeof Papa !== 'undefined' ? Papa : null);
@@ -128,7 +128,7 @@ export async function processCsvUpload(file, onProgress, sendLogCallback) {
 
           if (onProgress) onProgress(0);
 
-          const batchSize = 20000; // 🌟 提高至 20,000 筆/次，大幅提升匯入效能 🌟
+          const batchSize = 2500; // 🌟 每次推進約 2.2%，進度條移動非常順暢且依然保持高效 🌟
           let inserted = 0;
 
           for (let i = 0; i < totalRows; i += batchSize) {
@@ -185,7 +185,6 @@ export async function processCsvUpload(file, onProgress, sendLogCallback) {
               remark: row['備註'] || row['remark'] || ''
             }));
             
-            // 🌟 傳送批次並同時傳遞原始檔名 fileName 🌟
             const response = await axios.post('/api/upload', { 
               items: parsedChunk,
               isFirstChunk: i === 0,
