@@ -75,6 +75,11 @@
             @refresh-metrics="fetchDashboardMetrics"
           />
 
+          <!-- 🌟 迴轉率清單專屬視圖 🌟 -->
+          <TurnoverList 
+            v-else-if="currentTab === 'turnover'" key="turnover" 
+          />
+
           <SettingsLog 
             v-else-if="currentTab === 'settings_log'" key="settings_log"
             v-model:log-tab="logTab" :filtered-logs-list="logsList" @refresh-logs="fetchLogs"
@@ -183,6 +188,7 @@ import LoginOverlay from './views/LoginOverlay.vue'
 import InvQuery80 from './views/InvQuery80.vue'
 import InvSearch15 from './views/InvSearch15.vue'
 import LocSummary from './views/LocSummary.vue'
+import TurnoverList from './views/TurnoverList.vue'
 import SettingsPerm from './views/SettingsPerm.vue'
 import SettingsLog from './views/SettingsLog.vue'
 
@@ -197,7 +203,7 @@ export default {
   components: {
     TopNavbar, SystemDrawer, ColConfigModal, ParamMenuModal, WidthConfigModal,
     ImportTipModal, UserManagementModals, InventorySearchModal, HomeDashboard,
-    LoginOverlay, InvQuery80, InvSearch15, LocSummary, SettingsPerm, SettingsLog
+    LoginOverlay, InvQuery80, InvSearch15, LocSummary, TurnoverList, SettingsPerm, SettingsLog
   },
   setup() {
     const { sendLog, getDeviceType, setupAxiosInterceptor } = useSystemLogs();
@@ -734,7 +740,7 @@ export default {
       this.$message.info('已成功登出');
     },
     getTabName(k) {
-      const names = { 'home': '🏠 系統首頁', 'inv80': '🔍 庫存查詢80', 'inv15': '📦 庫存查詢15', 'loc_summary': '📊 儲位數才數統整', 'turnover': '📈 迴轉率清單', 'abnormal_purchase': '⚠️ 不合理進貨清單', 'settings_perm': '⚙️ 權限管理', 'settings_log': '📜 日誌歷程查詢' };
+      const names = { 'home': '🏠 系統首頁', 'inv80': '🔍 庫存查詢80', 'inv15': '📦 庫存查詢15', 'loc_summary': '📊 儲位數才數統整', 'turnover': '📈 迴轉率清單', 'abnormal_purchase': '⚠️️ 不合理進貨清單', 'settings_perm': '⚙️ 權限管理', 'settings_log': '📜 日誌歷程查詢' };
       return names[k] || '系統模組';
     },
     async fetchInitData() { try { const res = await axios.get('/api/categories/large'); if (res.data?.success) this.options.big_zones = res.data.data; } catch (e) {} },
