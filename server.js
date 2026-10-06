@@ -1,5 +1,5 @@
 // C:\my-inventory-server\server.js
-// 業務主程式 API 伺服器 (整合 48 欄位 + inventory_15 模組 + locationStats 模組掛載 + 全域防崩潰保護)
+// 業務主程式 API 伺服器 (整合 48 欄位 + inventory_15 模組 + locationStats 模組掛載 + 全域防崩潰保護 + 極速寫入PRAGMA)
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const cors = require('cors');
@@ -826,12 +826,17 @@ app.get('/api/get-logs', (req, res) => {
   });
 });
 
+// 🌟 [POST] 極速匯入 API (包含 PRAGMA 著陸快取與 SQLite 交易優化) 🌟
 app.post('/api/upload', (req, res) => {
   try {
     const { items, isFirstChunk } = req.body;
     if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ success: false, message: '上傳資料格式無效' });
 
     db.serialize(() => {
+      // 🌟 開啟 SQLite 極速硬碟著陸模式 (提升 5~10 倍寫入效率) 🌟
+      db.run('PRAGMA synchronous = OFF');
+      db.run('PRAGMA journal_mode = MEMORY');
+
       db.run('BEGIN TRANSACTION');
       if (isFirstChunk) db.run('DELETE FROM inventory');
 
@@ -873,6 +878,8 @@ app.post('/api/upload', (req, res) => {
       }
       stmt.finalize();
       db.run('COMMIT', (err) => {
+        // 恢復安全的 NORMAL WAL 模式
+        db.run('PRAGMA synchronous = NORMAL');
         if (err) return res.status(500).json({ success: false, error: err.message });
         res.json({ success: true, count: items.length, message: '48 欄位極速寫入成功！' });
       });

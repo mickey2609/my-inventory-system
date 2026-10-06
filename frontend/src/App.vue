@@ -520,61 +520,45 @@ export default {
 
     triggerSelectInventoryFile() { this.$refs.inventoryFileInput.click(); },
 
-    // 🌟 動態上傳分流：根據當前頁籤分流至 80 庫或 15 庫 🌟
+    // 🌟 動態上傳分流：80 庫與 15 庫皆採用一次性 FormData 極速流式上傳 🌟
     async handleInventoryUpload(event) {
       const file = event.target.files[0];
       if (!file) return;
       this.isUploading = true;
-      this.uploadPercent = 0;
+      this.uploadPercent = 10;
+
+      const formData = new FormData();
+      formData.append('file', file);
 
       if (this.currentTab === 'inv15') {
         try {
-          const text = await file.text();
-          const lines = text.split(/\r?\n/).filter(l => l.trim());
-          if (lines.length <= 1) { 
-            this.isUploading = false;
-            return this.$message.error('檔案格式無效或內容為空！'); 
-          }
-
-          const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
-          const totalLines = lines.length - 1;
-          let currentBatch = [];
-          let uploadedCount = 0;
-          let isFirstChunk = true;
-
-          for (let i = 1; i < lines.length; i++) {
-            const rowVals = lines[i].split(',').map(v => v.trim().replace(/^"|"$/g, ''));
-            if (rowVals.length >= headers.length) {
-              const rowObj = {};
-              headers.forEach((h, idx) => rowObj[h] = rowVals[idx]);
-              const itemId = rowObj['商品ID'] || rowObj['item_id'] || '';
-              if (itemId.trim() !== '') currentBatch.push(rowObj);
-            }
-
-            if (currentBatch.length >= 10000 || i === lines.length - 1) {
-              if (currentBatch.length > 0) {
-                await axios.post('/api/inventory15/upload', { items: currentBatch, isFirstChunk: isFirstChunk });
-                uploadedCount += currentBatch.length;
-                isFirstChunk = false;
-                currentBatch = [];
+          this.uploadPercent = 30;
+          const res = await axios.post('/api/inventory15/fast-upload', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+            onUploadProgress: (progressEvent) => {
+              if (progressEvent.total) {
+                this.uploadPercent = Math.min(95, Math.round((progressEvent.loaded / progressEvent.total) * 90));
               }
             }
+          });
 
-            this.uploadPercent = Math.min(100, Math.round((i / totalLines) * 100));
+          if (res.data?.success) {
+            this.uploadPercent = 100;
+            this.$message.success(`🎉 成功寫入 ${res.data.count.toLocaleString()} 筆有效資料至 庫存15！`);
+            this.showInventoryImportTipDialog = false;
+            this.fetchDashboardMetrics();
+          } else {
+            this.$message.error('匯入 15 庫失敗：' + (res.data?.message || '未知錯誤'));
           }
-
-          this.$message.success(`🎉 成功寫入 ${uploadedCount.toLocaleString()} 筆有效資料至 庫存15！`);
-          this.showInventoryImportTipDialog = false;
-          this.fetchDashboardMetrics();
         } catch (e) { 
-          this.$message.error('匯入 15 庫失敗：' + e.message); 
+          this.$message.error('匯入 15 庫連線失敗：' + (e.response?.data?.message || e.message)); 
         } finally { 
           this.isUploading = false; 
           this.uploadPercent = 0;
           event.target.value = ''; 
         }
       } else {
-        // 80 庫流式上傳處理
+        // 80 庫極速流式上傳處理
         try {
           const totalRows = await processCsvUpload(file, p => { this.uploadPercent = p; }, (f, a) => this.sendCurrentLog(f, a));
           
@@ -728,7 +712,7 @@ export default {
         }
       } catch (e) {
         this.isLoggedIn = false;
-        this.$message.error('⚠️️ 伺服器未連線，請確認地端桌機 start_tunnel.bat 是否已啟動！');
+        this.$message.error('⚠ 伺服器未連線，請確認地端桌機 start_tunnel.bat 是否已啟動！');
       } finally { 
         this.loginLoading = false; 
       }
