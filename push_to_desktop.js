@@ -99,7 +99,7 @@ async function main() {
     // 🌟 1. 自動蒐集待推送檔案清單 (預設包含 server.js)
     const filesToPush = ['server.js'];
 
-    // 🌟 2. 自動掃描 routes 資料夾下的所有 .js 檔案 (包含 inventory15.js, locationStats.js...等)
+    // 🌟 2. 自動掃描 routes 資料夾下的所有 .js 檔案 (包含 inventory15.js, locationStats.js, turnover15.js...等)
     const routesDir = path.join(__dirname, 'routes');
     if (fs.existsSync(routesDir)) {
       const routeFiles = fs.readdirSync(routesDir);
