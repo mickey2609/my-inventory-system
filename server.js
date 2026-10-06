@@ -48,27 +48,35 @@ app.use(express.urlencoded({ limit: '100mb', extended: true }));
 app.use('/api/inventory15', inventory15Module(db));
 app.use('/api/location-stats', locationStatsModule(db));
 
-// 🌟 精準抓取 80 庫與 15 庫最新匯入檔名與筆數 (優先從 import_logs 抓取) 🌟
+// 🌟 精準抓取 80 庫與 15 庫最新匯入檔名 (雙重備援機制) 🌟
 app.get('/api/dashboard/stats', (req, res) => {
   const sql80 = `SELECT COUNT(*) as total_rows FROM inventory`;
   const sql15 = `SELECT COUNT(*) as total_rows FROM inventory_15`;
   const sqlLog80 = `SELECT file_name FROM import_logs WHERE module_type = '80' ORDER BY id DESC LIMIT 1`;
   const sqlLog15 = `SELECT file_name FROM import_logs WHERE module_type = '15' ORDER BY id DESC LIMIT 1`;
+  const sqlHist = `SELECT file_name, record_date FROM location_history ORDER BY id DESC LIMIT 1`;
 
   db.get(sql80, [], (err, row80) => {
     db.get(sql15, [], (err, row15) => {
       db.get(sqlLog80, [], (err, log80) => {
         db.get(sqlLog15, [], (err, log15) => {
-          res.json({
-            success: true,
-            stats80: {
-              total_rows: row80 ? row80.total_rows : 0,
-              file_name: log80 ? log80.file_name : '未匯入檔案'
-            },
-            stats15: {
-              total_rows: row15 ? row15.total_rows : 0,
-              file_name: log15 ? log15.file_name : '未匯入檔案'
-            }
+          db.get(sqlHist, [], (err, hist) => {
+            let fn80 = 'latest_inventory.csv';
+            if (log80 && log80.file_name) fn80 = log80.file_name;
+            else if (hist && hist.file_name) fn80 = hist.file_name;
+            else if (hist && hist.record_date) fn80 = `latest_inventory${hist.record_date.replace(/-/g, '')}.csv`;
+
+            res.json({
+              success: true,
+              stats80: {
+                total_rows: row80 ? row80.total_rows : 0,
+                file_name: fn80
+              },
+              stats15: {
+                total_rows: row15 ? row15.total_rows : 0,
+                file_name: log15 ? log15.file_name : 'latest_inventory15.csv'
+              }
+            });
           });
         });
       });
@@ -848,7 +856,7 @@ app.get('/api/get-logs', (req, res) => {
   });
 });
 
-// 🌟 [POST] 極速匯入 API (同步紀錄檔案名稱至 import_logs) 🌟
+// 🌟 [POST] 極速匯入 API (無條件寫入 import_logs) 🌟
 app.post('/api/upload', (req, res) => {
   try {
     const { items, isFirstChunk, fileName } = req.body;
@@ -862,9 +870,11 @@ app.post('/api/upload', (req, res) => {
       db.run('BEGIN TRANSACTION');
       if (isFirstChunk) {
         db.run('DELETE FROM inventory');
-        if (fileName) {
-          db.run(`INSERT INTO import_logs (module_type, file_name, row_count, imported_at) VALUES ('80', ?, ?, DATETIME('now'))`, [fileName, items.length]);
-        }
+      }
+
+      // 🌟 無論是否為第一區塊，只要收到 fileName 就即時寫入或覆蓋 🌟
+      if (fileName) {
+        db.run(`INSERT INTO import_logs (module_type, file_name, row_count, imported_at) VALUES ('80', ?, ?, DATETIME('now'))`, [fileName, items.length]);
       }
 
       const stmt = db.prepare(`

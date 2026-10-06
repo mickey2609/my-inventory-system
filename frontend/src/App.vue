@@ -546,6 +546,7 @@ export default {
             this.uploadPercent = 100;
             this.$message.success(`🎉 成功寫入 ${res.data.count.toLocaleString()} 筆有效資料至 庫存15！`);
             this.showInventoryImportTipDialog = false;
+            window.dispatchEvent(new CustomEvent('inventory-updated'));
             this.fetchDashboardMetrics();
           } else {
             this.$message.error('匯入 15 庫失敗：' + (res.data?.message || '未知錯誤'));
@@ -567,6 +568,7 @@ export default {
 
           this.$message.success(`🎉 成功寫入 ${totalRows.toLocaleString()} 筆資料至 庫存80！`);
           this.showInventoryImportTipDialog = false;
+          window.dispatchEvent(new CustomEvent('inventory-updated'));
           this.fetchDashboardMetrics();
         } catch (e) { 
           this.$message.error('上傳 80 庫失敗：' + e.message); 
