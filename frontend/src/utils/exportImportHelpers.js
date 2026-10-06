@@ -104,6 +104,7 @@ export async function triggerSaveLocationHistory(fileName) {
   }
 }
 
+// 🌟 極速批次寫入與檔名傳送 🌟
 export async function processCsvUpload(file, onProgress, sendLogCallback) {
   return new Promise((resolve, reject) => {
     const papa = window.Papa || (typeof Papa !== 'undefined' ? Papa : null);
@@ -127,7 +128,7 @@ export async function processCsvUpload(file, onProgress, sendLogCallback) {
 
           if (onProgress) onProgress(0);
 
-          const batchSize = 5000;
+          const batchSize = 20000; // 🌟 提高至 20,000 筆/次，大幅提升匯入效能 🌟
           let inserted = 0;
 
           for (let i = 0; i < totalRows; i += batchSize) {
@@ -184,9 +185,11 @@ export async function processCsvUpload(file, onProgress, sendLogCallback) {
               remark: row['備註'] || row['remark'] || ''
             }));
             
+            // 🌟 傳送批次並同時傳遞原始檔名 fileName 🌟
             const response = await axios.post('/api/upload', { 
               items: parsedChunk,
-              isFirstChunk: i === 0 
+              isFirstChunk: i === 0,
+              fileName: file.name
             });
 
             if (!response.data || !response.data.success) {
@@ -196,7 +199,6 @@ export async function processCsvUpload(file, onProgress, sendLogCallback) {
             inserted += chunk.length;
             const percent = Math.min(100, Math.round((inserted / totalRows) * 100));
             if (onProgress) onProgress(percent);
-            await sleep(20);
           }
 
           if (sendLogCallback) sendLogCallback('資料匯入', `成功匯入 ${totalRows.toLocaleString()} 筆資料至地端 SQLite：` + file.name);

@@ -1,12 +1,11 @@
 // C:\my-inventory-server\server.js
-// 業務主程式 API 伺服器 (整合 48 欄位 + inventory_15 模組 + locationStats 模組掛載 + 全域防崩潰保護 + 極速寫入PRAGMA)
+// 業務主程式 API 伺服器 (整合 48 欄位 + inventory_15 模組 + 兩庫獨立檔名紀錄 + 全域防崩潰保護 + 極速寫入PRAGMA)
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 
-// 🌟🌟🌟 核心防護：攔截全域未捕捉例外，防止 SQL 出錯時伺服器閃退斷線 🌟🌟🌟
 process.on('uncaughtException', (err) => {
   console.error('⚠ [系統防護] 攔截到未處理的例外，伺服器維持運作：', err.message);
 });
@@ -16,7 +15,6 @@ process.on('unhandledRejection', (reason, promise) => {
 
 const app = express();
 const PORT = 3000;
-
 const SERVER_START_TIME = Date.now();
 
 const COLUMN_MAP = {
@@ -40,48 +38,44 @@ const db = new sqlite3.Database('inventory_local.sqlite', (err) => {
   else console.log('✅ SQLite 資料庫檔案已成功連結！');
 });
 
-// 🌟 引入庫存 15 大數據專屬路由模組
 const inventory15Module = require('./routes/inventory15');
-// 🌟 引入儲位 7 大 KPI 歷史快照專屬路由模組
 const locationStatsModule = require('./routes/locationStats');
 
 app.use(cors());
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
-// 🌟 掛載 /api/inventory15 相關路由
 app.use('/api/inventory15', inventory15Module(db));
-// 🌟 掛載 /api/location-stats 相關路由
 app.use('/api/location-stats', locationStatsModule(db));
 
-// 🌟 [GET] 首頁數據看板統計 API 🌟
+// 🌟 精準抓取 80 庫與 15 庫最新匯入檔名與筆數 (從 import_logs 資料表讀取) 🌟
 app.get('/api/dashboard/stats', (req, res) => {
   const sql80 = `SELECT COUNT(*) as total_rows FROM inventory`;
   const sql15 = `SELECT COUNT(*) as total_rows FROM inventory_15`;
-  const sqlHist = `SELECT record_date, file_name FROM location_history ORDER BY id DESC LIMIT 1`;
+  const sqlLog80 = `SELECT file_name FROM import_logs WHERE module_type = '80' ORDER BY id DESC LIMIT 1`;
+  const sqlLog15 = `SELECT file_name FROM import_logs WHERE module_type = '15' ORDER BY id DESC LIMIT 1`;
 
   db.get(sql80, [], (err, row80) => {
     db.get(sql15, [], (err, row15) => {
-      db.get(sqlHist, [], (err, rowHist) => {
-        const fileName80 = rowHist ? (rowHist.file_name || `latest_inventory${rowHist.record_date.replace(/-/g, '')}.csv`) : '';
-        
-        res.json({
-          success: true,
-          stats80: {
-            total_rows: row80 ? row80.total_rows : 0,
-            file_name: fileName80
-          },
-          stats15: {
-            total_rows: row15 ? row15.total_rows : 0,
-            file_name: 'latest_inventory15.csv'
-          }
+      db.get(sqlLog80, [], (err, log80) => {
+        db.get(sqlLog15, [], (err, log15) => {
+          res.json({
+            success: true,
+            stats80: {
+              total_rows: row80 ? row80.total_rows : 0,
+              file_name: log80 ? log80.file_name : '未匯入檔案'
+            },
+            stats15: {
+              total_rows: row15 ? row15.total_rows : 0,
+              file_name: log15 ? log15.file_name : '未匯入檔案'
+            }
+          });
         });
       });
     });
   });
 });
 
-// 🌟 轉發程式碼更新請求至 Port 3001
 app.post('/api/system/update-server-code', (req, res) => {
   const http = require('http');
   const payload = JSON.stringify(req.body);
@@ -122,6 +116,8 @@ db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS system_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, name TEXT, role TEXT, device TEXT, feature TEXT, action TEXT, created_at TEXT);`);
   db.run(`CREATE TABLE IF NOT EXISTS column_config (key TEXT PRIMARY KEY, config_json TEXT, updated_at TEXT);`);
   db.run(`CREATE TABLE IF NOT EXISTS locations_master (id INTEGER PRIMARY KEY AUTOINCREMENT, floor TEXT, zone TEXT, loc_type TEXT, cubic_feet REAL, grid_count INTEGER, single_cubic_feet REAL);`);
+  // 🌟 新增全域上傳檔名紀錄表 🌟
+  db.run(`CREATE TABLE IF NOT EXISTS import_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, module_type TEXT, file_name TEXT, row_count INTEGER, imported_at TEXT);`);
   db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions) VALUES ('admin', '系統管理員', 'sys_admin', 'admin', 'all');`);
   db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions) VALUES ('801854', '黃勝鴻', 'sys_admin', '801854', 'all');`);
 });
@@ -449,7 +445,7 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         volRow['sum_health_vol'] = rowHealthV; volRow['sumHealthVol'] = rowHealthV;
 
         gridPivotTable.push(gridRow);
-        volPivotTable.push(volRow);
+        volPivotTable.push(rowVolRow);
       });
 
       // 附加黃色小計列
@@ -853,19 +849,24 @@ app.get('/api/get-logs', (req, res) => {
   });
 });
 
-// 🌟 [POST] 極速匯入 API (包含 PRAGMA 著陸快取與 SQLite 交易優化) 🌟
+// 🌟 [POST] 極速匯入 API (同步紀錄檔案名稱至 import_logs) 🌟
 app.post('/api/upload', (req, res) => {
   try {
-    const { items, isFirstChunk } = req.body;
+    const { items, isFirstChunk, fileName } = req.body;
     if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ success: false, message: '上傳資料格式無效' });
 
     db.serialize(() => {
-      // 🌟 開啟 SQLite 極速硬碟著陸模式 (提升 5~10 倍寫入效率) 🌟
       db.run('PRAGMA synchronous = OFF');
       db.run('PRAGMA journal_mode = MEMORY');
+      db.run('PRAGMA temp_store = MEMORY');
 
       db.run('BEGIN TRANSACTION');
-      if (isFirstChunk) db.run('DELETE FROM inventory');
+      if (isFirstChunk) {
+        db.run('DELETE FROM inventory');
+        if (fileName) {
+          db.run(`INSERT INTO import_logs (module_type, file_name, row_count, imported_at) VALUES ('80', ?, ?, DATETIME('now'))`, [fileName, items.length]);
+        }
+      }
 
       const stmt = db.prepare(`
         INSERT INTO inventory (
@@ -905,7 +906,6 @@ app.post('/api/upload', (req, res) => {
       }
       stmt.finalize();
       db.run('COMMIT', (err) => {
-        // 恢復安全的 NORMAL WAL 模式
         db.run('PRAGMA synchronous = NORMAL');
         if (err) return res.status(500).json({ success: false, error: err.message });
         res.json({ success: true, count: items.length, message: '48 欄位極速寫入成功！' });
