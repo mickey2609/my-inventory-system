@@ -54,6 +54,33 @@ app.use('/api/inventory15', inventory15Module(db));
 // 🌟 掛載 /api/location-stats 相關路由
 app.use('/api/location-stats', locationStatsModule(db));
 
+// 🌟 [GET] 首頁數據看板統計 API 🌟
+app.get('/api/dashboard/stats', (req, res) => {
+  const sql80 = `SELECT COUNT(*) as total_rows FROM inventory`;
+  const sql15 = `SELECT COUNT(*) as total_rows FROM inventory_15`;
+  const sqlHist = `SELECT record_date, file_name FROM location_history ORDER BY id DESC LIMIT 1`;
+
+  db.get(sql80, [], (err, row80) => {
+    db.get(sql15, [], (err, row15) => {
+      db.get(sqlHist, [], (err, rowHist) => {
+        const fileName80 = rowHist ? (rowHist.file_name || `latest_inventory${rowHist.record_date.replace(/-/g, '')}.csv`) : '';
+        
+        res.json({
+          success: true,
+          stats80: {
+            total_rows: row80 ? row80.total_rows : 0,
+            file_name: fileName80
+          },
+          stats15: {
+            total_rows: row15 ? row15.total_rows : 0,
+            file_name: 'latest_inventory15.csv'
+          }
+        });
+      });
+    });
+  });
+});
+
 // 🌟 轉發程式碼更新請求至 Port 3001
 app.post('/api/system/update-server-code', (req, res) => {
   const http = require('http');

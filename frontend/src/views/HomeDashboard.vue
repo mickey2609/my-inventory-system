@@ -12,6 +12,7 @@
 
     <!-- 數據指標卡片區 (80庫筆數 + 15庫筆數 + 伺服器運行計時) -->
     <div class="metrics-grid">
+      <!-- 80庫卡片 (含匯入檔名顯示) -->
       <div class="metric-card">
         <div class="card-icon blue-bg">📦</div>
         <div class="card-info">
@@ -20,9 +21,13 @@
             <span class="card-value text-blue">{{ formatNumber(dbMetrics.totalRows80) }}</span>
             <span class="card-unit">筆</span>
           </div>
+          <span v-if="stats80.file_name" class="file-name-tag">
+            📁 匯入檔名：{{ stats80.file_name }}
+          </span>
         </div>
       </div>
 
+      <!-- 15庫卡片 (含匯入檔名顯示) -->
       <div class="metric-card">
         <div class="card-icon green-bg">📦</div>
         <div class="card-info">
@@ -31,10 +36,13 @@
             <span class="card-value text-green">{{ formatNumber(dbMetrics.totalRows15) }}</span>
             <span class="card-unit">筆</span>
           </div>
+          <span v-if="stats15.file_name" class="file-name-tag">
+            📁 匯入檔名：{{ stats15.file_name }}
+          </span>
         </div>
       </div>
 
-      <!-- 🌟 補回：伺服器運作計時小卡 🌟 -->
+      <!-- 伺服器運作計時小卡 -->
       <div class="metric-card">
         <div class="card-icon orange-bg">⏱️</div>
         <div class="card-info">
@@ -91,6 +99,8 @@
 </template>
 
 <script>
+import axios from 'axios'
+
 export default {
   name: 'HomeDashboard',
   props: {
@@ -104,7 +114,9 @@ export default {
   data() {
     return {
       localUptimeSec: 0,
-      uptimeTimer: null
+      uptimeTimer: null,
+      stats80: { total_rows: 0, file_name: '' },
+      stats15: { total_rows: 0, file_name: '' }
     }
   },
   computed: {
@@ -135,6 +147,7 @@ export default {
   mounted() {
     this.localUptimeSec = this.dbMetrics.serverUptimeSec || 0;
     this.startUptimeTimer();
+    this.fetchStats();
   },
   beforeUnmount() {
     if (this.uptimeTimer) clearInterval(this.uptimeTimer);
@@ -150,6 +163,17 @@ export default {
       this.uptimeTimer = setInterval(() => {
         this.localUptimeSec += 1;
       }, 1000);
+    },
+    async fetchStats() {
+      try {
+        const res = await axios.get('/api/dashboard/stats');
+        if (res.data?.success) {
+          this.stats80 = res.data.stats80 || { total_rows: 0, file_name: '' };
+          this.stats15 = res.data.stats15 || { total_rows: 0, file_name: '' };
+        }
+      } catch (e) {
+        console.error('抓取首頁統計失敗:', e.message);
+      }
     }
   }
 }
@@ -251,6 +275,13 @@ export default {
 .card-unit {
   font-size: 12px;
   color: #64748b;
+}
+
+.file-name-tag {
+  font-size: 11px;
+  color: #f59e0b;
+  margin-top: 4px;
+  font-weight: 500;
 }
 
 .quick-actions-panel {
