@@ -85,19 +85,26 @@ async function main() {
 
     console.log('🚀 開始推送程式碼至桌機...');
     
-    // 🌟 強制指定必須推送的後端核心檔案清單 🌟
-    const filesToPush = [
-      'server.js',
-      'routes/inventory15.js',
-      'routes/locationStats.js',
-      'routes/turnover15.js'
-    ];
+    // 1. 先加入 server.js
+    const filesToPush = ['server.js'];
 
+    // 2. 🌟 自動掃描 routes 資料夾內所有的 .js 檔案 🌟
+    const routesDir = path.join(__dirname, 'routes');
+    if (fs.existsSync(routesDir)) {
+      const routeFiles = fs.readdirSync(routesDir);
+      routeFiles.forEach(file => {
+        if (file.endsWith('.js')) {
+          filesToPush.push(path.join('routes', file));
+        }
+      });
+    }
+
+    // 3. 逐一推播至地端桌機
     for (const relativeFilePath of filesToPush) {
       await pushSingleFileToDesktop(desktopUrl, relativeFilePath);
     }
 
-    console.log('✨ 所有檔案（含 turnover15.js 路由）已全部推播至地端桌機！');
+    console.log('✨ 所有檔案（自動掃描 routes 資料夾全數模組）已全部推播至地端桌機！');
   } catch (err) {
     console.error('❌ 執行失敗:', err);
   }
