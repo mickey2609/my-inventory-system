@@ -60,35 +60,42 @@
         </div>
       </div>
 
-      <!-- 7 大數據指標卡片 (乾淨版：無多餘日期標註) -->
+      <!-- 7 大數據指標卡片 (顯示匯入之 CSV 原始檔名與日期) -->
       <div class="stats-overview-grid">
         <div class="stat-card">
           <span class="stat-lbl">規劃總儲格數</span>
           <span class="stat-val text-blue">{{ formatNumber(activeStats.total_plan_grid) }}</span>
+          <span class="stat-date-sub">📁 檔名：{{ activeFileName }}</span>
         </div>
         <div class="stat-card">
           <span class="stat-lbl">使用中儲格數</span>
           <span class="stat-val text-green">{{ formatNumber(activeStats.total_used_grid) }}</span>
+          <span class="stat-date-sub">📁 檔名：{{ activeFileName }}</span>
         </div>
         <div class="stat-card">
           <span class="stat-lbl">剩餘空儲格數</span>
           <span class="stat-val text-orange">{{ formatNumber(activeStats.total_rem_grid) }}</span>
+          <span class="stat-date-sub">📁 檔名：{{ activeFileName }}</span>
         </div>
         <div class="stat-card">
           <span class="stat-lbl">規劃總才數</span>
           <span class="stat-val text-blue">{{ formatNumber(activeStats.total_plan_vol) }}</span>
+          <span class="stat-date-sub">📁 檔名：{{ activeFileName }}</span>
         </div>
         <div class="stat-card">
           <span class="stat-lbl">使用中才數</span>
           <span class="stat-val text-green">{{ formatNumber(activeStats.total_used_vol) }}</span>
+          <span class="stat-date-sub">📁 檔名：{{ activeFileName }}</span>
         </div>
         <div class="stat-card">
           <span class="stat-lbl">剩餘空才數</span>
           <span class="stat-val text-orange">{{ formatNumber(activeStats.total_rem_vol) }}</span>
+          <span class="stat-date-sub">📁 檔名：{{ activeFileName }}</span>
         </div>
         <div class="stat-card highlight-health">
           <span class="stat-lbl">儲位整體健康度 (使用率)</span>
           <span class="stat-val text-cyan">{{ activeStats.total_health || '0.0%' }}</span>
+          <span class="stat-date-sub">📁 檔名：{{ activeFileName }}</span>
         </div>
       </div>
 
@@ -796,15 +803,18 @@ export default {
       return [...this.historyList].reverse();
     },
 
-    // 🌟 精準抓取最後一次匯入（最新上傳）的 CSV 檔日期 🌟
-    activeRecordDate() {
+    // 🌟 精準抓取當前載入的 CSV 原始檔名 (包含日期資訊) 🌟
+    activeFileName() {
       if (this.selectedDate !== 'realtime') {
-        return this.selectedDate;
+        const target = this.historyList.find(i => i.record_date === this.selectedDate);
+        return target ? (target.file_name || `${target.record_date}.csv`) : this.selectedDate;
       }
       if (this.historyList && this.historyList.length > 0) {
-        return this.historyList[this.historyList.length - 1].record_date || '當前即時';
+        // 取最新一筆上傳紀錄之原始檔名
+        const latest = this.historyList[0];
+        return latest.file_name || `latest_inventory${latest.record_date.replace(/-/g, '')}.csv`;
       }
-      return new Date().toISOString().split('T')[0];
+      return 'latest_inventory.csv';
     },
 
     availableLocTypes() {
@@ -1468,6 +1478,17 @@ export default {
 
 .stat-lbl { font-size: 12px; color: #94a3b8; }
 .stat-val { font-size: 18px; font-weight: bold; margin-top: 2px; }
+
+/* 🌟 指標卡片檔名與日期備註樣式 🌟 */
+.stat-date-sub {
+  font-size: 11px;
+  color: #f59e0b;
+  margin-top: 4px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 .text-blue { color: #38bdf8; }
 .text-green { color: #4ade80; }
