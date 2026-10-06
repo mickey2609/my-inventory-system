@@ -6,13 +6,12 @@ module.exports = function(db) {
   const router = express.Router();
 
   // [GET] /api/turnover15/search
-  // 核心邏輯：過濾 80U/80Z 儲位 -> 依 item_id 去重累加庫存、取最大庫齡 -> 算月迴轉與板數 -> 依門檻篩選與排序
   router.get('/search', (req, res) => {
     try {
       const minTurnover = parseFloat(req.query.minTurnover || '90');
-      const sortOrder = (req.query.sortOrder || 'desc').toLowerCase(); // asc 或 desc (依板數排序)
+      const sortOrder = (req.query.sortOrder || 'desc').toLowerCase();
 
-      // SQL：直接在 SQLite 排除儲位前 3 碼為 80U 或 80Z 的紀錄
+      // SQL：排除儲位前 3 碼為 80U 或 80Z 的紀錄
       const sql = `
         SELECT 
           item_id,
@@ -42,7 +41,6 @@ module.exports = function(db) {
         let totalVolume = 0;
         let totalPallets = 0;
 
-        // 初始化 5 大級距統計卡數據
         const tiers = {
           t91_180: { label: '91 ~ 180', items: 0, pcs: 0, vol: 0, pallets: 0 },
           t181_270: { label: '181 ~ 270', items: 0, pcs: 0, vol: 0, pallets: 0 },
@@ -58,13 +56,11 @@ module.exports = function(db) {
           const sales = parseFloat(r.monthly_sales || 0);
           const unitVol = parseFloat(r.unit_cubic_feet || 0);
 
-          // 核心迴轉月計算：若月銷量 < 0.0001 則設為 99999 (滯銷)
           let turnover = 99999;
           if (sales >= 0.0001) {
             turnover = parseFloat((qty / sales).toFixed(1));
           }
 
-          // 門檻過濾 (列出迴轉月數 > minTurnover 的品項)
           if (turnover > minTurnover) {
             const totalVol = parseFloat((qty * unitVol).toFixed(6));
             const pallets = parseFloat((totalVol / 35).toFixed(6));
@@ -85,13 +81,11 @@ module.exports = function(db) {
 
             resultList.push(itemData);
 
-            // 全區總計累加
             totalItems += 1;
             totalPcs += qty;
             totalVolume += totalVol;
             totalPallets += pallets;
 
-            // 5 大級距歸類歸總
             if (turnover === 99999) {
               tiers.t99999.items += 1;
               tiers.t99999.pcs += qty;
@@ -121,12 +115,10 @@ module.exports = function(db) {
           }
         });
 
-        // 依「板數 (pallets)」進行排序
         resultList.sort((a, b) => {
           return sortOrder === 'asc' ? a.pallets - b.pallets : b.pallets - a.pallets;
         });
 
-        // 格式化四捨五入級距統計
         const formattedTiers = Object.keys(tiers).map(k => ({
           key: k,
           label: tiers[k].label,
