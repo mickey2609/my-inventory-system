@@ -60,35 +60,42 @@
         </div>
       </div>
 
-      <!-- 7 大數據指標卡片 -->
+      <!-- 7 大數據指標卡片 (已加入庫存資料匯入日期備註) -->
       <div class="stats-overview-grid">
         <div class="stat-card">
           <span class="stat-lbl">規劃總儲格數</span>
           <span class="stat-val text-blue">{{ formatNumber(activeStats.total_plan_grid) }}</span>
+          <span class="stat-date-sub">📌 匯入日期：{{ activeRecordDate }}</span>
         </div>
         <div class="stat-card">
           <span class="stat-lbl">使用中儲格數</span>
           <span class="stat-val text-green">{{ formatNumber(activeStats.total_used_grid) }}</span>
+          <span class="stat-date-sub">📌 匯入日期：{{ activeRecordDate }}</span>
         </div>
         <div class="stat-card">
           <span class="stat-lbl">剩餘空儲格數</span>
           <span class="stat-val text-orange">{{ formatNumber(activeStats.total_rem_grid) }}</span>
+          <span class="stat-date-sub">📌 匯入日期：{{ activeRecordDate }}</span>
         </div>
         <div class="stat-card">
           <span class="stat-lbl">規劃總才數</span>
           <span class="stat-val text-blue">{{ formatNumber(activeStats.total_plan_vol) }}</span>
+          <span class="stat-date-sub">📌 匯入日期：{{ activeRecordDate }}</span>
         </div>
         <div class="stat-card">
           <span class="stat-lbl">使用中才數</span>
           <span class="stat-val text-green">{{ formatNumber(activeStats.total_used_vol) }}</span>
+          <span class="stat-date-sub">📌 匯入日期：{{ activeRecordDate }}</span>
         </div>
         <div class="stat-card">
           <span class="stat-lbl">剩餘空才數</span>
           <span class="stat-val text-orange">{{ formatNumber(activeStats.total_rem_vol) }}</span>
+          <span class="stat-date-sub">📌 匯入日期：{{ activeRecordDate }}</span>
         </div>
         <div class="stat-card highlight-health">
           <span class="stat-lbl">儲位整體健康度 (使用率)</span>
           <span class="stat-val text-cyan">{{ activeStats.total_health || '0.0%' }}</span>
+          <span class="stat-date-sub">📌 匯入日期：{{ activeRecordDate }}</span>
         </div>
       </div>
 
@@ -297,14 +304,14 @@
             </el-table>
           </el-tab-pane>
 
-          <!-- 頁籤 4：📈 空間與健康度歷史趨勢圖 (含 100% 滿度上限刻度) -->
+          <!-- 頁籤 4：📈 空間與健康度歷史趨勢圖 -->
           <el-tab-pane label="📈 空間與健康度歷史趨勢圖" name="trend">
             <div v-if="sortedHistoryList.length === 0" class="no-trend-box">
-              ⚠️️ 尚無歷史快照紀錄，上傳庫存 CSV 檔案後將自動產生趨勢分析！
+              ⚠️ 尚無歷史快照紀錄，上傳庫存 CSV 檔案後將自動產生趨勢分析！
             </div>
             <div v-else class="svg-charts-container">
               
-              <!-- 圖表一：全區總體使用中 (包含 100% 滿度基準) -->
+              <!-- 圖表一：全區總體使用中 -->
               <div class="svg-chart-card">
                 <div class="chart-title">
                   <span>📊 一、80 庫全區「使用中儲格數」與「使用中才數」歷史推移曲線</span>
@@ -316,18 +323,15 @@
                 </div>
                 <div class="svg-stage">
                   <svg viewBox="0 0 800 230" class="svg-graph">
-                    <!-- 100% 滿度上限虛線 -->
                     <line x1="70" y1="30" x2="730" y2="30" stroke="#f43f5e" stroke-dasharray="4" stroke-width="1.5" />
                     <line x1="70" y1="90" x2="730" y2="90" stroke="#334155" stroke-dasharray="3" />
                     <line x1="70" y1="150" x2="730" y2="150" stroke="#334155" stroke-dasharray="3" />
 
-                    <!-- 左 Y 軸刻度 (儲格數：以 規劃總儲格 為滿度上限 100%) -->
                     <line x1="70" y1="20" x2="70" y2="160" stroke="#38bdf8" stroke-width="1.5" />
                     <text x="65" y="34" fill="#f43f5e" font-size="10" text-anchor="end" font-weight="bold">{{ formatNumber(yAxisRanges.planGrid) }} (滿度)</text>
                     <text x="65" y="94" fill="#38bdf8" font-size="10" text-anchor="end">{{ formatNumber(Math.round(yAxisRanges.planGrid / 2)) }}</text>
                     <text x="65" y="154" fill="#38bdf8" font-size="10" text-anchor="end">0</text>
 
-                    <!-- 右 Y 軸刻度 (才數：以 規劃總才數 為滿度上限 100%) -->
                     <line x1="730" y1="20" x2="730" y2="160" stroke="#4ade80" stroke-width="1.5" />
                     <text x="735" y="34" fill="#f43f5e" font-size="10" text-anchor="start" font-weight="bold">{{ formatNumber(Math.round(yAxisRanges.planVol)) }} (滿度)</text>
                     <text x="735" y="94" fill="#4ade80" font-size="10" text-anchor="start">{{ formatNumber(Math.round(yAxisRanges.planVol / 2)) }}</text>
@@ -430,7 +434,7 @@
             </div>
           </el-tab-pane>
 
-          <!-- 🌟 獨立頁籤：「🏷️ 各儲位類型歷史趨勢」（包含 100% 滿度基準） 🌟 -->
+          <!-- 頁籤 5：🏷️ 各儲位類型歷史趨勢 -->
           <el-tab-pane label="🏷️ 各儲位類型歷史趨勢" name="type_trend">
             <div v-if="sortedHistoryList.length === 0" class="no-trend-box">
               ⚠️ 尚無歷史快照紀錄，上傳庫存 CSV 檔案後將自動產生趨勢分析！
@@ -453,7 +457,7 @@
               </div>
 
               <div class="svg-charts-container">
-                <!-- 1. 各類型：使用中儲格數與才數 (滿度基準) -->
+                <!-- 1. 各類型：使用中儲格數與才數 -->
                 <div class="svg-chart-card">
                   <div class="chart-title">
                     <span>📊 一、【{{ selectedLocType }}】使用中儲格數 (左 Y 軸) 與 使用中才數 (右 Y 軸) 推移曲線</span>
@@ -469,13 +473,11 @@
                       <line x1="70" y1="90" x2="730" y2="90" stroke="#334155" stroke-dasharray="3" />
                       <line x1="70" y1="150" x2="730" y2="150" stroke="#334155" stroke-dasharray="3" />
 
-                      <!-- 左 Y 軸刻度 (規劃儲格 100% 滿度) -->
                       <line x1="70" y1="20" x2="70" y2="160" stroke="#38bdf8" stroke-width="1.5" />
                       <text x="65" y="34" fill="#f43f5e" font-size="10" text-anchor="end" font-weight="bold">{{ formatNumber(typeYAxisRanges.planGrid) }} (滿度)</text>
                       <text x="65" y="94" fill="#38bdf8" font-size="10" text-anchor="end">{{ formatNumber(Math.round(typeYAxisRanges.planGrid / 2)) }}</text>
                       <text x="65" y="154" fill="#38bdf8" font-size="10" text-anchor="end">0</text>
 
-                      <!-- 右 Y 軸刻度 (規劃才數 100% 滿度) -->
                       <line x1="730" y1="20" x2="730" y2="160" stroke="#4ade80" stroke-width="1.5" />
                       <text x="735" y="34" fill="#f43f5e" font-size="10" text-anchor="start" font-weight="bold">{{ formatNumber(Math.round(typeYAxisRanges.planVol)) }} (滿度)</text>
                       <text x="735" y="94" fill="#4ade80" font-size="10" text-anchor="start">{{ formatNumber(Math.round(typeYAxisRanges.planVol / 2)) }}</text>
@@ -497,7 +499,7 @@
                   </div>
                 </div>
 
-                <!-- 2. 各類型：剩餘空儲格數與才數 (滿度基準) -->
+                <!-- 2. 各類型：剩餘空儲格數與才數 -->
                 <div class="svg-chart-card">
                   <div class="chart-title">
                     <span>📦 二、【{{ selectedLocType }}】剩餘空儲格數 (左 Y 軸) 與 剩餘空才數 (右 Y 軸) 推移曲線</span>
@@ -539,7 +541,7 @@
                   </div>
                 </div>
 
-                <!-- 3. 各類型：類型健康度 (使用率 %) -->
+                <!-- 3. 各類型：類型健康度 -->
                 <div class="svg-chart-card">
                   <div class="chart-title">
                     <span>🩺 三、【{{ selectedLocType }}】類型健康度 (使用率 %) 歷史走勢曲線</span>
@@ -579,6 +581,7 @@
             </div>
           </el-tab-pane>
 
+          <!-- 頁籤 6：🗓️️ 儲位 7 大 KPI 歷史快照管理清單 -->
           <el-tab-pane label="🗓️ 儲位 7 大 KPI 歷史快照管理清單" name="history_manager">
             <div class="history-page-wrapper">
               <div class="history-page-header">
@@ -800,6 +803,17 @@ export default {
       return [...this.historyList].reverse();
     },
 
+    // 🌟 計算當前動態顯示的匯入日期備註 🌟
+    activeRecordDate() {
+      if (this.selectedDate !== 'realtime') {
+        return this.selectedDate;
+      }
+      if (this.historyList && this.historyList.length > 0) {
+        return this.historyList[0].record_date || '當前即時';
+      }
+      return new Date().toISOString().split('T')[0];
+    },
+
     availableLocTypes() {
       const typesSet = new Set();
       this.sortedHistoryList.forEach(item => {
@@ -828,12 +842,10 @@ export default {
       });
     },
 
-    // 🌟 核心修正：將 Y 軸上限改為「規劃總儲格」與「規劃總才數」（即 100% 滿度基準）🌟
     typeYAxisRanges() {
       const list = this.selectedTypeHistoryList;
       if (list.length === 0) return { planGrid: 100, planVol: 100 };
 
-      // 抓取最後一次/最大的規劃儲格與才數作為 100% 滿度上限
       const planGrid = Math.max(...list.map(i => i.plan_grid || 0)) || 100;
       const planVol = Math.max(...list.map(i => i.plan_vol || 0)) || 100;
 
@@ -864,7 +876,6 @@ export default {
       return list.map((item, idx) => {
         const x = list.length === 1 ? 400 : startX + idx * stepX;
 
-        // 依據「當前使用數 / 規劃總數 (滿度)」算出比例，滿度為最上方 (Y=30)
         const gRatio = planGrid > 0 ? (item.used_grid / planGrid) : 0;
         const yGrid = 150 - gRatio * 120; 
 
@@ -898,7 +909,6 @@ export default {
       return `${path} L ${pts[pts.length - 1].x} 150 L ${pts[0].x} 150 Z`;
     },
 
-    // 🌟 核心修正：全區總體 Y 軸上限改為「全區規劃總儲格」與「全區規劃總才數」🌟
     yAxisRanges() {
       const list = this.sortedHistoryList;
       if (list.length === 0) return { planGrid: 49449, planVol: 830407 };
@@ -933,7 +943,6 @@ export default {
       return list.map((item, idx) => {
         const x = list.length === 1 ? 400 : startX + idx * stepX;
 
-        // 依真實滿度比例映射 (滿度 100% 位於 Y=30px，0% 位於 Y=150px)
         const gRatio = planGrid > 0 ? (item.used_grid / planGrid) : 0;
         const yGrid = 150 - gRatio * 120; 
 
@@ -1466,6 +1475,14 @@ export default {
 
 .stat-lbl { font-size: 12px; color: #94a3b8; }
 .stat-val { font-size: 18px; font-weight: bold; margin-top: 2px; }
+
+/* 🌟 指標卡片日期備註樣式 🌟 */
+.stat-date-sub {
+  font-size: 11px;
+  color: #94a3b8;
+  margin-top: 4px;
+  font-weight: normal;
+}
 
 .text-blue { color: #38bdf8; }
 .text-green { color: #4ade80; }
