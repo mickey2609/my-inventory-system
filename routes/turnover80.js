@@ -1,13 +1,17 @@
-﻿const express = require('express');
+// C:\my-inventory-server\routes\turnover80.js
+// 80庫 (人工倉) 迴轉率分析專屬 API 路由模組
+const express = require('express');
 
 module.exports = function(db) {
   const router = express.Router();
 
+  // [GET] /api/turnover80/search
   router.get('/search', (req, res) => {
     try {
       const minTurnover = parseFloat(req.query.minTurnover || '90');
       const sortOrder = (req.query.sortOrder || 'desc').toLowerCase();
 
+      // SQL：針對 80 庫 (inventory 表) 進行以 item_id 去重與加總
       const sql = `
         SELECT 
           item_id,
@@ -19,15 +23,14 @@ module.exports = function(db) {
           MAX(zone_name) as zone_name,
           MAX(cubic_feet) as unit_cubic_feet,
           MAX(monthly_sales) as monthly_sales
-        FROM inventory_15
+        FROM inventory
         WHERE item_id IS NOT NULL AND item_id != ''
-          AND UPPER(SUBSTR(TRIM(location), 1, 3)) NOT IN ('80U', '80Z')
         GROUP BY item_id
       `;
 
       db.all(sql, [], (err, rows) => {
         if (err) {
-          return res.status(500).json({ success: false, message: '查詢 15 庫資料失敗：' + err.message });
+          return res.status(500).json({ success: false, message: '查詢 80 庫資料失敗：' + err.message });
         }
 
         rows = rows || [];

@@ -3,7 +3,14 @@
     <!-- 頂部操作與篩選列 -->
     <div class="top-filter-bar">
       <div class="title-group">
-        <span class="page-title">📈 自動化倉 迴轉率分析清單 (15庫)</span>
+        <span class="page-title">📈 迴轉率分析清單</span>
+        
+        <!-- 倉庫切換頁籤 -->
+        <el-radio-group v-model="warehouseType" size="small" @change="fetchTurnoverData">
+          <el-radio-button label="15">📦 15庫 (自動化倉)</el-radio-button>
+          <el-radio-button label="80">🔍 80庫 (人工倉)</el-radio-button>
+        </el-radio-group>
+
         <span class="report-time">報表產出時間：{{ reportTime }}</span>
       </div>
 
@@ -53,7 +60,9 @@
     <!-- 總計摘要與 5 大級距統計面板 -->
     <div class="summary-overview-card" v-loading="loading">
       <div class="summary-header">
-        【摘要】自動化倉門檻設定：迴轉(月) > {{ summary.minTurnover }} (排除 80U/80Z 儲位，同 ID 去重)
+        【摘要】{{ warehouseType === '15' ? '15庫 (自動化倉)' : '80庫 (人工倉)' }} 門檻設定：迴轉(月) > {{ summary.minTurnover }} 
+        <span v-if="warehouseType === '15'">(排除 80U/80Z 儲位，同 ID 去重)</span>
+        <span v-else>(全庫存統計，同 ID 去重)</span>
       </div>
 
       <div class="summary-totals-grid">
@@ -138,6 +147,7 @@ export default {
     return {
       loading: false,
       exporting: false,
+      warehouseType: '15', // 預設 '15' (15庫)，可切換為 '80' (80庫)
       minTurnover: 90,
       sortOrder: 'desc',
       reportTime: '',
@@ -164,8 +174,9 @@ export default {
     async fetchTurnoverData() {
       this.loading = true;
       this.updateReportTime();
+      const apiEndpoint = this.warehouseType === '80' ? '/api/turnover80/search' : '/api/turnover15/search';
       try {
-        const res = await axios.get(`/api/turnover15/search?minTurnover=${this.minTurnover}&sortOrder=${this.sortOrder}`);
+        const res = await axios.get(`${apiEndpoint}?minTurnover=${this.minTurnover}&sortOrder=${this.sortOrder}`);
         if (res.data?.success) {
           this.summary = res.data.summary || {};
           this.tiers = res.data.tiers || [];
@@ -182,10 +193,11 @@ export default {
     async exportExcel() {
       if (this.tableData.length === 0) return this.$message.warning('查無資料可供匯出');
       this.exporting = true;
+      const whName = this.warehouseType === '15' ? '15庫_自動化倉' : '80庫_人工倉';
       try {
         const wb = XLSX.utils.book_new();
         const aoa = [
-          [`【摘要】自動化倉門檻設定：迴轉(月) > ${this.minTurnover} (同ID已去重，獨立99999)`],
+          [`【摘要】${whName} 門檻設定：迴轉(月) > ${this.minTurnover} (同ID已去重，獨立99999)`],
           [`品項數總計：`, this.summary.totalItems, `PCS數總計：`, this.summary.totalPcs, `總才數總計：`, this.summary.totalVolume, `總板數總計：`, this.summary.totalPallets],
           [],
           ['級距門檻', '品項數', 'PCS 數', '才數', '板數']
@@ -206,8 +218,8 @@ export default {
         });
 
         const ws = XLSX.utils.aoa_to_sheet(aoa);
-        XLSX.utils.book_append_sheet(wb, ws, "自動化倉_迴轉率清單");
-        XLSX.writeFile(wb, `自動化倉_迴轉率清單_${new Date().toISOString().split('T')[0]}.xlsx`);
+        XLSX.utils.book_append_sheet(wb, ws, `${whName}_迴轉率清單`);
+        XLSX.writeFile(wb, `${whName}_迴轉率清單_${new Date().toISOString().split('T')[0]}.xlsx`);
         this.$message.success('🎉 成功匯出迴轉率 Excel 報表！');
       } catch (e) {
         this.$message.error('匯出 Excel 失敗：' + e.message);
@@ -240,11 +252,16 @@ export default {
   padding: 12px 16px;
 }
 
+.title-group {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
 .page-title {
   font-size: 16px;
   font-weight: bold;
   color: #38bdf8;
-  margin-right: 12px;
 }
 
 .report-time {

@@ -42,6 +42,7 @@ const inventory15Module = require('./routes/inventory15');
 const locationStatsModule = require('./routes/locationStats');
 // 🌟 引入 15庫 迴轉率分析專屬路由模組
 const turnover15Module = require('./routes/turnover15');
+const turnover80Module = require('./routes/turnover80');
 
 app.use(cors());
 app.use(express.json({ limit: '100mb' }));
@@ -51,6 +52,7 @@ app.use('/api/inventory15', inventory15Module(db));
 app.use('/api/location-stats', locationStatsModule(db));
 // 🌟 掛載 /api/turnover15 相關路由
 app.use('/api/turnover15', turnover15Module(db));
+app.use('/api/turnover80', turnover80Module(db));
 
 // 🌟 精準抓取 80 庫與 15 庫最新匯入檔名 (雙重備援機制) 🌟
 app.get('/api/dashboard/stats', (req, res) => {
