@@ -60,42 +60,35 @@
         </div>
       </div>
 
-      <!-- 7 大數據指標卡片 (已加入庫存資料匯入日期備註) -->
+      <!-- 7 大數據指標卡片 (乾淨版：無多餘日期標註) -->
       <div class="stats-overview-grid">
         <div class="stat-card">
           <span class="stat-lbl">規劃總儲格數</span>
           <span class="stat-val text-blue">{{ formatNumber(activeStats.total_plan_grid) }}</span>
-          <span class="stat-date-sub">📌 匯入日期：{{ activeRecordDate }}</span>
         </div>
         <div class="stat-card">
           <span class="stat-lbl">使用中儲格數</span>
           <span class="stat-val text-green">{{ formatNumber(activeStats.total_used_grid) }}</span>
-          <span class="stat-date-sub">📌 匯入日期：{{ activeRecordDate }}</span>
         </div>
         <div class="stat-card">
           <span class="stat-lbl">剩餘空儲格數</span>
           <span class="stat-val text-orange">{{ formatNumber(activeStats.total_rem_grid) }}</span>
-          <span class="stat-date-sub">📌 匯入日期：{{ activeRecordDate }}</span>
         </div>
         <div class="stat-card">
           <span class="stat-lbl">規劃總才數</span>
           <span class="stat-val text-blue">{{ formatNumber(activeStats.total_plan_vol) }}</span>
-          <span class="stat-date-sub">📌 匯入日期：{{ activeRecordDate }}</span>
         </div>
         <div class="stat-card">
           <span class="stat-lbl">使用中才數</span>
           <span class="stat-val text-green">{{ formatNumber(activeStats.total_used_vol) }}</span>
-          <span class="stat-date-sub">📌 匯入日期：{{ activeRecordDate }}</span>
         </div>
         <div class="stat-card">
           <span class="stat-lbl">剩餘空才數</span>
           <span class="stat-val text-orange">{{ formatNumber(activeStats.total_rem_vol) }}</span>
-          <span class="stat-date-sub">📌 匯入日期：{{ activeRecordDate }}</span>
         </div>
         <div class="stat-card highlight-health">
           <span class="stat-lbl">儲位整體健康度 (使用率)</span>
           <span class="stat-val text-cyan">{{ activeStats.total_health || '0.0%' }}</span>
-          <span class="stat-date-sub">📌 匯入日期：{{ activeRecordDate }}</span>
         </div>
       </div>
 
@@ -581,7 +574,7 @@
             </div>
           </el-tab-pane>
 
-          <!-- 頁籤 6：🗓️️ 儲位 7 大 KPI 歷史快照管理清單 -->
+          <!-- 頁籤 6：🗓 儲位 7 大 KPI 歷史快照管理清單 -->
           <el-tab-pane label="🗓️ 儲位 7 大 KPI 歷史快照管理清單" name="history_manager">
             <div class="history-page-wrapper">
               <div class="history-page-header">
@@ -803,13 +796,13 @@ export default {
       return [...this.historyList].reverse();
     },
 
-    // 🌟 計算當前動態顯示的匯入日期備註 🌟
+    // 🌟 精準抓取最後一次匯入（最新上傳）的 CSV 檔日期 🌟
     activeRecordDate() {
       if (this.selectedDate !== 'realtime') {
         return this.selectedDate;
       }
       if (this.historyList && this.historyList.length > 0) {
-        return this.historyList[0].record_date || '當前即時';
+        return this.historyList[this.historyList.length - 1].record_date || '當前即時';
       }
       return new Date().toISOString().split('T')[0];
     },
@@ -1475,14 +1468,6 @@ export default {
 
 .stat-lbl { font-size: 12px; color: #94a3b8; }
 .stat-val { font-size: 18px; font-weight: bold; margin-top: 2px; }
-
-/* 🌟 指標卡片日期備註樣式 🌟 */
-.stat-date-sub {
-  font-size: 11px;
-  color: #94a3b8;
-  margin-top: 4px;
-  font-weight: normal;
-}
 
 .text-blue { color: #38bdf8; }
 .text-green { color: #4ade80; }
