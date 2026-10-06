@@ -1,5 +1,5 @@
 // C:\my-inventory-server\server.js
-// 業務主程式 API 伺服器 (整合 48 欄位 + inventory_15 模組 + 兩庫獨立檔名紀錄 + 全域防崩潰保護 + 極速寫入PRAGMA)
+// 業務主程式 API 伺服器
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const cors = require('cors');
@@ -48,7 +48,7 @@ app.use(express.urlencoded({ limit: '100mb', extended: true }));
 app.use('/api/inventory15', inventory15Module(db));
 app.use('/api/location-stats', locationStatsModule(db));
 
-// 🌟 精準抓取 80 庫與 15 庫最新匯入檔名與筆數 (從 import_logs 資料表讀取) 🌟
+// 🌟 精準抓取 80 庫與 15 庫最新匯入檔名與筆數 (優先從 import_logs 抓取) 🌟
 app.get('/api/dashboard/stats', (req, res) => {
   const sql80 = `SELECT COUNT(*) as total_rows FROM inventory`;
   const sql15 = `SELECT COUNT(*) as total_rows FROM inventory_15`;
@@ -116,7 +116,6 @@ db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS system_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, name TEXT, role TEXT, device TEXT, feature TEXT, action TEXT, created_at TEXT);`);
   db.run(`CREATE TABLE IF NOT EXISTS column_config (key TEXT PRIMARY KEY, config_json TEXT, updated_at TEXT);`);
   db.run(`CREATE TABLE IF NOT EXISTS locations_master (id INTEGER PRIMARY KEY AUTOINCREMENT, floor TEXT, zone TEXT, loc_type TEXT, cubic_feet REAL, grid_count INTEGER, single_cubic_feet REAL);`);
-  // 🌟 新增全域上傳檔名紀錄表 🌟
   db.run(`CREATE TABLE IF NOT EXISTS import_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, module_type TEXT, file_name TEXT, row_count INTEGER, imported_at TEXT);`);
   db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions) VALUES ('admin', '系統管理員', 'sys_admin', 'admin', 'all');`);
   db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions) VALUES ('801854', '黃勝鴻', 'sys_admin', '801854', 'all');`);
@@ -445,7 +444,7 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         volRow['sum_health_vol'] = rowHealthV; volRow['sumHealthVol'] = rowHealthV;
 
         gridPivotTable.push(gridRow);
-        volPivotTable.push(rowVolRow);
+        volPivotTable.push(volRow);
       });
 
       // 附加黃色小計列
@@ -835,7 +834,7 @@ app.post('/api/login', (req, res) => {
 
 app.post('/api/record-log', (req, res) => {
   db.run(`INSERT INTO system_logs (username, name, role, device, feature, action, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [req.body.username || 'admin', req.body.name || '系統管理員', req.body.role || 'sys_admin', req.body.device || 'Desktop', req.body.feature, req.body.action, new Date().toISOString()],
+    [req.body.username || 'admin', req.body.name || '系統管理員', req.body.role || 'sys_admin', req.body.device || 'Desktop', req.body.feature, req.action, new Date().toISOString()],
     (err) => {
       if (err) return res.status(500).json({ success: false, error: err.message });
       res.json({ success: true });

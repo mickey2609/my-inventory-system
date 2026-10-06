@@ -1,5 +1,7 @@
 // frontend/src/utils/exportImportHelpers.js
 import axios from 'axios';
+import Papa from 'papaparse';
+import * as XLSX from 'xlsx';
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -22,7 +24,6 @@ export function extractDateFromFilename(fileName) {
   return new Date().toISOString().split('T')[0];
 }
 
-// 🌟 自動試算並寫入歷史快照（各儲位類型剩餘才數，嚴格採用各樓層明細直接加總法）
 export async function triggerSaveLocationHistory(fileName) {
   try {
     const recordDate = extractDateFromFilename(fileName);
@@ -44,7 +45,6 @@ export async function triggerSaveLocationHistory(fileName) {
           const planV = Number(vRow.sum_plan_vol || vRow.plan_vol || 0);
           const usedV = Number(vRow.sum_used_vol || vRow.used_vol || 0);
           
-          // 🌟 核心同步：比照前台總覽，直接加總該儲位類型在各樓層明細列的剩餘才數
           let remV = 0;
           const targetType = gRow.loc_type;
           volSummary.forEach((vr) => {
@@ -67,7 +67,6 @@ export async function triggerSaveLocationHistory(fileName) {
 
           remV = parseFloat(remV.toFixed(1));
 
-          // 🌟 健康度同步：[使用才數 / (1 - 未使用率)] / 規劃才數
           let health = 0;
           if (planV > 0) {
             const unrate = remV / planV;
@@ -104,16 +103,10 @@ export async function triggerSaveLocationHistory(fileName) {
   }
 }
 
-// 🌟 平滑進度條：微調單次批次大小至 2,500 筆 🌟
+// 🌟 修正進度條驅動與批次上傳檔名攜帶 🌟
 export async function processCsvUpload(file, onProgress, sendLogCallback) {
   return new Promise((resolve, reject) => {
-    const papa = window.Papa || (typeof Papa !== 'undefined' ? Papa : null);
-    if (!papa) {
-      reject(new Error('PapaParse 解析庫尚未載入完成，請重新整理頁面再試'));
-      return;
-    }
-
-    papa.parse(file, {
+    Papa.parse(file, {
       header: true,
       skipEmptyLines: 'greedy',
       transformHeader: (h) => h.replace(/^\uFEFF/, '').trim(),
@@ -126,9 +119,9 @@ export async function processCsvUpload(file, onProgress, sendLogCallback) {
             throw new Error('CSV 檔案為空或無有效資料！');
           }
 
-          if (onProgress) onProgress(0);
+          if (onProgress) onProgress(5);
 
-          const batchSize = 2500; // 🌟 每次推進約 2.2%，進度條移動非常順暢且依然保持高效 🌟
+          const batchSize = 2500;
           let inserted = 0;
 
           for (let i = 0; i < totalRows; i += batchSize) {

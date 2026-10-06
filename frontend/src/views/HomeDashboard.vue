@@ -10,9 +10,8 @@
       </div>
     </div>
 
-    <!-- 數據指標卡片區 (80庫筆數 + 15庫筆數 + 伺服器運行計時) -->
+    <!-- 數據指標卡片區 -->
     <div class="metrics-grid">
-      <!-- 80庫卡片 (含匯入檔名顯示) -->
       <div class="metric-card">
         <div class="card-icon blue-bg">📦</div>
         <div class="card-info">
@@ -27,7 +26,6 @@
         </div>
       </div>
 
-      <!-- 15庫卡片 (含匯入檔名顯示) -->
       <div class="metric-card">
         <div class="card-icon green-bg">📦</div>
         <div class="card-info">
@@ -42,7 +40,6 @@
         </div>
       </div>
 
-      <!-- 伺服器運作計時小卡 -->
       <div class="metric-card">
         <div class="card-icon orange-bg">⏱️</div>
         <div class="card-info">
@@ -54,7 +51,6 @@
       </div>
     </div>
 
-    <!-- 快捷功能區 -->
     <div class="quick-actions-panel">
       <h3 class="panel-title">⚡ 系統功能快捷入口</h3>
       <div class="actions-grid">
@@ -142,6 +138,9 @@ export default {
           this.startUptimeTimer();
         }
       }
+    },
+    'dbMetrics.totalRows80'() {
+      this.fetchStats();
     }
   },
   mounted() {
