@@ -526,7 +526,7 @@ export default {
 
     triggerSelectInventoryFile() { this.$refs.inventoryFileInput.click(); },
 
-    // 🌟 核心防超時修復：採用前端 PapaParse 分塊解析 + 10,000 筆切片批次上傳 🌟
+    // 🌟 帶入真實檔名 (fileName: file.name) 發送至後端儲存紀錄 🌟
     async handleInventoryUpload(event) {
       const file = event.target.files[0];
       if (!file) return;
@@ -535,7 +535,6 @@ export default {
 
       if (this.currentTab === 'inv15') {
         try {
-          // 動態引入 PapaParse 解析 CSV
           const Papa = (await import('papaparse')).default;
           
           Papa.parse(file, {
@@ -550,7 +549,7 @@ export default {
                 return this.$message.error('CSV 檔案無有效資料！');
               }
 
-              const BATCH_SIZE = 10000; // 每批次 10,000 筆，徹底避免 HTTP 逾時與大檔限制
+              const BATCH_SIZE = 10000;
               const totalRows = rawData.length;
               let processed = 0;
 
@@ -560,7 +559,8 @@ export default {
 
                 await axios.post('/api/inventory15/upload', {
                   items: chunk,
-                  isFirstChunk: isFirstChunk
+                  isFirstChunk: isFirstChunk,
+                  fileName: file.name // 🌟 傳送真實檔名給後端 system_config 表儲存
                 });
 
                 processed += chunk.length;
@@ -590,7 +590,6 @@ export default {
           event.target.value = '';
         }
       } else {
-        // 80 庫極速上傳處理
         try {
           const totalRows = await processCsvUpload(file, p => { this.uploadPercent = p; }, (f, a) => this.sendCurrentLog(f, a));
           await triggerSaveLocationHistory(file.name);

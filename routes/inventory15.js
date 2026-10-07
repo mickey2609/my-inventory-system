@@ -30,17 +30,27 @@ function initInventory15Table(db) {
 module.exports = function(db) {
   initInventory15Table(db);
 
-  // [POST] /api/inventory15/upload — 前端分塊 (Batch Chunk) 批次寫入端點
+  // [POST] /api/inventory15/upload — 前端分塊 (Batch Chunk) 批次寫入端點 (含真實檔名儲存)
   router.post('/upload', (req, res) => {
     try {
-      const { items, isFirstChunk } = req.body;
+      const { items, isFirstChunk, fileName } = req.body;
       if (!Array.isArray(items) || items.length === 0) {
         return res.status(400).json({ success: false, message: '上傳資料格式無效' });
       }
 
       db.serialize(() => {
         db.run('BEGIN TRANSACTION');
-        if (isFirstChunk) db.run('DELETE FROM inventory_15');
+        if (isFirstChunk) {
+          db.run('DELETE FROM inventory_15');
+
+          // 🌟 第一包寫入時，同步將最新上傳檔名記錄至 system_config
+          if (fileName) {
+            db.run(`
+              INSERT OR REPLACE INTO system_config (config_key, config_value)
+              VALUES ('latest_inventory15_filename', ?)
+            `, [fileName]);
+          }
+        }
 
         const stmt = db.prepare(`
           INSERT INTO inventory_15 (
