@@ -69,19 +69,19 @@
       </div>
     </div>
 
-    <!-- 1. 級距分頁切換卡片 -->
+    <!-- 1. 年限級距切換頁籤 (Tabs) -->
     <div class="tier-tabs-bar">
       <el-tabs v-model="selectedTier" type="card" @tab-click="handleFilterChange">
         <el-tab-pane label="🌐 全部級距" name="all" />
-        <el-tab-pane label="91 ~ 180" name="t91_180" />
-        <el-tab-pane label="181 ~ 270" name="t181_270" />
-        <el-tab-pane label="271 ~ 365" name="t271_365" />
-        <el-tab-pane label="365 以上" name="t365_plus" />
-        <el-tab-pane label="🚨 滯銷 99999" name="t99999" />
+        <el-tab-pane label="1 年以下" name="y_under_1" />
+        <el-tab-pane label="1 年 ~ 5 年" name="y_1_5" />
+        <el-tab-pane label="5 年 ~ 10 年" name="y_5_10" />
+        <el-tab-pane label="10 年以上" name="y_over_10" />
+        <el-tab-pane label="🚨 滯銷 99999" name="y99999" />
       </el-tabs>
     </div>
 
-    <!-- 2. 總計摘要與 5 大級距統計面板 -->
+    <!-- 2. 總計摘要與級距統計面板 -->
     <div class="summary-overview-card" v-loading="loading">
       <div class="summary-header">
         【摘要】{{ warehouseType === '15' ? '15庫 (自動化倉)' : '80庫 (人工倉)' }} 門檻設定：迴轉(月) > {{ summary.minTurnover }} | 截取板數 Top {{ summary.limitCount }} 筆
@@ -92,16 +92,16 @@
       <div class="summary-totals-grid">
         <div class="total-box"><span class="lbl">筆數上限內品項</span><span class="val text-blue">{{ formatNumber(summary.totalItems) }}</span></div>
         <div class="total-box"><span class="lbl">PCS 數總計</span><span class="val text-green">{{ formatNumber(summary.totalPcs) }}</span></div>
-        <div class="total-box"><span class="lbl">總才數總計</span><span class="val text-orange">{{ formatNumber(summary.totalVolume, 6) }}</span></div>
-        <div class="total-box"><span class="lbl">總板數總計</span><span class="val text-cyan">{{ formatNumber(summary.totalPallets, 6) }}</span></div>
+        <div class="total-box"><span class="lbl">總才數總計</span><span class="val text-orange">{{ formatNumber(summary.totalVolume, 2) }}</span></div>
+        <div class="total-box"><span class="lbl">總板數總計</span><span class="val text-cyan">{{ formatNumber(summary.totalPallets, 2) }}</span></div>
       </div>
 
-      <!-- 5 大級距門檻統計表格 -->
+      <!-- 動態級距門檻統計表格 -->
       <div class="tier-table-wrapper">
         <table class="tier-table">
           <thead>
             <tr>
-              <th>級距門檻</th>
+              <th>級距門檻 (年限)</th>
               <th>品項數</th>
               <th>PCS 數</th>
               <th>才數</th>
@@ -109,12 +109,12 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="t in tiers" :key="t.key" :class="{ 'highlight-滞銷': t.key === 't99999', 'selected-row': selectedTier === t.key }">
-              <td class="tier-label">{{ t.label }}</td>
+            <tr v-for="t in tiers" :key="t.key" :class="{ 'highlight-滞銷': t.key === 'y99999' }">
+              <td class="tier-label font-bold">{{ t.label }}</td>
               <td class="text-right">{{ formatNumber(t.items) }}</td>
               <td class="text-right">{{ formatNumber(t.pcs) }}</td>
-              <td class="text-right">{{ formatNumber(t.vol, 6) }}</td>
-              <td class="text-right font-bold">{{ formatNumber(t.pallets, 6) }}</td>
+              <td class="text-right">{{ formatNumber(t.vol, 2) }}</td>
+              <td class="text-right font-bold text-cyan">{{ formatNumber(t.pallets, 2) }}</td>
             </tr>
           </tbody>
         </table>
@@ -131,34 +131,42 @@
         class="dark-table"
         height="calc(100vh - 430px)"
       >
-        <el-table-column prop="item_id" label="商品ID" width="140" fixed="left" sortable />
-        <el-table-column prop="item_name" label="商品名稱" min-width="260" show-overflow-tooltip />
-        <el-table-column prop="borrow_proc" label="借/採" width="80" align="center" />
-        <el-table-column prop="total_qty" label="加總庫存數" width="110" align="right" sortable>
+        <!-- 🌟 商品ID 加寬至 210px，避免單欄變兩列 🌟 -->
+        <el-table-column prop="item_id" label="商品ID" width="210" fixed="left" sortable />
+        <!-- 🌟 商品名稱設為極彈性，並帶有省略提示 🌟 -->
+        <el-table-column prop="item_name" label="商品名稱" min-width="200" show-overflow-tooltip />
+        <el-table-column prop="borrow_proc" label="借/採" width="75" align="center" />
+        <el-table-column prop="total_qty" label="加總庫存數" width="105" align="right" sortable>
           <template #default="scope">{{ formatNumber(scope.row.total_qty) }}</template>
         </el-table-column>
-        <el-table-column prop="max_age" label="最長庫齡" width="100" align="right" sortable />
-        <el-table-column prop="zone_id" label="區編" width="90" align="center" />
-        <el-table-column prop="zone_name" label="區名" width="110" align="center" />
-        <el-table-column prop="total_cubic_feet" label="總才數" width="130" align="right" sortable>
-          <template #default="scope"><span class="text-orange">{{ formatNumber(scope.row.total_cubic_feet, 6) }}</span></template>
+        <el-table-column prop="max_age" label="最長庫齡" width="95" align="right" sortable />
+        <el-table-column prop="zone_id" label="區編" width="80" align="center" />
+        <el-table-column prop="zone_name" label="區名" width="100" align="center" />
+        
+        <!-- 🌟 才數保留小數點 2 位 🌟 -->
+        <el-table-column prop="total_cubic_feet" label="總才數" width="115" align="right" sortable>
+          <template #default="scope"><span class="text-orange">{{ formatNumber(scope.row.total_cubic_feet, 2) }}</span></template>
         </el-table-column>
-        <el-table-column prop="turnover_month" label="迴轉(月)" width="110" align="right" sortable>
+
+        <el-table-column prop="turnover_month" label="迴轉(月)" width="105" align="right" sortable>
           <template #default="scope">
             <span :class="scope.row.turnover_month === 99999 ? 'tag-stagnant' : 'text-blue'">
               {{ scope.row.turnover_month === 99999 ? '滯銷(99999)' : scope.row.turnover_month }}
             </span>
           </template>
         </el-table-column>
-        <el-table-column prop="monthly_sales" label="月銷量" width="100" align="right" sortable>
+
+        <el-table-column prop="monthly_sales" label="月銷量" width="95" align="right" sortable>
           <template #default="scope">{{ formatNumber(scope.row.monthly_sales) }}</template>
         </el-table-column>
-        <el-table-column prop="pallets" label="板數" width="130" align="right" sortable fixed="right">
-          <template #default="scope"><span class="text-cyan font-bold">{{ formatNumber(scope.row.pallets, 6) }}</span></template>
+
+        <!-- 🌟 板數保留小數點 2 位 🌟 -->
+        <el-table-column prop="pallets" label="板數" width="115" align="right" sortable fixed="right">
+          <template #default="scope"><span class="text-cyan font-bold">{{ formatNumber(scope.row.pallets, 2) }}</span></template>
         </el-table-column>
       </el-table>
 
-      <!-- 底部分頁導覽列 (固定每頁 500 筆) -->
+      <!-- 底部分頁導覽列 -->
       <div class="pagination-footer">
         <el-pagination
           background
@@ -184,15 +192,15 @@ export default {
       loading: false,
       exporting: false,
       warehouseType: '15',
-      minTurnover: 90,
-      limitCount: 500, // 預設前 500 筆
-      sortOrder: 'desc', // 板數預設大至小
-      selectedTier: 'all', // 預設全部級距
+      minTurnover: 0,
+      limitCount: 500,
+      sortOrder: 'desc',
+      selectedTier: 'all',
       currentPage: 1,
-      pageSize: 500, // 每頁 500 筆
+      pageSize: 500,
       totalRows: 0,
       reportTime: '',
-      summary: { minTurnover: 90, limitCount: 500, totalItems: 0, totalPcs: 0, totalVolume: 0, totalPallets: 0 },
+      summary: { minTurnover: 0, limitCount: 500, totalItems: 0, totalPcs: 0, totalVolume: 0, totalPallets: 0 },
       tiers: [],
       tableData: [],
       exportFullData: []
@@ -282,8 +290,8 @@ export default {
         });
 
         const ws = XLSX.utils.aoa_to_sheet(aoa);
-        XLSX.utils.book_append_sheet(wb, ws, `${whName}_迴轉率清單`);
-        XLSX.writeFile(wb, `${whName}_迴轉率清單_${new Date().toISOString().split('T')[0]}.xlsx`);
+        XLSX.utils.book_append_sheet(wb, ws, `${whName}_迴轉率年限清單`);
+        XLSX.writeFile(wb, `${whName}_迴轉率年限清單_${new Date().toISOString().split('T')[0]}.xlsx`);
         this.$message.success('🎉 成功匯出迴轉率 Excel 報表！');
       } catch (e) {
         this.$message.error('匯出 Excel 失敗：' + e.message);
@@ -429,11 +437,6 @@ export default {
   color: #38bdf8;
   font-weight: bold;
   text-align: center;
-}
-
-.tier-table tr.selected-row td {
-  border-top: 2px solid #38bdf8 !important;
-  border-bottom: 2px solid #38bdf8 !important;
 }
 
 .tier-table tr.highlight-滞銷 td {

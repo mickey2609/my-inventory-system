@@ -1,22 +1,19 @@
 ﻿// C:\my-inventory-server\routes\turnover15.js
-// 15庫 (自動化倉) 迴轉率分析專屬 API 路由模組 (含分頁、級距過濾與筆數上限)
+// 15庫 (自動化倉) 迴轉率/年限分析專屬 API 路由模組
 const express = require('express');
 
 module.exports = function(db) {
   const router = express.Router();
 
-  // [GET] /api/turnover15/search
   router.get('/search', (req, res) => {
     try {
-      const minTurnover = parseFloat(req.query.minTurnover || '90');
+      const minTurnover = parseFloat(req.query.minTurnover || '0');
       const sortOrder = (req.query.sortOrder || 'desc').toLowerCase();
-      // 筆數上限 (預設 500，手動可調 1 ~ 10000)
       const limitCount = Math.min(Math.max(parseInt(req.query.limit || '500', 10), 1), 10000);
       const page = parseInt(req.query.page || '1', 10);
       const pageSize = parseInt(req.query.pageSize || '500', 10);
-      const selectedTier = req.query.tier || 'all'; // all, t91_180, t181_270, t271_365, t365_plus, t99999
+      const selectedTier = req.query.tier || 'all'; // all, y_under_1, y_1_5, y_5_10, y_over_10, y99999
 
-      // SQL：排除 80U/80Z 儲位
       const sql = `
         SELECT 
           item_id,
@@ -35,18 +32,16 @@ module.exports = function(db) {
       `;
 
       db.all(sql, [], (err, rows) => {
-        if (err) {
-          return res.status(500).json({ success: false, message: '查詢 15 庫資料失敗：' + err.message });
-        }
+        if (err) return res.status(500).json({ success: false, message: '查詢 15 庫資料失敗：' + err.message });
 
         rows = rows || [];
 
         const tiers = {
-          t91_180: { label: '91 ~ 180', items: 0, pcs: 0, vol: 0, pallets: 0 },
-          t181_270: { label: '181 ~ 270', items: 0, pcs: 0, vol: 0, pallets: 0 },
-          t271_365: { label: '271 ~ 365', items: 0, pcs: 0, vol: 0, pallets: 0 },
-          t365_plus: { label: '365 以上 (不含99999)', items: 0, pcs: 0, vol: 0, pallets: 0 },
-          t99999: { label: '滯銷 99999', items: 0, pcs: 0, vol: 0, pallets: 0 }
+          y_under_1: { key: 'y_under_1', label: '1 年以下', items: 0, pcs: 0, vol: 0, pallets: 0 },
+          y_1_5: { key: 'y_1_5', label: '1 年 ~ 5 年', items: 0, pcs: 0, vol: 0, pallets: 0 },
+          y_5_10: { key: 'y_5_10', label: '5 年 ~ 10 年', items: 0, pcs: 0, vol: 0, pallets: 0 },
+          y_over_10: { key: 'y_over_10', label: '10 年以上 (不含滯銷)', items: 0, pcs: 0, vol: 0, pallets: 0 },
+          y99999: { key: 'y99999', label: '🚨 99999 滯銷品', items: 0, pcs: 0, vol: 0, pallets: 0 }
         };
 
         const allMatchedList = [];
@@ -61,44 +56,30 @@ module.exports = function(db) {
             turnover = parseFloat((qty / sales).toFixed(1));
           }
 
-          if (turnover > minTurnover) {
-            const totalVol = parseFloat((qty * unitVol).toFixed(6));
-            const pallets = parseFloat((totalVol / 35).toFixed(6));
+          if (turnover >= minTurnover) {
+            const totalVol = parseFloat((qty * unitVol).toFixed(2));
+            const pallets = parseFloat((totalVol / 35).toFixed(2));
 
             let tierKey = '';
             if (turnover === 99999) {
-              tierKey = 't99999';
-              tiers.t99999.items += 1;
-              tiers.t99999.pcs += qty;
-              tiers.t99999.vol += totalVol;
-              tiers.t99999.pallets += pallets;
-            } else if (turnover > 365) {
-              tierKey = 't365_plus';
-              tiers.t365_plus.items += 1;
-              tiers.t365_plus.pcs += qty;
-              tiers.t365_plus.vol += totalVol;
-              tiers.t365_plus.pallets += pallets;
-            } else if (turnover > 270) {
-              tierKey = 't271_365';
-              tiers.t271_365.items += 1;
-              tiers.t271_365.pcs += qty;
-              tiers.t271_365.vol += totalVol;
-              tiers.t271_365.pallets += pallets;
-            } else if (turnover > 180) {
-              tierKey = 't181_270';
-              tiers.t181_270.items += 1;
-              tiers.t181_270.pcs += qty;
-              tiers.t181_270.vol += totalVol;
-              tiers.t181_270.pallets += pallets;
-            } else if (turnover >= 91) {
-              tierKey = 't91_180';
-              tiers.t91_180.items += 1;
-              tiers.t91_180.pcs += qty;
-              tiers.t91_180.vol += totalVol;
-              tiers.t91_180.pallets += pallets;
+              tierKey = 'y99999';
+            } else if (turnover > 120) { // > 10年 (120個月)
+              tierKey = 'y_over_10';
+            } else if (turnover > 60) {  // 5年 ~ 10年 (61~120個月)
+              tierKey = 'y_5_10';
+            } else if (turnover > 12) {  // 1年 ~ 5年 (13~60個月)
+              tierKey = 'y_1_5';
+            } else {                     // <= 1年 (<=12個月)
+              tierKey = 'y_under_1';
             }
 
-            // 根據選取的級距進行篩選
+            if (tierKey && tiers[tierKey]) {
+              tiers[tierKey].items += 1;
+              tiers[tierKey].pcs += qty;
+              tiers[tierKey].vol += totalVol;
+              tiers[tierKey].pallets += pallets;
+            }
+
             if (selectedTier === 'all' || selectedTier === tierKey) {
               allMatchedList.push({
                 item_id: r.item_id,
@@ -118,15 +99,12 @@ module.exports = function(db) {
           }
         });
 
-        // 1. 板數排序 (預設降冪 desc: 大到小)
-        allMatchedList.sort((a, b) => {
-          return sortOrder === 'asc' ? a.pallets - b.pallets : b.pallets - a.pallets;
-        });
+        // 1. 板數排序
+        allMatchedList.sort((a, b) => sortOrder === 'asc' ? a.pallets - b.pallets : b.pallets - a.pallets);
 
-        // 2. 截取設定的上限制 N 筆 (limitCount)
+        // 2. 截取前 N 筆
         const cappedList = allMatchedList.slice(0, limitCount);
 
-        // 3. 計算摘要統計 (基於截取後的 Top N 資料)
         let totalItems = cappedList.length;
         let totalPcs = 0, totalVolume = 0, totalPallets = 0;
         cappedList.forEach(item => {
@@ -135,19 +113,22 @@ module.exports = function(db) {
           totalPallets += item.pallets;
         });
 
-        // 4. 計算當前頁碼數據切片 (Page & PageSize)
+        // 3. 分頁數據切片
         const totalRows = cappedList.length;
         const offset = (page - 1) * pageSize;
         const pagedData = cappedList.slice(offset, offset + pageSize);
 
-        const formattedTiers = Object.keys(tiers).map(k => ({
-          key: k,
-          label: tiers[k].label,
-          items: tiers[k].items,
-          pcs: Math.round(tiers[k].pcs),
-          vol: parseFloat(tiers[k].vol.toFixed(6)),
-          pallets: parseFloat(tiers[k].pallets.toFixed(6))
-        }));
+        // 4. 根據選取的頁籤動態過濾級距統計小表
+        const filteredTiers = Object.keys(tiers)
+          .filter(k => selectedTier === 'all' || selectedTier === k)
+          .map(k => ({
+            key: k,
+            label: tiers[k].label,
+            items: tiers[k].items,
+            pcs: Math.round(tiers[k].pcs),
+            vol: parseFloat(tiers[k].vol.toFixed(2)),
+            pallets: parseFloat(tiers[k].pallets.toFixed(2))
+          }));
 
         res.json({
           success: true,
@@ -156,17 +137,13 @@ module.exports = function(db) {
             limitCount,
             totalItems,
             totalPcs: Math.round(totalPcs),
-            totalVolume: parseFloat(totalVolume.toFixed(6)),
-            totalPallets: parseFloat(totalPallets.toFixed(6))
+            totalVolume: parseFloat(totalVolume.toFixed(2)),
+            totalPallets: parseFloat(totalPallets.toFixed(2))
           },
-          tiers: formattedTiers,
-          pagination: {
-            page,
-            pageSize,
-            totalRows
-          },
+          tiers: filteredTiers,
+          pagination: { page, pageSize, totalRows },
           data: pagedData,
-          exportData: cappedList // 供匯出全量 Excel 使用 (前 N 筆)
+          exportData: cappedList
         });
       });
     } catch (err) {
