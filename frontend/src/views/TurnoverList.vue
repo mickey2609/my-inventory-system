@@ -69,9 +69,9 @@
       </div>
     </div>
 
-    <!-- 1. 年限級距切換頁籤 (Tabs) -->
+    <!-- 1. 年限級距切換頁籤 (改用 @tab-change) -->
     <div class="tier-tabs-bar">
-      <el-tabs v-model="selectedTier" type="card" @tab-click="handleFilterChange">
+      <el-tabs v-model="selectedTier" type="card" @tab-change="handleFilterChange">
         <el-tab-pane label="🌐 全部級距" name="all" />
         <el-tab-pane label="1 年以下" name="y_under_1" />
         <el-tab-pane label="1 年 ~ 5 年" name="y_1_5" />
@@ -131,9 +131,7 @@
         class="dark-table"
         height="calc(100vh - 430px)"
       >
-        <!-- 🌟 商品ID 加寬至 210px，避免單欄變兩列 🌟 -->
         <el-table-column prop="item_id" label="商品ID" width="210" fixed="left" sortable />
-        <!-- 🌟 商品名稱設為極彈性，並帶有省略提示 🌟 -->
         <el-table-column prop="item_name" label="商品名稱" min-width="200" show-overflow-tooltip />
         <el-table-column prop="borrow_proc" label="借/採" width="75" align="center" />
         <el-table-column prop="total_qty" label="加總庫存數" width="105" align="right" sortable>
@@ -143,7 +141,6 @@
         <el-table-column prop="zone_id" label="區編" width="80" align="center" />
         <el-table-column prop="zone_name" label="區名" width="100" align="center" />
         
-        <!-- 🌟 才數保留小數點 2 位 🌟 -->
         <el-table-column prop="total_cubic_feet" label="總才數" width="115" align="right" sortable>
           <template #default="scope"><span class="text-orange">{{ formatNumber(scope.row.total_cubic_feet, 2) }}</span></template>
         </el-table-column>
@@ -160,7 +157,6 @@
           <template #default="scope">{{ formatNumber(scope.row.monthly_sales) }}</template>
         </el-table-column>
 
-        <!-- 🌟 板數保留小數點 2 位 🌟 -->
         <el-table-column prop="pallets" label="板數" width="115" align="right" sortable fixed="right">
           <template #default="scope"><span class="text-cyan font-bold">{{ formatNumber(scope.row.pallets, 2) }}</span></template>
         </el-table-column>
@@ -223,7 +219,9 @@ export default {
     },
     handleFilterChange() {
       this.currentPage = 1;
-      this.fetchTurnoverData();
+      this.$nextTick(() => {
+        this.fetchTurnoverData();
+      });
     },
     handlePageChange(page) {
       this.currentPage = page;
