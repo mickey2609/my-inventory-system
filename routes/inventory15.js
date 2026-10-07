@@ -1,10 +1,6 @@
 // routes/inventory15.js
 const express = require('express');
-const multer = require('multer');
 const router = express.Router();
-
-// 支援最大 100MB 上傳
-const upload = multer({ limits: { fileSize: 100 * 1024 * 1024 } });
 
 function initInventory15Table(db) {
   db.serialize(() => {
@@ -34,92 +30,7 @@ function initInventory15Table(db) {
 module.exports = function(db) {
   initInventory15Table(db);
 
-  // 🌟 [POST] /api/inventory15/fast-upload — 流式上傳端點
-  router.post('/fast-upload', upload.single('file'), (req, res) => {
-    if (!req.file) {
-      return res.status(400).json({ success: false, message: '未接收到上傳檔案' });
-    }
-
-    try {
-      const fileContent = req.file.buffer.toString('utf8');
-      const lines = fileContent.split(/\r?\n/);
-      if (lines.length <= 1) {
-        return res.status(400).json({ success: false, message: '檔案內容為空或無有效資料' });
-      }
-
-      const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
-      
-      const getIdx = (possibleNames) => {
-        for (const name of possibleNames) {
-          const idx = headers.findIndex(h => h.toLowerCase() === name.toLowerCase());
-          if (idx !== -1) return idx;
-        }
-        return -1;
-      };
-
-      const idxItemId = getIdx(['商品ID', 'item_id', 'itemId']);
-      const idxItemName = getIdx(['商品名稱', 'item_name', 'itemName']);
-      const idxBorrow = getIdx(['借/採', 'borrow_proc', 'borrow_type']);
-      const idxLoc = getIdx(['儲位', 'location', 'loc']);
-      const idxQty = getIdx(['儲位庫存數', 'qty', 'loc_qty', '數量']);
-      const idxAge = getIdx(['庫齡', 'age']);
-      const idxZoneId = getIdx(['區編', 'zone_id']);
-      const idxZoneName = getIdx(['區名', 'zone_name']);
-      const idxSales = getIdx(['(近)月銷量', 'monthly_sales', 'sales']);
-      const idxCubic = getIdx(['才數', 'cubic_feet', '單才數']);
-
-      db.serialize(() => {
-        db.run('BEGIN TRANSACTION;');
-        db.run('DELETE FROM inventory_15;');
-
-        const stmt = db.prepare(`
-          INSERT INTO inventory_15 (
-            item_id, item_name, borrow_proc, location, qty, age, 
-            zone_id, zone_name, cubic_feet, monthly_sales, total_cubic_feet
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-
-        let insertedCount = 0;
-
-        for (let i = 1; i < lines.length; i++) {
-          const line = lines[i].trim();
-          if (!line) continue;
-
-          // 修正為正確的正則替換
-          const cols = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(c => c.trim().replace(/^"\vert{}"$/g, ''));
-
-          const itemId = idxItemId !== -1 ? cols[idxItemId] : '';
-          if (!itemId || itemId === '-' || itemId === '0') continue;
-
-          const itemName = idxItemName !== -1 ? cols[idxItemName] : '';
-          const borrowProc = idxBorrow !== -1 ? cols[idxBorrow] : '';
-          const loc = idxLoc !== -1 ? cols[idxLoc] : '';
-          const qty = idxQty !== -1 ? (parseFloat(cols[idxQty].replace(/,/g, '')) || 0) : 0;
-          const age = idxAge !== -1 ? (parseInt(cols[idxAge], 10) || 0) : 0;
-          const zoneId = idxZoneId !== -1 ? cols[idxZoneId] : '';
-          const zoneName = idxZoneName !== -1 ? cols[idxZoneName] : '';
-          const sales = idxSales !== -1 ? (parseFloat(cols[idxSales].replace(/,/g, '')) || 0) : 0;
-          const cubic = idxCubic !== -1 ? (parseFloat(cols[idxCubic].replace(/,/g, '')) || 0) : 0;
-          const totalCubic = cubic * qty;
-
-          stmt.run([itemId, itemName, borrowProc, loc, qty, age, zoneId, zoneName, cubic, sales, totalCubic]);
-          insertedCount++;
-        }
-
-        stmt.finalize();
-        db.run('COMMIT;', (err) => {
-          if (err) {
-            return res.status(500).json({ success: false, message: 'SQLite 寫入事務失敗：' + err.message });
-          }
-          res.json({ success: true, count: insertedCount, message: '資料匯入成功' });
-        });
-      });
-    } catch (e) {
-      res.status(500).json({ success: false, message: '解析檔案失敗：' + e.message });
-    }
-  });
-
-  // [POST] /api/inventory15/upload — JSON 陣列批次寫入端點
+  // [POST] /api/inventory15/upload — 前端分塊 (Batch Chunk) 批次寫入端點
   router.post('/upload', (req, res) => {
     try {
       const { items, isFirstChunk } = req.body;
