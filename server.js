@@ -40,7 +40,6 @@ const db = new sqlite3.Database('inventory_local.sqlite', (err) => {
 
 const inventory15Module = require('./routes/inventory15');
 const locationStatsModule = require('./routes/locationStats');
-// 🌟 引入 15庫 迴轉率分析專屬路由模組
 const turnover15Module = require('./routes/turnover15');
 const turnover80Module = require('./routes/turnover80');
 
@@ -50,42 +49,64 @@ app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
 app.use('/api/inventory15', inventory15Module(db));
 app.use('/api/location-stats', locationStatsModule(db));
-// 🌟 掛載 /api/turnover15 相關路由
 app.use('/api/turnover15', turnover15Module(db));
 app.use('/api/turnover80', turnover80Module(db));
 
-// 🌟 精準抓取 80 庫與 15 庫最新匯入檔名 (雙重備援機制) 🌟
+// 🌟 精準抓取 80 庫與 15 庫最新匯入檔名 (自動對齊 system_config 與 import_logs) 🌟
 app.get('/api/dashboard/stats', (req, res) => {
   const sql80 = `SELECT COUNT(*) as total_rows FROM inventory`;
   const sql15 = `SELECT COUNT(*) as total_rows FROM inventory_15`;
   const sqlLog80 = `SELECT file_name FROM import_logs WHERE module_type = '80' ORDER BY id DESC LIMIT 1`;
   const sqlLog15 = `SELECT file_name FROM import_logs WHERE module_type = '15' ORDER BY id DESC LIMIT 1`;
+  const sqlCfg15 = `SELECT config_value FROM system_config WHERE config_key = 'latest_inventory15_filename'`;
   const sqlHist = `SELECT file_name, record_date FROM location_history ORDER BY id DESC LIMIT 1`;
 
   db.get(sql80, [], (err, row80) => {
     db.get(sql15, [], (err, row15) => {
       db.get(sqlLog80, [], (err, log80) => {
         db.get(sqlLog15, [], (err, log15) => {
-          db.get(sqlHist, [], (err, hist) => {
-            let fn80 = 'latest_inventory.csv';
-            if (log80 && log80.file_name) fn80 = log80.file_name;
-            else if (hist && hist.file_name) fn80 = hist.file_name;
-            else if (hist && hist.record_date) fn80 = `latest_inventory${hist.record_date.replace(/-/g, '')}.csv`;
+          db.get(sqlCfg15, [], (err, cfg15) => {
+            db.get(sqlHist, [], (err, hist) => {
+              let fn80 = 'latest_inventory.csv';
+              if (log80 && log80.file_name) fn80 = log80.file_name;
+              else if (hist && hist.file_name) fn80 = hist.file_name;
+              else if (hist && hist.record_date) fn80 = `latest_inventory${hist.record_date.replace(/-/g, '')}.csv`;
 
-            res.json({
-              success: true,
-              stats80: {
-                total_rows: row80 ? row80.total_rows : 0,
-                file_name: fn80
-              },
-              stats15: {
-                total_rows: row15 ? row15.total_rows : 0,
-                file_name: log15 ? log15.file_name : 'latest_inventory15.csv'
-              }
+              let fn15 = 'latest_inventory15.csv';
+              if (cfg15 && cfg15.config_value) fn15 = cfg15.config_value;
+              else if (log15 && log15.file_name) fn15 = log15.file_name;
+
+              res.json({
+                success: true,
+                stats80: {
+                  total_rows: row80 ? row80.total_rows : 0,
+                  file_name: fn80
+                },
+                stats15: {
+                  total_rows: row15 ? row15.total_rows : 0,
+                  file_name: fn15
+                }
+              });
             });
           });
         });
       });
+    });
+  });
+});
+
+app.get('/api/get-global-config', (req, res) => {
+  const currentUptimeSec = Math.floor((Date.now() - SERVER_START_TIME) / 1000);
+  db.get("SELECT config_value FROM system_config WHERE config_key = 'latest_inventory15_filename'", [], (err, row) => {
+    const fn15 = (row && row.config_value) ? row.config_value : 'latest_inventory15.csv';
+    res.json({
+      success: true,
+      data: {
+        system_name: "庫存儲位管理系統",
+        version: "v2026.10.02-SNAP",
+        server_uptime_seconds: currentUptimeSec,
+        latest_inventory15_filename: fn15
+      }
     });
   });
 });
@@ -129,6 +150,7 @@ db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, name TEXT, role TEXT, password TEXT, permissions TEXT, last_active INTEGER);`);
   db.run(`CREATE TABLE IF NOT EXISTS system_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, name TEXT, role TEXT, device TEXT, feature TEXT, action TEXT, created_at TEXT);`);
   db.run(`CREATE TABLE IF NOT EXISTS column_config (key TEXT PRIMARY KEY, config_json TEXT, updated_at TEXT);`);
+  db.run(`CREATE TABLE IF NOT EXISTS system_config (config_key TEXT PRIMARY KEY, config_value TEXT);`);
   db.run(`CREATE TABLE IF NOT EXISTS locations_master (id INTEGER PRIMARY KEY AUTOINCREMENT, floor TEXT, zone TEXT, loc_type TEXT, cubic_feet REAL, grid_count INTEGER, single_cubic_feet REAL);`);
   db.run(`CREATE TABLE IF NOT EXISTS import_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, module_type TEXT, file_name TEXT, row_count INTEGER, imported_at TEXT);`);
   db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions) VALUES ('admin', '系統管理員', 'sys_admin', 'admin', 'all');`);
@@ -592,11 +614,6 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
   });
 });
 
-app.get('/api/get-global-config', (req, res) => {
-  const currentUptimeSec = Math.floor((Date.now() - SERVER_START_TIME) / 1000);
-  res.json({ success: true, data: { system_name: "庫存儲位管理系統", version: "v2026.10.02-SNAP", server_uptime_seconds: currentUptimeSec } });
-});
-
 app.get('/api/categories/large', (req, res) => {
   db.all('SELECT DISTINCT big_zone FROM inventory WHERE big_zone IS NOT NULL AND big_zone != ""', [], (err, rows) => {
     if (err) return res.status(500).json({ success: false, error: err.message });
@@ -862,7 +879,7 @@ app.get('/api/get-logs', (req, res) => {
   });
 });
 
-// 🌟 [POST] 極速匯入 API (無條件寫入 import_logs) 🌟
+// [POST] 極速匯入 API (無條件寫入 import_logs)
 app.post('/api/upload', (req, res) => {
   try {
     const { items, isFirstChunk, fileName } = req.body;
@@ -878,7 +895,6 @@ app.post('/api/upload', (req, res) => {
         db.run('DELETE FROM inventory');
       }
 
-      // 🌟 無論是否為第一區塊，只要收到 fileName 就即時寫入或覆蓋 🌟
       if (fileName) {
         db.run(`INSERT INTO import_logs (module_type, file_name, row_count, imported_at) VALUES ('80', ?, ?, DATETIME('now'))`, [fileName, items.length]);
       }
