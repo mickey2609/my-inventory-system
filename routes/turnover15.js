@@ -1,5 +1,4 @@
 ﻿// C:\my-inventory-server\routes\turnover15.js
-// 15庫 (自動化倉) 迴轉率/年限分析專屬 API 路由模組
 const express = require('express');
 
 module.exports = function(db) {
@@ -12,7 +11,7 @@ module.exports = function(db) {
       const limitCount = Math.min(Math.max(parseInt(req.query.limit || '500', 10), 1), 10000);
       const page = parseInt(req.query.page || '1', 10);
       const pageSize = parseInt(req.query.pageSize || '500', 10);
-      const selectedTier = req.query.tier || 'all'; // all, y_under_1, y_1_5, y_5_10, y_over_10, y99999
+      const selectedTier = req.query.tier || 'all'; 
 
       const sql = `
         SELECT 
@@ -37,10 +36,10 @@ module.exports = function(db) {
         rows = rows || [];
 
         const tiers = {
-          y_under_1: { key: 'y_under_1', label: '1 年以下', items: 0, pcs: 0, vol: 0, pallets: 0 },
-          y_1_5: { key: 'y_1_5', label: '1 年 ~ 5 年', items: 0, pcs: 0, vol: 0, pallets: 0 },
-          y_5_10: { key: 'y_5_10', label: '5 年 ~ 10 年', items: 0, pcs: 0, vol: 0, pallets: 0 },
-          y_over_10: { key: 'y_over_10', label: '10 年以上 (不含滯銷)', items: 0, pcs: 0, vol: 0, pallets: 0 },
+          y_under_1: { key: 'y_under_1', label: '1 年以下 (<=12個月)', items: 0, pcs: 0, vol: 0, pallets: 0 },
+          y_1_5: { key: 'y_1_5', label: '1 年 ~ 5 年 (13~60個月)', items: 0, pcs: 0, vol: 0, pallets: 0 },
+          y_5_10: { key: 'y_5_10', label: '5 年 ~ 10 年 (61~120個月)', items: 0, pcs: 0, vol: 0, pallets: 0 },
+          y_over_10: { key: 'y_over_10', label: '10 年以上 (>120個月)', items: 0, pcs: 0, vol: 0, pallets: 0 },
           y99999: { key: 'y99999', label: '🚨 99999 滯銷品', items: 0, pcs: 0, vol: 0, pallets: 0 }
         };
 
@@ -60,16 +59,17 @@ module.exports = function(db) {
             const totalVol = parseFloat((qty * unitVol).toFixed(2));
             const pallets = parseFloat((totalVol / 35).toFixed(2));
 
+            // 🌟 精準級距判定邏輯 🌟
             let tierKey = '';
             if (turnover === 99999) {
               tierKey = 'y99999';
-            } else if (turnover > 120) { // > 10年 (120個月)
+            } else if (turnover > 120) {     // > 120個月 (10年以上)
               tierKey = 'y_over_10';
-            } else if (turnover > 60) {  // 5年 ~ 10年 (61~120個月)
+            } else if (turnover > 60) {      // 61~120個月 (5年~10年)
               tierKey = 'y_5_10';
-            } else if (turnover > 12) {  // 1年 ~ 5年 (13~60個月)
+            } else if (turnover > 12) {      // 13~60個月 (1年~5年)
               tierKey = 'y_1_5';
-            } else {                     // <= 1年 (<=12個月)
+            } else {                         // <= 12個月 (1年以下)
               tierKey = 'y_under_1';
             }
 
@@ -99,10 +99,8 @@ module.exports = function(db) {
           }
         });
 
-        // 1. 板數排序
         allMatchedList.sort((a, b) => sortOrder === 'asc' ? a.pallets - b.pallets : b.pallets - a.pallets);
 
-        // 2. 截取前 N 筆
         const cappedList = allMatchedList.slice(0, limitCount);
 
         let totalItems = cappedList.length;
@@ -113,12 +111,11 @@ module.exports = function(db) {
           totalPallets += item.pallets;
         });
 
-        // 3. 分頁數據切片
         const totalRows = cappedList.length;
         const offset = (page - 1) * pageSize;
         const pagedData = cappedList.slice(offset, offset + pageSize);
 
-        // 4. 根據選取的頁籤動態過濾級距統計小表
+        // 🌟 正確過濾並傳回與選取頁籤完全一致的統計 Row 🌟
         const filteredTiers = Object.keys(tiers)
           .filter(k => selectedTier === 'all' || selectedTier === k)
           .map(k => ({
