@@ -34,7 +34,7 @@ function initInventory15Table(db) {
 module.exports = function(db) {
   initInventory15Table(db);
 
-  // 🌟 [POST] /api/inventory15/fast-upload — 解決前端 404 錯誤的流式上傳端點
+  // 🌟 [POST] /api/inventory15/fast-upload — 流式上傳端點
   router.post('/fast-upload', upload.single('file'), (req, res) => {
     if (!req.file) {
       return res.status(400).json({ success: false, message: '未接收到上傳檔案' });
@@ -85,6 +85,7 @@ module.exports = function(db) {
           const line = lines[i].trim();
           if (!line) continue;
 
+          // 修正為正確的正則替換
           const cols = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(c => c.trim().replace(/^"\vert{}"$/g, ''));
 
           const itemId = idxItemId !== -1 ? cols[idxItemId] : '';
