@@ -75,7 +75,7 @@
             @refresh-metrics="fetchDashboardMetrics"
           />
 
-          <!-- 🌟 迴轉率清單專屬視圖 (修復未掛載問題) 🌟 -->
+          <!-- 🌟 迴轉率清單專屬視圖 🌟 -->
           <TurnoverList 
             v-else-if="currentTab === 'turnover'" key="turnover" 
           />
@@ -526,50 +526,73 @@ export default {
 
     triggerSelectInventoryFile() { this.$refs.inventoryFileInput.click(); },
 
-    // 🌟 動態上傳分流：80 庫與 15 庫皆採用一次性 FormData 極速流式上傳 🌟
+    // 🌟 核心防超時修復：採用前端 PapaParse 分塊解析 + 10,000 筆切片批次上傳 🌟
     async handleInventoryUpload(event) {
       const file = event.target.files[0];
       if (!file) return;
       this.isUploading = true;
-      this.uploadPercent = 10;
-
-      const formData = new FormData();
-      formData.append('file', file);
+      this.uploadPercent = 5;
 
       if (this.currentTab === 'inv15') {
         try {
-          this.uploadPercent = 30;
-          const res = await axios.post('/api/inventory15/fast-upload', formData, {
-            headers: { 'Content-Type': 'multipart/form-data' },
-            onUploadProgress: (progressEvent) => {
-              if (progressEvent.total) {
-                this.uploadPercent = Math.min(95, Math.round((progressEvent.loaded / progressEvent.total) * 90));
+          // 動態引入 PapaParse 解析 CSV
+          const Papa = (await import('papaparse')).default;
+          
+          Papa.parse(file, {
+            header: true,
+            skipEmptyLines: true,
+            complete: async (results) => {
+              const rawData = results.data || [];
+              if (rawData.length === 0) {
+                this.isUploading = false;
+                this.uploadPercent = 0;
+                event.target.value = '';
+                return this.$message.error('CSV 檔案無有效資料！');
               }
+
+              const BATCH_SIZE = 10000; // 每批次 10,000 筆，徹底避免 HTTP 逾時與大檔限制
+              const totalRows = rawData.length;
+              let processed = 0;
+
+              for (let i = 0; i < totalRows; i += BATCH_SIZE) {
+                const chunk = rawData.slice(i, i + BATCH_SIZE);
+                const isFirstChunk = (i === 0);
+
+                await axios.post('/api/inventory15/upload', {
+                  items: chunk,
+                  isFirstChunk: isFirstChunk
+                });
+
+                processed += chunk.length;
+                this.uploadPercent = Math.min(99, Math.round((processed / totalRows) * 100));
+              }
+
+              this.uploadPercent = 100;
+              this.$message.success(`🎉 成功寫入 ${totalRows.toLocaleString()} 筆有效資料至 庫存15！`);
+              this.showInventoryImportTipDialog = false;
+              window.dispatchEvent(new CustomEvent('inventory-updated'));
+              this.fetchDashboardMetrics();
+              this.isUploading = false;
+              this.uploadPercent = 0;
+              event.target.value = '';
+            },
+            error: (err) => {
+              this.isUploading = false;
+              this.uploadPercent = 0;
+              this.$message.error('解析 CSV 失敗：' + err.message);
+              event.target.value = '';
             }
           });
-
-          if (res.data?.success) {
-            this.uploadPercent = 100;
-            this.$message.success(`🎉 成功寫入 ${res.data.count.toLocaleString()} 筆有效資料至 庫存15！`);
-            this.showInventoryImportTipDialog = false;
-            window.dispatchEvent(new CustomEvent('inventory-updated'));
-            this.fetchDashboardMetrics();
-          } else {
-            this.$message.error('匯入 15 庫失敗：' + (res.data?.message || '未知錯誤'));
-          }
-        } catch (e) { 
-          this.$message.error('匯入 15 庫連線失敗：' + (e.response?.data?.message || e.message)); 
-        } finally { 
-          this.isUploading = false; 
+        } catch (e) {
+          this.isUploading = false;
           this.uploadPercent = 0;
-          event.target.value = ''; 
+          this.$message.error('匯入 15 庫連線失敗：' + e.message);
+          event.target.value = '';
         }
       } else {
-        // 80 庫極速流式上傳處理
+        // 80 庫極速上傳處理
         try {
           const totalRows = await processCsvUpload(file, p => { this.uploadPercent = p; }, (f, a) => this.sendCurrentLog(f, a));
-          
-          // 🌟 自動觸發寫入 7 大 KPI 歷史快照 (自動解析檔名日期)
           await triggerSaveLocationHistory(file.name);
 
           this.$message.success(`🎉 成功寫入 ${totalRows.toLocaleString()} 筆資料至 庫存80！`);
