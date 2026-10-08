@@ -15,7 +15,7 @@
       </div>
 
       <div class="controls-group">
-        <!-- 🌟 參數設定按鈕 (收納所有過濾與排序門檻) -->
+        <!-- ⚙️ 參數設定按鈕 -->
         <el-button 
           type="warning" 
           size="small" 
@@ -153,7 +153,7 @@
       </div>
     </div>
 
-    <!-- 🌟 4. ⚙️ 參數設定對話盒 (Modal) 🌟 -->
+    <!-- 4. ⚙️ 參數設定對話盒 (Modal) -->
     <el-dialog 
       v-model="showParamDialog" 
       title="⚙️ 迴轉率與庫齡分析參數設定" 
@@ -212,7 +212,7 @@ export default {
       showParamDialog: false,
       warehouseType: '15',
       minTurnover: 0,
-      minAge: 0, // 🌟 預設庫齡門檻為 0 天
+      minAge: 0,
       limitCount: 500,
       sortOrder: 'desc',
       selectedTier: 'all',
@@ -262,7 +262,7 @@ export default {
       
       const params = new URLSearchParams({
         minTurnover: this.minTurnover,
-        minAge: this.minAge, // 🌟 發送庫齡門檻
+        minAge: this.minAge,
         limit: this.limitCount,
         sortOrder: this.sortOrder,
         tier: this.selectedTier,
