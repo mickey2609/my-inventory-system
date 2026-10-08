@@ -85,7 +85,7 @@
           <div class="action-desc">進貨材積、滯銷評估與庫齡預警分析</div>
         </div>
 
-        <!-- 🌟 4 個全新魚群與調撥模組小卡片 -->
+        <!-- 🌟 4 個全新魚群與調撥模組小卡片 (使用漂亮箭頭 ➔) -->
         <div v-if="hasPermission('inbound_fish')" class="action-card" @click="openTab('inbound_fish')">
           <div class="action-icon">🐟</div>
           <div class="action-title">進貨上架魚群</div>
@@ -100,13 +100,13 @@
 
         <div v-if="hasPermission('transfer_80_15')" class="action-card" @click="openTab('transfer_80_15')">
           <div class="action-icon">🔄</div>
-          <div class="action-title">跨庫調撥 80>15</div>
+          <div class="action-title">跨庫調撥 80 ➔ 15</div>
           <div class="action-desc">人工倉調撥至自動化倉高周轉品建議</div>
         </div>
 
         <div v-if="hasPermission('transfer_15_80')" class="action-card" @click="openTab('transfer_15_80')">
           <div class="action-icon">🔄</div>
-          <div class="action-title">跨庫調撥 15>80</div>
+          <div class="action-title">跨庫調撥 15 ➔ 80</div>
           <div class="action-desc">自動倉調撥至人工倉慢周轉與大批品建議</div>
         </div>
 
