@@ -279,17 +279,17 @@ export default {
           this.exportFullData = res.data.exportData || [];
           this.totalRows = res.data.pagination?.totalRows || 0;
         } else {
-          this.\$message.error('計算失敗：' + (res.data?.message || '未知錯誤'));
+          this.$message.error('計算失敗：' + (res.data?.message || '未知錯誤'));
         }
       } catch (e) {
-        this.\$message.error('連線失敗：' + e.message);
+        this.$message.error('連線失敗：' + e.message);
       } finally {
         this.loading = false;
       }
     },
     async exportExcel() {
       const exportList = this.exportFullData.length > 0 ? this.exportFullData : this.tableData;
-      if (exportList.length === 0) return this.\$message.warning('查無資料可供匯出');
+      if (exportList.length === 0) return this.$message.warning('查無資料可供匯出');
       
       this.exporting = true;
       const whName = this.warehouseType === '15' ? '15庫_自動化倉' : '80庫_人工倉';
@@ -319,9 +319,9 @@ export default {
         const ws = XLSX.utils.aoa_to_sheet(aoa);
         XLSX.utils.book_append_sheet(wb, ws, `${whName}_迴轉率年限清單`);
         XLSX.writeFile(wb, `${whName}_迴轉率年限清單_${new Date().toISOString().split('T')[0]}.xlsx`);
-        this.\$message.success('🎉 成功匯出迴轉率 Excel 報表！');
+        this.$message.success('🎉 成功匯出迴轉率 Excel 報表！');
       } catch (e) {
-        this.\$message.error('匯出 Excel 失敗：' + e.message);
+        this.$message.error('匯出 Excel 失敗：' + e.message);
       } finally {
         this.exporting = false;
       }
