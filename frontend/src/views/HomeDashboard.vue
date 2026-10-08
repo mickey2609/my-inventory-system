@@ -55,37 +55,62 @@
     <div class="quick-actions-panel">
       <h3 class="panel-title">⚡ 系統功能快捷入口</h3>
       <div class="actions-grid">
-        <div v-if="hasPermission('inv80')" class="action-card" @click="$emit('open-tab', 'inv80')">
+        <div v-if="hasPermission('inv80')" class="action-card" @click="openTab('inv80')">
           <div class="action-icon">🔍</div>
           <div class="action-title">庫存查詢 80</div>
           <div class="action-desc">人工倉</div>
         </div>
 
-        <div v-if="hasPermission('inv15')" class="action-card" @click="$emit('open-tab', 'inv15')">
+        <div v-if="hasPermission('inv15')" class="action-card" @click="openTab('inv15')">
           <div class="action-icon">📦</div>
           <div class="action-title">庫存查詢 15</div>
           <div class="action-desc">自動化倉</div>
         </div>
 
-        <div v-if="hasPermission('loc_summary')" class="action-card" @click="$emit('open-tab', 'loc_summary')">
+        <div v-if="hasPermission('loc_summary')" class="action-card" @click="openTab('loc_summary')">
           <div class="action-icon">📊</div>
           <div class="action-title">儲位數才數統整 80</div>
           <div class="action-desc">各樓層儲位類型統計</div>
         </div>
 
-        <div v-if="hasPermission('turnover')" class="action-card" @click="$emit('open-tab', 'turnover')">
+        <div v-if="hasPermission('turnover')" class="action-card" @click="openTab('turnover')">
           <div class="action-icon">📈</div>
           <div class="action-title">迴轉率清單</div>
           <div class="action-desc">品項動態迴轉天數與庫存週轉率分析</div>
         </div>
 
-        <div v-if="hasPermission('abnormal_purchase')" class="action-card" @click="$emit('open-tab', 'abnormal_purchase')">
+        <div v-if="hasPermission('abnormal_purchase')" class="action-card" @click="openTab('abnormal_purchase')">
           <div class="action-icon">⚠️</div>
           <div class="action-title">不合理進貨清單</div>
           <div class="action-desc">進貨材積、滯銷評估與庫齡預警分析</div>
         </div>
 
-        <div v-if="isSysAdmin" class="action-card" @click="$emit('open-tab', 'settings_perm')">
+        <!-- 🌟 新增：4 個魚群與調撥模組小卡片 -->
+        <div v-if="hasPermission('inbound_fish')" class="action-card" @click="openTab('inbound_fish')">
+          <div class="action-icon">🐟</div>
+          <div class="action-title">進貨上架魚群</div>
+          <div class="action-desc">驗收與新品上架時段魚群及未上架追蹤</div>
+        </div>
+
+        <div v-if="hasPermission('replenish_fish')" class="action-card" @click="openTab('replenish_fish')">
+          <div class="action-icon">🐟</div>
+          <div class="action-title">立即補貨單魚群</div>
+          <div class="action-desc">動態儲位補貨水位建議與補貨單產生</div>
+        </div>
+
+        <div v-if="hasPermission('transfer_80_15')" class="action-card" @click="openTab('transfer_80_15')">
+          <div class="action-icon">🔄</div>
+          <div class="action-title">跨庫調撥 80>15</div>
+          <div class="action-desc">人工倉調撥至自動化倉高周轉品建議</div>
+        </div>
+
+        <div v-if="hasPermission('transfer_15_80')" class="action-card" @click="openTab('transfer_15_80')">
+          <div class="action-icon">🔄</div>
+          <div class="action-title">跨庫調撥 15>80</div>
+          <div class="action-desc">自動倉調撥至人工倉慢周轉與大批品建議</div>
+        </div>
+
+        <div v-if="isSysAdmin" class="action-card" @click="openTab('settings_perm')">
           <div class="action-icon">⚙️</div>
           <div class="action-title">權限管理</div>
           <div class="action-desc">帳號新增、密碼重設與模組開放權限設定</div>
@@ -154,6 +179,9 @@ export default {
     if (this.uptimeTimer) clearInterval(this.uptimeTimer);
   },
   methods: {
+    openTab(tabKey) {
+      this.\$emit('open-tab', tabKey);
+    },
     formatNumber(val) {
       if (!val) return '0';
       const num = Number(String(val).replace(/,/g, ''));

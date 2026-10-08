@@ -68,7 +68,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="開放功能模組" min-width="180">
+        <el-table-column label="開放功能模組" min-width="220">
           <template #default="scope">
             <span class="cell-perm-text">
               {{ formatPermissions(scope.row.permissions) }}
@@ -140,7 +140,6 @@ export default {
   },
   mounted() {
     this.$emit('refresh-users');
-    // 🌟 啟動 5 秒自動重新整理，無縫同步其他使用者的在線燈號
     this.autoRefreshTimer = setInterval(() => {
       this.$emit('refresh-users');
     }, 5000);
@@ -183,12 +182,18 @@ export default {
       if (Array.isArray(perms)) {
         return perms.length > 0 ? perms.join(', ') : '全模組開放';
       }
+      
+      // 🌟 補齊 4 個全新魚群與調撥模組名稱映射
       const namesMap = {
         'loc_summary': '儲位數才數統整',
         'inv80': '庫存查詢80',
         'inv15': '庫存查詢15',
         'turnover': '迴轉率清單',
-        'abnormal_purchase': '不合理進貨清單'
+        'abnormal_purchase': '不合理進貨清單',
+        'inbound_fish': '進貨上架魚群',
+        'replenish_fish': '立即補貨單魚群',
+        'transfer_80_15': '跨庫調撥 80>15',
+        'transfer_15_80': '跨庫調撥 15>80'
       };
       const arr = String(perms).split(',').map(s => s.trim()).filter(Boolean);
       return arr.map(k => namesMap[k] || k).join(', ');
