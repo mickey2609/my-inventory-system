@@ -38,6 +38,10 @@ const db = new sqlite3.Database('inventory_local.sqlite', (err) => {
   else console.log('✅ SQLite 資料庫檔案已成功連結！');
 });
 
+// 於 server.js 裡面加入
+const inboundRouter = require('./routes/inbound')(db);
+app.use('/api/inbound', inboundRouter);
+
 const inventory15Module = require('./routes/inventory15');
 const locationStatsModule = require('./routes/locationStats');
 const turnover15Module = require('./routes/turnover15');
