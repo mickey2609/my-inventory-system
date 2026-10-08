@@ -243,9 +243,9 @@ export default {
     },
     handleFilterChange() {
       this.currentPage = 1;
-      this.\$nextTick(() => {
+      setTimeout(() => {
         this.fetchTurnoverData();
-      });
+      }, 50);
     },
     applyParamSettings() {
       this.showParamDialog = false;
