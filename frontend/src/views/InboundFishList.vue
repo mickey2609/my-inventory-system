@@ -1,11 +1,19 @@
 <template>
   <div class="inbound-fish-page dark-bg">
+    <!-- 隱藏的 CSV 檔案選擇器 -->
+    <input
+      type="file"
+      ref="csvFileInput"
+      style="display: none;"
+      accept=".csv"
+      @change="handleCsvFileSelected"
+    />
+
     <!-- 1. 頂部操作與篩選列 -->
     <div class="top-bar">
       <div class="title-group">
         <span class="page-title">🐟 倉庫 進貨驗收與新品上架分析</span>
         
-        <!-- 分析日期選擇 -->
         <el-date-picker
           v-model="targetDate"
           type="date"
@@ -16,7 +24,6 @@
           @change="fetchFishData"
         />
 
-        <!-- 倉庫切換 -->
         <el-radio-group v-model="warehouse" size="small" @change="fetchFishData">
           <el-radio-button label="all">🌐 雙庫合計</el-radio-button>
           <el-radio-button label="80">📦 80 庫 (人工)</el-radio-button>
@@ -25,21 +32,20 @@
       </div>
 
       <div class="action-group">
-        <!-- 開啟未上架監控 Modal -->
         <el-button type="warning" size="small" icon="el-icon-warning" @click="openPendingDialog">
           未上架追蹤 ({{ totalPendingCount }} 筆)
         </el-button>
 
-        <!-- 🌟 系統管理員專屬上傳按鈕 (多重容錯相容判定) -->
-        <el-upload
+        <el-button
           v-if="checkSysAdmin"
-          action="/api/inbound/upload"
-          :show-file-list="false"
-          :on-success="handleUploadSuccess"
-          :before-upload="beforeUpload"
+          type="success"
+          size="small"
+          icon="el-icon-upload2"
+          :loading="isUploading"
+          @click="triggerSelectCsv"
         >
-          <el-button type="success" size="small" icon="el-icon-upload2">📥 匯入進貨明細 CSV</el-button>
-        </el-upload>
+          📥 匯入進貨明細 CSV
+        </el-button>
       </div>
     </div>
 
@@ -53,7 +59,7 @@
       </el-checkbox-group>
     </div>
 
-    <!-- 3. VBA 1:1 對照對齊格式表 -->
+    <!-- 3. 表格區塊 -->
     <div class="table-container" v-loading="loading">
       <div class="sheet-title">
         倉庫 進貨驗收與新品上架分析 - {{ formatDateTitle(targetDate) }} ({{ getWarehouseLabel(warehouse) }})
@@ -62,7 +68,6 @@
       <div class="table-scroll-wrapper">
         <table class="vba-style-table">
           <thead>
-            <!-- 第一層大標題 -->
             <tr class="header-main">
               <th class="col-time" rowspan="2">時間<br>時段</th>
               <th colspan="4" class="group-blue-header">進貨單號驗收統計</th>
@@ -73,28 +78,21 @@
               <th colspan="4" class="group-green-header">驗收批號上架統計</th>
               <th class="col-ratio-header">比例</th>
             </tr>
-            <!-- 第二層細項標題 -->
             <tr class="header-sub">
-              <!-- 單號驗收 -->
               <th>單號圖形</th>
               <th>單號占比</th>
               <th>單號筆數</th>
               <th>驗收PCS</th>
-              <!-- 單號上架 -->
               <th>上架圖形</th>
               <th>上架占比</th>
               <th>上架筆數</th>
               <th>上架PCS</th>
-              
               <th class="col-sep"></th>
-              
-              <!-- 批號驗收 -->
               <th>批號圖形</th>
               <th>批號占比</th>
               <th>批號筆數</th>
               <th>批號PCS</th>
               <th>驗收單/批比</th>
-              <!-- 批號上架 -->
               <th>批上圖形</th>
               <th>批上占比</th>
               <th>批號筆數</th>
@@ -104,16 +102,13 @@
           </thead>
           <tbody>
             <tr v-for="(h, idx) in hourlyStats" :key="idx" :class="{ 'row-zebra': idx % 2 === 1 }">
-              <!-- 時段 -->
               <td class="col-time font-bold">{{ h.hourStr }}</td>
 
-              <!-- 1. 單號驗收 -->
               <td class="col-bar"><div class="bar-fill blue-bar" :style="{ width: getBarWidth(h.recPoPct) }"></div></td>
               <td class="text-right">{{ formatPercent(h.recPoPct) }}</td>
               <td class="text-right">{{ formatNumber(h.recPoCount) }}</td>
               <td class="text-right font-bold text-blue">{{ formatNumber(h.recPoPcs) }}</td>
 
-              <!-- 2. 單號上架 -->
               <td class="col-bar"><div class="bar-fill green-bar" :style="{ width: getBarWidth(h.putPoPct) }"></div></td>
               <td class="text-right">{{ formatPercent(h.putPoPct) }}</td>
               <td class="text-right">{{ formatNumber(h.putPoCount) }}</td>
@@ -121,14 +116,12 @@
 
               <td class="col-sep"></td>
 
-              <!-- 3. 批號驗收 -->
               <td class="col-bar"><div class="bar-fill blue-bar" :style="{ width: getBarWidth(h.recBatPct) }"></div></td>
               <td class="text-right">{{ formatPercent(h.recBatPct) }}</td>
               <td class="text-right">{{ formatNumber(h.recBatCount) }}</td>
               <td class="text-right font-bold text-blue">{{ formatNumber(h.recBatPcs) }}</td>
               <td class="text-right font-bold">{{ formatRatio(h.recBatCount, h.recPoCount) }}</td>
 
-              <!-- 4. 批號上架 -->
               <td class="col-bar"><div class="bar-fill green-bar" :style="{ width: getBarWidth(h.putBatPct) }"></div></td>
               <td class="text-right">{{ formatPercent(h.putBatPct) }}</td>
               <td class="text-right">{{ formatNumber(h.putBatCount) }}</td>
@@ -136,7 +129,6 @@
               <td class="text-right font-bold">{{ formatRatio(h.putBatCount, h.putPoCount) }}</td>
             </tr>
           </tbody>
-          <!-- 總計列 -->
           <tfoot>
             <tr class="row-summary">
               <td class="col-time font-bold">總計</td>
@@ -169,7 +161,31 @@
       </div>
     </div>
 
-    <!-- 4. 未上架日期監控 Modal -->
+    <!-- 4. 🚨 大容量進貨明細 CSV 上傳進度條 Modal -->
+    <el-dialog
+      v-model="showUploadProgressModal"
+      title="⚡ 正在寫入與覆蓋更新進貨明細資料..."
+      width="480px"
+      :close-on-click-modal="false"
+      :close-on-press-escape="false"
+      :show-close="false"
+      append-to-body
+      custom-class="dark-dialog"
+    >
+      <div class="progress-box">
+        <p class="file-name-info">📁 匯入檔案：<strong>{{ uploadingFileName }}</strong></p>
+        <p class="status-info">已處理：{{ formatNumber(uploadedRows) }} / {{ formatNumber(totalRowsToUpload) }} 筆 ({{ uploadPercent }}%)</p>
+        <el-progress
+          :percentage="uploadPercent"
+          :stroke-width="18"
+          :text-inside="true"
+          status="success"
+        />
+        <p class="tip-info">💡 系統正使用高效 Transaction 進行資料比對與覆蓋更新，請勿關閉視窗...</p>
+      </div>
+    </el-dialog>
+
+    <!-- 5. 未上架日期監控 Modal -->
     <el-dialog v-model="showPendingDialog" title="⚠️ 尚未上架明細監控表 (抓驗收日期)" width="520px" append-to-body custom-class="dark-dialog">
       <el-table :data="pendingSummary" border stripe size="small" class="dark-table">
         <el-table-column prop="rec_date" label="驗收日期" align="center" sortable />
@@ -193,7 +209,6 @@ import { ElMessage } from 'element-plus'
 export default {
   name: 'InboundFishList',
   props: {
-    // 接收系統管理員權限識別
     isSysAdmin: { type: Boolean, default: false }
   },
   data() {
@@ -205,11 +220,18 @@ export default {
       hourlyStats: [],
       showPendingDialog: false,
       pendingSummary: [],
-      totalPendingCount: 0
+      totalPendingCount: 0,
+
+      // 🌟 上傳進度條相關狀態
+      isUploading: false,
+      showUploadProgressModal: false,
+      uploadingFileName: '',
+      uploadPercent: 0,
+      uploadedRows: 0,
+      totalRowsToUpload: 0
     }
   },
   computed: {
-    // 🌟 多重容錯相容性權限判定
     checkSysAdmin() {
       if (this.isSysAdmin) return true;
       try {
@@ -273,6 +295,86 @@ export default {
       if (wh === '15') return '15 庫';
       return '雙庫合計';
     },
+
+    // 🌟 觸發檔案選擇器
+    triggerSelectCsv() {
+      if (this['$refs'] && this['$refs'].csvFileInput) {
+        this['\$refs'].csvFileInput.click();
+      }
+    },
+
+    // 🌟 處理大容量 CSV 檔分批讀取與進度條展現 (支援 10~20 萬筆)
+    async handleCsvFileSelected(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      if (!file.name.endsWith('.csv')) {
+        ElMessage.error('請選擇 .csv 格式的進貨明細檔案！');
+        event.target.value = '';
+        return;
+      }
+
+      this.isUploading = true;
+      this.showUploadProgressModal = true;
+      this.uploadingFileName = file.name;
+      this.uploadPercent = 0;
+      this.uploadedRows = 0;
+      this.totalRowsToUpload = 0;
+
+      try {
+        const Papa = (await import('papaparse')).default;
+
+        Papa.parse(file, {
+          header: true,
+          skipEmptyLines: true,
+          complete: async (results) => {
+            const rawData = results.data || [];
+            if (rawData.length === 0) {
+              this.resetUploadState(event);
+              return ElMessage.error('CSV 檔案內無有效資料！');
+            }
+
+            this.totalRowsToUpload = rawData.length;
+            const BATCH_SIZE = 10000; // 每批次打 10,000 筆 API
+            let processed = 0;
+
+            for (let i = 0; i < rawData.length; i += BATCH_SIZE) {
+              const chunk = rawData.slice(i, i + BATCH_SIZE);
+              const isFirstChunk = (i === 0);
+
+              await axios.post('/api/inbound/import-json', {
+                items: chunk,
+                fileName: file.name,
+                isFirstChunk: isFirstChunk
+              });
+
+              processed += chunk.length;
+              this.uploadedRows = processed;
+              this.uploadPercent = Math.min(100, Math.round((processed / this.totalRowsToUpload) * 100));
+            }
+
+            ElMessage.success(`🎉 成功寫入並更新 ${this.totalRowsToUpload.toLocaleString()} 筆進貨明細資料！`);
+            this.fetchFishData();
+            this.fetchPendingSummary();
+            this.resetUploadState(event);
+          },
+          error: (err) => {
+            ElMessage.error('解析 CSV 失敗：' + err.message);
+            this.resetUploadState(event);
+          }
+        });
+      } catch (e) {
+        ElMessage.error('上傳處理失敗：' + e.message);
+        this.resetUploadState(event);
+      }
+    },
+
+    resetUploadState(event) {
+      this.isUploading = false;
+      this.showUploadProgressModal = false;
+      if (event && event.target) event.target.value = '';
+    },
+
     async fetchFishData() {
       this.loading = true;
       try {
@@ -328,20 +430,6 @@ export default {
     openPendingDialog() {
       this.fetchPendingSummary();
       this.showPendingDialog = true;
-    },
-    beforeUpload(file) {
-      const isCSV = file.name.endsWith('.csv');
-      if (!isCSV) ElMessage.error('請選擇 .csv 格式的進貨明細檔案！');
-      return isCSV;
-    },
-    handleUploadSuccess(res) {
-      if (res?.success) {
-        ElMessage.success(res.message);
-        this.fetchFishData();
-        this.fetchPendingSummary();
-      } else {
-        ElMessage.error('匯入失敗：' + (res?.message || '未知錯誤'));
-      }
     }
   }
 }
@@ -496,6 +584,32 @@ export default {
 .row-summary td {
   background: #334155;
   font-weight: bold;
+}
+
+.progress-box {
+  padding: 10px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.file-name-info {
+  margin: 0;
+  font-size: 14px;
+  color: #38bdf8;
+}
+
+.status-info {
+  margin: 0;
+  font-size: 13px;
+  color: #4ade80;
+  font-weight: bold;
+}
+
+.tip-info {
+  margin: 0;
+  font-size: 12px;
+  color: #94a3b8;
 }
 
 .text-right { text-align: right; }

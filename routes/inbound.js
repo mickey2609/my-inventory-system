@@ -30,10 +30,11 @@ module.exports = function(db) {
     `);
   });
 
-  // 2. 批次寫入與覆蓋更新 (Upsert) API (接收 JSON 陣列與檔名)
+  // 2. 分批極速寫入與覆蓋更新 (Upsert) API
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     const fileName = req.body.fileName || 'latest_inbound.csv';
+    const isFirstChunk = req.body.isFirstChunk === true;
 
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ success: false, message: '未收到有效的進貨明細資料' });
@@ -44,11 +45,13 @@ module.exports = function(db) {
       db.run('PRAGMA journal_mode = MEMORY');
       db.run('BEGIN TRANSACTION');
 
-      // 紀錄匯入檔名至 import_logs
-      db.run(
-        `INSERT INTO import_logs (module_type, file_name, row_count, imported_at) VALUES ('inbound', ?, ?, DATETIME('now'))`,
-        [fileName, items.length]
-      );
+      // 若為第一批次，記錄匯入日誌
+      if (isFirstChunk) {
+        db.run(
+          `INSERT INTO import_logs (module_type, file_name, row_count, imported_at) VALUES ('inbound', ?, ?, DATETIME('now'))`,
+          [fileName, items.length]
+        );
+      }
 
       const stmt = db.prepare(`
         INSERT INTO inbound_details (
@@ -142,7 +145,7 @@ module.exports = function(db) {
     });
   });
 
-  // 4. 魚群分析數據計算 API (含收貨備註多選過濾條件)
+  // 4. 魚群分析數據計算 API
   router.get('/fish-analysis', (req, res) => {
     const { targetDate, warehouse, remarks } = req.query;
 
@@ -164,7 +167,6 @@ module.exports = function(db) {
 
       rows = rows || [];
 
-      // 解析備註過濾條件 (15 / empty / abnormal)
       const remarkList = Array.isArray(remarks) ? remarks : (remarks || '').split(',').map(s => s.trim()).filter(Boolean);
 
       const filteredRows = rows.filter(r => {
@@ -180,7 +182,6 @@ module.exports = function(db) {
         return matched;
       });
 
-      // 初始化 24 小時時段統計桶
       const hourlyStats = Array.from({ length: 24 }, (_, h) => ({
         hourStr: `${String(h).padStart(2, '0')}:00 ~ ${String(h + 1).padStart(2, '0')}:00`,
         recPoCount: 0,
@@ -192,7 +193,6 @@ module.exports = function(db) {
       }));
 
       filteredRows.forEach(r => {
-        // 1. 驗收時段魚群統計
         if (r.rec_date === targetDate && r.rec_time) {
           const hStr = r.rec_time.split(':')[0];
           const h = parseInt(hStr, 10);
@@ -203,7 +203,6 @@ module.exports = function(db) {
           }
         }
 
-        // 2. 上架時段魚群統計
         if (r.put_date === targetDate && r.put_time) {
           const hStr = r.put_time.split(':')[0];
           const h = parseInt(hStr, 10);
