@@ -30,9 +30,11 @@ module.exports = function(db) {
     `);
   });
 
-  // 2. 批次寫入與覆蓋更新 (Upsert) API (接收 JSON 陣列)
+  // 2. 批次寫入與覆蓋更新 (Upsert) API (接收 JSON 陣列與檔名)
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
+    const fileName = req.body.fileName || 'latest_inbound.csv';
+
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ success: false, message: '未收到有效的進貨明細資料' });
     }
@@ -41,6 +43,12 @@ module.exports = function(db) {
       db.run('PRAGMA synchronous = OFF');
       db.run('PRAGMA journal_mode = MEMORY');
       db.run('BEGIN TRANSACTION');
+
+      // 紀錄匯入檔名至 import_logs
+      db.run(
+        `INSERT INTO import_logs (module_type, file_name, row_count, imported_at) VALUES ('inbound', ?, ?, DATETIME('now'))`,
+        [fileName, items.length]
+      );
 
       const stmt = db.prepare(`
         INSERT INTO inbound_details (
