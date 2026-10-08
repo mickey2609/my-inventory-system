@@ -38,25 +38,31 @@ const db = new sqlite3.Database('inventory_local.sqlite', (err) => {
   else console.log('✅ SQLite 資料庫檔案已成功連結！');
 });
 
-// 於 server.js 裡面加入
+// 中間件設定
+app.use(cors());
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ limit: '100mb', extended: true }));
+
+// -----------------------------------------------------------------------------
+// 載入各模組路由 (API Routes)
+// -----------------------------------------------------------------------------
+
+// 1. 進貨與新品上架魚群分析 API
 const inboundRouter = require('./routes/inbound')(db);
 app.use('/api/inbound', inboundRouter);
 
+// 2. 庫存與儲位分析模組 API
 const inventory15Module = require('./routes/inventory15');
 const locationStatsModule = require('./routes/locationStats');
 const turnover15Module = require('./routes/turnover15');
 const turnover80Module = require('./routes/turnover80');
-
-app.use(cors());
-app.use(express.json({ limit: '100mb' }));
-app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
 app.use('/api/inventory15', inventory15Module(db));
 app.use('/api/location-stats', locationStatsModule(db));
 app.use('/api/turnover15', turnover15Module(db));
 app.use('/api/turnover80', turnover80Module(db));
 
-// 🌟 精準抓取 80 庫與 15 庫最新匯入檔名 (自動對齊 system_config 與 import_logs) 🌟
+// 3. 首頁 Dashboard 統計數據 API (精準對齊 80 庫與 15 庫最新檔名)
 app.get('/api/dashboard/stats', (req, res) => {
   const sql80 = `SELECT COUNT(*) as total_rows FROM inventory`;
   const sql15 = `SELECT COUNT(*) as total_rows FROM inventory_15`;
@@ -132,6 +138,9 @@ app.post('/api/system/update-server-code', (req, res) => {
   proxyReq.end();
 });
 
+// -----------------------------------------------------------------------------
+// 初始化資料庫 Schema
+// -----------------------------------------------------------------------------
 db.serialize(() => {
   db.all("PRAGMA table_info(inventory)", [], (err, columns) => {
     const hasLocCode3 = columns && columns.some(c => c.name === 'loc_code_3');
