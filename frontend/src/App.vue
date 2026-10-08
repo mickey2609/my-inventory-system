@@ -78,6 +78,12 @@
           <!-- 🌟 迴轉率清單專屬視圖 🌟 -->
           <TurnoverList 
             v-else-if="currentTab === 'turnover'" key="turnover" 
+            :is-sys-admin="isSysAdmin"
+          />
+
+          <!-- 🌟 4 個全新魚群與調撥模組頁面 🌟 -->
+          <InboundFishList 
+            v-else-if="currentTab === 'inbound_fish'" key="inbound_fish"
           />
 
           <SettingsLog 
@@ -189,6 +195,7 @@ import InvQuery80 from './views/InvQuery80.vue'
 import InvSearch15 from './views/InvSearch15.vue'
 import LocSummary from './views/LocSummary.vue'
 import TurnoverList from './views/TurnoverList.vue'
+import InboundFishList from './views/InboundFishList.vue'
 import SettingsPerm from './views/SettingsPerm.vue'
 import SettingsLog from './views/SettingsLog.vue'
 
@@ -203,7 +210,7 @@ export default {
   components: {
     TopNavbar, SystemDrawer, ColConfigModal, ParamMenuModal, WidthConfigModal,
     ImportTipModal, UserManagementModals, InventorySearchModal, HomeDashboard,
-    LoginOverlay, InvQuery80, InvSearch15, LocSummary, TurnoverList, SettingsPerm, SettingsLog
+    LoginOverlay, InvQuery80, InvSearch15, LocSummary, TurnoverList, InboundFishList, SettingsPerm, SettingsLog
   },
   setup() {
     const { sendLog, getDeviceType, setupAxiosInterceptor } = useSystemLogs();
@@ -239,7 +246,7 @@ export default {
     ];
 
     return {
-      appVersion: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'v2026.10.02',
+      appVersion: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'v2026.10.08',
       isLoggedIn: false, currentUser: '', currentUsername: '', currentUserRole: 'user', loginLoading: false, savingConfig: false,
       savingExportConfig: false, currentUserPermissions: [],
       showUnifiedDrawer: false, showSearchModal: false, showParamMenuDialog: false, showWidthConfigDialog: false,
@@ -274,10 +281,17 @@ export default {
         txt_monthly_sales: '', selected_columns: [...full48Cols], chk_show_loc: true, chk_show_dim: true, cbo_sort: '商品ID', sort_order: 'desc'
       },
 
+      // 🌟 可供授權勾選的全量模組清單 (含 4 個全新魚群與調撥模組)
       availableModules: [
-        { key: 'loc_summary', name: '📊 儲位數才數統整' }, { key: 'inv80', name: '🔍 庫存查詢80' },
-        { key: 'inv15', name: '📦 庫存查詢15' }, { key: 'turnover', name: '📈 迴轉率清單' },
-        { key: 'abnormal_purchase', name: '⚠️ 不合理進貨清單' }
+        { key: 'loc_summary', name: '📊 儲位數才數統整' },
+        { key: 'inv80', name: '🔍 庫存查詢80' },
+        { key: 'inv15', name: '📦 庫存查詢15' },
+        { key: 'turnover', name: '📈 迴轉率清單' },
+        { key: 'abnormal_purchase', name: '⚠️ 不合理進貨清單' },
+        { key: 'inbound_fish', name: '🐟 進貨上架魚群' },
+        { key: 'replenish_fish', name: '🐟 立即補貨單魚群' },
+        { key: 'transfer_80_15', name: '🔄 跨庫調撥 80 ➔ 15' },
+        { key: 'transfer_15_80', name: '🔄 跨庫調撥 15 ➔ 80' }
       ],
 
       rawColumnsMaster: [...full48Cols],
@@ -384,7 +398,7 @@ export default {
 
               if (!this.hasModulePermission(this.currentTab)) {
                 this.currentTab = 'home';
-                this.$message.warning('⚠️ 您的帳號權限已異動，系統已自動為您切換至首頁');
+                this.\$message.warning('⚠️ 您的帳號權限已異動，系統已自動為您切換至首頁');
               }
 
               localStorage.setItem('current_tab', this.currentTab);
@@ -447,11 +461,11 @@ export default {
           config: this.currentExportConfig
         });
         if (res.data?.success) {
-          this.$message.success(`🎉 成功！${this.currentTab === 'inv15' ? '庫存15' : '庫存80'} 匯出設定已同步！`);
+          this.\$message.success(`🎉 成功！${this.currentTab === 'inv15' ? '庫存15' : '庫存80'} 匯出設定已同步！`);
           this.showParamMenuDialog = false;
         }
       } catch (e) {
-        this.$message.error('儲存失敗：' + e.message);
+        this.\$message.error('儲存失敗：' + e.message);
       } finally {
         this.savingExportConfig = false;
       }
@@ -481,7 +495,7 @@ export default {
 
     openNewTab(tabKey) {
       if (!this.hasModulePermission(tabKey)) {
-        this.$message.warning('⚠️ 您尚未取得【' + this.getTabName(tabKey) + '】模組的操作權限！');
+        this.\$message.warning('⚠️ 您尚未取得【' + this.getTabName(tabKey) + '】模組的操作權限！');
         return;
       }
       if (!this.openedTabs.includes(tabKey)) this.openedTabs.push(tabKey);
@@ -489,7 +503,7 @@ export default {
       this.switchTab(tabKey);
     },
     switchTab(tabKey) {
-      if (!this.hasModulePermission(tabKey)) return this.$message.warning('⚠️ 您無權存取該功能模組！');
+      if (!this.hasModulePermission(tabKey)) return this.\$message.warning('⚠️ 您無權存取該功能模組！');
       this.currentTab = tabKey;
       localStorage.setItem('current_tab', tabKey);
       localStorage.setItem('opened_tabs', JSON.stringify(this.openedTabs));
@@ -524,9 +538,8 @@ export default {
       this.handleSearch();
     },
 
-    triggerSelectInventoryFile() { this.$refs.inventoryFileInput.click(); },
+    triggerSelectInventoryFile() { this.\$refs.inventoryFileInput.click(); },
 
-    // 🌟 帶入真實檔名 (fileName: file.name) 發送至後端儲存紀錄 🌟
     async handleInventoryUpload(event) {
       const file = event.target.files[0];
       if (!file) return;
@@ -546,7 +559,7 @@ export default {
                 this.isUploading = false;
                 this.uploadPercent = 0;
                 event.target.value = '';
-                return this.$message.error('CSV 檔案無有效資料！');
+                return this.\$message.error('CSV 檔案無有效資料！');
               }
 
               const BATCH_SIZE = 10000;
@@ -560,7 +573,7 @@ export default {
                 await axios.post('/api/inventory15/upload', {
                   items: chunk,
                   isFirstChunk: isFirstChunk,
-                  fileName: file.name // 🌟 傳送真實檔名給後端 system_config 表儲存
+                  fileName: file.name
                 });
 
                 processed += chunk.length;
@@ -568,7 +581,7 @@ export default {
               }
 
               this.uploadPercent = 100;
-              this.$message.success(`🎉 成功寫入 ${totalRows.toLocaleString()} 筆有效資料至 庫存15！`);
+              this.\$message.success(`🎉 成功寫入 ${totalRows.toLocaleString()} 筆有效資料至 庫存15！`);
               this.showInventoryImportTipDialog = false;
               window.dispatchEvent(new CustomEvent('inventory-updated'));
               this.fetchDashboardMetrics();
@@ -579,14 +592,14 @@ export default {
             error: (err) => {
               this.isUploading = false;
               this.uploadPercent = 0;
-              this.$message.error('解析 CSV 失敗：' + err.message);
+              this.\$message.error('解析 CSV 失敗：' + err.message);
               event.target.value = '';
             }
           });
         } catch (e) {
           this.isUploading = false;
           this.uploadPercent = 0;
-          this.$message.error('匯入 15 庫連線失敗：' + e.message);
+          this.\$message.error('匯入 15 庫連線失敗：' + e.message);
           event.target.value = '';
         }
       } else {
@@ -594,12 +607,12 @@ export default {
           const totalRows = await processCsvUpload(file, p => { this.uploadPercent = p; }, (f, a) => this.sendCurrentLog(f, a));
           await triggerSaveLocationHistory(file.name);
 
-          this.$message.success(`🎉 成功寫入 ${totalRows.toLocaleString()} 筆資料至 庫存80！`);
+          this.\$message.success(`🎉 成功寫入 ${totalRows.toLocaleString()} 筆資料至 庫存80！`);
           this.showInventoryImportTipDialog = false;
           window.dispatchEvent(new CustomEvent('inventory-updated'));
           this.fetchDashboardMetrics();
         } catch (e) { 
-          this.$message.error('上傳 80 庫失敗：' + e.message); 
+          this.\$message.error('上傳 80 庫失敗：' + e.message); 
         } finally { 
           this.isUploading = false; 
           this.uploadPercent = 0;
@@ -613,15 +626,15 @@ export default {
       const num = Number(String(val).replace(/,/g, ''));
       return isNaN(num) ? val : num.toLocaleString();
     },
-    triggerSelectBatchFile() { this.showImportTipDialog = false; this.$refs.batchUserFileInput.click(); },
+    triggerSelectBatchFile() { this.showImportTipDialog = false; this.\$refs.batchUserFileInput.click(); },
     async handleBatchUsersUpload(event) {
       const file = event.target.files[0];
       if (!file) return;
       const formData = new FormData(); formData.append('file', file);
       try {
         const res = await axios.post('/api/batch-import-users', formData);
-        if (res.data?.status === 'success') { this.$message.success(res.data.message); this.fetchUsers(); }
-      } catch (e) { this.$message.error('批次匯入失敗：' + (e.response?.data?.detail || e.message)); }
+        if (res.data?.status === 'success') { this.\$message.success(res.data.message); this.fetchUsers(); }
+      } catch (e) { this.\$message.error('批次匯入失敗：' + (e.response?.data?.detail || e.message)); }
       finally { event.target.value = ''; }
     },
     openRoleDialog(row) {
@@ -634,9 +647,9 @@ export default {
     onSavePwd() { this.handleUpdatePassword(m => this.$message.success(m)).catch(e => this.$message.error(e.message)); },
     onSavePerm() { 
       this.handleUpdatePermissions(m => {
-        this.$message.success(m);
+        this.\$message.success(m);
         this.reloadCurrentUserPermissions();
-      }).catch(e => this.$message.error(e.message)); 
+      }).catch(e => this.\$message.error(e.message)); 
     },
     onSaveAddUser() { this.handleAddUser(m => this.$message.success(m)).catch(e => this.$message.error(e.message)); },
     onDeleteUser(username) { this.deleteUser(username, m => this.$message.success(m)).catch(e => this.$message.error(e.message)); },
@@ -645,8 +658,8 @@ export default {
         const res = await axios.get('/api/export-users-excel', { responseType: 'blob' });
         const link = document.createElement('a'); link.href = window.URL.createObjectURL(new Blob([res.data]));
         link.download = `帳號與權限清單_${new Date().getTime()}.xlsx`; link.click();
-        this.$message.success('已成功匯出帳號與權限清單！');
-      } catch (e) { this.$message.error('匯出帳號清單失敗！'); }
+        this.\$message.success('已成功匯出帳號與權限清單！');
+      } catch (e) { this.\$message.error('匯出帳號清單失敗！'); }
     },
 
     async saveColumnConfig() {
@@ -662,11 +675,11 @@ export default {
           }
         });
         if (res.data?.success) {
-          this.$message.success(`🎉 ${this.currentTab === 'inv15' ? '庫存15' : '庫存80'} 欄位順序已儲存！`); 
+          this.\$message.success(`🎉 ${this.currentTab === 'inv15' ? '庫存15' : '庫存80'} 欄位順序已儲存！`); 
           this.showColSettingDialog = false;
         }
       } catch (e) { 
-        this.$message.error('儲存失敗：' + e.message); 
+        this.\$message.error('儲存失敗：' + e.message); 
       } finally { 
         this.savingConfig = false; 
       }
@@ -708,7 +721,7 @@ export default {
     async fetchLogs() { try { const res = await axios.get('/api/get-logs'); if (res.data?.logs) this.logsList = res.data.logs; } catch (e) {} },
     
     async handleLogin() {
-      if (!this.loginForm.username || !this.loginForm.password) return this.$message.warning('請輸入帳密！');
+      if (!this.loginForm.username || !this.loginForm.password) return this.\$message.warning('請輸入帳密！');
       this.loginLoading = true;
       try {
         const res = await axios.post('/api/login', { username: this.loginForm.username, password: this.loginForm.password, device: this.getDeviceType() });
@@ -736,13 +749,13 @@ export default {
           this.fetchGlobalConfig();
           this.fetchDashboardMetrics(); 
           this.fetchLogs(); 
-          this.$message.success('歡迎回來，' + this.currentUser + '！');
+          this.\$message.success('歡迎回來，' + this.currentUser + '！');
         } else { 
-          this.$message.error(res.data?.detail || res.data?.message || '登入失敗'); 
+          this.\$message.error(res.data?.detail || res.data?.message || '登入失敗'); 
         }
       } catch (e) {
         this.isLoggedIn = false;
-        this.$message.error('⚠ 伺服器未連線，請確認地端桌機 start_tunnel.bat 是否已啟動！');
+        this.\$message.error('⚠ 伺服器未連線，請確認地端桌機 start_tunnel.bat 是否已啟動！');
       } finally { 
         this.loginLoading = false; 
       }
@@ -759,10 +772,23 @@ export default {
       this.currentUserRole = 'user';
       this.currentUserPermissions = [];
       this.openedTabs = [];
-      this.$message.info('已成功登出');
+      this.\$message.info('已成功登出');
     },
     getTabName(k) {
-      const names = { 'home': '🏠 系統首頁', 'inv80': '🔍 庫存查詢80', 'inv15': '📦 庫存查詢15', 'loc_summary': '📊 儲位數才數統整', 'turnover': '📈 迴轉率清單', 'abnormal_purchase': '⚠️ 不合理進貨清單', 'settings_perm': '⚙️ 權限管理', 'settings_log': '📜 日誌歷程查詢' };
+      const names = {
+        'home': '🏠 系統首頁',
+        'inv80': '🔍 庫存查詢80',
+        'inv15': '📦 庫存查詢15',
+        'loc_summary': '📊 儲位數才數統整',
+        'turnover': '📈 迴轉率清單',
+        'abnormal_purchase': '⚠️ 不合理進貨清單',
+        'inbound_fish': '🐟 進貨上架魚群',
+        'replenish_fish': '🐟 立即補貨單魚群',
+        'transfer_80_15': '🔄 跨庫調撥 80 ➔ 15',
+        'transfer_15_80': '🔄 跨庫調撥 15 ➔ 80',
+        'settings_perm': '⚙️ 權限管理',
+        'settings_log': '📜 日誌歷程查詢'
+      };
       return names[k] || '系統模組';
     },
     async fetchInitData() { try { const res = await axios.get('/api/categories/large'); if (res.data?.success) this.options.big_zones = res.data.data; } catch (e) {} },
@@ -871,7 +897,7 @@ export default {
           this.showSearchModal = false;
         }
       } catch (e) {
-        this.$message.error('搜尋失敗：' + e.message);
+        this.\$message.error('搜尋失敗：' + e.message);
       } finally {
         if (this.searchTimer) clearInterval(this.searchTimer);
         this.loading = false;
@@ -881,9 +907,9 @@ export default {
     async exportData(fmt) {
       const is15 = this.currentTab === 'inv15';
       const hasSearched = is15 ? this.hasSearched15 : this.hasSearched80;
-      if (!hasSearched) return this.$message.warning('請先執行檢索再進行匯出！');
+      if (!hasSearched) return this.\$message.warning('請先執行檢索再進行匯出！');
 
-      const loadingMsg = this.$message.info({ message: `⚡ 打包全量庫存資料中...`, duration: 0 });
+      const loadingMsg = this.\$message.info({ message: `⚡ 打包全量庫存資料中...`, duration: 0 });
       try {
         const formObj = this.currentForm;
         const curCols = is15 ? this.columns15 : this.columns80;
@@ -906,9 +932,9 @@ export default {
             fmt, tableData: rawList, exportCols: curCols, moduleName: this.getTabName(this.currentTab),
             summary: is15 ? this.summary15 : this.summary80, searchTime: is15 ? this.searchTime15 : this.searchTime80, sendLogCallback: (f, a) => this.sendCurrentLog(f, a), formatNumber: this.formatNumber
           });
-          this.$message.success(`🎉 成功匯出 ${rawList.length.toLocaleString()} 筆資料！`);
+          this.\$message.success(`🎉 成功匯出 ${rawList.length.toLocaleString()} 筆資料！`);
         }
-      } catch (e) { loadingMsg.close(); this.$message.error('匯出失敗：' + e.message); }
+      } catch (e) { loadingMsg.close(); this.\$message.error('匯出失敗：' + e.message); }
     }
   }
 }
