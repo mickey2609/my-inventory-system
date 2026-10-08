@@ -1,4 +1,5 @@
 // C:\my-inventory-server\routes\turnover80.js
+// 80庫 (人工倉) 迴轉率/年限分析專屬 API 路由模組
 const express = require('express');
 
 module.exports = function(db) {
@@ -7,6 +8,7 @@ module.exports = function(db) {
   router.get('/search', (req, res) => {
     try {
       const minTurnover = parseFloat(req.query.minTurnover || '0');
+      const minAge = parseInt(req.query.minAge || '0', 10); // 🌟 追加庫齡門檻
       const sortOrder = (req.query.sortOrder || 'desc').toLowerCase();
       const limitCount = Math.min(Math.max(parseInt(req.query.limit || '500', 10), 1), 10000);
       const page = parseInt(req.query.page || '1', 10);
@@ -48,27 +50,28 @@ module.exports = function(db) {
           const qty = parseFloat(r.total_qty || 0);
           const sales = parseFloat(r.monthly_sales || 0);
           const unitVol = parseFloat(r.unit_cubic_feet || 0);
+          const maxAge = parseInt(r.max_age || 0, 10);
 
           let turnover = 99999;
           if (sales >= 0.0001) {
             turnover = parseFloat((qty / sales).toFixed(1));
           }
 
-          if (turnover >= minTurnover) {
+          // 🌟 同時過濾 迴轉(月)門檻 與 庫齡門檻
+          if (turnover >= minTurnover && maxAge >= minAge) {
             const totalVol = parseFloat((qty * unitVol).toFixed(2));
             const pallets = parseFloat((totalVol / 35).toFixed(2));
 
-            // 🌟 精準級距判定邏輯 🌟
             let tierKey = '';
             if (turnover === 99999) {
               tierKey = 'y99999';
-            } else if (turnover > 120) {     // > 120個月 (10年以上)
+            } else if (turnover > 120) {     // > 120個月
               tierKey = 'y_over_10';
-            } else if (turnover > 60) {      // 61~120個月 (5年~10年)
+            } else if (turnover > 60) {      // 61~120個月
               tierKey = 'y_5_10';
-            } else if (turnover > 12) {      // 13~60個月 (1年~5年)
+            } else if (turnover > 12) {      // 13~60個月
               tierKey = 'y_1_5';
-            } else {                         // <= 12個月 (1年以下)
+            } else {                         // <= 12個月
               tierKey = 'y_under_1';
             }
 
@@ -85,7 +88,7 @@ module.exports = function(db) {
                 item_name: r.item_name || '-',
                 borrow_proc: r.borrow_proc || '-',
                 total_qty: Math.round(qty),
-                max_age: parseInt(r.max_age || 0, 10),
+                max_age: maxAge,
                 zone_id: r.zone_id || '-',
                 zone_name: r.zone_name || '-',
                 total_cubic_feet: totalVol,
@@ -129,6 +132,7 @@ module.exports = function(db) {
           success: true,
           summary: {
             minTurnover,
+            minAge,
             limitCount,
             totalItems,
             totalPcs: Math.round(totalPcs),

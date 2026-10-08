@@ -15,37 +15,15 @@
       </div>
 
       <div class="controls-group">
-        <div class="input-item">
-          <span class="label">迴轉(月)門檻：</span>
-          <el-input-number 
-            v-model="minTurnover" 
-            :min="0" 
-            :max="9999" 
-            size="small" 
-            style="width: 100px;"
-            @change="handleFilterChange"
-          />
-        </div>
-
-        <div class="input-item">
-          <span class="label">上限筆數：</span>
-          <el-input-number 
-            v-model="limitCount" 
-            :min="1" 
-            :max="10000" 
-            size="small" 
-            style="width: 120px;"
-            @change="handleFilterChange"
-          />
-        </div>
-
-        <div class="input-item">
-          <span class="label">板數排序：</span>
-          <el-select v-model="sortOrder" size="small" style="width: 130px;" @change="handleFilterChange">
-            <el-option label="由大到小 (降冪)" value="desc" />
-            <el-option label="由小到大 (升冪)" value="asc" />
-          </el-select>
-        </div>
+        <!-- 🌟 參數設定按鈕 (收納所有過濾與排序門檻) -->
+        <el-button 
+          type="warning" 
+          size="small" 
+          icon="el-icon-setting" 
+          @click="showParamDialog = true"
+        >
+          ⚙️ 參數設定
+        </el-button>
 
         <el-button 
           type="primary" 
@@ -69,7 +47,7 @@
       </div>
     </div>
 
-    <!-- 1. 年限級距切換頁籤 (改用 @tab-change) -->
+    <!-- 1. 年限級距切換頁籤 (Tabs) -->
     <div class="tier-tabs-bar">
       <el-tabs v-model="selectedTier" type="card" @tab-change="handleFilterChange">
         <el-tab-pane label="🌐 全部級距" name="all" />
@@ -84,7 +62,7 @@
     <!-- 2. 總計摘要與級距統計面板 -->
     <div class="summary-overview-card" v-loading="loading">
       <div class="summary-header">
-        【摘要】{{ warehouseType === '15' ? '15庫 (自動化倉)' : '80庫 (人工倉)' }} 門檻設定：迴轉(月) > {{ summary.minTurnover }} | 截取板數 Top {{ summary.limitCount }} 筆
+        【摘要】{{ warehouseType === '15' ? '15庫 (自動化倉)' : '80庫 (人工倉)' }} 門檻：迴轉(月) ≥ {{ summary.minTurnover }} | 庫齡 ≥ {{ summary.minAge || 0 }} 天 | 筆數 Top {{ summary.limitCount }}
         <span v-if="warehouseType === '15'">(排除 80U/80Z 儲位，同 ID 去重)</span>
         <span v-else>(全庫存統計，同 ID 去重)</span>
       </div>
@@ -174,6 +152,50 @@
         />
       </div>
     </div>
+
+    <!-- 🌟 4. ⚙️ 參數設定對話盒 (Modal) 🌟 -->
+    <el-dialog 
+      v-model="showParamDialog" 
+      title="⚙️ 迴轉率與庫齡分析參數設定" 
+      width="480px"
+      append-to-body
+      custom-class="dark-dialog"
+    >
+      <div class="dialog-body">
+        <div class="param-row">
+          <span class="param-label">迴轉(月)門檻：</span>
+          <el-input-number v-model="minTurnover" :min="0" :max="9999" size="small" style="width: 180px;" />
+          <span class="param-tip">(≥ 該月數)</span>
+        </div>
+
+        <div class="param-row">
+          <span class="param-label">庫齡門檻 (天)：</span>
+          <el-input-number v-model="minAge" :min="0" :max="9999" size="small" style="width: 180px;" />
+          <span class="param-tip">(≥ 該天數)</span>
+        </div>
+
+        <div class="param-row">
+          <span class="param-label">上限筆數：</span>
+          <el-input-number v-model="limitCount" :min="1" :max="10000" size="small" style="width: 180px;" />
+          <span class="param-tip">(1 ~ 10,000 筆)</span>
+        </div>
+
+        <div class="param-row">
+          <span class="param-label">板數排序：</span>
+          <el-select v-model="sortOrder" size="small" style="width: 180px;">
+            <el-option label="由大到小 (降冪)" value="desc" />
+            <el-option label="由小到大 (升冪)" value="asc" />
+          </el-select>
+        </div>
+      </div>
+
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button size="small" @click="showParamDialog = false">取消</el-button>
+          <el-button type="primary" size="small" @click="applyParamSettings">套用並重新計算</el-button>
+        </span>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -187,8 +209,10 @@ export default {
     return {
       loading: false,
       exporting: false,
+      showParamDialog: false,
       warehouseType: '15',
       minTurnover: 0,
+      minAge: 0, // 🌟 預設庫齡門檻為 0 天
       limitCount: 500,
       sortOrder: 'desc',
       selectedTier: 'all',
@@ -196,7 +220,7 @@ export default {
       pageSize: 500,
       totalRows: 0,
       reportTime: '',
-      summary: { minTurnover: 0, limitCount: 500, totalItems: 0, totalPcs: 0, totalVolume: 0, totalPallets: 0 },
+      summary: { minTurnover: 0, minAge: 0, limitCount: 500, totalItems: 0, totalPcs: 0, totalVolume: 0, totalPallets: 0 },
       tiers: [],
       tableData: [],
       exportFullData: []
@@ -219,9 +243,13 @@ export default {
     },
     handleFilterChange() {
       this.currentPage = 1;
-      this.$nextTick(() => {
+      this.\$nextTick(() => {
         this.fetchTurnoverData();
       });
+    },
+    applyParamSettings() {
+      this.showParamDialog = false;
+      this.handleFilterChange();
     },
     handlePageChange(page) {
       this.currentPage = page;
@@ -234,6 +262,7 @@ export default {
       
       const params = new URLSearchParams({
         minTurnover: this.minTurnover,
+        minAge: this.minAge, // 🌟 發送庫齡門檻
         limit: this.limitCount,
         sortOrder: this.sortOrder,
         tier: this.selectedTier,
@@ -250,24 +279,24 @@ export default {
           this.exportFullData = res.data.exportData || [];
           this.totalRows = res.data.pagination?.totalRows || 0;
         } else {
-          this.$message.error('計算失敗：' + (res.data?.message || '未知錯誤'));
+          this.\$message.error('計算失敗：' + (res.data?.message || '未知錯誤'));
         }
       } catch (e) {
-        this.$message.error('連線失敗：' + e.message);
+        this.\$message.error('連線失敗：' + e.message);
       } finally {
         this.loading = false;
       }
     },
     async exportExcel() {
       const exportList = this.exportFullData.length > 0 ? this.exportFullData : this.tableData;
-      if (exportList.length === 0) return this.$message.warning('查無資料可供匯出');
+      if (exportList.length === 0) return this.\$message.warning('查無資料可供匯出');
       
       this.exporting = true;
       const whName = this.warehouseType === '15' ? '15庫_自動化倉' : '80庫_人工倉';
       try {
         const wb = XLSX.utils.book_new();
         const aoa = [
-          [`【摘要】${whName} 門檻設定：迴轉(月) > ${this.minTurnover} | 筆數上限 Top ${this.summary.limitCount}`],
+          [`【摘要】${whName} 門檻設定：迴轉(月) ≥ ${this.minTurnover} | 庫齡 ≥ ${this.minAge}天 | 筆數上限 Top ${this.summary.limitCount}`],
           [`品項數總計：`, this.summary.totalItems, `PCS數總計：`, this.summary.totalPcs, `總才數總計：`, this.summary.totalVolume, `總板數總計：`, this.summary.totalPallets],
           [],
           ['級距門檻', '品項數', 'PCS 數', '才數', '板數']
@@ -290,9 +319,9 @@ export default {
         const ws = XLSX.utils.aoa_to_sheet(aoa);
         XLSX.utils.book_append_sheet(wb, ws, `${whName}_迴轉率年限清單`);
         XLSX.writeFile(wb, `${whName}_迴轉率年限清單_${new Date().toISOString().split('T')[0]}.xlsx`);
-        this.$message.success('🎉 成功匯出迴轉率 Excel 報表！');
+        this.\$message.success('🎉 成功匯出迴轉率 Excel 報表！');
       } catch (e) {
-        this.$message.error('匯出 Excel 失敗：' + e.message);
+        this.\$message.error('匯出 Excel 失敗：' + e.message);
       } finally {
         this.exporting = false;
       }
@@ -345,12 +374,30 @@ export default {
   gap: 12px;
 }
 
-.input-item {
+.dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 10px 0;
+}
+
+.param-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
+}
+
+.param-label {
+  width: 120px;
+  text-align: right;
   font-size: 13px;
   color: #f8fafc;
+  font-weight: bold;
+}
+
+.param-tip {
+  font-size: 12px;
+  color: #94a3b8;
 }
 
 .tier-tabs-bar {
