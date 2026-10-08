@@ -180,6 +180,8 @@
 
 <script>
 import axios from 'axios'
+import { ElMessage } from 'element-plus'
+
 import TopNavbar from './components/TopNavbar.vue'
 import SystemDrawer from './components/SystemDrawer.vue'
 import ColConfigModal from './components/ColConfigModal.vue'
@@ -398,7 +400,7 @@ export default {
 
               if (!this.hasModulePermission(this.currentTab)) {
                 this.currentTab = 'home';
-                this.\$message.warning('⚠️ 您的帳號權限已異動，系統已自動為您切換至首頁');
+                ElMessage.warning('⚠️ 您的帳號權限已異動，系統已自動為您切換至首頁');
               }
 
               localStorage.setItem('current_tab', this.currentTab);
@@ -461,11 +463,11 @@ export default {
           config: this.currentExportConfig
         });
         if (res.data?.success) {
-          this.\$message.success(`🎉 成功！${this.currentTab === 'inv15' ? '庫存15' : '庫存80'} 匯出設定已同步！`);
+          ElMessage.success(`🎉 成功！${this.currentTab === 'inv15' ? '庫存15' : '庫存80'} 匯出設定已同步！`);
           this.showParamMenuDialog = false;
         }
       } catch (e) {
-        this.\$message.error('儲存失敗：' + e.message);
+        ElMessage.error('儲存失敗：' + e.message);
       } finally {
         this.savingExportConfig = false;
       }
@@ -495,7 +497,7 @@ export default {
 
     openNewTab(tabKey) {
       if (!this.hasModulePermission(tabKey)) {
-        this.\$message.warning('⚠️ 您尚未取得【' + this.getTabName(tabKey) + '】模組的操作權限！');
+        ElMessage.warning('⚠️ 您尚未取得【' + this.getTabName(tabKey) + '】模組的操作權限！');
         return;
       }
       if (!this.openedTabs.includes(tabKey)) this.openedTabs.push(tabKey);
@@ -503,7 +505,7 @@ export default {
       this.switchTab(tabKey);
     },
     switchTab(tabKey) {
-      if (!this.hasModulePermission(tabKey)) return this.\$message.warning('⚠️ 您無權存取該功能模組！');
+      if (!this.hasModulePermission(tabKey)) return ElMessage.warning('⚠️ 您無權存取該功能模組！');
       this.currentTab = tabKey;
       localStorage.setItem('current_tab', tabKey);
       localStorage.setItem('opened_tabs', JSON.stringify(this.openedTabs));
@@ -538,7 +540,11 @@ export default {
       this.handleSearch();
     },
 
-    triggerSelectInventoryFile() { this.\$refs.inventoryFileInput.click(); },
+    triggerSelectInventoryFile() { 
+      if (this['$refs'] && this['$refs'].inventoryFileInput) {
+        this['\$refs'].inventoryFileInput.click();
+      }
+    },
 
     async handleInventoryUpload(event) {
       const file = event.target.files[0];
@@ -559,7 +565,7 @@ export default {
                 this.isUploading = false;
                 this.uploadPercent = 0;
                 event.target.value = '';
-                return this.\$message.error('CSV 檔案無有效資料！');
+                return ElMessage.error('CSV 檔案無有效資料！');
               }
 
               const BATCH_SIZE = 10000;
@@ -581,7 +587,7 @@ export default {
               }
 
               this.uploadPercent = 100;
-              this.\$message.success(`🎉 成功寫入 ${totalRows.toLocaleString()} 筆有效資料至 庫存15！`);
+              ElMessage.success(`🎉 成功寫入 ${totalRows.toLocaleString()} 筆有效資料至 庫存15！`);
               this.showInventoryImportTipDialog = false;
               window.dispatchEvent(new CustomEvent('inventory-updated'));
               this.fetchDashboardMetrics();
@@ -592,14 +598,14 @@ export default {
             error: (err) => {
               this.isUploading = false;
               this.uploadPercent = 0;
-              this.\$message.error('解析 CSV 失敗：' + err.message);
+              ElMessage.error('解析 CSV 失敗：' + err.message);
               event.target.value = '';
             }
           });
         } catch (e) {
           this.isUploading = false;
           this.uploadPercent = 0;
-          this.\$message.error('匯入 15 庫連線失敗：' + e.message);
+          ElMessage.error('匯入 15 庫連線失敗：' + e.message);
           event.target.value = '';
         }
       } else {
@@ -607,12 +613,12 @@ export default {
           const totalRows = await processCsvUpload(file, p => { this.uploadPercent = p; }, (f, a) => this.sendCurrentLog(f, a));
           await triggerSaveLocationHistory(file.name);
 
-          this.\$message.success(`🎉 成功寫入 ${totalRows.toLocaleString()} 筆資料至 庫存80！`);
+          ElMessage.success(`🎉 成功寫入 ${totalRows.toLocaleString()} 筆資料至 庫存80！`);
           this.showInventoryImportTipDialog = false;
           window.dispatchEvent(new CustomEvent('inventory-updated'));
           this.fetchDashboardMetrics();
         } catch (e) { 
-          this.\$message.error('上傳 80 庫失敗：' + e.message); 
+          ElMessage.error('上傳 80 庫失敗：' + e.message); 
         } finally { 
           this.isUploading = false; 
           this.uploadPercent = 0;
@@ -626,15 +632,20 @@ export default {
       const num = Number(String(val).replace(/,/g, ''));
       return isNaN(num) ? val : num.toLocaleString();
     },
-    triggerSelectBatchFile() { this.showImportTipDialog = false; this.\$refs.batchUserFileInput.click(); },
+    triggerSelectBatchFile() { 
+      this.showImportTipDialog = false; 
+      if (this['$refs'] && this['$refs'].batchUserFileInput) {
+        this['\$refs'].batchUserFileInput.click();
+      }
+    },
     async handleBatchUsersUpload(event) {
       const file = event.target.files[0];
       if (!file) return;
       const formData = new FormData(); formData.append('file', file);
       try {
         const res = await axios.post('/api/batch-import-users', formData);
-        if (res.data?.status === 'success') { this.\$message.success(res.data.message); this.fetchUsers(); }
-      } catch (e) { this.\$message.error('批次匯入失敗：' + (e.response?.data?.detail || e.message)); }
+        if (res.data?.status === 'success') { ElMessage.success(res.data.message); this.fetchUsers(); }
+      } catch (e) { ElMessage.error('批次匯入失敗：' + (e.response?.data?.detail || e.message)); }
       finally { event.target.value = ''; }
     },
     openRoleDialog(row) {
@@ -643,23 +654,23 @@ export default {
       this.editRoleForm.target_role = row.role || 'user';
       this.showEditRoleDialog = true;
     },
-    onSaveRole() { this.handleUpdateRole(m => this.$message.success(m)).catch(e => this.$message.error(e.message)); },
-    onSavePwd() { this.handleUpdatePassword(m => this.$message.success(m)).catch(e => this.$message.error(e.message)); },
+    onSaveRole() { this.handleUpdateRole(m => ElMessage.success(m)).catch(e => ElMessage.error(e.message)); },
+    onSavePwd() { this.handleUpdatePassword(m => ElMessage.success(m)).catch(e => ElMessage.error(e.message)); },
     onSavePerm() { 
       this.handleUpdatePermissions(m => {
-        this.\$message.success(m);
+        ElMessage.success(m);
         this.reloadCurrentUserPermissions();
-      }).catch(e => this.\$message.error(e.message)); 
+      }).catch(e => ElMessage.error(e.message)); 
     },
-    onSaveAddUser() { this.handleAddUser(m => this.$message.success(m)).catch(e => this.$message.error(e.message)); },
-    onDeleteUser(username) { this.deleteUser(username, m => this.$message.success(m)).catch(e => this.$message.error(e.message)); },
+    onSaveAddUser() { this.handleAddUser(m => ElMessage.success(m)).catch(e => ElMessage.error(e.message)); },
+    onDeleteUser(username) { this.deleteUser(username, m => ElMessage.success(m)).catch(e => ElMessage.error(e.message)); },
     async exportUsersExcel() {
       try {
         const res = await axios.get('/api/export-users-excel', { responseType: 'blob' });
         const link = document.createElement('a'); link.href = window.URL.createObjectURL(new Blob([res.data]));
         link.download = `帳號與權限清單_${new Date().getTime()}.xlsx`; link.click();
-        this.\$message.success('已成功匯出帳號與權限清單！');
-      } catch (e) { this.\$message.error('匯出帳號清單失敗！'); }
+        ElMessage.success('已成功匯出帳號與權限清單！');
+      } catch (e) { ElMessage.error('匯出帳號清單失敗！'); }
     },
 
     async saveColumnConfig() {
@@ -675,11 +686,11 @@ export default {
           }
         });
         if (res.data?.success) {
-          this.\$message.success(`🎉 ${this.currentTab === 'inv15' ? '庫存15' : '庫存80'} 欄位順序已儲存！`); 
+          ElMessage.success(`🎉 ${this.currentTab === 'inv15' ? '庫存15' : '庫存80'} 欄位順序已儲存！`); 
           this.showColSettingDialog = false;
         }
       } catch (e) { 
-        this.\$message.error('儲存失敗：' + e.message); 
+        ElMessage.error('儲存失敗：' + e.message); 
       } finally { 
         this.savingConfig = false; 
       }
@@ -721,7 +732,7 @@ export default {
     async fetchLogs() { try { const res = await axios.get('/api/get-logs'); if (res.data?.logs) this.logsList = res.data.logs; } catch (e) {} },
     
     async handleLogin() {
-      if (!this.loginForm.username || !this.loginForm.password) return this.\$message.warning('請輸入帳密！');
+      if (!this.loginForm.username || !this.loginForm.password) return ElMessage.warning('請輸入帳密！');
       this.loginLoading = true;
       try {
         const res = await axios.post('/api/login', { username: this.loginForm.username, password: this.loginForm.password, device: this.getDeviceType() });
@@ -749,13 +760,13 @@ export default {
           this.fetchGlobalConfig();
           this.fetchDashboardMetrics(); 
           this.fetchLogs(); 
-          this.\$message.success('歡迎回來，' + this.currentUser + '！');
+          ElMessage.success('歡迎回來，' + this.currentUser + '！');
         } else { 
-          this.\$message.error(res.data?.detail || res.data?.message || '登入失敗'); 
+          ElMessage.error(res.data?.detail || res.data?.message || '登入失敗'); 
         }
       } catch (e) {
         this.isLoggedIn = false;
-        this.\$message.error('⚠ 伺服器未連線，請確認地端桌機 start_tunnel.bat 是否已啟動！');
+        ElMessage.error('⚠ 伺服器未連線，請確認地端桌機 start_tunnel.bat 是否已啟動！');
       } finally { 
         this.loginLoading = false; 
       }
@@ -772,7 +783,7 @@ export default {
       this.currentUserRole = 'user';
       this.currentUserPermissions = [];
       this.openedTabs = [];
-      this.\$message.info('已成功登出');
+      ElMessage.info('已成功登出');
     },
     getTabName(k) {
       const names = {
@@ -897,7 +908,7 @@ export default {
           this.showSearchModal = false;
         }
       } catch (e) {
-        this.\$message.error('搜尋失敗：' + e.message);
+        ElMessage.error('搜尋失敗：' + e.message);
       } finally {
         if (this.searchTimer) clearInterval(this.searchTimer);
         this.loading = false;
@@ -907,9 +918,9 @@ export default {
     async exportData(fmt) {
       const is15 = this.currentTab === 'inv15';
       const hasSearched = is15 ? this.hasSearched15 : this.hasSearched80;
-      if (!hasSearched) return this.\$message.warning('請先執行檢索再進行匯出！');
+      if (!hasSearched) return ElMessage.warning('請先執行檢索再進行匯出！');
 
-      const loadingMsg = this.\$message.info({ message: `⚡ 打包全量庫存資料中...`, duration: 0 });
+      const loadingMsg = ElMessage.info({ message: `⚡ 打包全量庫存資料中...`, duration: 0 });
       try {
         const formObj = this.currentForm;
         const curCols = is15 ? this.columns15 : this.columns80;
@@ -932,9 +943,9 @@ export default {
             fmt, tableData: rawList, exportCols: curCols, moduleName: this.getTabName(this.currentTab),
             summary: is15 ? this.summary15 : this.summary80, searchTime: is15 ? this.searchTime15 : this.searchTime80, sendLogCallback: (f, a) => this.sendCurrentLog(f, a), formatNumber: this.formatNumber
           });
-          this.\$message.success(`🎉 成功匯出 ${rawList.length.toLocaleString()} 筆資料！`);
+          ElMessage.success(`🎉 成功匯出 ${rawList.length.toLocaleString()} 筆資料！`);
         }
-      } catch (e) { loadingMsg.close(); this.\$message.error('匯出失敗：' + e.message); }
+      } catch (e) { loadingMsg.close(); ElMessage.error('匯出失敗：' + e.message); }
     }
   }
 }
