@@ -15,8 +15,9 @@
       </div>
 
       <div class="controls-group">
-        <!-- ⚙️ 參數設定按鈕 -->
+        <!-- ⚙️ 參數設定按鈕 (僅系統管理員可見) -->
         <el-button 
+          v-if="isSysAdmin"
           type="warning" 
           size="small" 
           icon="el-icon-setting" 
@@ -25,7 +26,9 @@
           ⚙️ 參數設定
         </el-button>
 
+        <!-- 🔄 重新計算按鈕 (僅系統管理員可見) -->
         <el-button 
+          v-if="isSysAdmin"
           type="primary" 
           size="small" 
           icon="el-icon-refresh" 
@@ -202,9 +205,14 @@
 <script>
 import axios from 'axios'
 import * as XLSX from 'xlsx'
+import { ElMessage } from 'element-plus'
 
 export default {
   name: 'TurnoverList',
+  props: {
+    // 接收來自 App.vue 傳入的系統管理員權限識別
+    isSysAdmin: { type: Boolean, default: false }
+  },
   data() {
     return {
       loading: false,
@@ -279,17 +287,17 @@ export default {
           this.exportFullData = res.data.exportData || [];
           this.totalRows = res.data.pagination?.totalRows || 0;
         } else {
-          this.$message.error('計算失敗：' + (res.data?.message || '未知錯誤'));
+          ElMessage.error('計算失敗：' + (res.data?.message || '未知錯誤'));
         }
       } catch (e) {
-        this.$message.error('連線失敗：' + e.message);
+        ElMessage.error('連線失敗：' + e.message);
       } finally {
         this.loading = false;
       }
     },
     async exportExcel() {
       const exportList = this.exportFullData.length > 0 ? this.exportFullData : this.tableData;
-      if (exportList.length === 0) return this.$message.warning('查無資料可供匯出');
+      if (exportList.length === 0) return ElMessage.warning('查無資料可供匯出');
       
       this.exporting = true;
       const whName = this.warehouseType === '15' ? '15庫_自動化倉' : '80庫_人工倉';
@@ -319,9 +327,9 @@ export default {
         const ws = XLSX.utils.aoa_to_sheet(aoa);
         XLSX.utils.book_append_sheet(wb, ws, `${whName}_迴轉率年限清單`);
         XLSX.writeFile(wb, `${whName}_迴轉率年限清單_${new Date().toISOString().split('T')[0]}.xlsx`);
-        this.$message.success('🎉 成功匯出迴轉率 Excel 報表！');
+        ElMessage.success('🎉 成功匯出迴轉率 Excel 報表！');
       } catch (e) {
-        this.$message.error('匯出 Excel 失敗：' + e.message);
+        ElMessage.error('匯出 Excel 失敗：' + e.message);
       } finally {
         this.exporting = false;
       }
