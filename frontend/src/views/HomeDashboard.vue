@@ -1,310 +1,380 @@
 <template>
-  <div class="settings-perm-container dark-view">
-    <!-- 頂部操作列 -->
-    <div class="action-header">
-      <div class="title-group">
-        <h2>🔐 權限設定 (帳號管理)</h2>
+  <div class="home-dashboard dark-bg">
+    <div class="dashboard-header">
+      <div class="welcome-text">
+        <h2>👋 歡迎回來，{{ currentUser }}</h2>
+        <p class="subtitle">庫存儲位管理系統控制台 | 地端高效能資料庫</p>
       </div>
-
-      <div class="btn-group">
-        <button class="action-btn warning-btn" @click="triggerEvent('open-import-tip')">
-          📥 批次匯入帳號
-        </button>
-        <button class="action-btn success-btn" @click="triggerEvent('export-users')">
-          📊 匯出帳號與權限
-        </button>
-        <button class="action-btn info-btn" @click="triggerEvent('refresh-users')">
-          🔄 重新整理
-        </button>
-        <button class="action-btn primary-btn" @click="triggerEvent('open-add-dialog')">
-          ➕ 新增帳號
-        </button>
+      <div class="user-status-badge">
+        <span class="badge-role">{{ isSysAdmin ? '系統管理員' : '一般使用者' }}</span>
       </div>
     </div>
 
-    <!-- 表格卡片區 -->
-    <div class="table-card">
-      <el-table 
-        :data="usersList" 
-        style="width: 100%" 
-        height="100%"
-        class="custom-perm-table"
-        empty-text="目前尚無帳號資料"
-      >
-        <el-table-column prop="username" label="登入帳號" width="130">
-          <template #default="scope">
-            <span class="cell-username">{{ scope.row.username }}</span>
-          </template>
-        </el-table-column>
+    <!-- 數據指標卡片區 -->
+    <div class="metrics-grid">
+      <div class="metric-card">
+        <div class="card-icon blue-bg">📦</div>
+        <div class="card-info">
+          <span class="card-title">80庫 庫存明細筆數</span>
+          <div class="card-value-group">
+            <span class="card-value text-blue">{{ formatNumber(dbMetrics.totalRows80) }}</span>
+            <span class="card-unit">筆</span>
+          </div>
+          <span v-if="stats80.file_name" class="file-name-tag">
+            📁 匯入檔名：{{ stats80.file_name }}
+          </span>
+        </div>
+      </div>
 
-        <el-table-column prop="name" label="姓名" width="150">
-          <template #default="scope">
-            <span class="cell-name">
-              {{ scope.row.name || (scope.row.username === 'admin' ? '系統管理員' : scope.row.username) }}
-            </span>
-          </template>
-        </el-table-column>
+      <div class="metric-card">
+        <div class="card-icon green-bg">📦</div>
+        <div class="card-info">
+          <span class="card-title">15庫 庫存明細筆數</span>
+          <div class="card-value-group">
+            <span class="card-value text-green">{{ formatNumber(dbMetrics.totalRows15) }}</span>
+            <span class="card-unit">筆</span>
+          </div>
+          <span v-if="stats15.file_name" class="file-name-tag">
+            📁 匯入檔名：{{ stats15.file_name }}
+          </span>
+        </div>
+      </div>
 
-        <!-- 身份角色標籤對應 (sys_admin / admin / user) -->
-        <el-table-column prop="role" label="身份" width="150">
-          <template #default="scope">
-            <el-tag :type="getRoleTagType(scope.row)" size="small">
-              {{ getRoleLabel(scope.row) }}
-            </el-tag>
-          </template>
-        </el-table-column>
+      <div class="metric-card">
+        <div class="card-icon orange-bg">⏱️</div>
+        <div class="card-info">
+          <span class="card-title">伺服器連續運作時間</span>
+          <div class="card-value-group">
+            <span class="card-value text-orange">{{ serverUptimeStr }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
 
-        <!-- 精準全域在線狀態判定 -->
-        <el-table-column label="在線狀態" width="110">
-          <template #default="scope">
-            <span v-if="isUserOnline(scope.row)" class="status-online">🟢 在線</span>
-            <span v-else class="status-offline">⚪ 離線</span>
-          </template>
-        </el-table-column>
+    <!-- 快捷功能入口區 (權限過濾 v-if) -->
+    <div class="quick-actions-panel">
+      <h3 class="panel-title">⚡ 系統功能快捷入口</h3>
+      <div class="actions-grid">
+        <div v-if="hasPermission('inv80')" class="action-card" @click="openTab('inv80')">
+          <div class="action-icon">🔍</div>
+          <div class="action-title">庫存查詢 80</div>
+          <div class="action-desc">人工倉</div>
+        </div>
 
-        <el-table-column label="密碼" width="100">
-          <template #default>
-            <span class="pwd-mask">******</span>
-          </template>
-        </el-table-column>
+        <div v-if="hasPermission('inv15')" class="action-card" @click="openTab('inv15')">
+          <div class="action-icon">📦</div>
+          <div class="action-title">庫存查詢 15</div>
+          <div class="action-desc">自動化倉</div>
+        </div>
 
-        <el-table-column label="開放功能模組" min-width="220">
-          <template #default="scope">
-            <span class="cell-perm-text">
-              {{ formatPermissions(scope.row.permissions) }}
-            </span>
-          </template>
-        </el-table-column>
+        <div v-if="hasPermission('loc_summary')" class="action-card" @click="openTab('loc_summary')">
+          <div class="action-icon">📊</div>
+          <div class="action-title">儲位數才數統整 80</div>
+          <div class="action-desc">各樓層儲位類型統計</div>
+        </div>
 
-        <!-- 操作按鈕群組 -->
-        <el-table-column label="操作" width="360" fixed="right" align="center">
-          <template #default="scope">
-            <div class="opt-btn-group">
-              <el-button type="purple" size="small" class="opt-btn purple-btn" @click="triggerEvent('open-role', scope.row)">
-                🆔 身份設定
-              </el-button>
-              <el-button type="warning" size="small" class="opt-btn warning-btn" @click="triggerEvent('open-pwd', scope.row)">
-                修改密碼
-              </el-button>
-              <el-button type="primary" size="small" class="opt-btn primary-btn" @click="triggerEvent('open-perm', scope.row)">
-                權限設定
-              </el-button>
-              <el-button 
-                type="danger" 
-                size="small" 
-                class="opt-btn danger-btn" 
-                :disabled="scope.row.username === 'admin'"
-                @click="triggerEvent('delete-user', scope.row.username)"
-              >
-                刪除
-              </el-button>
-            </div>
-          </template>
-        </el-table-column>
-      </el-table>
+        <div v-if="hasPermission('turnover')" class="action-card" @click="openTab('turnover')">
+          <div class="action-icon">📈</div>
+          <div class="action-title">迴轉率清單</div>
+          <div class="action-desc">品項動態迴轉天數與庫存週轉率分析</div>
+        </div>
+
+        <div v-if="hasPermission('abnormal_purchase')" class="action-card" @click="openTab('abnormal_purchase')">
+          <div class="action-icon">⚠️</div>
+          <div class="action-title">不合理進貨清單</div>
+          <div class="action-desc">進貨材積、滯銷評估與庫齡預警分析</div>
+        </div>
+
+        <!-- 🌟 4 個全新魚群與調撥模組小卡片 -->
+        <div v-if="hasPermission('inbound_fish')" class="action-card" @click="openTab('inbound_fish')">
+          <div class="action-icon">🐟</div>
+          <div class="action-title">進貨上架魚群</div>
+          <div class="action-desc">驗收與新品上架時段魚群及未上架追蹤</div>
+        </div>
+
+        <div v-if="hasPermission('replenish_fish')" class="action-card" @click="openTab('replenish_fish')">
+          <div class="action-icon">🐟</div>
+          <div class="action-title">立即補貨單魚群</div>
+          <div class="action-desc">動態儲位補貨水位建議與補貨單產生</div>
+        </div>
+
+        <div v-if="hasPermission('transfer_80_15')" class="action-card" @click="openTab('transfer_80_15')">
+          <div class="action-icon">🔄</div>
+          <div class="action-title">跨庫調撥 80>15</div>
+          <div class="action-desc">人工倉調撥至自動化倉高周轉品建議</div>
+        </div>
+
+        <div v-if="hasPermission('transfer_15_80')" class="action-card" @click="openTab('transfer_15_80')">
+          <div class="action-icon">🔄</div>
+          <div class="action-title">跨庫調撥 15>80</div>
+          <div class="action-desc">自動倉調撥至人工倉慢周轉與大批品建議</div>
+        </div>
+
+        <div v-if="isSysAdmin" class="action-card" @click="openTab('settings_perm')">
+          <div class="action-icon">⚙️</div>
+          <div class="action-title">權限管理</div>
+          <div class="action-desc">帳號新增、密碼重設與模組開放權限設定</div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script>
+import axios from 'axios'
+
 export default {
-  name: 'SettingsPerm',
+  name: 'HomeDashboard',
   props: {
-    usersList: {
-      type: Array,
-      default: () => []
-    },
-    currentUser: {
-      type: String,
-      default: ''
-    },
-    currentUsername: {
-      type: String,
-      default: ''
+    currentUser: { type: String, default: '' },
+    currentUserPermissions: { type: [Array, String], default: 'all' },
+    isSysAdmin: { type: Boolean, default: false },
+    dbMetrics: {
+      type: Object,
+      default: () => ({ totalRows80: 0, totalRows15: 0, serverUptimeSec: 0 })
     }
   },
-  emits: [
-    'open-import-tip',
-    'export-users',
-    'refresh-users',
-    'open-add-dialog',
-    'open-role',
-    'open-pwd',
-    'open-perm',
-    'delete-user'
-  ],
   data() {
     return {
-      autoRefreshTimer: null
-    };
+      localUptimeSec: 0,
+      uptimeTimer: null,
+      stats80: { total_rows: 0, file_name: '' },
+      stats15: { total_rows: 0, file_name: '' }
+    }
+  },
+  computed: {
+    serverUptimeStr() {
+      const totalSec = this.localUptimeSec || this.dbMetrics.serverUptimeSec || 0;
+      const days = Math.floor(totalSec / 86400);
+      const hours = Math.floor((totalSec % 86400) / 3600);
+      const mins = Math.floor((totalSec % 3600) / 60);
+      const secs = totalSec % 60;
+
+      let result = '';
+      if (days > 0) result += `${days}天 `;
+      result += `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+      return result;
+    }
+  },
+  watch: {
+    'dbMetrics.serverUptimeSec': {
+      immediate: true,
+      handler(newVal) {
+        if (newVal) {
+          this.localUptimeSec = newVal;
+          this.startUptimeTimer();
+        }
+      }
+    },
+    'dbMetrics.totalRows80'() {
+      this.fetchStats();
+    }
   },
   mounted() {
-    this.triggerEvent('refresh-users');
-    this.autoRefreshTimer = setInterval(() => {
-      this.triggerEvent('refresh-users');
-    }, 5000);
+    this.localUptimeSec = this.dbMetrics.serverUptimeSec || 0;
+    this.startUptimeTimer();
+    this.fetchStats();
   },
   beforeUnmount() {
-    if (this.autoRefreshTimer) clearInterval(this.autoRefreshTimer);
+    if (this.uptimeTimer) clearInterval(this.uptimeTimer);
   },
   methods: {
-    triggerEvent(eventName, payload) {
-      if (this['$emit']) {
-        this['$emit'](eventName, payload);
+    openTab(tabKey) {
+      this.$emit('open-tab', tabKey);
+    },
+    formatNumber(val) {
+      if (!val) return '0';
+      const num = Number(String(val).replace(/,/g, ''));
+      return isNaN(num) ? val : num.toLocaleString();
+    },
+    hasPermission(tabKey) {
+      if (this.isSysAdmin) return true;
+      const perms = this.currentUserPermissions;
+      if (!perms || perms === 'all' || perms === 'all,') return true;
+      if (Array.isArray(perms)) return perms.includes(tabKey);
+      if (typeof perms === 'string') return perms.split(',').map(s => s.trim()).includes(tabKey);
+      return false;
+    },
+    startUptimeTimer() {
+      if (this.uptimeTimer) clearInterval(this.uptimeTimer);
+      this.uptimeTimer = setInterval(() => {
+        this.localUptimeSec += 1;
+      }, 1000);
+    },
+    async fetchStats() {
+      try {
+        const res = await axios.get('/api/dashboard/stats');
+        if (res.data?.success) {
+          this.stats80 = res.data.stats80 || { total_rows: 0, file_name: '' };
+          this.stats15 = res.data.stats15 || { total_rows: 0, file_name: '' };
+        }
+      } catch (e) {
+        console.error('抓取首頁統計失敗:', e.message);
       }
-    },
-    getRoleLabel(row) {
-      if (!row) return '👤 一般人員';
-      const role = row.role;
-      if (role === 'sys_admin' || row.username === 'admin') return '👑 系統管理員';
-      if (role === 'admin') return '👑 管理員';
-      return '👤 一般人員';
-    },
-    getRoleTagType(row) {
-      if (!row) return 'info';
-      const role = row.role;
-      if (role === 'sys_admin' || row.username === 'admin') return 'danger'; 
-      if (role === 'admin') return 'warning'; 
-      return 'info';                          
-    },
-    isUserOnline(row) {
-      if (!row) return false;
-      if (row.is_online !== undefined && row.is_online !== null) {
-        return row.is_online;
-      }
-
-      const curUser = (this.currentUser || '').toLowerCase();
-      const curUsername = (this.currentUsername || '').toLowerCase();
-      const rowUser = (row.username || '').toLowerCase();
-      const rowName = (row.name || '').toLowerCase();
-
-      return (rowUser && rowUser === curUsername) || 
-             (rowUser && rowUser === curUser) || 
-             (rowName && rowName === curUser);
-    },
-    formatPermissions(perms) {
-      if (!perms || perms === 'all' || perms === 'all,') return '全模組開放';
-      if (Array.isArray(perms)) {
-        return perms.length > 0 ? perms.join(', ') : '全模組開放';
-      }
-      
-      const namesMap = {
-        'loc_summary': '儲位數才數統整',
-        'inv80': '庫存查詢80',
-        'inv15': '庫存查詢15',
-        'turnover': '迴轉率清單',
-        'abnormal_purchase': '不合理進貨清單',
-        'inbound_fish': '進貨上架魚群',
-        'replenish_fish': '立即補貨單魚群',
-        'transfer_80_15': '跨庫調撥 80>15',
-        'transfer_15_80': '跨庫調撥 15>80'
-      };
-      const arr = String(perms).split(',').map(s => s.trim()).filter(Boolean);
-      return arr.map(k => namesMap[k] || k).join(', ');
     }
   }
 }
 </script>
 
 <style scoped>
-.settings-perm-container {
+.home-dashboard {
   padding: 20px;
   height: calc(100vh - 52px);
-  display: flex;
-  flex-direction: column;
   box-sizing: border-box;
-  background-color: #0f172a;
-  color: #f8fafc;
+  overflow-y: auto;
 }
 
-.action-header {
+.dashboard-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
+  margin-bottom: 20px;
 }
 
-.title-group h2 {
+.welcome-text h2 {
   margin: 0;
-  font-size: 1.25rem;
+  font-size: 20px;
+  color: #f8fafc;
+}
+
+.subtitle {
+  margin: 4px 0 0 0;
+  font-size: 13px;
+  color: #94a3b8;
+}
+
+.badge-role {
+  background: #334155;
+  color: #38bdf8;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.metric-card {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.card-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+}
+
+.blue-bg { background: rgba(56, 189, 248, 0.15); }
+.green-bg { background: rgba(74, 222, 128, 0.15); }
+.orange-bg { background: rgba(251, 191, 36, 0.15); }
+
+.card-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.card-title {
+  font-size: 13px;
+  color: #94a3b8;
+  margin-bottom: 4px;
+}
+
+.card-value-group {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.card-value {
+  font-size: 22px;
+  font-weight: bold;
+}
+
+.text-blue { color: #38bdf8; }
+.text-green { color: #4ade80; }
+.text-orange { color: #fbbf24; }
+
+.card-unit {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.file-name-tag {
+  font-size: 11px;
+  color: #f59e0b;
+  margin-top: 4px;
+  font-weight: 500;
+}
+
+.quick-actions-panel {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  padding: 18px 20px;
+}
+
+.panel-title {
+  margin: 0 0 16px 0;
+  font-size: 15px;
   color: #38bdf8;
 }
 
-.btn-group {
-  display: flex;
-  gap: 10px;
+.actions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
 }
 
-.action-btn {
-  padding: 8px 14px;
-  border: none;
-  border-radius: 6px;
-  font-weight: bold;
-  font-size: 13px;
-  cursor: pointer;
-  color: #ffffff;
-  transition: opacity 0.2s;
-}
-
-.action-btn:hover { opacity: 0.85; }
-.warning-btn { background-color: #d97706; }
-.success-btn { background-color: #059669; }
-.info-btn { background-color: #475569; }
-.primary-btn { background-color: #2563eb; }
-
-.table-card {
-  flex: 1;
-  background: #1e293b;
-  border-radius: 8px;
+.action-card {
+  background: #0f172a;
   border: 1px solid #334155;
-  overflow: hidden;
+  border-radius: 8px;
+  padding: 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
 }
 
-.cell-username { color: #38bdf8 !important; font-weight: bold; }
-.cell-name { color: #f1f5f9 !important; font-weight: bold; font-size: 14px; }
-.status-online { color: #4ade80 !important; font-weight: bold; font-size: 13px; }
-.status-offline { color: #94a3b8 !important; font-size: 13px; }
-.pwd-mask { color: #64748b !important; }
-.cell-perm-text { color: #cbd5e1 !important; font-size: 13px; }
-
-.opt-btn-group {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 4px;
-  padding-right: 6px;
+.action-card:hover {
+  border-color: #38bdf8;
+  transform: translateY(-2px);
 }
 
-.opt-btn-group .el-button {
-  margin-left: 0 !important;
-  padding: 7px 9px !important;
+.action-icon {
+  font-size: 24px;
+  margin-bottom: 8px;
 }
 
-.opt-btn.purple-btn {
-  background-color: #8b5cf6 !important;
-  border-color: #7c3aed !important;
-  color: #ffffff !important;
-}
-
-:deep(.custom-perm-table) {
-  background-color: #1e293b !important;
-  color: #f8fafc !important;
-}
-
-:deep(.custom-perm-table th.el-table__cell) {
-  background-color: #0f172a !important;
-  color: #38bdf8 !important;
-  border-bottom: 1px solid #334155 !important;
+.action-title {
+  font-size: 14px;
   font-weight: bold;
+  color: #f8fafc;
+  margin-bottom: 4px;
 }
 
-:deep(.custom-perm-table td.el-table__cell) {
-  background-color: #1e293b !important;
-  border-bottom: 1px solid #334155 !important;
-  color: #f8fafc !important;
+.action-desc {
+  font-size: 12px;
+  color: #94a3b8;
+  line-height: 1.4;
 }
 
-:deep(.custom-perm-table .el-table__empty-block) {
-  background-color: #1e293b !important;
+@media (max-width: 1200px) {
+  .metrics-grid {
+    grid-template-columns: repeat(1, 1fr);
+  }
 }
 </style>
