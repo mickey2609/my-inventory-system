@@ -55,7 +55,7 @@ module.exports = function(db) {
     db.run(`ALTER TABLE inbound_details ADD COLUMN resolve_reason TEXT`, () => {});
   });
 
-  // 🌟 筆電端專屬：一鍵清空地端進貨明細 API
+  // 筆電端專屬：一鍵清空地端進貨明細 API
   router.post('/clear-inbound-data', (req, res) => {
     db.run('DELETE FROM inbound_details', (err) => {
       if (err) return res.status(500).json({ success: false, message: '清空失敗：' + err.message });
@@ -357,7 +357,7 @@ module.exports = function(db) {
     });
   });
 
-  // 6. 🌟 每月每日總表 API (以 Set 計算每日不重複單號與批數)
+  // 6. 🌟 每月每日總表 API (以「同批驗收」比對是否已完成上架，上架率 100% 不爆表)
   router.get('/monthly-summary', (req, res) => {
     const { month, warehouse, remarks } = req.query; // month 格式: '2026-09'
 
@@ -395,6 +395,7 @@ module.exports = function(db) {
       const daysInMonthMap = {};
 
       filteredRows.forEach(r => {
+        // 🌟 1. 當天發生的驗收資料歸戶
         if (r.rec_date && r.rec_date.startsWith(month)) {
           const d = r.rec_date;
           if (!daysInMonthMap[d]) {
@@ -405,14 +406,25 @@ module.exports = function(db) {
               recPcs: 0,
               putPoSet: new Set(),
               putBatSet: new Set(),
-              putPcs: 0
+              putPcs: 0,
+              // 專門記錄當天驗收且【已完成上架】的 PCS
+              recPutMatchedPcs: 0 
             };
           }
+
           if (r.po_no) daysInMonthMap[d].recPoSet.add(r.po_no.trim());
           if (r.batch_no) daysInMonthMap[d].recBatSet.add(r.batch_no.trim());
-          daysInMonthMap[d].recPcs += (r.qty || 0);
+          const qty = r.qty || 0;
+          daysInMonthMap[d].recPcs += qty;
+
+          // 判斷這筆【當天驗收】的商品是否已經上架 (put_date 有值且格式正確，或者已銷案)
+          const isPut = (r.put_date && r.put_date.trim() !== '' && r.put_date.includes('-')) || r.is_resolved === 1;
+          if (isPut) {
+            daysInMonthMap[d].recPutMatchedPcs += qty;
+          }
         }
 
+        // 🌟 2. 當天發生的上架資料歸戶 (呈現當日實際發生的上架數)
         if (r.put_date && r.put_date.startsWith(month)) {
           const d = r.put_date;
           if (!daysInMonthMap[d]) {
@@ -423,7 +435,8 @@ module.exports = function(db) {
               recPcs: 0,
               putPoSet: new Set(),
               putBatSet: new Set(),
-              putPcs: 0
+              putPcs: 0,
+              recPutMatchedPcs: 0
             };
           }
           if (r.po_no) daysInMonthMap[d].putPoSet.add(r.po_no.trim());
@@ -432,8 +445,11 @@ module.exports = function(db) {
         }
       });
 
+      // 轉換為陣列並計算真正的「同批驗收上架率」
       const dailyList = Object.keys(daysInMonthMap).sort().map(d => {
         const item = daysInMonthMap[d];
+        const putRateVal = item.recPcs > 0 ? (item.recPutMatchedPcs / item.recPcs) * 100 : 0;
+        
         return {
           date: item.date,
           recPoCount: item.recPoSet.size,
@@ -442,7 +458,8 @@ module.exports = function(db) {
           putPoCount: item.putPoSet.size,
           putBatCount: item.putBatSet.size,
           putPcs: item.putPcs,
-          putRate: item.recPcs > 0 ? ((item.putPcs / item.recPcs) * 100).toFixed(2) + '%' : '0.00%'
+          // 確保上架率最高為 100.00%
+          putRate: Math.min(100, putRateVal).toFixed(2) + '%'
         };
       });
 
