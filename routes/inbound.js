@@ -52,7 +52,7 @@ module.exports = function(db) {
     `);
   });
 
-  // 1. 匯入 API：精準清洗 put_date，若無有效日期直接存空字串 ''
+  // 1. 匯入 API
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     const fileName = req.body.fileName || 'latest_inbound.csv';
@@ -115,10 +115,8 @@ module.exports = function(db) {
         const rec_date = standardizeDate(getVal('rec_date', '驗收日期'));
         const rec_time = standardizeTime(getVal('rec_time', '驗收時間'));
         
-        // 🌟 清洗 put_date：長度不滿 8 碼 (非正常日期格式) 一律存成純空字串 ''
         let rawPutDate = getVal('put_date', '上架日期');
         let put_date = standardizeDate(rawPutDate);
-        if (put_date.length < 8) put_date = '';
 
         const put_time = standardizeTime(getVal('put_time', '上架時間'));
         const batch_no = getVal('batch_no', '驗收批號');
@@ -151,7 +149,7 @@ module.exports = function(db) {
     });
   });
 
-  // 2. 🌟 終極未上架統計 SQL：只要 put_date 為空、或長度小於 8 碼、或為 NULL，且未銷案，就判定為未上架！
+  // 2. 🌟 避開 SQL 502/500 錯誤的零盲點查詢條件：只要 put_date 不是 20 年代開頭的日期，且未銷案，通通為未上架！
   router.get('/pending-putaway', (req, res) => {
     const sql = `
       SELECT 
@@ -160,7 +158,7 @@ module.exports = function(db) {
         IFNULL(SUM(qty), 0) as total_qty
       FROM inbound_details
       WHERE rec_date IS NOT NULL AND rec_date != ''
-        AND (put_date IS NULL OR put_date = '' OR LENGTH(TRIM(put_date)) < 8)
+        AND IFNULL(put_date, '') NOT LIKE '20%'
         AND IFNULL(is_resolved, 0) = 0
       GROUP BY rec_date
       ORDER BY rec_date DESC
@@ -172,7 +170,7 @@ module.exports = function(db) {
     });
   });
 
-  // 3. 🌟 終極未上架明細 API
+  // 3. 🌟 未上架明細 API (防崩潰穩定版)
   router.get('/pending-details', (req, res) => {
     let { recDate } = req.query;
 
@@ -181,7 +179,7 @@ module.exports = function(db) {
         SELECT warehouse, rec_date, rec_time, batch_no, po_no, remark, item_id, item_name, qty
         FROM inbound_details
         WHERE rec_date IS NOT NULL AND rec_date != ''
-          AND (put_date IS NULL OR put_date = '' OR LENGTH(TRIM(put_date)) < 8)
+          AND IFNULL(put_date, '') NOT LIKE '20%'
           AND IFNULL(is_resolved, 0) = 0
       `;
       const params = [];
@@ -204,7 +202,7 @@ module.exports = function(db) {
         SELECT rec_date 
         FROM inbound_details 
         WHERE rec_date IS NOT NULL AND rec_date != ''
-          AND (put_date IS NULL OR put_date = '' OR LENGTH(TRIM(put_date)) < 8)
+          AND IFNULL(put_date, '') NOT LIKE '20%'
           AND IFNULL(is_resolved, 0) = 0
         ORDER BY rec_date DESC 
         LIMIT 1
@@ -235,7 +233,7 @@ module.exports = function(db) {
         SET is_resolved = 1,
             resolve_reason = ?,
             remark = remark || ' [更正註記: ' || ? || ']',
-            put_date = CASE WHEN ? != '' THEN ? ELSE 'RESOLVED' END
+            put_date = CASE WHEN ? != '' THEN ? ELSE '2099-12-31' END
         WHERE warehouse = ? AND po_no = ? AND batch_no = ? AND item_id = ?
       `);
 
