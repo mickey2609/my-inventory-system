@@ -248,7 +248,7 @@
       </div>
     </el-dialog>
 
-    <!-- 🌟 5. 高對比顯色未上架彈窗 -->
+    <!-- 5. 未上架彈窗 -->
     <el-dialog v-model="showPendingDialog" title="⚠️ 尚未上架明細監控與更正處置" width="1020px" append-to-body custom-class="dark-dialog">
       <div class="pending-dialog-body">
         <div class="pending-summary-sidebar">

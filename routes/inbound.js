@@ -52,7 +52,7 @@ module.exports = function(db) {
     `);
   });
 
-  // 1. 匯入 API (Upsert 強制覆蓋 put_date)
+  // 1. 匯入 API：直接以 CSV 傳入值完全覆蓋，確保空白上架日期能真實寫入
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     const fileName = req.body.fileName || 'latest_inbound.csv';
@@ -146,7 +146,7 @@ module.exports = function(db) {
     });
   });
 
-  // 2. 未上架日期摘要統計
+  // 2. 未上架日期統計（核心邏輯：有驗收批號/單號 + 上架日期為空 + 未銷案）
   router.get('/pending-putaway', (req, res) => {
     const sql = `
       SELECT 
@@ -155,7 +155,7 @@ module.exports = function(db) {
         IFNULL(SUM(qty), 0) as total_qty
       FROM inbound_details
       WHERE (po_no != '' OR batch_no != '')
-        AND LENGTH(TRIM(IFNULL(put_date, ''))) = 0
+        AND (put_date IS NULL OR put_date = '' OR put_date = ' ' OR LENGTH(TRIM(put_date)) = 0)
         AND IFNULL(is_resolved, 0) = 0
         AND rec_date IS NOT NULL AND rec_date != ''
       GROUP BY rec_date
@@ -168,7 +168,7 @@ module.exports = function(db) {
     });
   });
 
-  // 3. 未上架明細清單 (若 recDate 未傳則自動備援抓最新一天)
+  // 3. 未上架明細 API (預設帶出最新有資料的日期)
   router.get('/pending-details', (req, res) => {
     let { recDate } = req.query;
 
@@ -177,7 +177,7 @@ module.exports = function(db) {
         SELECT warehouse, rec_date, rec_time, batch_no, po_no, remark, item_id, item_name, qty
         FROM inbound_details
         WHERE (po_no != '' OR batch_no != '')
-          AND LENGTH(TRIM(IFNULL(put_date, ''))) = 0
+          AND (put_date IS NULL OR put_date = '' OR put_date = ' ' OR LENGTH(TRIM(put_date)) = 0)
           AND IFNULL(is_resolved, 0) = 0
       `;
       const params = [];
@@ -200,7 +200,7 @@ module.exports = function(db) {
         SELECT rec_date 
         FROM inbound_details 
         WHERE (po_no != '' OR batch_no != '')
-          AND LENGTH(TRIM(IFNULL(put_date, ''))) = 0
+          AND (put_date IS NULL OR put_date = '' OR put_date = ' ' OR LENGTH(TRIM(put_date)) = 0)
           AND IFNULL(is_resolved, 0) = 0
         ORDER BY rec_date DESC 
         LIMIT 1
