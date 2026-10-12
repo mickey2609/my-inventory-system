@@ -63,19 +63,24 @@ export default {
     currentUser: String // 🌟 接收當前登入使用者名稱
   },
   methods: {
-    getTabName(k) {
-      const names = {
-        'home': '🏠 系統首頁',
-        'inv80': '庫存查詢80',
-        'inv15': '庫存查詢15',
-        'loc_summary': '儲位數才數統整',
-        'turnover': '迴轉率清單',
-        'abnormal_purchase': '不合理進貨清單',
-        'settings_perm': '權限管理',
-        'settings_log': '日誌歷程查詢'
-      };
-      return names[k] || '系統模組';
-    }
+    getTabName(tabKey) {
+  const namesMap = {
+    'home': '🏠 系統首頁',
+    'loc_summary': '📊 儲位數才數統整',
+    'inv80': '🔍 庫存查詢80',
+    'inv15': '📦 庫存查詢15',
+    'turnover': '📈 迴轉率清單',
+    'abnormal_purchase': '⚠️ 不合理進貨清單',
+    // 🌟 補上 4 個新模組名稱
+    'inbound_fish': '🐟 進貨上架魚群',
+    'replenish_fish': '🐟 立即補貨單魚群',
+    'transfer_80_15': '🔄 跨庫調撥 80 ➔ 15',
+    'transfer_15_80': '🔄 跨庫調撥 15 ➔ 80',
+    'settings_perm': '⚙️ 權限管理',
+    'settings_log': '📜 日誌歷程查詢'
+  };
+  return namesMap[tabKey] || '系統模組';
+}
   }
 }
 </script>
