@@ -263,7 +263,7 @@ module.exports = function(db) {
     });
   });
 
-  // 5. 魚群分析 API
+  // 5. 🌟 魚群分析 API (使用 Set 實現真正的「不重複進貨單號」與「不重複驗收批號」統計)
   router.get('/fish-analysis', (req, res) => {
     const { targetDate, warehouse, remarks } = req.query;
 
@@ -299,37 +299,59 @@ module.exports = function(db) {
         return matched;
       });
 
-      const hourlyStats = Array.from({ length: 24 }, (_, h) => ({
+      // 初始化 24 小時的 Set 集合進行去重統計
+      const hourlyData = Array.from({ length: 24 }, (_, h) => ({
         hourStr: `${String(h).padStart(2, '0')}:00 ~ ${String(h + 1).padStart(2, '0')}:00`,
-        recPoCount: 0,
+        recPoSet: new Set(),
         recPoPcs: 0,
-        putPoCount: 0,
+        putPoSet: new Set(),
         putPoPcs: 0,
-        recBatCount: 0,
-        putBatCount: 0
+        recBatSet: new Set(),
+        putBatSet: new Set()
       }));
 
       filteredRows.forEach(r => {
+        // 1. 驗收時段統計
         if (r.rec_date === targetDate && r.rec_time) {
           const hStr = r.rec_time.split(':')[0];
           const h = parseInt(hStr, 10);
           if (!isNaN(h) && h >= 0 && h < 24) {
-            hourlyStats[h].recPoCount += 1;
-            hourlyStats[h].recPoPcs += (r.qty || 0);
-            if (r.batch_no) hourlyStats[h].recBatCount += 1;
+            if (r.po_no && r.po_no.trim() !== '') {
+              hourlyData[h].recPoSet.add(r.po_no.trim());
+            }
+            if (r.batch_no && r.batch_no.trim() !== '') {
+              hourlyData[h].recBatSet.add(r.batch_no.trim());
+            }
+            hourlyData[h].recPoPcs += (r.qty || 0);
           }
         }
 
+        // 2. 上架時段統計
         if (r.put_date === targetDate && r.put_time) {
           const hStr = r.put_time.split(':')[0];
           const h = parseInt(hStr, 10);
           if (!isNaN(h) && h >= 0 && h < 24) {
-            hourlyStats[h].putPoCount += 1;
-            hourlyStats[h].putPoPcs += (r.qty || 0);
-            if (r.batch_no) hourlyStats[h].putBatCount += 1;
+            if (r.po_no && r.po_no.trim() !== '') {
+              hourlyData[h].putPoSet.add(r.po_no.trim());
+            }
+            if (r.batch_no && r.batch_no.trim() !== '') {
+              hourlyData[h].putBatSet.add(r.batch_no.trim());
+            }
+            hourlyData[h].putPoPcs += (r.qty || 0);
           }
         }
       });
+
+      // 將 Set 轉換為最終數量 Counts
+      const hourlyStats = hourlyData.map(d => ({
+        hourStr: d.hourStr,
+        recPoCount: d.recPoSet.size,
+        recPoPcs: d.recPoPcs,
+        putPoCount: d.putPoSet.size,
+        putPoPcs: d.putPoPcs,
+        recBatCount: d.recBatSet.size,
+        putBatCount: d.putBatSet.size
+      }));
 
       res.json({
         success: true,
