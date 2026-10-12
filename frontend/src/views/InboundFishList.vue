@@ -248,8 +248,15 @@
       </div>
     </el-dialog>
 
-    <!-- 🌟 5. 高對比顯色未上架彈窗 (已加入「驗收日期」欄位) -->
-    <el-dialog v-model="showPendingDialog" title="⚠️ 尚未上架明細監控與更正處置" width="1080px" append-to-body custom-class="dark-dialog">
+    <!-- 🌟 5. 高對比寬版未上架彈窗 (寬度放寬至 92%，消除白邊貼合背景) -->
+    <el-dialog 
+      v-model="showPendingDialog" 
+      title="⚠️ 尚未上架明細監控與更正處置" 
+      width="92%" 
+      top="4vh"
+      append-to-body 
+      custom-class="dark-dialog large-pending-dialog"
+    >
       <div class="pending-dialog-body">
         <div class="pending-summary-sidebar">
           <p class="sidebar-title">📅 選擇驗收日期：</p>
@@ -285,23 +292,23 @@
             border
             stripe
             size="small"
-            height="380px"
+            height="460px"
             class="dark-table"
             @selection-change="handleSelectionChange"
           >
             <el-table-column type="selection" width="45" align="center" />
-            <!-- 🌟 依需求新增：驗收日期 欄位 -->
+            <!-- 🌟 驗收日期 欄位 -->
             <el-table-column prop="rec_date" label="驗收日期" width="105" align="center" />
             <el-table-column prop="rec_time" label="驗收時間" width="85" align="center" />
-            <el-table-column prop="po_no" label="進貨單號" width="140" align="center" />
-            <el-table-column prop="batch_no" label="驗收批號" width="140" align="center" />
-            <el-table-column prop="item_name" label="商品名稱" min-width="180" show-overflow-tooltip />
-            <el-table-column prop="qty" label="數量" width="65" align="right">
+            <el-table-column prop="po_no" label="進貨單號" width="150" align="center" />
+            <el-table-column prop="batch_no" label="驗收批號" width="150" align="center" />
+            <el-table-column prop="item_name" label="商品名稱" min-width="220" show-overflow-tooltip />
+            <el-table-column prop="qty" label="數量" width="70" align="right">
               <template #default="scope">
                 <span class="font-bold text-blue">{{ scope.row.qty }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="remark" label="收貨備註" width="120" show-overflow-tooltip />
+            <el-table-column prop="remark" label="收貨備註" min-width="160" show-overflow-tooltip />
             <el-table-column label="處置" width="90" align="center" fixed="right">
               <template #default="scope">
                 <el-button type="danger" size="mini" plain @click="openResolveDialog([scope.row])">
@@ -823,23 +830,32 @@ export default {
   font-weight: bold;
 }
 
-/* 🌟 強制彈窗背景與文字對比高顯度 */
-:deep(.el-dialog.dark-dialog) {
+/* 🌟 強制彈窗背景與文字對比高顯度 (消除白邊、滿版大格對齊) */
+:deep(.el-dialog.dark-dialog.large-pending-dialog) {
   background-color: #1e293b !important;
   color: #f8fafc !important;
   border: 1px solid #334155 !important;
   border-radius: 8px !important;
+  margin-bottom: 20px !important;
 }
 
-:deep(.dark-dialog .el-dialog__header) {
+:deep(.large-pending-dialog .el-dialog__header) {
   background-color: #0f172a !important;
   border-bottom: 1px solid #334155 !important;
-  padding: 12px 20px !important;
+  padding: 14px 20px !important;
+  margin-right: 0 !important;
+}
+
+:deep(.large-pending-dialog .el-dialog__body) {
+  background-color: #1e293b !important;
+  padding: 16px !important;
+  color: #f8fafc !important;
 }
 
 :deep(.dark-dialog .el-dialog__title) {
   color: #38bdf8 !important;
   font-weight: bold;
+  font-size: 16px;
 }
 
 :deep(.dark-table) {
@@ -863,12 +879,13 @@ export default {
   display: flex;
   gap: 16px;
   background-color: #1e293b;
-  padding: 12px;
-  border-radius: 6px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .pending-summary-sidebar {
-  width: 240px;
+  width: 220px;
+  flex-shrink: 0;
   border-right: 1px solid #334155;
   padding-right: 12px;
 }
@@ -881,7 +898,7 @@ export default {
 }
 
 .date-list {
-  max-height: 380px;
+  max-height: 460px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -928,6 +945,7 @@ export default {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-width: 0;
 }
 
 .content-header {
