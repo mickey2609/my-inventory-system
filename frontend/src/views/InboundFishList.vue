@@ -32,10 +32,17 @@
       </div>
 
       <div class="action-group">
+        <!-- 未上架追蹤 Modal 按鈕 -->
         <el-button type="warning" size="small" icon="el-icon-warning" @click="openPendingDialog">
           未上架追蹤 ({{ totalPendingCount }} 筆)
         </el-button>
 
+        <!-- 🌟 新增：手動重新整理按鈕 -->
+        <el-button type="info" size="small" icon="el-icon-refresh" :loading="loading" @click="refreshAllData">
+          🔄 重新整理
+        </el-button>
+
+        <!-- 🌟 系統管理員專屬上傳按鈕 -->
         <el-button
           v-if="checkSysAdmin"
           type="success"
@@ -161,7 +168,7 @@
       </div>
     </div>
 
-    <!-- 4. 🚨 大容量進貨明細 CSV 上傳進度條 Modal -->
+    <!-- 4. CSV 上傳進度條 Modal -->
     <el-dialog
       v-model="showUploadProgressModal"
       title="⚡ 正在寫入與覆蓋更新進貨明細資料..."
@@ -216,13 +223,13 @@ export default {
       loading: false,
       targetDate: new Date().toISOString().split('T')[0],
       warehouse: 'all',
+      // 🌟 預設三項全勾（含空白正常件）
       selectedRemarks: ['empty', '15', 'abnormal'],
       hourlyStats: [],
       showPendingDialog: false,
       pendingSummary: [],
       totalPendingCount: 0,
 
-      // 🌟 上傳進度條相關狀態
       isUploading: false,
       showUploadProgressModal: false,
       uploadingFileName: '',
@@ -296,14 +303,18 @@ export default {
       return '雙庫合計';
     },
 
-    // 🌟 觸發檔案選擇器
+    // 🌟 一鍵手動重新整理
+    async refreshAllData() {
+      await Promise.all([this.fetchFishData(), this.fetchPendingSummary()]);
+      ElMessage.success('🎉 資料已成功重新整理！');
+    },
+
     triggerSelectCsv() {
       if (this['$refs'] && this['$refs'].csvFileInput) {
         this['\$refs'].csvFileInput.click();
       }
     },
 
-    // 🌟 處理大容量 CSV 檔分批讀取與進度條展現 (支援 10~20 萬筆)
     async handleCsvFileSelected(event) {
       const file = event.target.files[0];
       if (!file) return;
@@ -335,7 +346,7 @@ export default {
             }
 
             this.totalRowsToUpload = rawData.length;
-            const BATCH_SIZE = 10000; // 每批次打 10,000 筆 API
+            const BATCH_SIZE = 10000;
             let processed = 0;
 
             for (let i = 0; i < rawData.length; i += BATCH_SIZE) {
@@ -354,8 +365,9 @@ export default {
             }
 
             ElMessage.success(`🎉 成功寫入並更新 ${this.totalRowsToUpload.toLocaleString()} 筆進貨明細資料！`);
-            this.fetchFishData();
-            this.fetchPendingSummary();
+            
+            // 🌟 匯入完成後自動重新整理畫面
+            await Promise.all([this.fetchFishData(), this.fetchPendingSummary()]);
             this.resetUploadState(event);
           },
           error: (err) => {

@@ -5,6 +5,33 @@ const express = require('express');
 module.exports = function(db) {
   const router = express.Router();
 
+  // 日期與時間標準化格式化輔助函式
+  function standardizeDate(val) {
+    if (!val) return '';
+    let str = String(val).trim();
+    if (str.includes(' ')) str = str.split(' ')[0]; // 扣除時間部位
+    str = str.replace(/\//g, '-'); // 西元斜線轉短線
+    
+    const parts = str.split('-');
+    if (parts.length === 3) {
+      const y = parts[0];
+      const m = String(parts[1]).padStart(2, '0');
+      const d = String(parts[2]).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+    return str;
+  }
+
+  function standardizeTime(val) {
+    if (!val) return '';
+    let str = String(val).trim();
+    if (str.includes(' ')) {
+      const parts = str.split(' ');
+      str = parts[parts.length - 1]; // 抓後段時間部位
+    }
+    return str;
+  }
+
   // 1. 初始化建立進貨明細資料表 inbound_details
   db.serialize(() => {
     db.run(`
@@ -45,7 +72,6 @@ module.exports = function(db) {
       db.run('PRAGMA journal_mode = MEMORY');
       db.run('BEGIN TRANSACTION');
 
-      // 若為第一批次，記錄匯入日誌
       if (isFirstChunk) {
         db.run(
           `INSERT INTO import_logs (module_type, file_name, row_count, imported_at) VALUES ('inbound', ?, ?, DATETIME('now'))`,
@@ -91,10 +117,10 @@ module.exports = function(db) {
         };
 
         const warehouse = getVal('warehouse', '庫別') || '80';
-        const rec_date = getVal('rec_date', '驗收日期');
-        const rec_time = getVal('rec_time', '驗收時間');
-        const put_date = getVal('put_date', '上架日期');
-        const put_time = getVal('put_time', '上架時間');
+        const rec_date = standardizeDate(getVal('rec_date', '驗收日期'));
+        const rec_time = standardizeTime(getVal('rec_time', '驗收時間'));
+        const put_date = standardizeDate(getVal('put_date', '上架日期'));
+        const put_time = standardizeTime(getVal('put_time', '上架時間'));
         const batch_no = getVal('batch_no', '驗收批號');
         const po_no = getVal('po_no', '進貨單號');
         const remark = getVal('remark', '收貨備註');
@@ -193,6 +219,7 @@ module.exports = function(db) {
       }));
 
       filteredRows.forEach(r => {
+        // 驗收時段
         if (r.rec_date === targetDate && r.rec_time) {
           const hStr = r.rec_time.split(':')[0];
           const h = parseInt(hStr, 10);
@@ -203,6 +230,7 @@ module.exports = function(db) {
           }
         }
 
+        // 上架時段
         if (r.put_date === targetDate && r.put_time) {
           const hStr = r.put_time.split(':')[0];
           const h = parseInt(hStr, 10);
