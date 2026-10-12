@@ -5,6 +5,26 @@
         <h2>👋 歡迎回來，{{ currentUser }}</h2>
         <p class="subtitle">庫存儲位管理系統控制台 | 地端高效能資料庫</p>
       </div>
+
+      <!-- 🌟 跑馬燈公告欄 -->
+      <div class="marquee-wrapper">
+        <div class="marquee-badge">📢 系統公告</div>
+        <div class="marquee-content-box">
+          <div class="marquee-text">
+            {{ announcementText || '🎉 歡迎使用庫存儲位管理系統！請確實核對進貨驗收與新品上架資料。' }}
+          </div>
+        </div>
+        <!-- 系統管理員可點擊編輯 -->
+        <button 
+          v-if="isSysAdmin" 
+          class="edit-announce-btn"
+          @click="openAnnounceDialog"
+          title="編輯公告"
+        >
+          ✏️ 編輯
+        </button>
+      </div>
+
       <div class="user-status-badge">
         <span class="badge-role">{{ isSysAdmin ? '系統管理員' : '一般使用者' }}</span>
       </div>
@@ -85,7 +105,6 @@
           <div class="action-desc">進貨材積、滯銷評估與庫齡預警分析</div>
         </div>
 
-        <!-- 🌟 4 個全新魚群與調撥模組小卡片 (使用漂亮箭頭 ➔) -->
         <div v-if="hasPermission('inbound_fish')" class="action-card" @click="openTab('inbound_fish')">
           <div class="action-icon">🐟</div>
           <div class="action-title">進貨上架魚群</div>
@@ -117,11 +136,30 @@
         </div>
       </div>
     </div>
+
+    <!-- 🌟 編輯公告彈窗 Modal -->
+    <el-dialog v-model="showAnnounceModal" title="✏️ 編輯系統跑馬燈公告" width="480px" append-to-body custom-class="dark-dialog">
+      <el-form label-width="90px" size="small">
+        <el-form-item label="公告事項：">
+          <el-input 
+            v-model="tempAnnouncement" 
+            type="textarea" 
+            :rows="3" 
+            placeholder="請輸入跑馬燈公告內容 (例如：今日 17:00 進行庫房設備維護，請留意...)"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button size="small" @click="showAnnounceModal = false">取消</el-button>
+        <el-button type="primary" size="small" @click="saveAnnouncement">儲存公告</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script>
 import axios from 'axios'
+import { ElMessage } from 'element-plus'
 
 export default {
   name: 'HomeDashboard',
@@ -139,7 +177,10 @@ export default {
       localUptimeSec: 0,
       uptimeTimer: null,
       stats80: { total_rows: 0, file_name: '' },
-      stats15: { total_rows: 0, file_name: '' }
+      stats15: { total_rows: 0, file_name: '' },
+      announcementText: localStorage.getItem('system_announcement') || '🎉 歡迎使用庫存儲位管理系統！請確實核對進貨驗收與新品上架資料。',
+      showAnnounceModal: false,
+      tempAnnouncement: ''
     }
   },
   computed: {
@@ -180,7 +221,7 @@ export default {
   },
   methods: {
     openTab(tabKey) {
-      this.$emit('open-tab', tabKey);
+      this.\$emit('open-tab', tabKey);
     },
     formatNumber(val) {
       if (!val) return '0';
@@ -211,6 +252,19 @@ export default {
       } catch (e) {
         console.error('抓取首頁統計失敗:', e.message);
       }
+    },
+    openAnnounceDialog() {
+      this.tempAnnouncement = this.announcementText;
+      this.showAnnounceModal = true;
+    },
+    saveAnnouncement() {
+      if (!this.tempAnnouncement.trim()) {
+        return ElMessage.warning('公告內容不可為空！');
+      }
+      this.announcementText = this.tempAnnouncement.trim();
+      localStorage.setItem('system_announcement', this.announcementText);
+      ElMessage.success('🎉 跑馬燈公告已成功更新！');
+      this.showAnnounceModal = false;
     }
   }
 }
@@ -228,19 +282,108 @@ export default {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 16px;
   margin-bottom: 20px;
+  background: #1e293b;
+  padding: 12px 20px;
+  border-radius: 10px;
+  border: 1px solid #334155;
+}
+
+.welcome-text {
+  flex-shrink: 0;
 }
 
 .welcome-text h2 {
   margin: 0;
-  font-size: 20px;
+  font-size: 18px;
   color: #f8fafc;
 }
 
 .subtitle {
   margin: 4px 0 0 0;
-  font-size: 13px;
+  font-size: 12px;
   color: #94a3b8;
+}
+
+/* 🌟 跑馬燈樣式 */
+.marquee-wrapper {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  background: #0f172a;
+  border: 1px solid #38bdf8;
+  border-radius: 20px;
+  padding: 4px 12px;
+  overflow: hidden;
+  height: 36px;
+  box-sizing: border-box;
+  max-width: 60%;
+}
+
+.marquee-badge {
+  background: #0284c7;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: bold;
+  padding: 2px 10px;
+  border-radius: 12px;
+  white-space: nowrap;
+  margin-right: 12px;
+  flex-shrink: 0;
+}
+
+.marquee-content-box {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+  height: 100%;
+  display: flex;
+  align-items: center;
+}
+
+.marquee-text {
+  display: inline-block;
+  white-space: nowrap;
+  font-size: 13px;
+  color: #fef08a;
+  font-weight: bold;
+  padding-left: 100%;
+  animation: marqueeAnimation 18s linear infinite;
+}
+
+.marquee-wrapper:hover .marquee-text {
+  animation-play-state: paused;
+}
+
+@keyframes marqueeAnimation {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    transform: translate3d(-100%, 0, 0);
+  }
+}
+
+.edit-announce-btn {
+  background: transparent;
+  border: none;
+  color: #38bdf8;
+  font-size: 12px;
+  cursor: pointer;
+  margin-left: 8px;
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.edit-announce-btn:hover {
+  background: rgba(56, 189, 248, 0.2);
+  color: #7dd3fc;
+}
+
+.user-status-badge {
+  flex-shrink: 0;
 }
 
 .badge-role {
