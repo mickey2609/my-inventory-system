@@ -233,7 +233,7 @@
       :close-on-press-escape="false"
       :show-close="false"
       append-to-body
-      custom-class="dark-dialog"
+      class="dark-dialog"
     >
       <div class="progress-box">
         <p class="file-name-info">📁 匯入檔案：<strong>{{ uploadingFileName }}</strong></p>
@@ -248,8 +248,8 @@
       </div>
     </el-dialog>
 
-    <!-- 🌟 5. 升級版：未上架日期監控 + 點擊查看明細 Modal -->
-    <el-dialog v-model="showPendingDialog" title="⚠️ 尚未上架明細監控與更正處置" width="980px" append-to-body custom-class="dark-dialog">
+    <!-- 🌟 5. 深色主題對齊：未上架日期監控 + 點擊查看明細 Modal -->
+    <el-dialog v-model="showPendingDialog" title="⚠️ 尚未上架明細監控與更正處置" width="980px" append-to-body class="dark-dialog">
       <div class="pending-dialog-body">
         <div class="pending-summary-sidebar">
           <p class="sidebar-title">📅 選擇驗收日期：</p>
@@ -294,7 +294,7 @@
             <el-table-column prop="po_no" label="進貨單號" width="140" align="center" />
             <el-table-column prop="batch_no" label="驗收批號" width="140" align="center" />
             <el-table-column prop="item_name" label="商品名稱" min-width="180" show-overflow-tooltip />
-            <el-table-column prop="qty" label="數量" width="60" align="right">
+            <el-table-column prop="qty" label="數量" width="65" align="right">
               <template #default="scope">
                 <span class="font-bold text-blue">{{ scope.row.qty }}</span>
               </template>
@@ -312,8 +312,8 @@
       </div>
     </el-dialog>
 
-    <!-- 🌟 6. 更正更正更正原因註記 Modal -->
-    <el-dialog v-model="showResolveModal" title="🛠️ 銷案/更正未上架記錄" width="420px" append-to-body custom-class="dark-dialog">
+    <!-- 🌟 6. 更正銷案原因註記 Modal -->
+    <el-dialog v-model="showResolveModal" title="🛠️ 銷案/更正未上架記錄" width="420px" append-to-body class="dark-dialog">
       <div class="resolve-form">
         <p>準備更正 <strong>{{ targetResolveItems.length }}</strong> 筆未上架項目：</p>
         
@@ -360,7 +360,6 @@ export default {
       pendingSummary: [],
       totalPendingCount: 0,
 
-      // 🌟 未上架明細展開與銷案相關
       selectedPendingDate: '',
       currentDetailsList: [],
       selectedDetailRows: [],
@@ -587,7 +586,6 @@ export default {
       this.showPendingDialog = true;
     },
 
-    // 🌟 載入該日期的未上架明細
     async loadPendingDetails(recDate) {
       this.selectedPendingDate = recDate;
       this.loadingDetails = true;
@@ -614,7 +612,6 @@ export default {
       this.showResolveModal = true;
     },
 
-    // 🌟 送出銷案更正
     async submitResolve() {
       if (!this.targetResolveItems.length) return;
       this.resolving = true;
@@ -820,20 +817,38 @@ export default {
   font-weight: bold;
 }
 
-/* 🌟 未上架彈窗樣式 */
+/* 🌟 深色對齊彈窗與表格樣式 */
+:deep(.dark-dialog) {
+  background-color: #1e293b !important;
+  color: #f8fafc !important;
+  border: 1px solid #334155 !important;
+  border-radius: 8px !important;
+}
+
+:deep(.dark-dialog .el-dialog__header) {
+  background-color: #0f172a !important;
+  border-bottom: 1px solid #334155 !important;
+  padding: 12px 20px !important;
+}
+
+:deep(.dark-dialog .el-dialog__title) {
+  color: #38bdf8 !important;
+  font-weight: bold;
+}
+
 .pending-dialog-body {
   display: flex;
   gap: 16px;
 }
 
 .pending-summary-sidebar {
-  width: 210px;
+  width: 200px;
   border-right: 1px solid #334155;
   padding-right: 12px;
 }
 
 .sidebar-title {
-  margin: 0 0 8px 0;
+  margin: 0 0 10px 0;
   font-size: 13px;
   color: #38bdf8;
   font-weight: bold;
@@ -851,17 +866,19 @@ export default {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 6px 10px;
+  padding: 8px 12px;
   background: #0f172a;
   border: 1px solid #334155;
   border-radius: 6px;
   cursor: pointer;
   font-size: 12px;
+  color: #cbd5e1;
 }
 
 .date-item:hover, .date-item.active {
   border-color: #38bdf8;
-  background: rgba(56, 189, 248, 0.15);
+  background: rgba(56, 189, 248, 0.2);
+  color: #38bdf8;
 }
 
 .d-badge {
@@ -891,6 +908,7 @@ export default {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  color: #f8fafc;
 }
 
 .text-right { text-align: right; }

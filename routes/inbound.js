@@ -26,7 +26,6 @@ module.exports = function(db) {
     return str;
   }
 
-  // 1. 初始化資料表 (加上 update_remark 與 is_resolved 欄位支援)
   db.serialize(() => {
     db.run(`
       CREATE TABLE IF NOT EXISTS inbound_details (
@@ -53,7 +52,6 @@ module.exports = function(db) {
     `);
   });
 
-  // 2. 匯入 API (Upsert)
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     const fileName = req.body.fileName || 'latest_inbound.csv';
@@ -147,7 +145,6 @@ module.exports = function(db) {
     });
   });
 
-  // 3. 取得「尚未上架」按驗收日期統計摘要
   router.get('/pending-putaway', (req, res) => {
     const sql = `
       SELECT 
@@ -168,7 +165,7 @@ module.exports = function(db) {
     });
   });
 
-  // 4. 🌟 新增：取得特定驗收日期的「未上架明細清單」
+  // 🌟 特定驗收日期的「未上架明細清單 API」
   router.get('/pending-details', (req, res) => {
     const { recDate } = req.query;
     let sql = `
@@ -192,7 +189,7 @@ module.exports = function(db) {
     });
   });
 
-  // 5. 🌟 新增：將誤驗收 / 異常單據進行「註記更正與銷案 (解除追蹤)」
+  // 🌟 銷案/更正 API
   router.post('/update-pending-status', (req, res) => {
     const { keys, reason, customPutDate } = req.body;
 
@@ -226,7 +223,6 @@ module.exports = function(db) {
     });
   });
 
-  // 6. 魚群分析數據 API
   router.get('/fish-analysis', (req, res) => {
     const { targetDate, warehouse, remarks } = req.query;
 
