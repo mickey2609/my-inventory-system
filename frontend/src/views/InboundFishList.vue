@@ -248,8 +248,8 @@
       </div>
     </el-dialog>
 
-    <!-- 🌟 5. 未上架日期監控 + 明細深色彈窗 -->
-    <el-dialog v-model="showPendingDialog" title="⚠️ 尚未上架明細監控與更正處置" width="980px" append-to-body custom-class="dark-dialog">
+    <!-- 🌟 5. 高對比顯色未上架彈窗 -->
+    <el-dialog v-model="showPendingDialog" title="⚠️ 尚未上架明細監控與更正處置" width="1020px" append-to-body custom-class="dark-dialog">
       <div class="pending-dialog-body">
         <div class="pending-summary-sidebar">
           <p class="sidebar-title">📅 選擇驗收日期：</p>
@@ -573,8 +573,8 @@ export default {
           this.pendingSummary = res.data.pendingSummary || [];
           this.totalPendingCount = this.pendingSummary.reduce((sum, item) => sum + item.pending_count, 0);
           if (this.pendingSummary.length > 0) {
-            const defaultDate = this.selectedPendingDate || this.pendingSummary[0].rec_date;
-            this.loadPendingDetails(defaultDate);
+            const targetDate = this.selectedPendingDate || this.pendingSummary[0].rec_date;
+            this.loadPendingDetails(targetDate);
           }
         }
       } catch (e) {
@@ -594,6 +594,9 @@ export default {
         const res = await axios.get('/api/inbound/pending-details', { params: { recDate } });
         if (res.data?.success) {
           this.currentDetailsList = res.data.pendingDetails || [];
+          if (res.data.selectedDate) {
+            this.selectedPendingDate = res.data.selectedDate;
+          }
         }
       } catch (e) {
         ElMessage.error('載入明細失敗：' + e.message);
@@ -818,8 +821,8 @@ export default {
   font-weight: bold;
 }
 
-/* 🌟 深色全覆蓋彈窗與表格樣式 */
-:deep(.dark-dialog) {
+/* 🌟 強制彈窗背景與文字對比高顯度 */
+:deep(.el-dialog.dark-dialog) {
   background-color: #1e293b !important;
   color: #f8fafc !important;
   border: 1px solid #334155 !important;
@@ -858,12 +861,12 @@ export default {
   display: flex;
   gap: 16px;
   background-color: #1e293b;
-  padding: 10px;
+  padding: 12px;
   border-radius: 6px;
 }
 
 .pending-summary-sidebar {
-  width: 220px;
+  width: 240px;
   border-right: 1px solid #334155;
   padding-right: 12px;
 }
@@ -883,6 +886,7 @@ export default {
   gap: 6px;
 }
 
+/* 🌟 徹底解決黑字問題：設定高亮白色與點擊深藍 */
 .date-item {
   display: flex;
   justify-content: space-between;
@@ -892,20 +896,30 @@ export default {
   border: 1px solid #334155;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 12px;
-  color: #cbd5e1;
+  font-size: 13px;
+  color: #f8fafc !important;
+  font-weight: 500;
 }
 
-.date-item:hover, .date-item.active {
+.date-item:hover {
   border-color: #38bdf8;
-  background: rgba(56, 189, 248, 0.25);
-  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.2);
+}
+
+.date-item.active {
+  border-color: #38bdf8;
+  background: #0284c7 !important;
+  color: #ffffff !important;
   font-weight: bold;
 }
 
 .d-badge {
   color: #fbbf24;
   font-weight: bold;
+}
+
+.date-item.active .d-badge {
+  color: #fef08a;
 }
 
 .pending-details-content {

@@ -52,6 +52,7 @@ module.exports = function(db) {
     `);
   });
 
+  // 1. 批次匯入與 Upsert 覆蓋更新
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     const fileName = req.body.fileName || 'latest_inbound.csv';
@@ -145,7 +146,7 @@ module.exports = function(db) {
     });
   });
 
-  // 🌟 修復：未上架摘要 SQL 條件容錯判斷
+  // 2. 未上架日期統計摘要
   router.get('/pending-putaway', (req, res) => {
     const sql = `
       SELECT 
@@ -166,31 +167,43 @@ module.exports = function(db) {
     });
   });
 
-  // 🌟 修復：未上架明細 SQL 條件容錯判斷
+  // 3. 未上架明細清單 (若 recDate 未帶則自動預設抓取最新的一天)
   router.get('/pending-details', (req, res) => {
-    const { recDate } = req.query;
-    let sql = `
-      SELECT warehouse, rec_date, rec_time, batch_no, po_no, remark, item_id, item_name, qty
-      FROM inbound_details
-      WHERE LENGTH(TRIM(IFNULL(put_date, ''))) = 0
-        AND IFNULL(is_resolved, 0) = 0
-    `;
-    const params = [];
+    let { recDate } = req.query;
 
-    if (recDate) {
-      sql += ` AND rec_date = ?`;
-      params.push(recDate);
+    const queryDetails = (targetDate) => {
+      let sql = `
+        SELECT warehouse, rec_date, rec_time, batch_no, po_no, remark, item_id, item_name, qty
+        FROM inbound_details
+        WHERE LENGTH(TRIM(IFNULL(put_date, ''))) = 0
+          AND IFNULL(is_resolved, 0) = 0
+      `;
+      const params = [];
+
+      if (targetDate) {
+        sql += ` AND rec_date = ?`;
+        params.push(targetDate);
+      }
+
+      sql += ` ORDER BY rec_time ASC`;
+
+      db.all(sql, params, (err, rows) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+        res.json({ success: true, selectedDate: targetDate, pendingDetails: rows || [] });
+      });
+    };
+
+    if (!recDate) {
+      db.get(`SELECT rec_date FROM inbound_details WHERE LENGTH(TRIM(IFNULL(put_date, ''))) = 0 AND IFNULL(is_resolved, 0) = 0 ORDER BY rec_date DESC LIMIT 1`, [], (err, row) => {
+        const latestDate = row ? row.rec_date : '';
+        queryDetails(latestDate);
+      });
+    } else {
+      queryDetails(recDate);
     }
-
-    sql += ` ORDER BY rec_time ASC`;
-
-    db.all(sql, params, (err, rows) => {
-      if (err) return res.status(500).json({ success: false, message: err.message });
-      res.json({ success: true, pendingDetails: rows || [] });
-    });
   });
 
-  // 銷案/更正 API
+  // 4. 銷案 / 註記更正 API
   router.post('/update-pending-status', (req, res) => {
     const { keys, reason, customPutDate } = req.body;
 
@@ -224,6 +237,7 @@ module.exports = function(db) {
     });
   });
 
+  // 5. 魚群分析 API
   router.get('/fish-analysis', (req, res) => {
     const { targetDate, warehouse, remarks } = req.query;
 
