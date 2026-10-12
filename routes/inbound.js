@@ -263,7 +263,7 @@ module.exports = function(db) {
     });
   });
 
-  // 5. 🌟 魚群分析 API (使用 Set 實現真正的「不重複進貨單號」與「不重複驗收批號」統計)
+  // 5. 魚群分析 API
   router.get('/fish-analysis', (req, res) => {
     const { targetDate, warehouse, remarks } = req.query;
 
@@ -299,7 +299,6 @@ module.exports = function(db) {
         return matched;
       });
 
-      // 初始化 24 小時的 Set 集合進行去重統計
       const hourlyData = Array.from({ length: 24 }, (_, h) => ({
         hourStr: `${String(h).padStart(2, '0')}:00 ~ ${String(h + 1).padStart(2, '0')}:00`,
         recPoSet: new Set(),
@@ -311,7 +310,6 @@ module.exports = function(db) {
       }));
 
       filteredRows.forEach(r => {
-        // 1. 驗收時段統計
         if (r.rec_date === targetDate && r.rec_time) {
           const hStr = r.rec_time.split(':')[0];
           const h = parseInt(hStr, 10);
@@ -326,7 +324,6 @@ module.exports = function(db) {
           }
         }
 
-        // 2. 上架時段統計
         if (r.put_date === targetDate && r.put_time) {
           const hStr = r.put_time.split(':')[0];
           const h = parseInt(hStr, 10);
@@ -342,7 +339,6 @@ module.exports = function(db) {
         }
       });
 
-      // 將 Set 轉換為最終數量 Counts
       const hourlyStats = hourlyData.map(d => ({
         hourStr: d.hourStr,
         recPoCount: d.recPoSet.size,
@@ -357,6 +353,103 @@ module.exports = function(db) {
         success: true,
         totalFiltered: filteredRows.length,
         hourlyStats
+      });
+    });
+  });
+
+  // 6. 🌟 每月每日總表 API (以 Set 計算每日不重複單號與批數)
+  router.get('/monthly-summary', (req, res) => {
+    const { month, warehouse, remarks } = req.query; // month 格式: '2026-09'
+
+    if (!month) {
+      return res.status(400).json({ success: false, message: '請提供查詢月份 (YYYY-MM)' });
+    }
+
+    let sql = `SELECT * FROM inbound_details WHERE (rec_date LIKE ? OR put_date LIKE ?)`;
+    const monthPattern = `${month}%`;
+    const params = [monthPattern, monthPattern];
+
+    if (warehouse && warehouse !== 'all') {
+      sql += ` AND warehouse = ?`;
+      params.push(warehouse);
+    }
+
+    db.all(sql, params, (err, rows) => {
+      if (err) return res.status(500).json({ success: false, message: err.message });
+
+      rows = rows || [];
+      const remarkList = Array.isArray(remarks) ? remarks : (remarks || '').split(',').map(s => s.trim()).filter(Boolean);
+
+      const filteredRows = rows.filter(r => {
+        if (!remarkList.length) return true;
+        const rem = (r.remark || '').trim();
+        let matched = false;
+
+        if (remarkList.includes('15') && (rem.includes('15庫') || rem.includes('原15庫'))) matched = true;
+        if (remarkList.includes('empty') && rem === '') matched = true;
+        if (remarkList.includes('abnormal') && rem !== '' && !rem.includes('15庫')) matched = true;
+
+        return matched;
+      });
+
+      const daysInMonthMap = {};
+
+      filteredRows.forEach(r => {
+        if (r.rec_date && r.rec_date.startsWith(month)) {
+          const d = r.rec_date;
+          if (!daysInMonthMap[d]) {
+            daysInMonthMap[d] = {
+              date: d,
+              recPoSet: new Set(),
+              recBatSet: new Set(),
+              recPcs: 0,
+              putPoSet: new Set(),
+              putBatSet: new Set(),
+              putPcs: 0
+            };
+          }
+          if (r.po_no) daysInMonthMap[d].recPoSet.add(r.po_no.trim());
+          if (r.batch_no) daysInMonthMap[d].recBatSet.add(r.batch_no.trim());
+          daysInMonthMap[d].recPcs += (r.qty || 0);
+        }
+
+        if (r.put_date && r.put_date.startsWith(month)) {
+          const d = r.put_date;
+          if (!daysInMonthMap[d]) {
+            daysInMonthMap[d] = {
+              date: d,
+              recPoSet: new Set(),
+              recBatSet: new Set(),
+              recPcs: 0,
+              putPoSet: new Set(),
+              putBatSet: new Set(),
+              putPcs: 0
+            };
+          }
+          if (r.po_no) daysInMonthMap[d].putPoSet.add(r.po_no.trim());
+          if (r.batch_no) daysInMonthMap[d].putBatSet.add(r.batch_no.trim());
+          daysInMonthMap[d].putPcs += (r.qty || 0);
+        }
+      });
+
+      const dailyList = Object.keys(daysInMonthMap).sort().map(d => {
+        const item = daysInMonthMap[d];
+        return {
+          date: item.date,
+          recPoCount: item.recPoSet.size,
+          recBatCount: item.recBatSet.size,
+          recPcs: item.recPcs,
+          putPoCount: item.putPoSet.size,
+          putBatCount: item.putBatSet.size,
+          putPcs: item.putPcs,
+          putRate: item.recPcs > 0 ? ((item.putPcs / item.recPcs) * 100).toFixed(2) + '%' : '0.00%'
+        };
+      });
+
+      res.json({
+        success: true,
+        month,
+        dailyList
       });
     });
   });

@@ -14,7 +14,9 @@
       <div class="title-group">
         <span class="page-title">🐟 倉庫 進貨驗收與新品上架分析</span>
         
+        <!-- 切換模式：單日選擇 vs 月份選擇 -->
         <el-date-picker
+          v-if="analysisMode === 'daily'"
           v-model="targetDate"
           type="date"
           size="small"
@@ -24,7 +26,18 @@
           @change="fetchFishData"
         />
 
-        <el-radio-group v-model="warehouse" size="small" @change="fetchFishData">
+        <el-date-picker
+          v-else
+          v-model="targetMonth"
+          type="month"
+          size="small"
+          value-format="YYYY-MM"
+          placeholder="選擇月份"
+          style="width: 140px;"
+          @change="fetchMonthlySummary"
+        />
+
+        <el-radio-group v-model="warehouse" size="small" @change="handleFilterChange">
           <el-radio-button label="all">🌐 雙庫合計</el-radio-button>
           <el-radio-button label="80">📦 80 庫 (人工)</el-radio-button>
           <el-radio-button label="15">🔍 15 庫 (自動)</el-radio-button>
@@ -32,6 +45,12 @@
       </div>
 
       <div class="action-group">
+        <!-- 🌟 分析維度模式切換 -->
+        <el-radio-group v-model="analysisMode" size="small" @change="handleAnalysisModeChange">
+          <el-radio-button label="daily">📅 單日時段分析</el-radio-button>
+          <el-radio-button label="monthly">🗓️ 每月每日總表</el-radio-button>
+        </el-radio-group>
+
         <el-button type="warning" size="small" icon="el-icon-warning" @click="openPendingDialog">
           未上架追蹤 ({{ totalPendingCount }} 筆)
         </el-button>
@@ -57,14 +76,14 @@
     <div class="filter-card">
       <div class="filter-item">
         <span class="filter-label">🏷️ 收貨備註魚群條件：</span>
-        <el-checkbox-group v-model="selectedRemarks" size="small" @change="fetchFishData">
+        <el-checkbox-group v-model="selectedRemarks" size="small" @change="handleFilterChange">
           <el-checkbox label="empty">⚪ 空白 (正常件)</el-checkbox>
           <el-checkbox label="15">📦 (原15庫)</el-checkbox>
           <el-checkbox label="abnormal">⚠️ 異常件 (其他文字說明)</el-checkbox>
         </el-checkbox-group>
       </div>
 
-      <div class="filter-item view-switcher">
+      <div class="filter-item view-switcher" v-if="analysisMode === 'daily'">
         <span class="filter-label">📌 統計檢視維度：</span>
         <el-radio-group v-model="activeViewTab" size="small">
           <el-radio-button label="po">📋 依進貨單號分析</el-radio-button>
@@ -74,8 +93,8 @@
       </div>
     </div>
 
-    <!-- 3. 表格區塊 -->
-    <div class="table-container" v-loading="loading">
+    <!-- 3.1 單日分析表格區塊 -->
+    <div class="table-container" v-loading="loading" v-if="analysisMode === 'daily'">
       <div class="sheet-title">
         倉庫 進貨驗收與新品上架分析 - {{ formatDateTitle(targetDate) }} ({{ getWarehouseLabel(warehouse) }})
         <span class="mode-tag">
@@ -224,6 +243,64 @@
       </div>
     </div>
 
+    <!-- 🌟 3.2 每月每日總表區塊 -->
+    <div class="table-container" v-loading="loadingMonthly" v-else>
+      <div class="sheet-title">
+        🗓️ 倉庫 進貨驗收與新品上架 - {{ targetMonth }} 月份每日總表 ({{ getWarehouseLabel(warehouse) }})
+      </div>
+
+      <div class="table-scroll-wrapper">
+        <table class="vba-style-table">
+          <thead>
+            <tr class="header-main">
+              <th style="width: 110px;" rowspan="2">驗收/上架日期</th>
+              <th colspan="3" class="group-blue-header">進貨驗收每日匯總</th>
+              <th colspan="3" class="group-green-header">新品上架每日匯總</th>
+              <th class="col-ratio-header" rowspan="2" style="width: 100px;">當日上架率 (%)</th>
+            </tr>
+            <tr class="header-sub">
+              <th style="width: 110px;">進貨單數 (PO)</th>
+              <th style="width: 110px;">驗收批數</th>
+              <th style="width: 120px;">驗收 PCS</th>
+              <th style="width: 110px;">上架單數 (PO)</th>
+              <th style="width: 110px;">上架批數</th>
+              <th style="width: 120px;">上架 PCS</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            <tr v-for="(day, idx) in monthlyDailyList" :key="idx" :class="{ 'row-zebra': idx % 2 === 1 }">
+              <td class="text-center font-bold">{{ day.date }}</td>
+              <td class="text-right">{{ formatNumber(day.recPoCount) }}</td>
+              <td class="text-right">{{ formatNumber(day.recBatCount) }}</td>
+              <td class="text-right font-bold text-blue">{{ formatNumber(day.recPcs) }}</td>
+              
+              <td class="text-right">{{ formatNumber(day.putPoCount) }}</td>
+              <td class="text-right">{{ formatNumber(day.putBatCount) }}</td>
+              <td class="text-right font-bold text-green">{{ formatNumber(day.putPcs) }}</td>
+              
+              <td class="text-right font-bold text-orange">{{ day.putRate }}</td>
+            </tr>
+          </tbody>
+
+          <tfoot>
+            <tr class="row-summary">
+              <td class="text-center font-bold">全月總計</td>
+              <td class="text-right font-bold">{{ formatNumber(monthlySummaryTotal.recPoCount) }}</td>
+              <td class="text-right font-bold">{{ formatNumber(monthlySummaryTotal.recBatCount) }}</td>
+              <td class="text-right font-bold text-blue">{{ formatNumber(monthlySummaryTotal.recPcs) }}</td>
+              
+              <td class="text-right font-bold">{{ formatNumber(monthlySummaryTotal.putPoCount) }}</td>
+              <td class="text-right font-bold">{{ formatNumber(monthlySummaryTotal.putBatCount) }}</td>
+              <td class="text-right font-bold text-green">{{ formatNumber(monthlySummaryTotal.putPcs) }}</td>
+              
+              <td class="text-right font-bold text-orange">{{ monthlySummaryTotal.putRate }}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+
     <!-- 4. CSV 上傳進度條 Modal -->
     <el-dialog
       v-model="showUploadProgressModal"
@@ -248,7 +325,7 @@
       </div>
     </el-dialog>
 
-    <!-- 🌟 5. 高對比寬版未上架彈窗 (寬度放寬至 92%，消除白邊貼合背景) -->
+    <!-- 5. 高對比寬版未上架彈窗 -->
     <el-dialog 
       v-model="showPendingDialog" 
       title="⚠️ 尚未上架明細監控與更正處置" 
@@ -297,7 +374,6 @@
             @selection-change="handleSelectionChange"
           >
             <el-table-column type="selection" width="45" align="center" />
-            <!-- 🌟 驗收日期 欄位 -->
             <el-table-column prop="rec_date" label="驗收日期" width="105" align="center" />
             <el-table-column prop="rec_time" label="驗收時間" width="85" align="center" />
             <el-table-column prop="po_no" label="進貨單號" width="150" align="center" />
@@ -359,12 +435,17 @@ export default {
   },
   data() {
     return {
+      analysisMode: 'daily', // 'daily' | 'monthly'
       loading: false,
+      loadingMonthly: false,
       targetDate: new Date().toISOString().split('T')[0],
+      targetMonth: new Date().toISOString().slice(0, 7), // YYYY-MM
       warehouse: 'all',
       selectedRemarks: ['empty', '15', 'abnormal'],
       activeViewTab: 'po',
       hourlyStats: [],
+      monthlyDailyList: [],
+
       showPendingDialog: false,
       pendingSummary: [],
       totalPendingCount: 0,
@@ -418,6 +499,22 @@ export default {
         tot.putBatPcs += h.putBatPcs || 0;
       });
       return tot;
+    },
+    monthlySummaryTotal() {
+      const tot = {
+        recPoCount: 0, recBatCount: 0, recPcs: 0,
+        putPoCount: 0, putBatCount: 0, putPcs: 0
+      };
+      this.monthlyDailyList.forEach(d => {
+        tot.recPoCount += d.recPoCount || 0;
+        tot.recBatCount += d.recBatCount || 0;
+        tot.recPcs += d.recPcs || 0;
+        tot.putPoCount += d.putPoCount || 0;
+        tot.putBatCount += d.putBatCount || 0;
+        tot.putPcs += d.putPcs || 0;
+      });
+      const putRate = tot.recPcs > 0 ? ((tot.putPcs / tot.recPcs) * 100).toFixed(2) + '%' : '0.00%';
+      return { ...tot, putRate };
     }
   },
   mounted() {
@@ -452,8 +549,28 @@ export default {
       return '雙庫合計';
     },
 
+    handleAnalysisModeChange(mode) {
+      if (mode === 'daily') {
+        this.fetchFishData();
+      } else {
+        this.fetchMonthlySummary();
+      }
+    },
+
+    handleFilterChange() {
+      if (this.analysisMode === 'daily') {
+        this.fetchFishData();
+      } else {
+        this.fetchMonthlySummary();
+      }
+    },
+
     async refreshAllData() {
-      await Promise.all([this.fetchFishData(), this.fetchPendingSummary()]);
+      if (this.analysisMode === 'daily') {
+        await Promise.all([this.fetchFishData(), this.fetchPendingSummary()]);
+      } else {
+        await Promise.all([this.fetchMonthlySummary(), this.fetchPendingSummary()]);
+      }
       ElMessage.success('🎉 資料已成功重新整理！');
     },
 
@@ -513,7 +630,7 @@ export default {
             }
 
             ElMessage.success(`🎉 成功寫入並更新 ${this.totalRowsToUpload.toLocaleString()} 筆進貨明細資料！`);
-            await Promise.all([this.fetchFishData(), this.fetchPendingSummary()]);
+            this.refreshAllData();
             this.resetUploadState(event);
           },
           error: (err) => {
@@ -572,6 +689,27 @@ export default {
         ElMessage.error('載入魚群資料失敗：' + e.message);
       } finally {
         this.loading = false;
+      }
+    },
+
+    // 🌟 抓取每月每日匯總總表
+    async fetchMonthlySummary() {
+      this.loadingMonthly = true;
+      try {
+        const res = await axios.get('/api/inbound/monthly-summary', {
+          params: {
+            month: this.targetMonth,
+            warehouse: this.warehouse,
+            remarks: this.selectedRemarks.join(',')
+          }
+        });
+        if (res.data?.success) {
+          this.monthlyDailyList = res.data.dailyList || [];
+        }
+      } catch (e) {
+        ElMessage.error('載入每月總表失敗：' + e.message);
+      } finally {
+        this.loadingMonthly = false;
       }
     },
 
@@ -649,7 +787,7 @@ export default {
           if (this.selectedPendingDate) {
             await this.loadPendingDetails(this.selectedPendingDate);
           }
-          this.fetchFishData();
+          this.refreshAllData();
         }
       } catch (e) {
         ElMessage.error('銷案失敗：' + e.message);
@@ -766,7 +904,7 @@ export default {
 
 .vba-style-table th, .vba-style-table td {
   border: 1px solid #334155;
-  padding: 4px 4px;
+  padding: 5px 6px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -830,7 +968,7 @@ export default {
   font-weight: bold;
 }
 
-/* 🌟 強制彈窗背景與文字對比高顯度 (消除白邊、滿版大格對齊) */
+/* 強制彈窗背景與文字對比高顯度 (消除白邊、滿版大格對齊) */
 :deep(.el-dialog.dark-dialog.large-pending-dialog) {
   background-color: #1e293b !important;
   color: #f8fafc !important;
@@ -966,6 +1104,7 @@ export default {
   color: #f8fafc;
 }
 
+.text-center { text-align: center; }
 .text-right { text-align: right; }
 .text-blue { color: #38bdf8; }
 .text-green { color: #4ade80; }
