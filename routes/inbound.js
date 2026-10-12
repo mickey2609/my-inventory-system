@@ -26,7 +26,6 @@ module.exports = function(db) {
     return str;
   }
 
-  // 🌟 自動初始化資料表並修補缺少的欄位，防止 500 no such column 錯誤
   db.serialize(() => {
     db.run(`
       CREATE TABLE IF NOT EXISTS inbound_details (
@@ -52,9 +51,16 @@ module.exports = function(db) {
       )
     `);
 
-    // 動態檢查並補上舊資料表可能缺失的 is_resolved 與 resolve_reason 欄位
     db.run(`ALTER TABLE inbound_details ADD COLUMN is_resolved INTEGER DEFAULT 0`, () => {});
     db.run(`ALTER TABLE inbound_details ADD COLUMN resolve_reason TEXT`, () => {});
+  });
+
+  // 🌟 筆電端專屬：一鍵清空地端進貨明細 API
+  router.post('/clear-inbound-data', (req, res) => {
+    db.run('DELETE FROM inbound_details', (err) => {
+      if (err) return res.status(500).json({ success: false, message: '清空失敗：' + err.message });
+      res.json({ success: true, message: '🎉 已成功清空地端所有進貨明細資料！' });
+    });
   });
 
   // 1. 匯入 API
@@ -154,7 +160,7 @@ module.exports = function(db) {
     });
   });
 
-  // 2. 🌟 絕對相容 SQLite 的超強未上架查詢（完全避開 500 錯誤）
+  // 2. 未上架摘要統計
   router.get('/pending-putaway', (req, res) => {
     const sql = `
       SELECT 
@@ -171,15 +177,12 @@ module.exports = function(db) {
     `;
 
     db.all(sql, [], (err, rows) => {
-      if (err) {
-        console.error('SQL Error in /pending-putaway:', err.message);
-        return res.status(500).json({ success: false, message: err.message });
-      }
+      if (err) return res.status(500).json({ success: false, message: err.message });
       res.json({ success: true, pendingSummary: rows || [] });
     });
   });
 
-  // 3. 🌟 未上架明細 API (防崩潰超強穩定版)
+  // 3. 未上架明細 API
   router.get('/pending-details', (req, res) => {
     let { recDate } = req.query;
 
@@ -202,10 +205,7 @@ module.exports = function(db) {
       sql += ` ORDER BY rec_time ASC`;
 
       db.all(sql, params, (err, rows) => {
-        if (err) {
-          console.error('SQL Error in /pending-details:', err.message);
-          return res.status(500).json({ success: false, message: err.message });
-        }
+        if (err) return res.status(500).json({ success: false, message: err.message });
         res.json({ success: true, selectedDate: targetDate, pendingDetails: rows || [] });
       });
     };
