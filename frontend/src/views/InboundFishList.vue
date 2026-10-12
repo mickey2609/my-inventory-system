@@ -32,17 +32,14 @@
       </div>
 
       <div class="action-group">
-        <!-- 未上架追蹤 Modal 按鈕 -->
         <el-button type="warning" size="small" icon="el-icon-warning" @click="openPendingDialog">
           未上架追蹤 ({{ totalPendingCount }} 筆)
         </el-button>
 
-        <!-- 手動重新整理按鈕 -->
         <el-button type="info" size="small" icon="el-icon-refresh" :loading="loading" @click="refreshAllData">
           🔄 重新整理
         </el-button>
 
-        <!-- 系統管理員專屬上傳按鈕 -->
         <el-button
           v-if="checkSysAdmin"
           type="success"
@@ -56,7 +53,7 @@
       </div>
     </div>
 
-    <!-- 2. 控制卡片：收貨備註條件 + 魚群統計維度切換頁籤 -->
+    <!-- 2. 控制卡片 -->
     <div class="filter-card">
       <div class="filter-item">
         <span class="filter-label">🏷️ 收貨備註魚群條件：</span>
@@ -88,50 +85,41 @@
 
       <div class="table-scroll-wrapper">
         <table class="vba-style-table">
-          <!-- 強制定義欄位寬度比例 <colgroup> -->
           <colgroup>
-            <col style="width: 70px;" /> <!-- 時段 -->
-
-            <!-- 單號模式 / 雙視圖模式 -->
+            <col style="width: 70px;" />
             <template v-if="activeViewTab === 'po' || activeViewTab === 'both'">
-              <col class="col-bar-group" /> <!-- 單號圖形 (吃滿剩下寬度) -->
-              <col style="width: 68px;" />  <!-- 單號占比 -->
-              <col style="width: 64px;" />  <!-- 單號筆數 -->
-              <col style="width: 72px;" />  <!-- 驗收PCS -->
-              <col class="col-bar-group" /> <!-- 上架圖形 (吃滿剩下寬度) -->
-              <col style="width: 68px;" />  <!-- 上架占比 -->
-              <col style="width: 64px;" />  <!-- 上架筆數 -->
-              <col style="width: 72px;" />  <!-- 上架PCS -->
+              <col class="col-bar-group" />
+              <col style="width: 68px;" />
+              <col style="width: 64px;" />
+              <col style="width: 72px;" />
+              <col class="col-bar-group" />
+              <col style="width: 68px;" />
+              <col style="width: 64px;" />
+              <col style="width: 72px;" />
             </template>
-
-            <col v-if="activeViewTab === 'both'" style="width: 6px;" /> <!-- 中間分隔線 -->
-
-            <!-- 批號模式 / 雙視圖模式 -->
+            <col v-if="activeViewTab === 'both'" style="width: 6px;" />
             <template v-if="activeViewTab === 'batch' || activeViewTab === 'both'">
-              <col class="col-bar-group" /> <!-- 批號圖形 (吃滿剩下寬度) -->
-              <col style="width: 68px;" />  <!-- 批號占比 -->
-              <col style="width: 64px;" />  <!-- 批號筆數 -->
-              <col style="width: 72px;" />  <!-- 批號PCS -->
-              <col style="width: 76px;" />  <!-- 驗收單/批比 -->
-              <col class="col-bar-group" /> <!-- 批上圖形 (吃滿剩下寬度) -->
-              <col style="width: 68px;" />  <!-- 批上占比 -->
-              <col style="width: 64px;" />  <!-- 批號筆數 -->
-              <col style="width: 72px;" />  <!-- 批號PCS -->
-              <col style="width: 76px;" />  <!-- 上架單/批比 -->
+              <col class="col-bar-group" />
+              <col style="width: 68px;" />
+              <col style="width: 64px;" />
+              <col style="width: 72px;" />
+              <col style="width: 76px;" />
+              <col class="col-bar-group" />
+              <col style="width: 68px;" />
+              <col style="width: 64px;" />
+              <col style="width: 72px;" />
+              <col style="width: 76px;" />
             </template>
           </colgroup>
 
           <thead>
             <tr class="header-main">
               <th class="col-time" rowspan="2">時間<br>時段</th>
-
               <template v-if="activeViewTab === 'po' || activeViewTab === 'both'">
                 <th colspan="4" class="group-blue-header">進貨單號驗收統計</th>
                 <th colspan="4" class="group-green-header">新品單號上架統計</th>
               </template>
-
               <th v-if="activeViewTab === 'both'" class="col-sep"></th>
-
               <template v-if="activeViewTab === 'batch' || activeViewTab === 'both'">
                 <th colspan="4" class="group-blue-header">驗收批號驗收統計</th>
                 <th class="col-ratio-header">比例</th>
@@ -172,8 +160,6 @@
           <tbody>
             <tr v-for="(h, idx) in hourlyStats" :key="idx" :class="{ 'row-zebra': idx % 2 === 1 }">
               <td class="col-time font-bold">{{ h.hourStr }}</td>
-
-              <!-- 單號資料列 -->
               <template v-if="activeViewTab === 'po' || activeViewTab === 'both'">
                 <td class="col-bar-cell"><div class="bar-fill blue-bar" :style="{ width: getBarWidth(h.recPoPct) }"></div></td>
                 <td class="text-right">{{ formatPercent(h.recPoPct) }}</td>
@@ -188,7 +174,6 @@
 
               <td v-if="activeViewTab === 'both'" class="col-sep"></td>
 
-              <!-- 批號資料列 -->
               <template v-if="activeViewTab === 'batch' || activeViewTab === 'both'">
                 <td class="col-bar-cell"><div class="bar-fill blue-bar" :style="{ width: getBarWidth(h.recBatPct) }"></div></td>
                 <td class="text-right">{{ formatPercent(h.recBatPct) }}</td>
@@ -205,17 +190,14 @@
             </tr>
           </tbody>
 
-          <!-- 總計列 -->
           <tfoot>
             <tr class="row-summary">
               <td class="col-time font-bold">總計</td>
-
               <template v-if="activeViewTab === 'po' || activeViewTab === 'both'">
                 <td></td>
                 <td class="text-right font-bold">100.00%</td>
                 <td class="text-right font-bold">{{ formatNumber(summaryTotal.recPoCount) }}</td>
                 <td class="text-right font-bold text-blue">{{ formatNumber(summaryTotal.recPoPcs) }}</td>
-
                 <td></td>
                 <td class="text-right font-bold">100.00%</td>
                 <td class="text-right font-bold">{{ formatNumber(summaryTotal.putPoCount) }}</td>
@@ -230,7 +212,6 @@
                 <td class="text-right font-bold">{{ formatNumber(summaryTotal.recBatCount) }}</td>
                 <td class="text-right font-bold text-blue">{{ formatNumber(summaryTotal.recBatPcs) }}</td>
                 <td class="text-right font-bold">{{ formatRatio(summaryTotal.recBatCount, summaryTotal.recPoCount) }}</td>
-
                 <td></td>
                 <td class="text-right font-bold">100.00%</td>
                 <td class="text-right font-bold">{{ formatNumber(summaryTotal.putBatCount) }}</td>
@@ -267,19 +248,93 @@
       </div>
     </el-dialog>
 
-    <!-- 5. 未上架日期監控 Modal -->
-    <el-dialog v-model="showPendingDialog" title="⚠️ 尚未上架明細監控表 (抓驗收日期)" width="520px" append-to-body custom-class="dark-dialog">
-      <el-table :data="pendingSummary" border stripe size="small" class="dark-table">
-        <el-table-column prop="rec_date" label="驗收日期" align="center" sortable />
-        <el-table-column prop="pending_count" label="未上架筆數" align="right" sortable>
-          <template #default="scope">
-            <span class="text-orange font-bold">{{ scope.row.pending_count }} 筆</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="total_qty" label="未上架總 PCS" align="right">
-          <template #default="scope">{{ formatNumber(scope.row.total_qty) }}</template>
-        </el-table-column>
-      </el-table>
+    <!-- 🌟 5. 升級版：未上架日期監控 + 點擊查看明細 Modal -->
+    <el-dialog v-model="showPendingDialog" title="⚠️ 尚未上架明細監控與更正處置" width="980px" append-to-body custom-class="dark-dialog">
+      <div class="pending-dialog-body">
+        <div class="pending-summary-sidebar">
+          <p class="sidebar-title">📅 選擇驗收日期：</p>
+          <div class="date-list">
+            <div
+              v-for="item in pendingSummary"
+              :key="item.rec_date"
+              class="date-item"
+              :class="{ active: selectedPendingDate === item.rec_date }"
+              @click="loadPendingDetails(item.rec_date)"
+            >
+              <span class="d-text">{{ item.rec_date }}</span>
+              <span class="d-badge">{{ item.pending_count }} 筆</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="pending-details-content" v-loading="loadingDetails">
+          <div class="content-header" v-if="selectedPendingDate">
+            <span class="detail-title">🔍 <strong>{{ selectedPendingDate }}</strong> 未上架明細 ({{ currentDetailsList.length }} 筆)</span>
+            <el-button
+              type="danger"
+              size="small"
+              :disabled="selectedDetailRows.length === 0"
+              @click="openResolveDialog(selectedDetailRows)"
+            >
+              ☑️ 批次銷案/更正 (已選 {{ selectedDetailRows.length }} 筆)
+            </el-button>
+          </div>
+
+          <el-table
+            :data="currentDetailsList"
+            border
+            stripe
+            size="small"
+            height="360px"
+            class="dark-table"
+            @selection-change="handleSelectionChange"
+          >
+            <el-table-column type="selection" width="45" align="center" />
+            <el-table-column prop="rec_time" label="驗收時間" width="85" align="center" />
+            <el-table-column prop="po_no" label="進貨單號" width="140" align="center" />
+            <el-table-column prop="batch_no" label="驗收批號" width="140" align="center" />
+            <el-table-column prop="item_name" label="商品名稱" min-width="180" show-overflow-tooltip />
+            <el-table-column prop="qty" label="數量" width="60" align="right">
+              <template #default="scope">
+                <span class="font-bold text-blue">{{ scope.row.qty }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="remark" label="收貨備註" width="120" show-overflow-tooltip />
+            <el-table-column label="處置" width="90" align="center" fixed="right">
+              <template #default="scope">
+                <el-button type="danger" size="mini" plain @click="openResolveDialog([scope.row])">
+                  🛠️ 銷案
+                </el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+      </div>
+    </el-dialog>
+
+    <!-- 🌟 6. 更正更正更正原因註記 Modal -->
+    <el-dialog v-model="showResolveModal" title="🛠️ 銷案/更正未上架記錄" width="420px" append-to-body custom-class="dark-dialog">
+      <div class="resolve-form">
+        <p>準備更正 <strong>{{ targetResolveItems.length }}</strong> 筆未上架項目：</p>
+        
+        <el-form label-width="90px" size="small">
+          <el-form-item label="更正原因：">
+            <el-radio-group v-model="resolveReason">
+              <el-radio label="同仁多驗/誤驗收 (無法上架)">同仁多驗/誤驗收 (無法上架)</el-radio>
+              <el-radio label="廠商退回/異常件處置">廠商退回/異常件處置</el-radio>
+              <el-radio label="補填預設上架日期">補填預設上架日期</el-radio>
+            </el-radio-group>
+          </el-form-item>
+
+          <el-form-item v-if="resolveReason === '補填預設上架日期'" label="上架日期：">
+            <el-date-picker v-model="customPutDate" type="date" value-format="YYYY-MM-DD" placeholder="選擇上架日期" />
+          </el-form-item>
+        </el-form>
+      </div>
+      <template #footer>
+        <el-button size="small" @click="showResolveModal = false">取消</el-button>
+        <el-button type="primary" size="small" :loading="resolving" @click="submitResolve">確認銷案更正</el-button>
+      </template>
     </el-dialog>
   </div>
 </template>
@@ -304,6 +359,17 @@ export default {
       showPendingDialog: false,
       pendingSummary: [],
       totalPendingCount: 0,
+
+      // 🌟 未上架明細展開與銷案相關
+      selectedPendingDate: '',
+      currentDetailsList: [],
+      selectedDetailRows: [],
+      loadingDetails: false,
+      showResolveModal: false,
+      targetResolveItems: [],
+      resolveReason: '同仁多驗/誤驗收 (無法上架)',
+      customPutDate: '',
+      resolving: false,
 
       isUploading: false,
       showUploadProgressModal: false,
@@ -500,20 +566,86 @@ export default {
         this.loading = false;
       }
     },
+
     async fetchPendingSummary() {
       try {
         const res = await axios.get('/api/inbound/pending-putaway');
         if (res.data?.success) {
           this.pendingSummary = res.data.pendingSummary || [];
           this.totalPendingCount = this.pendingSummary.reduce((sum, item) => sum + item.pending_count, 0);
+          if (this.pendingSummary.length > 0 && !this.selectedPendingDate) {
+            this.loadPendingDetails(this.pendingSummary[0].rec_date);
+          }
         }
       } catch (e) {
         console.error('抓取未上架統計失敗:', e.message);
       }
     },
+
     openPendingDialog() {
       this.fetchPendingSummary();
       this.showPendingDialog = true;
+    },
+
+    // 🌟 載入該日期的未上架明細
+    async loadPendingDetails(recDate) {
+      this.selectedPendingDate = recDate;
+      this.loadingDetails = true;
+      try {
+        const res = await axios.get('/api/inbound/pending-details', { params: { recDate } });
+        if (res.data?.success) {
+          this.currentDetailsList = res.data.pendingDetails || [];
+        }
+      } catch (e) {
+        ElMessage.error('載入明細失敗：' + e.message);
+      } finally {
+        this.loadingDetails = false;
+      }
+    },
+
+    handleSelectionChange(val) {
+      this.selectedDetailRows = val;
+    },
+
+    openResolveDialog(items) {
+      this.targetResolveItems = items;
+      this.resolveReason = '同仁多驗/誤驗收 (無法上架)';
+      this.customPutDate = '';
+      this.showResolveModal = true;
+    },
+
+    // 🌟 送出銷案更正
+    async submitResolve() {
+      if (!this.targetResolveItems.length) return;
+      this.resolving = true;
+      try {
+        const keys = this.targetResolveItems.map(row => ({
+          warehouse: row.warehouse,
+          po_no: row.po_no,
+          batch_no: row.batch_no,
+          item_id: row.item_id
+        }));
+
+        const res = await axios.post('/api/inbound/update-pending-status', {
+          keys,
+          reason: this.resolveReason,
+          customPutDate: this.customPutDate
+        });
+
+        if (res.data?.success) {
+          ElMessage.success(res.data.message);
+          this.showResolveModal = false;
+          await this.fetchPendingSummary();
+          if (this.selectedPendingDate) {
+            await this.loadPendingDetails(this.selectedPendingDate);
+          }
+          this.fetchFishData();
+        }
+      } catch (e) {
+        ElMessage.error('銷案失敗：' + e.message);
+      } finally {
+        this.resolving = false;
+      }
     }
   }
 }
@@ -619,7 +751,7 @@ export default {
   color: #f8fafc;
   background: #0f172a;
   white-space: nowrap;
-  table-layout: fixed; /* 🌟 配合 colgroup 啟用嚴格比例配置 */
+  table-layout: fixed;
 }
 
 .vba-style-table th, .vba-style-table td {
@@ -634,7 +766,6 @@ export default {
   background: #1e293b;
 }
 
-/* 🌟 圖形欄位設定無限伸展權重，吃滿剩餘的所有寬度 */
 .col-bar-group, .col-bar-title, .col-bar-cell {
   width: auto !important;
   padding: 2px 6px !important;
@@ -689,30 +820,77 @@ export default {
   font-weight: bold;
 }
 
-.progress-box {
-  padding: 10px 0;
+/* 🌟 未上架彈窗樣式 */
+.pending-dialog-body {
+  display: flex;
+  gap: 16px;
+}
+
+.pending-summary-sidebar {
+  width: 210px;
+  border-right: 1px solid #334155;
+  padding-right: 12px;
+}
+
+.sidebar-title {
+  margin: 0 0 8px 0;
+  font-size: 13px;
+  color: #38bdf8;
+  font-weight: bold;
+}
+
+.date-list {
+  max-height: 380px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.date-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 10px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.date-item:hover, .date-item.active {
+  border-color: #38bdf8;
+  background: rgba(56, 189, 248, 0.15);
+}
+
+.d-badge {
+  color: #fbbf24;
+  font-weight: bold;
+}
+
+.pending-details-content {
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
-.file-name-info {
-  margin: 0;
-  font-size: 14px;
-  color: #38bdf8;
+.content-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
-.status-info {
-  margin: 0;
+.detail-title {
   font-size: 13px;
-  color: #4ade80;
-  font-weight: bold;
+  color: #f8fafc;
 }
 
-.tip-info {
-  margin: 0;
-  font-size: 12px;
-  color: #94a3b8;
+.resolve-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .text-right { text-align: right; }

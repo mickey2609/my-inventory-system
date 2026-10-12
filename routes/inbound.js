@@ -1,23 +1,17 @@
 // C:\my-inventory-server\routes\inbound.js
-// 進貨與新品上架魚群分析專屬 API 模組
 const express = require('express');
 
 module.exports = function(db) {
   const router = express.Router();
 
-  // 日期與時間標準化格式化輔助函式
   function standardizeDate(val) {
     if (!val) return '';
     let str = String(val).trim();
-    if (str.includes(' ')) str = str.split(' ')[0]; // 扣除時間部位
-    str = str.replace(/\//g, '-'); // 西元斜線轉短線
-    
+    if (str.includes(' ')) str = str.split(' ')[0];
+    str = str.replace(/\//g, '-');
     const parts = str.split('-');
     if (parts.length === 3) {
-      const y = parts[0];
-      const m = String(parts[1]).padStart(2, '0');
-      const d = String(parts[2]).padStart(2, '0');
-      return `${y}-${m}-${d}`;
+      return `${parts[0]}-${String(parts[1]).padStart(2, '0')}-${String(parts[2]).padStart(2, '0')}`;
     }
     return str;
   }
@@ -27,12 +21,12 @@ module.exports = function(db) {
     let str = String(val).trim();
     if (str.includes(' ')) {
       const parts = str.split(' ');
-      str = parts[parts.length - 1]; // 抓後段時間部位
+      str = parts[parts.length - 1];
     }
     return str;
   }
 
-  // 1. 初始化建立進貨明細資料表 inbound_details
+  // 1. 初始化資料表 (加上 update_remark 與 is_resolved 欄位支援)
   db.serialize(() => {
     db.run(`
       CREATE TABLE IF NOT EXISTS inbound_details (
@@ -51,13 +45,15 @@ module.exports = function(db) {
         width REAL,
         height REAL,
         weight REAL,
+        is_resolved INTEGER DEFAULT 0,
+        resolve_reason TEXT,
         imported_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (warehouse, po_no, batch_no, item_id)
       )
     `);
   });
 
-  // 2. 分批極速寫入與覆蓋更新 (Upsert) API
+  // 2. 匯入 API (Upsert)
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     const fileName = req.body.fileName || 'latest_inbound.csv';
@@ -151,7 +147,7 @@ module.exports = function(db) {
     });
   });
 
-  // 3. 取得「尚未上架」按驗收日期統計的摘要清單
+  // 3. 取得「尚未上架」按驗收日期統計摘要
   router.get('/pending-putaway', (req, res) => {
     const sql = `
       SELECT 
@@ -159,7 +155,8 @@ module.exports = function(db) {
         COUNT(*) as pending_count,
         IFNULL(SUM(qty), 0) as total_qty
       FROM inbound_details
-      WHERE (put_date IS NULL OR put_date = '')
+      WHERE (put_date IS NULL OR put_date = '' OR put_date = ' ')
+        AND (is_resolved IS NULL OR is_resolved = 0)
         AND rec_date IS NOT NULL AND rec_date != ''
       GROUP BY rec_date
       ORDER BY rec_date DESC
@@ -171,7 +168,65 @@ module.exports = function(db) {
     });
   });
 
-  // 4. 魚群分析數據計算 API
+  // 4. 🌟 新增：取得特定驗收日期的「未上架明細清單」
+  router.get('/pending-details', (req, res) => {
+    const { recDate } = req.query;
+    let sql = `
+      SELECT warehouse, rec_date, rec_time, batch_no, po_no, remark, item_id, item_name, qty
+      FROM inbound_details
+      WHERE (put_date IS NULL OR put_date = '' OR put_date = ' ')
+        AND (is_resolved IS NULL OR is_resolved = 0)
+    `;
+    const params = [];
+
+    if (recDate) {
+      sql += ` AND rec_date = ?`;
+      params.push(recDate);
+    }
+
+    sql += ` ORDER BY rec_time ASC`;
+
+    db.all(sql, params, (err, rows) => {
+      if (err) return res.status(500).json({ success: false, message: err.message });
+      res.json({ success: true, pendingDetails: rows || [] });
+    });
+  });
+
+  // 5. 🌟 新增：將誤驗收 / 異常單據進行「註記更正與銷案 (解除追蹤)」
+  router.post('/update-pending-status', (req, res) => {
+    const { keys, reason, customPutDate } = req.body;
+
+    if (!Array.isArray(keys) || keys.length === 0) {
+      return res.status(400).json({ success: false, message: '請選擇至少一筆未上架項目' });
+    }
+
+    const resolveReason = reason || '誤驗收/多驗已更正';
+
+    db.serialize(() => {
+      db.run('BEGIN TRANSACTION');
+
+      const stmt = db.prepare(`
+        UPDATE inbound_details
+        SET is_resolved = 1,
+            resolve_reason = ?,
+            remark = remark || ' [更正註記: ' || ? || ']',
+            put_date = CASE WHEN ? != '' THEN ? ELSE put_date END
+        WHERE warehouse = ? AND po_no = ? AND batch_no = ? AND item_id = ?
+      `);
+
+      for (const k of keys) {
+        stmt.run(resolveReason, resolveReason, customPutDate || '', customPutDate || '', k.warehouse, k.po_no, k.batch_no, k.item_id);
+      }
+
+      stmt.finalize();
+      db.run('COMMIT', (err) => {
+        if (err) return res.status(500).json({ success: false, message: '銷案更正失敗：' + err.message });
+        res.json({ success: true, message: `🎉 成功銷案並更正 ${keys.length} 筆未上架資料！` });
+      });
+    });
+  });
+
+  // 6. 魚群分析數據 API
   router.get('/fish-analysis', (req, res) => {
     const { targetDate, warehouse, remarks } = req.query;
 
@@ -192,7 +247,6 @@ module.exports = function(db) {
       if (err) return res.status(500).json({ success: false, message: err.message });
 
       rows = rows || [];
-
       const remarkList = Array.isArray(remarks) ? remarks : (remarks || '').split(',').map(s => s.trim()).filter(Boolean);
 
       const filteredRows = rows.filter(r => {
@@ -219,7 +273,6 @@ module.exports = function(db) {
       }));
 
       filteredRows.forEach(r => {
-        // 驗收時段
         if (r.rec_date === targetDate && r.rec_time) {
           const hStr = r.rec_time.split(':')[0];
           const h = parseInt(hStr, 10);
@@ -230,7 +283,6 @@ module.exports = function(db) {
           }
         }
 
-        // 上架時段
         if (r.put_date === targetDate && r.put_time) {
           const hStr = r.put_time.split(':')[0];
           const h = parseInt(hStr, 10);
