@@ -26,6 +26,7 @@ module.exports = function(db) {
     return str;
   }
 
+  // 🌟 自動初始化資料表並修補缺少的欄位，防止 500 no such column 錯誤
   db.serialize(() => {
     db.run(`
       CREATE TABLE IF NOT EXISTS inbound_details (
@@ -50,6 +51,10 @@ module.exports = function(db) {
         PRIMARY KEY (warehouse, po_no, batch_no, item_id)
       )
     `);
+
+    // 動態檢查並補上舊資料表可能缺失的 is_resolved 與 resolve_reason 欄位
+    db.run(`ALTER TABLE inbound_details ADD COLUMN is_resolved INTEGER DEFAULT 0`, () => {});
+    db.run(`ALTER TABLE inbound_details ADD COLUMN resolve_reason TEXT`, () => {});
   });
 
   // 1. 匯入 API
@@ -149,7 +154,7 @@ module.exports = function(db) {
     });
   });
 
-  // 2. 🌟 避開 SQL 502/500 錯誤的零盲點查詢條件：只要 put_date 不是 20 年代開頭的日期，且未銷案，通通為未上架！
+  // 2. 🌟 絕對相容 SQLite 的超強未上架查詢（完全避開 500 錯誤）
   router.get('/pending-putaway', (req, res) => {
     const sql = `
       SELECT 
@@ -157,20 +162,24 @@ module.exports = function(db) {
         COUNT(*) as pending_count,
         IFNULL(SUM(qty), 0) as total_qty
       FROM inbound_details
-      WHERE rec_date IS NOT NULL AND rec_date != ''
-        AND IFNULL(put_date, '') NOT LIKE '20%'
-        AND IFNULL(is_resolved, 0) = 0
+      WHERE rec_date IS NOT NULL 
+        AND rec_date != ''
+        AND (put_date IS NULL OR put_date = '' OR put_date = ' ' OR INSTR(put_date, '-') = 0)
+        AND (is_resolved IS NULL OR is_resolved = 0)
       GROUP BY rec_date
       ORDER BY rec_date DESC
     `;
 
     db.all(sql, [], (err, rows) => {
-      if (err) return res.status(500).json({ success: false, message: err.message });
+      if (err) {
+        console.error('SQL Error in /pending-putaway:', err.message);
+        return res.status(500).json({ success: false, message: err.message });
+      }
       res.json({ success: true, pendingSummary: rows || [] });
     });
   });
 
-  // 3. 🌟 未上架明細 API (防崩潰穩定版)
+  // 3. 🌟 未上架明細 API (防崩潰超強穩定版)
   router.get('/pending-details', (req, res) => {
     let { recDate } = req.query;
 
@@ -178,9 +187,10 @@ module.exports = function(db) {
       let sql = `
         SELECT warehouse, rec_date, rec_time, batch_no, po_no, remark, item_id, item_name, qty
         FROM inbound_details
-        WHERE rec_date IS NOT NULL AND rec_date != ''
-          AND IFNULL(put_date, '') NOT LIKE '20%'
-          AND IFNULL(is_resolved, 0) = 0
+        WHERE rec_date IS NOT NULL 
+          AND rec_date != ''
+          AND (put_date IS NULL OR put_date = '' OR put_date = ' ' OR INSTR(put_date, '-') = 0)
+          AND (is_resolved IS NULL OR is_resolved = 0)
       `;
       const params = [];
 
@@ -192,7 +202,10 @@ module.exports = function(db) {
       sql += ` ORDER BY rec_time ASC`;
 
       db.all(sql, params, (err, rows) => {
-        if (err) return res.status(500).json({ success: false, message: err.message });
+        if (err) {
+          console.error('SQL Error in /pending-details:', err.message);
+          return res.status(500).json({ success: false, message: err.message });
+        }
         res.json({ success: true, selectedDate: targetDate, pendingDetails: rows || [] });
       });
     };
@@ -201,9 +214,10 @@ module.exports = function(db) {
       db.get(`
         SELECT rec_date 
         FROM inbound_details 
-        WHERE rec_date IS NOT NULL AND rec_date != ''
-          AND IFNULL(put_date, '') NOT LIKE '20%'
-          AND IFNULL(is_resolved, 0) = 0
+        WHERE rec_date IS NOT NULL 
+          AND rec_date != ''
+          AND (put_date IS NULL OR put_date = '' OR put_date = ' ' OR INSTR(put_date, '-') = 0)
+          AND (is_resolved IS NULL OR is_resolved = 0)
         ORDER BY rec_date DESC 
         LIMIT 1
       `, [], (err, row) => {
@@ -233,7 +247,7 @@ module.exports = function(db) {
         SET is_resolved = 1,
             resolve_reason = ?,
             remark = remark || ' [更正註記: ' || ? || ']',
-            put_date = CASE WHEN ? != '' THEN ? ELSE '2099-12-31' END
+            put_date = CASE WHEN ? != '' THEN ? ELSE 'RESOLVED' END
         WHERE warehouse = ? AND po_no = ? AND batch_no = ? AND item_id = ?
       `);
 
