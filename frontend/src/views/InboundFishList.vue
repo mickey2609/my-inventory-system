@@ -56,7 +56,7 @@
       </div>
     </div>
 
-    <!-- 2. 控制卡片：收貨備註條件 + 🌟 魚群統計維度切換頁籤 -->
+    <!-- 2. 控制卡片：收貨備註條件 + 魚群統計維度切換頁籤 -->
     <div class="filter-card">
       <div class="filter-item">
         <span class="filter-label">🏷️ 收貨備註魚群條件：</span>
@@ -92,7 +92,7 @@
             <tr class="header-main">
               <th class="col-time" rowspan="2">時間<br>時段</th>
 
-              <!-- 🌟 視圖 1 或 3：進貨單號區域 -->
+              <!-- 視圖 1 或 3：進貨單號區域 -->
               <template v-if="activeViewTab === 'po' || activeViewTab === 'both'">
                 <th colspan="4" class="group-blue-header">進貨單號驗收統計</th>
                 <th colspan="4" class="group-green-header">新品單號上架統計</th>
@@ -101,7 +101,7 @@
               <!-- 中間分隔欄 -->
               <th v-if="activeViewTab === 'both'" class="col-sep"></th>
 
-              <!-- 🌟 視圖 2 或 3：驗收批號區域 -->
+              <!-- 視圖 2 或 3：驗收批號區域 -->
               <template v-if="activeViewTab === 'batch' || activeViewTab === 'both'">
                 <th colspan="4" class="group-blue-header">驗收批號驗收統計</th>
                 <th class="col-ratio-header">比例</th>
@@ -111,7 +111,7 @@
             </tr>
 
             <tr class="header-sub">
-              <!-- 🌟 進貨單號子欄位 -->
+              <!-- 進貨單號子欄位 -->
               <template v-if="activeViewTab === 'po' || activeViewTab === 'both'">
                 <th>單號圖形</th>
                 <th>單號占比</th>
@@ -125,7 +125,7 @@
 
               <th v-if="activeViewTab === 'both'" class="col-sep"></th>
 
-              <!-- 🌟 驗收批號子欄位 -->
+              <!-- 驗收批號子欄位 -->
               <template v-if="activeViewTab === 'batch' || activeViewTab === 'both'">
                 <th>批號圖形</th>
                 <th>批號占比</th>
@@ -146,7 +146,7 @@
               <!-- 時段 -->
               <td class="col-time font-bold">{{ h.hourStr }}</td>
 
-              <!-- 🌟 單號資料行 -->
+              <!-- 單號資料行 -->
               <template v-if="activeViewTab === 'po' || activeViewTab === 'both'">
                 <td class="col-bar"><div class="bar-fill blue-bar" :style="{ width: getBarWidth(h.recPoPct) }"></div></td>
                 <td class="text-right">{{ formatPercent(h.recPoPct) }}</td>
@@ -161,7 +161,7 @@
 
               <td v-if="activeViewTab === 'both'" class="col-sep"></td>
 
-              <!-- 🌟 批號資料行 -->
+              <!-- 批號資料行 -->
               <template v-if="activeViewTab === 'batch' || activeViewTab === 'both'">
                 <td class="col-bar"><div class="bar-fill blue-bar" :style="{ width: getBarWidth(h.recBatPct) }"></div></td>
                 <td class="text-right">{{ formatPercent(h.recBatPct) }}</td>
@@ -183,7 +183,7 @@
             <tr class="row-summary">
               <td class="col-time font-bold">總計</td>
 
-              <!-- 🌟 單號總計 -->
+              <!-- 單號總計 -->
               <template v-if="activeViewTab === 'po' || activeViewTab === 'both'">
                 <td></td>
                 <td class="text-right font-bold">100.00%</td>
@@ -198,7 +198,7 @@
 
               <td v-if="activeViewTab === 'both'" class="col-sep"></td>
 
-              <!-- 🌟 批號總計 -->
+              <!-- 批號總計 -->
               <template v-if="activeViewTab === 'batch' || activeViewTab === 'both'">
                 <td></td>
                 <td class="text-right font-bold">100.00%</td>
@@ -274,7 +274,7 @@ export default {
       targetDate: new Date().toISOString().split('T')[0],
       warehouse: 'all',
       selectedRemarks: ['empty', '15', 'abnormal'],
-      activeViewTab: 'po', // 🌟 預設頁籤：'po' (單號) | 'batch' (批號) | 'both' (雙檢視)
+      activeViewTab: 'po',
       hourlyStats: [],
       showPendingDialog: false,
       pendingSummary: [],
@@ -471,7 +471,7 @@ export default {
         }
       } catch (e) {
         ElMessage.error('載入魚群資料失敗：' + e.message);
-      } final {
+      } finally {
         this.loading = false;
       }
     },
