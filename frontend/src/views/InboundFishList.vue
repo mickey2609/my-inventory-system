@@ -14,7 +14,7 @@
       <div class="title-group">
         <span class="page-title">🐟 倉庫 進貨驗收與新品上架分析</span>
         
-        <!-- 切換模式：單日選擇 vs 月份選擇 -->
+        <!-- 日期/月份/年份 選擇器 -->
         <el-date-picker
           v-if="analysisMode === 'daily'"
           v-model="targetDate"
@@ -22,21 +22,40 @@
           size="small"
           value-format="YYYY-MM-DD"
           placeholder="選擇日期"
-          style="width: 140px;"
+          style="width: 135px;"
           @change="fetchFishData"
         />
 
         <el-date-picker
-          v-else
+          v-else-if="analysisMode === 'monthly'"
           v-model="targetMonth"
           type="month"
           size="small"
           value-format="YYYY-MM"
           placeholder="選擇月份"
-          style="width: 140px;"
+          style="width: 135px;"
           @change="fetchMonthlySummary"
         />
 
+        <el-date-picker
+          v-else
+          v-model="targetYear"
+          type="year"
+          size="small"
+          value-format="YYYY"
+          placeholder="選擇年份"
+          style="width: 110px;"
+          @change="fetchYearlySummary"
+        />
+
+        <!-- 🌟 依需求位置調整：將分析模式切換移至中間 -->
+        <el-radio-group v-model="analysisMode" size="small" @change="handleAnalysisModeChange">
+          <el-radio-button label="daily">📅 單日時段分析</el-radio-button>
+          <el-radio-button label="monthly">🗓️ 每月每日總表</el-radio-button>
+          <el-radio-button label="yearly">📊 年度每月總表</el-radio-button>
+        </el-radio-group>
+
+        <!-- 庫別選擇 -->
         <el-radio-group v-model="warehouse" size="small" @change="handleFilterChange">
           <el-radio-button label="all">🌐 雙庫合計</el-radio-button>
           <el-radio-button label="80">📦 80 庫 (人工)</el-radio-button>
@@ -45,12 +64,6 @@
       </div>
 
       <div class="action-group">
-        <!-- 🌟 分析維度模式切換 -->
-        <el-radio-group v-model="analysisMode" size="small" @change="handleAnalysisModeChange">
-          <el-radio-button label="daily">📅 單日時段分析</el-radio-button>
-          <el-radio-button label="monthly">🗓️ 每月每日總表</el-radio-button>
-        </el-radio-group>
-
         <el-button type="warning" size="small" icon="el-icon-warning" @click="openPendingDialog">
           未上架追蹤 ({{ totalPendingCount }} 筆)
         </el-button>
@@ -243,8 +256,8 @@
       </div>
     </div>
 
-    <!-- 🌟 3.2 每月每日總表區塊 -->
-    <div class="table-container" v-loading="loadingMonthly" v-else>
+    <!-- 3.2 每月每日總表區塊 -->
+    <div class="table-container" v-loading="loadingMonthly" v-else-if="analysisMode === 'monthly'">
       <div class="sheet-title">
         🗓️ 倉庫 進貨驗收與新品上架 - {{ targetMonth }} 月份每日總表 ({{ getWarehouseLabel(warehouse) }})
       </div>
@@ -295,6 +308,64 @@
               <td class="text-right font-bold text-green">{{ formatNumber(monthlySummaryTotal.putPcs) }}</td>
               
               <td class="text-right font-bold text-orange">{{ monthlySummaryTotal.putRate }}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+
+    <!-- 🌟 3.3 年度每月總表區塊 -->
+    <div class="table-container" v-loading="loadingYearly" v-else>
+      <div class="sheet-title">
+        📊 倉庫 進貨驗收與新品上架 - {{ targetYear }} 年度每月總表 ({{ getWarehouseLabel(warehouse) }})
+      </div>
+
+      <div class="table-scroll-wrapper">
+        <table class="vba-style-table">
+          <thead>
+            <tr class="header-main">
+              <th style="width: 110px;" rowspan="2">驗收/上架月份</th>
+              <th colspan="3" class="group-blue-header">進貨驗收每月匯總</th>
+              <th colspan="3" class="group-green-header">新品上架每月匯總</th>
+              <th class="col-ratio-header" rowspan="2" style="width: 110px;">當月上架率 (%)</th>
+            </tr>
+            <tr class="header-sub">
+              <th style="width: 110px;">進貨單數 (PO)</th>
+              <th style="width: 110px;">驗收批數</th>
+              <th style="width: 120px;">驗收 PCS</th>
+              <th style="width: 110px;">上架單數 (PO)</th>
+              <th style="width: 110px;">上架批數</th>
+              <th style="width: 120px;">上架 PCS</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            <tr v-for="(m, idx) in yearlyMonthlyList" :key="idx" :class="{ 'row-zebra': idx % 2 === 1 }">
+              <td class="text-center font-bold">{{ m.month }}</td>
+              <td class="text-right">{{ formatNumber(m.recPoCount) }}</td>
+              <td class="text-right">{{ formatNumber(m.recBatCount) }}</td>
+              <td class="text-right font-bold text-blue">{{ formatNumber(m.recPcs) }}</td>
+              
+              <td class="text-right">{{ formatNumber(m.putPoCount) }}</td>
+              <td class="text-right">{{ formatNumber(m.putBatCount) }}</td>
+              <td class="text-right font-bold text-green">{{ formatNumber(m.putPcs) }}</td>
+              
+              <td class="text-right font-bold text-orange">{{ m.putRate }}</td>
+            </tr>
+          </tbody>
+
+          <tfoot>
+            <tr class="row-summary">
+              <td class="text-center font-bold">全年度總計</td>
+              <td class="text-right font-bold">{{ formatNumber(yearlySummaryTotal.recPoCount) }}</td>
+              <td class="text-right font-bold">{{ formatNumber(yearlySummaryTotal.recBatCount) }}</td>
+              <td class="text-right font-bold text-blue">{{ formatNumber(yearlySummaryTotal.recPcs) }}</td>
+              
+              <td class="text-right font-bold">{{ formatNumber(yearlySummaryTotal.putPoCount) }}</td>
+              <td class="text-right font-bold">{{ formatNumber(yearlySummaryTotal.putBatCount) }}</td>
+              <td class="text-right font-bold text-green">{{ formatNumber(yearlySummaryTotal.putPcs) }}</td>
+              
+              <td class="text-right font-bold text-orange">{{ yearlySummaryTotal.putRate }}</td>
             </tr>
           </tfoot>
         </table>
@@ -435,16 +506,19 @@ export default {
   },
   data() {
     return {
-      analysisMode: 'daily', // 'daily' | 'monthly'
+      analysisMode: 'daily', // 'daily' | 'monthly' | 'yearly'
       loading: false,
       loadingMonthly: false,
+      loadingYearly: false,
       targetDate: new Date().toISOString().split('T')[0],
       targetMonth: new Date().toISOString().slice(0, 7), // YYYY-MM
+      targetYear: new Date().getFullYear().toString(), // YYYY
       warehouse: 'all',
       selectedRemarks: ['empty', '15', 'abnormal'],
       activeViewTab: 'po',
       hourlyStats: [],
       monthlyDailyList: [],
+      yearlyMonthlyList: [],
 
       showPendingDialog: false,
       pendingSummary: [],
@@ -515,6 +589,22 @@ export default {
       });
       const putRate = tot.recPcs > 0 ? ((tot.putPcs / tot.recPcs) * 100).toFixed(2) + '%' : '0.00%';
       return { ...tot, putRate };
+    },
+    yearlySummaryTotal() {
+      const tot = {
+        recPoCount: 0, recBatCount: 0, recPcs: 0,
+        putPoCount: 0, putBatCount: 0, putPcs: 0
+      };
+      this.yearlyMonthlyList.forEach(m => {
+        tot.recPoCount += m.recPoCount || 0;
+        tot.recBatCount += m.recBatCount || 0;
+        tot.recPcs += m.recPcs || 0;
+        tot.putPoCount += m.putPoCount || 0;
+        tot.putBatCount += m.putBatCount || 0;
+        tot.putPcs += m.putPcs || 0;
+      });
+      const putRate = tot.recPcs > 0 ? ((tot.putPcs / tot.recPcs) * 100).toFixed(2) + '%' : '0.00%';
+      return { ...tot, putRate };
     }
   },
   mounted() {
@@ -552,24 +642,30 @@ export default {
     handleAnalysisModeChange(mode) {
       if (mode === 'daily') {
         this.fetchFishData();
-      } else {
+      } else if (mode === 'monthly') {
         this.fetchMonthlySummary();
+      } else {
+        this.fetchYearlySummary();
       }
     },
 
     handleFilterChange() {
       if (this.analysisMode === 'daily') {
         this.fetchFishData();
-      } else {
+      } else if (this.analysisMode === 'monthly') {
         this.fetchMonthlySummary();
+      } else {
+        this.fetchYearlySummary();
       }
     },
 
     async refreshAllData() {
       if (this.analysisMode === 'daily') {
         await Promise.all([this.fetchFishData(), this.fetchPendingSummary()]);
-      } else {
+      } else if (this.analysisMode === 'monthly') {
         await Promise.all([this.fetchMonthlySummary(), this.fetchPendingSummary()]);
+      } else {
+        await Promise.all([this.fetchYearlySummary(), this.fetchPendingSummary()]);
       }
       ElMessage.success('🎉 資料已成功重新整理！');
     },
@@ -692,7 +788,6 @@ export default {
       }
     },
 
-    // 🌟 抓取每月每日匯總總表
     async fetchMonthlySummary() {
       this.loadingMonthly = true;
       try {
@@ -710,6 +805,27 @@ export default {
         ElMessage.error('載入每月總表失敗：' + e.message);
       } finally {
         this.loadingMonthly = false;
+      }
+    },
+
+    // 🌟 抓取年度每月匯總總表
+    async fetchYearlySummary() {
+      this.loadingYearly = true;
+      try {
+        const res = await axios.get('/api/inbound/yearly-summary', {
+          params: {
+            year: this.targetYear,
+            warehouse: this.warehouse,
+            remarks: this.selectedRemarks.join(',')
+          }
+        });
+        if (res.data?.success) {
+          this.yearlyMonthlyList = res.data.monthlyList || [];
+        }
+      } catch (e) {
+        ElMessage.error('載入年度總表失敗：' + e.message);
+      } finally {
+        this.loadingYearly = false;
       }
     },
 
@@ -968,7 +1084,7 @@ export default {
   font-weight: bold;
 }
 
-/* 強制彈窗背景與文字對比高顯度 (消除白邊、滿版大格對齊) */
+/* 強制彈窗背景與文字對比高顯度 */
 :deep(.el-dialog.dark-dialog.large-pending-dialog) {
   background-color: #1e293b !important;
   color: #f8fafc !important;
