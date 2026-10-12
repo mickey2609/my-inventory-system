@@ -573,8 +573,8 @@ export default {
           this.pendingSummary = res.data.pendingSummary || [];
           this.totalPendingCount = this.pendingSummary.reduce((sum, item) => sum + item.pending_count, 0);
           if (this.pendingSummary.length > 0) {
-            const targetDate = this.selectedPendingDate || this.pendingSummary[0].rec_date;
-            this.loadPendingDetails(targetDate);
+            this.selectedPendingDate = this.pendingSummary[0].rec_date;
+            this.loadPendingDetails(this.selectedPendingDate);
           }
         }
       } catch (e) {
@@ -886,7 +886,6 @@ export default {
   gap: 6px;
 }
 
-/* 🌟 徹底解決黑字問題：設定高亮白色與點擊深藍 */
 .date-item {
   display: flex;
   justify-content: space-between;
