@@ -5,8 +5,8 @@ module.exports = function(db) {
   const router = express.Router();
 
   function standardizeDate(val) {
-    if (val === undefined || val === null) return '';
-    let str = String(val);
+    if (!val) return '';
+    let str = String(val).trim();
     if (str.includes(' ')) str = str.split(' ')[0];
     str = str.replace(/\//g, '-');
     const parts = str.split('-');
@@ -17,8 +17,8 @@ module.exports = function(db) {
   }
 
   function standardizeTime(val) {
-    if (val === undefined || val === null) return '';
-    let str = String(val);
+    if (!val) return '';
+    let str = String(val).trim();
     if (str.includes(' ')) {
       const parts = str.split(' ');
       str = parts[parts.length - 1];
@@ -52,7 +52,7 @@ module.exports = function(db) {
     `);
   });
 
-  // 1. 匯入 API
+  // 1. 匯入 API：精準清洗 put_date，若無有效日期直接存空字串 ''
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     const fileName = req.body.fileName || 'latest_inbound.csv';
@@ -99,8 +99,8 @@ module.exports = function(db) {
         const getVal = (...keys) => {
           if (!item || typeof item !== 'object') return '';
           for (const k of keys) {
-            if (item[k] !== undefined && item[k] !== null) {
-              return String(item[k]);
+            if (item[k] !== undefined && item[k] !== null && String(item[k]).trim() !== '') {
+              return String(item[k]).trim();
             }
           }
           return '';
@@ -111,17 +111,21 @@ module.exports = function(db) {
           return v ? (parseFloat(v.replace(/,/g, '')) || 0) : 0;
         };
 
-        const warehouse = getVal('warehouse', '庫別').trim() || '80';
+        const warehouse = getVal('warehouse', '庫別') || '80';
         const rec_date = standardizeDate(getVal('rec_date', '驗收日期'));
         const rec_time = standardizeTime(getVal('rec_time', '驗收時間'));
-        const rawPutDate = getVal('put_date', '上架日期');
-        const put_date = rawPutDate ? (rawPutDate.trim() === '' ? rawPutDate : standardizeDate(rawPutDate)) : '';
+        
+        // 🌟 清洗 put_date：長度不滿 8 碼 (非正常日期格式) 一律存成純空字串 ''
+        let rawPutDate = getVal('put_date', '上架日期');
+        let put_date = standardizeDate(rawPutDate);
+        if (put_date.length < 8) put_date = '';
+
         const put_time = standardizeTime(getVal('put_time', '上架時間'));
-        const batch_no = getVal('batch_no', '驗收批號').trim();
-        const po_no = getVal('po_no', '進貨單號').trim();
-        const remark = getVal('remark', '收貨備註').trim();
-        const item_id = getVal('item_id', '商品編號', '商品ID').trim();
-        const item_name = getVal('item_name', '商品名稱').trim();
+        const batch_no = getVal('batch_no', '驗收批號');
+        const po_no = getVal('po_no', '進貨單號');
+        const remark = getVal('remark', '收貨備註');
+        const item_id = getVal('item_id', '商品編號', '商品ID');
+        const item_name = getVal('item_name', '商品名稱');
         const qty = getNum('qty', '驗收數量');
         const length = getNum('length', '長(cm)');
         const width = getNum('width', '寬(cm)');
@@ -147,7 +151,7 @@ module.exports = function(db) {
     });
   });
 
-  // 2. 🌟 改用「有驗收日期」作為未上架摘要統計的前提條件
+  // 2. 🌟 終極未上架統計 SQL：只要 put_date 為空、或長度小於 8 碼、或為 NULL，且未銷案，就判定為未上架！
   router.get('/pending-putaway', (req, res) => {
     const sql = `
       SELECT 
@@ -155,8 +159,8 @@ module.exports = function(db) {
         COUNT(*) as pending_count,
         IFNULL(SUM(qty), 0) as total_qty
       FROM inbound_details
-      WHERE (rec_date IS NOT NULL AND rec_date != '')
-        AND (put_date IS NULL OR LENGTH(put_date) = 0)
+      WHERE rec_date IS NOT NULL AND rec_date != ''
+        AND (put_date IS NULL OR put_date = '' OR LENGTH(TRIM(put_date)) < 8)
         AND IFNULL(is_resolved, 0) = 0
       GROUP BY rec_date
       ORDER BY rec_date DESC
@@ -168,7 +172,7 @@ module.exports = function(db) {
     });
   });
 
-  // 3. 🌟 改用「有驗收日期」作為未上架明細 API 的前提條件
+  // 3. 🌟 終極未上架明細 API
   router.get('/pending-details', (req, res) => {
     let { recDate } = req.query;
 
@@ -176,8 +180,8 @@ module.exports = function(db) {
       let sql = `
         SELECT warehouse, rec_date, rec_time, batch_no, po_no, remark, item_id, item_name, qty
         FROM inbound_details
-        WHERE (rec_date IS NOT NULL AND rec_date != '')
-          AND (put_date IS NULL OR LENGTH(put_date) = 0)
+        WHERE rec_date IS NOT NULL AND rec_date != ''
+          AND (put_date IS NULL OR put_date = '' OR LENGTH(TRIM(put_date)) < 8)
           AND IFNULL(is_resolved, 0) = 0
       `;
       const params = [];
@@ -199,8 +203,8 @@ module.exports = function(db) {
       db.get(`
         SELECT rec_date 
         FROM inbound_details 
-        WHERE (rec_date IS NOT NULL AND rec_date != '')
-          AND (put_date IS NULL OR LENGTH(put_date) = 0)
+        WHERE rec_date IS NOT NULL AND rec_date != ''
+          AND (put_date IS NULL OR put_date = '' OR LENGTH(TRIM(put_date)) < 8)
           AND IFNULL(is_resolved, 0) = 0
         ORDER BY rec_date DESC 
         LIMIT 1
@@ -231,7 +235,7 @@ module.exports = function(db) {
         SET is_resolved = 1,
             resolve_reason = ?,
             remark = remark || ' [更正註記: ' || ? || ']',
-            put_date = CASE WHEN ? != '' THEN ? ELSE ' ' END
+            put_date = CASE WHEN ? != '' THEN ? ELSE 'RESOLVED' END
         WHERE warehouse = ? AND po_no = ? AND batch_no = ? AND item_id = ?
       `);
 
