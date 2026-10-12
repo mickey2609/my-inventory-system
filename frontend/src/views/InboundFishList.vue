@@ -77,7 +77,7 @@
       </div>
     </div>
 
-    <!-- 3. 表格區塊 -->
+    <!-- 3. 表格區塊 (調整寬度配比) -->
     <div class="table-container" v-loading="loading">
       <div class="sheet-title">
         倉庫 進貨驗收與新品上架分析 - {{ formatDateTitle(targetDate) }} ({{ getWarehouseLabel(warehouse) }})
@@ -104,39 +104,39 @@
               <!-- 視圖 2 或 3：驗收批號區域 -->
               <template v-if="activeViewTab === 'batch' || activeViewTab === 'both'">
                 <th colspan="4" class="group-blue-header">驗收批號驗收統計</th>
-                <th class="col-ratio-header">比例</th>
+                <th class="col-ratio-header col-data">比例</th>
                 <th colspan="4" class="group-green-header">驗收批號上架統計</th>
-                <th class="col-ratio-header">比例</th>
+                <th class="col-ratio-header col-data">比例</th>
               </template>
             </tr>
 
             <tr class="header-sub">
               <!-- 進貨單號子欄位 -->
               <template v-if="activeViewTab === 'po' || activeViewTab === 'both'">
-                <th>單號圖形</th>
-                <th>單號占比</th>
-                <th>單號筆數</th>
-                <th>驗收PCS</th>
-                <th>上架圖形</th>
-                <th>上架占比</th>
-                <th>上架筆數</th>
-                <th>上架PCS</th>
+                <th class="col-bar">單號圖形</th>
+                <th class="col-data">單號占比</th>
+                <th class="col-data">單號筆數</th>
+                <th class="col-data">驗收PCS</th>
+                <th class="col-bar">上架圖形</th>
+                <th class="col-data">上架占比</th>
+                <th class="col-data">上架筆數</th>
+                <th class="col-data">上架PCS</th>
               </template>
 
               <th v-if="activeViewTab === 'both'" class="col-sep"></th>
 
               <!-- 驗收批號子欄位 -->
               <template v-if="activeViewTab === 'batch' || activeViewTab === 'both'">
-                <th>批號圖形</th>
-                <th>批號占比</th>
-                <th>批號筆數</th>
-                <th>批號PCS</th>
-                <th>驗收單/批比</th>
-                <th>批上圖形</th>
-                <th>批上占比</th>
-                <th>批號筆數</th>
-                <th>批號PCS</th>
-                <th>上架單/批比</th>
+                <th class="col-bar">批號圖形</th>
+                <th class="col-data">批號占比</th>
+                <th class="col-data">批號筆數</th>
+                <th class="col-data">批號PCS</th>
+                <th class="col-data">驗收單/批比</th>
+                <th class="col-bar">批上圖形</th>
+                <th class="col-data">批上占比</th>
+                <th class="col-data">批號筆數</th>
+                <th class="col-data">批號PCS</th>
+                <th class="col-data">上架單/批比</th>
               </template>
             </tr>
           </thead>
@@ -149,14 +149,14 @@
               <!-- 單號資料行 -->
               <template v-if="activeViewTab === 'po' || activeViewTab === 'both'">
                 <td class="col-bar"><div class="bar-fill blue-bar" :style="{ width: getBarWidth(h.recPoPct) }"></div></td>
-                <td class="text-right">{{ formatPercent(h.recPoPct) }}</td>
-                <td class="text-right">{{ formatNumber(h.recPoCount) }}</td>
-                <td class="text-right font-bold text-blue">{{ formatNumber(h.recPoPcs) }}</td>
+                <td class="col-data text-right">{{ formatPercent(h.recPoPct) }}</td>
+                <td class="col-data text-right">{{ formatNumber(h.recPoCount) }}</td>
+                <td class="col-data text-right font-bold text-blue">{{ formatNumber(h.recPoPcs) }}</td>
 
                 <td class="col-bar"><div class="bar-fill green-bar" :style="{ width: getBarWidth(h.putPoPct) }"></div></td>
-                <td class="text-right">{{ formatPercent(h.putPoPct) }}</td>
-                <td class="text-right">{{ formatNumber(h.putPoCount) }}</td>
-                <td class="text-right font-bold text-green">{{ formatNumber(h.putPoPcs) }}</td>
+                <td class="col-data text-right">{{ formatPercent(h.putPoPct) }}</td>
+                <td class="col-data text-right">{{ formatNumber(h.putPoCount) }}</td>
+                <td class="col-data text-right font-bold text-green">{{ formatNumber(h.putPoPcs) }}</td>
               </template>
 
               <td v-if="activeViewTab === 'both'" class="col-sep"></td>
@@ -164,16 +164,16 @@
               <!-- 批號資料行 -->
               <template v-if="activeViewTab === 'batch' || activeViewTab === 'both'">
                 <td class="col-bar"><div class="bar-fill blue-bar" :style="{ width: getBarWidth(h.recBatPct) }"></div></td>
-                <td class="text-right">{{ formatPercent(h.recBatPct) }}</td>
-                <td class="text-right">{{ formatNumber(h.recBatCount) }}</td>
-                <td class="text-right font-bold text-blue">{{ formatNumber(h.recBatPcs) }}</td>
-                <td class="text-right font-bold">{{ formatRatio(h.recBatCount, h.recPoCount) }}</td>
+                <td class="col-data text-right">{{ formatPercent(h.recBatPct) }}</td>
+                <td class="col-data text-right">{{ formatNumber(h.recBatCount) }}</td>
+                <td class="col-data text-right font-bold text-blue">{{ formatNumber(h.recBatPcs) }}</td>
+                <td class="col-data text-right font-bold">{{ formatRatio(h.recBatCount, h.recPoCount) }}</td>
 
                 <td class="col-bar"><div class="bar-fill green-bar" :style="{ width: getBarWidth(h.putBatPct) }"></div></td>
-                <td class="text-right">{{ formatPercent(h.putBatPct) }}</td>
-                <td class="text-right">{{ formatNumber(h.putBatCount) }}</td>
-                <td class="text-right font-bold text-green">{{ formatNumber(h.putBatPcs) }}</td>
-                <td class="text-right font-bold">{{ formatRatio(h.putBatCount, h.putPoCount) }}</td>
+                <td class="col-data text-right">{{ formatPercent(h.putBatPct) }}</td>
+                <td class="col-data text-right">{{ formatNumber(h.putBatCount) }}</td>
+                <td class="col-data text-right font-bold text-green">{{ formatNumber(h.putBatPcs) }}</td>
+                <td class="col-data text-right font-bold">{{ formatRatio(h.putBatCount, h.putPoCount) }}</td>
               </template>
             </tr>
           </tbody>
@@ -185,32 +185,32 @@
 
               <!-- 單號總計 -->
               <template v-if="activeViewTab === 'po' || activeViewTab === 'both'">
-                <td></td>
-                <td class="text-right font-bold">100.00%</td>
-                <td class="text-right font-bold">{{ formatNumber(summaryTotal.recPoCount) }}</td>
-                <td class="text-right font-bold text-blue">{{ formatNumber(summaryTotal.recPoPcs) }}</td>
+                <td class="col-bar"></td>
+                <td class="col-data text-right font-bold">100.00%</td>
+                <td class="col-data text-right font-bold">{{ formatNumber(summaryTotal.recPoCount) }}</td>
+                <td class="col-data text-right font-bold text-blue">{{ formatNumber(summaryTotal.recPoPcs) }}</td>
 
-                <td></td>
-                <td class="text-right font-bold">100.00%</td>
-                <td class="text-right font-bold">{{ formatNumber(summaryTotal.putPoCount) }}</td>
-                <td class="text-right font-bold text-green">{{ formatNumber(summaryTotal.putPoPcs) }}</td>
+                <td class="col-bar"></td>
+                <td class="col-data text-right font-bold">100.00%</td>
+                <td class="col-data text-right font-bold">{{ formatNumber(summaryTotal.putPoCount) }}</td>
+                <td class="col-data text-right font-bold text-green">{{ formatNumber(summaryTotal.putPoPcs) }}</td>
               </template>
 
               <td v-if="activeViewTab === 'both'" class="col-sep"></td>
 
               <!-- 批號總計 -->
               <template v-if="activeViewTab === 'batch' || activeViewTab === 'both'">
-                <td></td>
-                <td class="text-right font-bold">100.00%</td>
-                <td class="text-right font-bold">{{ formatNumber(summaryTotal.recBatCount) }}</td>
-                <td class="text-right font-bold text-blue">{{ formatNumber(summaryTotal.recBatPcs) }}</td>
-                <td class="text-right font-bold">{{ formatRatio(summaryTotal.recBatCount, summaryTotal.recPoCount) }}</td>
+                <td class="col-bar"></td>
+                <td class="col-data text-right font-bold">100.00%</td>
+                <td class="col-data text-right font-bold">{{ formatNumber(summaryTotal.recBatCount) }}</td>
+                <td class="col-data text-right font-bold text-blue">{{ formatNumber(summaryTotal.recBatPcs) }}</td>
+                <td class="col-data text-right font-bold">{{ formatRatio(summaryTotal.recBatCount, summaryTotal.recPoCount) }}</td>
 
-                <td></td>
-                <td class="text-right font-bold">100.00%</td>
-                <td class="text-right font-bold">{{ formatNumber(summaryTotal.putBatCount) }}</td>
-                <td class="text-right font-bold text-green">{{ formatNumber(summaryTotal.putBatPcs) }}</td>
-                <td class="text-right font-bold">{{ formatRatio(summaryTotal.putBatCount, summaryTotal.putPoCount) }}</td>
+                <td class="col-bar"></td>
+                <td class="col-data text-right font-bold">100.00%</td>
+                <td class="col-data text-right font-bold">{{ formatNumber(summaryTotal.putBatCount) }}</td>
+                <td class="col-data text-right font-bold text-green">{{ formatNumber(summaryTotal.putBatPcs) }}</td>
+                <td class="col-data text-right font-bold">{{ formatRatio(summaryTotal.putBatCount, summaryTotal.putPoCount) }}</td>
               </template>
             </tr>
           </tfoot>
@@ -595,11 +595,40 @@ export default {
   color: #f8fafc;
   background: #0f172a;
   white-space: nowrap;
+  table-layout: fixed; /* 🌟 啟用固定表格佈局以精準控制欄寬 */
 }
 
 .vba-style-table th, .vba-style-table td {
   border: 1px solid #334155;
-  padding: 4px 8px;
+  padding: 4px 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 時段欄位固定小寬度 */
+.col-time {
+  width: 80px;
+  text-align: center;
+  background: #1e293b;
+}
+
+/* 🌟 圖形條狀圖欄位大幅加寬 */
+.col-bar {
+  width: auto;
+  min-width: 240px; /* 圖形至少預留 240px 以上伸展空間 */
+  padding: 2px 8px !important;
+}
+
+/* 🌟 數據資料欄（占比、筆數、PCS、比例）適中即可 */
+.col-data {
+  width: 85px;
+  text-align: right;
+}
+
+.col-sep {
+  width: 8px;
+  background: #334155;
+  padding: 0 !important;
 }
 
 .header-main th {
@@ -626,23 +655,6 @@ export default {
   background: #334155;
   color: #cbd5e1;
   text-align: center;
-}
-
-.col-time {
-  width: 70px;
-  text-align: center;
-  background: #1e293b;
-}
-
-.col-sep {
-  width: 6px;
-  background: #334155;
-  padding: 0 !important;
-}
-
-.col-bar {
-  width: 60px;
-  padding: 2px 4px !important;
 }
 
 .bar-fill {
