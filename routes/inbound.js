@@ -52,7 +52,7 @@ module.exports = function(db) {
     `);
   });
 
-  // 1. 批次匯入與 Upsert 覆蓋更新
+  // 1. 匯入 API (Upsert)
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     const fileName = req.body.fileName || 'latest_inbound.csv';
@@ -146,7 +146,7 @@ module.exports = function(db) {
     });
   });
 
-  // 2. 未上架日期統計摘要
+  // 2. 🌟 判斷條件：有驗收批號 + 上架日期為空 + 未銷案
   router.get('/pending-putaway', (req, res) => {
     const sql = `
       SELECT 
@@ -154,7 +154,8 @@ module.exports = function(db) {
         COUNT(*) as pending_count,
         IFNULL(SUM(qty), 0) as total_qty
       FROM inbound_details
-      WHERE LENGTH(TRIM(IFNULL(put_date, ''))) = 0
+      WHERE batch_no IS NOT NULL AND batch_no != ''
+        AND (put_date IS NULL OR put_date = '' OR put_date = ' ')
         AND IFNULL(is_resolved, 0) = 0
         AND rec_date IS NOT NULL AND rec_date != ''
       GROUP BY rec_date
@@ -167,15 +168,16 @@ module.exports = function(db) {
     });
   });
 
-  // 3. 未上架明細清單 (若 recDate 未帶則自動預設抓取最新的一天)
+  // 3. 🌟 未上架明細 API (預設傳回最新的一天)
   router.get('/pending-details', (req, res) => {
     let { recDate } = req.query;
 
-    const queryDetails = (targetDate) => {
+    const fetchDetails = (targetDate) => {
       let sql = `
         SELECT warehouse, rec_date, rec_time, batch_no, po_no, remark, item_id, item_name, qty
         FROM inbound_details
-        WHERE LENGTH(TRIM(IFNULL(put_date, ''))) = 0
+        WHERE batch_no IS NOT NULL AND batch_no != ''
+          AND (put_date IS NULL OR put_date = '' OR put_date = ' ')
           AND IFNULL(is_resolved, 0) = 0
       `;
       const params = [];
@@ -193,17 +195,25 @@ module.exports = function(db) {
       });
     };
 
-    if (!recDate) {
-      db.get(`SELECT rec_date FROM inbound_details WHERE LENGTH(TRIM(IFNULL(put_date, ''))) = 0 AND IFNULL(is_resolved, 0) = 0 ORDER BY rec_date DESC LIMIT 1`, [], (err, row) => {
+    if (!recDate || recDate.trim() === '') {
+      db.get(`
+        SELECT rec_date 
+        FROM inbound_details 
+        WHERE batch_no IS NOT NULL AND batch_no != ''
+          AND (put_date IS NULL OR put_date = '' OR put_date = ' ')
+          AND IFNULL(is_resolved, 0) = 0
+        ORDER BY rec_date DESC 
+        LIMIT 1
+      `, [], (err, row) => {
         const latestDate = row ? row.rec_date : '';
-        queryDetails(latestDate);
+        fetchDetails(latestDate);
       });
     } else {
-      queryDetails(recDate);
+      fetchDetails(recDate);
     }
   });
 
-  // 4. 銷案 / 註記更正 API
+  // 4. 更正銷案 API
   router.post('/update-pending-status', (req, res) => {
     const { keys, reason, customPutDate } = req.body;
 
