@@ -48,7 +48,7 @@
           @change="fetchYearlySummary"
         />
 
-        <!-- 🌟 依需求位置調整：將分析模式切換移至中間 -->
+        <!-- 分析模式切換（置中） -->
         <el-radio-group v-model="analysisMode" size="small" @change="handleAnalysisModeChange">
           <el-radio-button label="daily">📅 單日時段分析</el-radio-button>
           <el-radio-button label="monthly">🗓️ 每月每日總表</el-radio-button>
@@ -314,7 +314,7 @@
       </div>
     </div>
 
-    <!-- 🌟 3.3 年度每月總表區塊 -->
+    <!-- 3.3 年度每月總表區塊 -->
     <div class="table-container" v-loading="loadingYearly" v-else>
       <div class="sheet-title">
         📊 倉庫 進貨驗收與新品上架 - {{ targetYear }} 年度每月總表 ({{ getWarehouseLabel(warehouse) }})
@@ -396,7 +396,7 @@
       </div>
     </el-dialog>
 
-    <!-- 5. 高對比寬版未上架彈窗 -->
+    <!-- 🌟 5. 高對比寬版未上架彈窗 (支援全選當頁與按日期區間一鍵銷案) -->
     <el-dialog 
       v-model="showPendingDialog" 
       title="⚠️ 尚未上架明細監控與更正處置" 
@@ -425,17 +425,40 @@
         <div class="pending-details-content" v-loading="loadingDetails">
           <div class="content-header" v-if="selectedPendingDate">
             <span class="detail-title">🔍 <strong>{{ selectedPendingDate }}</strong> 未上架明細 ({{ currentDetailsList.length }} 筆)</span>
-            <el-button
-              type="danger"
-              size="small"
-              :disabled="selectedDetailRows.length === 0"
-              @click="openResolveDialog(selectedDetailRows)"
-            >
-              ☑️ 批次銷案/更正 (已選 {{ selectedDetailRows.length }} 筆)
-            </el-button>
+            
+            <div class="btn-group">
+              <!-- 🌟 方案一快捷按鈕：全選當頁 -->
+              <el-button
+                type="info"
+                size="small"
+                plain
+                @click="toggleSelectAllPage"
+              >
+                ☑️ 全選當頁 ({{ currentDetailsList.length }} 筆)
+              </el-button>
+
+              <el-button
+                type="danger"
+                size="small"
+                :disabled="selectedDetailRows.length === 0"
+                @click="openResolveDialog(selectedDetailRows)"
+              >
+                🛠️ 勾選批次銷案 (已選 {{ selectedDetailRows.length }} 筆)
+              </el-button>
+
+              <!-- 🌟 方案一快捷按鈕：依日期區間一鍵銷案 -->
+              <el-button
+                type="warning"
+                size="small"
+                @click="openRangeResolveDialog"
+              >
+                🗓️ 依日期區間一鍵銷案 (專處理1~8月)
+              </el-button>
+            </div>
           </div>
 
           <el-table
+            ref="pendingTable"
             :data="currentDetailsList"
             border
             stripe
@@ -468,7 +491,7 @@
       </div>
     </el-dialog>
 
-    <!-- 6. 更正銷案 Modal -->
+    <!-- 6. 更正銷案 Modal (勾選) -->
     <el-dialog v-model="showResolveModal" title="🛠️ 銷案/更正未上架記錄" width="420px" append-to-body custom-class="dark-dialog">
       <div class="resolve-form">
         <p>準備更正 <strong>{{ targetResolveItems.length }}</strong> 筆未上架項目：</p>
@@ -492,12 +515,37 @@
         <el-button type="primary" size="small" :loading="resolving" @click="submitResolve">確認銷案更正</el-button>
       </template>
     </el-dialog>
+
+    <!-- 🌟 7. 日期區間一鍵銷案 Modal -->
+    <el-dialog v-model="showRangeResolveModal" title="🗓️ 依日期區間一鍵批次銷案" width="460px" append-to-body custom-class="dark-dialog">
+      <div class="resolve-form">
+        <p style="color: #fbbf24;">⚠️ 將會把指定日期範圍內**所有未上架項目**一次全數銷案！</p>
+        
+        <el-form label-width="100px" size="small">
+          <el-form-item label="開始日期：">
+            <el-date-picker v-model="rangeStartDate" type="date" value-format="YYYY-MM-DD" style="width: 100%;" />
+          </el-form-item>
+
+          <el-form-item label="結束日期：">
+            <el-date-picker v-model="rangeEndDate" type="date" value-format="YYYY-MM-DD" style="width: 100%;" />
+          </el-form-item>
+
+          <el-form-item label="銷案備註：">
+            <el-input v-model="rangeReason" placeholder="例如: 1~8月歷史資料批次銷案" />
+          </el-form-item>
+        </el-form>
+      </div>
+      <template #footer>
+        <el-button size="small" @click="showRangeResolveModal = false">取消</el-button>
+        <el-button type="danger" size="small" :loading="resolvingRange" @click="submitRangeResolve">確認一鍵銷案</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script>
 import axios from 'axios'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 export default {
   name: 'InboundFishList',
@@ -528,11 +576,20 @@ export default {
       currentDetailsList: [],
       selectedDetailRows: [],
       loadingDetails: false,
+
+      // 單筆/多筆銷案
       showResolveModal: false,
       targetResolveItems: [],
       resolveReason: '同仁多驗/誤驗收 (無法上架)',
       customPutDate: '',
       resolving: false,
+
+      // 日期區間一鍵銷案
+      showRangeResolveModal: false,
+      rangeStartDate: '2026-01-01',
+      rangeEndDate: '2026-08-31',
+      rangeReason: '1~8月歷史匯入資料批次銷案',
+      resolvingRange: false,
 
       isUploading: false,
       showUploadProgressModal: false,
@@ -808,7 +865,6 @@ export default {
       }
     },
 
-    // 🌟 抓取年度每月匯總總表
     async fetchYearlySummary() {
       this.loadingYearly = true;
       try {
@@ -872,6 +928,19 @@ export default {
       this.selectedDetailRows = val;
     },
 
+    // 🌟 方案一：一鍵全選當頁
+    toggleSelectAllPage() {
+      if (!this['\$refs'].pendingTable) return;
+      const isAllSelected = this.selectedDetailRows.length === this.currentDetailsList.length;
+      if (isAllSelected) {
+        this['\$refs'].pendingTable.clearSelection();
+      } else {
+        this.currentDetailsList.forEach(row => {
+          this['\$refs'].pendingTable.toggleRowSelection(row, true);
+        });
+      }
+    },
+
     openResolveDialog(items) {
       this.targetResolveItems = items;
       this.resolveReason = '同仁多驗/誤驗收 (無法上架)';
@@ -910,6 +979,49 @@ export default {
       } finally {
         this.resolving = false;
       }
+    },
+
+    // 🌟 方案一：開啟按日期區間一鍵銷案 Modal
+    openRangeResolveDialog() {
+      this.rangeStartDate = '2026-01-01';
+      this.rangeEndDate = '2026-08-31';
+      this.rangeReason = '1~8月歷史匯入資料批次銷案';
+      this.showRangeResolveModal = true;
+    },
+
+    // 🌟 方案一：提交日期區間銷案
+    async submitRangeResolve() {
+      if (!this.rangeStartDate || !this.rangeEndDate) {
+        return ElMessage.warning('請選擇開始與結束日期！');
+      }
+
+      try {
+        await ElMessageBox.confirm(
+          `確定要將 ${this.rangeStartDate} ~ ${this.rangeEndDate} 期間的所有未上架資料全數銷案嗎？`,
+          '⚠️ 警告：批次銷案確認',
+          { confirmButtonText: '確定銷案', cancelButtonText: '取消', type: 'warning' }
+        );
+
+        this.resolvingRange = true;
+        const res = await axios.post('/api/inbound/batch-resolve-range', {
+          startDate: this.rangeStartDate,
+          endDate: this.rangeEndDate,
+          reason: this.rangeReason
+        });
+
+        if (res.data?.success) {
+          ElMessage.success(res.data.message);
+          this.showRangeResolveModal = false;
+          await this.fetchPendingSummary();
+          this.refreshAllData();
+        }
+      } catch (e) {
+        if (e !== 'cancel') {
+          ElMessage.error('區間銷案失敗：' + e.message);
+        }
+      } finally {
+        this.resolvingRange = false;
+      }
     }
   }
 }
@@ -936,7 +1048,7 @@ export default {
   border: 1px solid #334155;
 }
 
-.title-group, .action-group {
+.title-group, .action-group, .btn-group {
   display: flex;
   align-items: center;
   gap: 12px;

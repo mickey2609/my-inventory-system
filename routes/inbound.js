@@ -359,7 +359,7 @@ module.exports = function(db) {
 
   // 6. 每月每日總表 API
   router.get('/monthly-summary', (req, res) => {
-    const { month, warehouse, remarks } = req.query; // month 格式: '2026-09'
+    const { month, warehouse, remarks } = req.query;
 
     if (!month) {
       return res.status(400).json({ success: false, message: '請提供查詢月份 (YYYY-MM)' });
@@ -465,9 +465,9 @@ module.exports = function(db) {
     });
   });
 
-  // 🌟 7. 年度每月總表 API
+  // 7. 年度每月總表 API
   router.get('/yearly-summary', (req, res) => {
-    const { year, warehouse, remarks } = req.query; // year 格式: '2026'
+    const { year, warehouse, remarks } = req.query;
 
     if (!year) {
       return res.status(400).json({ success: false, message: '請提供查詢年份 (YYYY)' });
@@ -500,7 +500,6 @@ module.exports = function(db) {
         return matched;
       });
 
-      // 初始化 12 個月
       const monthsMap = {};
       for (let m = 1; m <= 12; m++) {
         const mStr = `${year}-${String(m).padStart(2, '0')}`;
@@ -563,6 +562,34 @@ module.exports = function(db) {
         year,
         monthlyList
       });
+    });
+  });
+
+  // 8. 依日期區間一鍵批次銷案 API
+  router.post('/batch-resolve-range', (req, res) => {
+    const { startDate, endDate, reason, customPutDate } = req.body;
+
+    if (!startDate || !endDate) {
+      return res.status(400).json({ success: false, message: '請提供開始與結束日期' });
+    }
+
+    const resolveReason = reason || '歷史資料整批自動銷案';
+    const putDateValue = customPutDate || 'RESOLVED';
+
+    const sql = `
+      UPDATE inbound_details
+      SET is_resolved = 1,
+          resolve_reason = ?,
+          remark = remark || ' [批次銷案註記: ' || ? || ']',
+          put_date = ?
+      WHERE rec_date >= ? AND rec_date <= ?
+        AND (put_date IS NULL OR put_date = '' OR put_date = ' ' OR INSTR(put_date, '-') = 0)
+        AND (is_resolved IS NULL OR is_resolved = 0)
+    `;
+
+    db.run(sql, [resolveReason, resolveReason, putDateValue, startDate, endDate], function(err) {
+      if (err) return res.status(500).json({ success: false, message: '批次銷案失敗：' + err.message });
+      res.json({ success: true, message: `🎉 成功完成 ${startDate} ~ ${endDate} 區間共 ${this.changes} 筆未上架記錄銷案！` });
     });
   });
 
