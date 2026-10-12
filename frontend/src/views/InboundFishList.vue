@@ -233,7 +233,7 @@
       :close-on-press-escape="false"
       :show-close="false"
       append-to-body
-      class="dark-dialog"
+      custom-class="dark-dialog"
     >
       <div class="progress-box">
         <p class="file-name-info">📁 匯入檔案：<strong>{{ uploadingFileName }}</strong></p>
@@ -248,8 +248,8 @@
       </div>
     </el-dialog>
 
-    <!-- 🌟 5. 深色主題對齊：未上架日期監控 + 點擊查看明細 Modal -->
-    <el-dialog v-model="showPendingDialog" title="⚠️ 尚未上架明細監控與更正處置" width="980px" append-to-body class="dark-dialog">
+    <!-- 🌟 5. 未上架日期監控 + 明細深色彈窗 -->
+    <el-dialog v-model="showPendingDialog" title="⚠️ 尚未上架明細監控與更正處置" width="980px" append-to-body custom-class="dark-dialog">
       <div class="pending-dialog-body">
         <div class="pending-summary-sidebar">
           <p class="sidebar-title">📅 選擇驗收日期：</p>
@@ -285,7 +285,7 @@
             border
             stripe
             size="small"
-            height="360px"
+            height="380px"
             class="dark-table"
             @selection-change="handleSelectionChange"
           >
@@ -312,8 +312,8 @@
       </div>
     </el-dialog>
 
-    <!-- 🌟 6. 更正銷案原因註記 Modal -->
-    <el-dialog v-model="showResolveModal" title="🛠️ 銷案/更正未上架記錄" width="420px" append-to-body class="dark-dialog">
+    <!-- 6. 更正銷案 Modal -->
+    <el-dialog v-model="showResolveModal" title="🛠️ 銷案/更正未上架記錄" width="420px" append-to-body custom-class="dark-dialog">
       <div class="resolve-form">
         <p>準備更正 <strong>{{ targetResolveItems.length }}</strong> 筆未上架項目：</p>
         
@@ -572,8 +572,9 @@ export default {
         if (res.data?.success) {
           this.pendingSummary = res.data.pendingSummary || [];
           this.totalPendingCount = this.pendingSummary.reduce((sum, item) => sum + item.pending_count, 0);
-          if (this.pendingSummary.length > 0 && !this.selectedPendingDate) {
-            this.loadPendingDetails(this.pendingSummary[0].rec_date);
+          if (this.pendingSummary.length > 0) {
+            const defaultDate = this.selectedPendingDate || this.pendingSummary[0].rec_date;
+            this.loadPendingDetails(defaultDate);
           }
         }
       } catch (e) {
@@ -817,7 +818,7 @@ export default {
   font-weight: bold;
 }
 
-/* 🌟 深色對齊彈窗與表格樣式 */
+/* 🌟 深色全覆蓋彈窗與表格樣式 */
 :deep(.dark-dialog) {
   background-color: #1e293b !important;
   color: #f8fafc !important;
@@ -836,13 +837,33 @@ export default {
   font-weight: bold;
 }
 
+:deep(.dark-table) {
+  background-color: #1e293b !important;
+  color: #f8fafc !important;
+}
+
+:deep(.dark-table th.el-table__cell) {
+  background-color: #0f172a !important;
+  color: #38bdf8 !important;
+  border-bottom: 1px solid #334155 !important;
+}
+
+:deep(.dark-table td.el-table__cell) {
+  background-color: #1e293b !important;
+  color: #f8fafc !important;
+  border-bottom: 1px solid #334155 !important;
+}
+
 .pending-dialog-body {
   display: flex;
   gap: 16px;
+  background-color: #1e293b;
+  padding: 10px;
+  border-radius: 6px;
 }
 
 .pending-summary-sidebar {
-  width: 200px;
+  width: 220px;
   border-right: 1px solid #334155;
   padding-right: 12px;
 }
@@ -877,8 +898,9 @@ export default {
 
 .date-item:hover, .date-item.active {
   border-color: #38bdf8;
-  background: rgba(56, 189, 248, 0.2);
+  background: rgba(56, 189, 248, 0.25);
   color: #38bdf8;
+  font-weight: bold;
 }
 
 .d-badge {

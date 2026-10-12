@@ -145,6 +145,7 @@ module.exports = function(db) {
     });
   });
 
+  // 🌟 修復：未上架摘要 SQL 條件容錯判斷
   router.get('/pending-putaway', (req, res) => {
     const sql = `
       SELECT 
@@ -152,8 +153,8 @@ module.exports = function(db) {
         COUNT(*) as pending_count,
         IFNULL(SUM(qty), 0) as total_qty
       FROM inbound_details
-      WHERE (put_date IS NULL OR put_date = '' OR put_date = ' ')
-        AND (is_resolved IS NULL OR is_resolved = 0)
+      WHERE LENGTH(TRIM(IFNULL(put_date, ''))) = 0
+        AND IFNULL(is_resolved, 0) = 0
         AND rec_date IS NOT NULL AND rec_date != ''
       GROUP BY rec_date
       ORDER BY rec_date DESC
@@ -165,14 +166,14 @@ module.exports = function(db) {
     });
   });
 
-  // 🌟 特定驗收日期的「未上架明細清單 API」
+  // 🌟 修復：未上架明細 SQL 條件容錯判斷
   router.get('/pending-details', (req, res) => {
     const { recDate } = req.query;
     let sql = `
       SELECT warehouse, rec_date, rec_time, batch_no, po_no, remark, item_id, item_name, qty
       FROM inbound_details
-      WHERE (put_date IS NULL OR put_date = '' OR put_date = ' ')
-        AND (is_resolved IS NULL OR is_resolved = 0)
+      WHERE LENGTH(TRIM(IFNULL(put_date, ''))) = 0
+        AND IFNULL(is_resolved, 0) = 0
     `;
     const params = [];
 
@@ -189,7 +190,7 @@ module.exports = function(db) {
     });
   });
 
-  // 🌟 銷案/更正 API
+  // 銷案/更正 API
   router.post('/update-pending-status', (req, res) => {
     const { keys, reason, customPutDate } = req.body;
 
