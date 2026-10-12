@@ -52,7 +52,7 @@ module.exports = function(db) {
     `);
   });
 
-  // 1. 匯入 API (保留原始字元，連同空格一併寫入)
+  // 1. 匯入 API
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     const fileName = req.body.fileName || 'latest_inbound.csv';
@@ -114,7 +114,6 @@ module.exports = function(db) {
         const warehouse = getVal('warehouse', '庫別').trim() || '80';
         const rec_date = standardizeDate(getVal('rec_date', '驗收日期'));
         const rec_time = standardizeTime(getVal('rec_time', '驗收時間'));
-        // 🌟 上架日期如果不為空，精準保留其原貌 (包含空格)
         const rawPutDate = getVal('put_date', '上架日期');
         const put_date = rawPutDate ? (rawPutDate.trim() === '' ? rawPutDate : standardizeDate(rawPutDate)) : '';
         const put_time = standardizeTime(getVal('put_time', '上架時間'));
@@ -148,7 +147,7 @@ module.exports = function(db) {
     });
   });
 
-  // 2. 🌟 未上架摘要統計 (嚴格認定：只有純 NULL 或長度為 0 才是未上架)
+  // 2. 🌟 改用「有驗收日期」作為未上架摘要統計的前提條件
   router.get('/pending-putaway', (req, res) => {
     const sql = `
       SELECT 
@@ -156,10 +155,9 @@ module.exports = function(db) {
         COUNT(*) as pending_count,
         IFNULL(SUM(qty), 0) as total_qty
       FROM inbound_details
-      WHERE (po_no != '' OR batch_no != '')
+      WHERE (rec_date IS NOT NULL AND rec_date != '')
         AND (put_date IS NULL OR LENGTH(put_date) = 0)
         AND IFNULL(is_resolved, 0) = 0
-        AND rec_date IS NOT NULL AND rec_date != ''
       GROUP BY rec_date
       ORDER BY rec_date DESC
     `;
@@ -170,7 +168,7 @@ module.exports = function(db) {
     });
   });
 
-  // 3. 🌟 未上架明細 API (嚴格認定：只有純 NULL 或長度為 0 才是未上架)
+  // 3. 🌟 改用「有驗收日期」作為未上架明細 API 的前提條件
   router.get('/pending-details', (req, res) => {
     let { recDate } = req.query;
 
@@ -178,7 +176,7 @@ module.exports = function(db) {
       let sql = `
         SELECT warehouse, rec_date, rec_time, batch_no, po_no, remark, item_id, item_name, qty
         FROM inbound_details
-        WHERE (po_no != '' OR batch_no != '')
+        WHERE (rec_date IS NOT NULL AND rec_date != '')
           AND (put_date IS NULL OR LENGTH(put_date) = 0)
           AND IFNULL(is_resolved, 0) = 0
       `;
@@ -201,7 +199,7 @@ module.exports = function(db) {
       db.get(`
         SELECT rec_date 
         FROM inbound_details 
-        WHERE (po_no != '' OR batch_no != '')
+        WHERE (rec_date IS NOT NULL AND rec_date != '')
           AND (put_date IS NULL OR LENGTH(put_date) = 0)
           AND IFNULL(is_resolved, 0) = 0
         ORDER BY rec_date DESC 
