@@ -248,8 +248,8 @@
       </div>
     </el-dialog>
 
-    <!-- 5. 未上架彈窗 -->
-    <el-dialog v-model="showPendingDialog" title="⚠️ 尚未上架明細監控與更正處置" width="1020px" append-to-body custom-class="dark-dialog">
+    <!-- 🌟 5. 高對比顯色未上架彈窗 (已加入「驗收日期」欄位) -->
+    <el-dialog v-model="showPendingDialog" title="⚠️ 尚未上架明細監控與更正處置" width="1080px" append-to-body custom-class="dark-dialog">
       <div class="pending-dialog-body">
         <div class="pending-summary-sidebar">
           <p class="sidebar-title">📅 選擇驗收日期：</p>
@@ -290,6 +290,8 @@
             @selection-change="handleSelectionChange"
           >
             <el-table-column type="selection" width="45" align="center" />
+            <!-- 🌟 依需求新增：驗收日期 欄位 -->
+            <el-table-column prop="rec_date" label="驗收日期" width="105" align="center" />
             <el-table-column prop="rec_time" label="驗收時間" width="85" align="center" />
             <el-table-column prop="po_no" label="進貨單號" width="140" align="center" />
             <el-table-column prop="batch_no" label="驗收批號" width="140" align="center" />
