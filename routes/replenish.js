@@ -142,7 +142,7 @@ module.exports = function(db) {
     });
   });
 
-  // 2. 單日時段魚群分析 API
+  // 2. 單日時段魚群分析 API (保持絕對時段分析)
   router.get('/fish-analysis', (req, res) => {
     const { targetDate, reasons } = req.query;
 
@@ -215,7 +215,7 @@ module.exports = function(db) {
     });
   });
 
-  // 3. 每月每日總表 API
+  // 🌟 3. 每月每日總表 API (以「產生日期 gen_date」為唯一 Cohort 追蹤完成率)
   router.get('/monthly-summary', (req, res) => {
     const { month, reasons } = req.query;
 
@@ -223,9 +223,10 @@ module.exports = function(db) {
       return res.status(400).json({ success: false, message: '請提供查詢月份 (YYYY-MM)' });
     }
 
-    let sql = `SELECT * FROM replenish_details WHERE (gen_date LIKE ? OR finish_date LIKE ?)`;
+    // 🌟 核心修正：只撈取「產生日期」在該月份的所有單據
+    let sql = `SELECT * FROM replenish_details WHERE gen_date LIKE ?`;
     const monthPattern = `${month}%`;
-    const params = [monthPattern, monthPattern];
+    const params = [monthPattern];
 
     let reasonList = [];
     if (Array.isArray(reasons)) {
@@ -249,31 +250,25 @@ module.exports = function(db) {
       rows.forEach(r => {
         const orderNo = (r.order_no || '').trim();
         const status = (r.doc_status || '').trim();
+        const d = r.gen_date;
 
-        if (r.gen_date && r.gen_date.startsWith(month)) {
-          const d = r.gen_date;
-          if (!daysMap[d]) {
-            daysMap[d] = {
-              date: d,
-              genOrderSet: new Set(), genPcs: 0,
-              finOrderSet: new Set(), finPcs: 0,
-              delOrderSet: new Set()
-            };
-          }
-          if (orderNo) daysMap[d].genOrderSet.add(orderNo);
-          daysMap[d].genPcs += (r.suggest_qty || 0);
+        if (!d || !d.startsWith(month)) return;
+
+        if (!daysMap[d]) {
+          daysMap[d] = {
+            date: d,
+            genOrderSet: new Set(), genPcs: 0,
+            finOrderSet: new Set(), finPcs: 0,
+            delOrderSet: new Set()
+          };
         }
 
-        if (r.finish_date && r.finish_date.startsWith(month)) {
-          const d = r.finish_date;
-          if (!daysMap[d]) {
-            daysMap[d] = {
-              date: d,
-              genOrderSet: new Set(), genPcs: 0,
-              finOrderSet: new Set(), finPcs: 0,
-              delOrderSet: new Set()
-            };
-          }
+        // 1. 紀錄產生的單數與建議 PCS
+        if (orderNo) daysMap[d].genOrderSet.add(orderNo);
+        daysMap[d].genPcs += (r.suggest_qty || 0);
+
+        // 2. 比對「這批產生單據」的完成狀況（不論何時完成，只要有完成時間且狀態不為已刪單，即代表該產生單已被完成）
+        if (r.finish_date || r.finish_time) {
           if (status !== '已刪單') {
             if (orderNo) daysMap[d].finOrderSet.add(orderNo);
             daysMap[d].finPcs += (r.actual_pcs || 0);
@@ -300,7 +295,7 @@ module.exports = function(db) {
     });
   });
 
-  // 🌟 4. 全新：年度每月總表 API
+  // 🌟 4. 年度每月總表 API (以「產生日期 gen_date」為唯一 Cohort 追蹤完成率)
   router.get('/yearly-summary', (req, res) => {
     const { year, reasons } = req.query;
 
@@ -308,9 +303,10 @@ module.exports = function(db) {
       return res.status(400).json({ success: false, message: '請提供查詢年份 (YYYY)' });
     }
 
-    let sql = `SELECT * FROM replenish_details WHERE (gen_date LIKE ? OR finish_date LIKE ?)`;
+    // 🌟 核心修正：只撈取「產生日期」在該年份的所有單據
+    let sql = `SELECT * FROM replenish_details WHERE gen_date LIKE ?`;
     const yearPattern = `${year}%`;
-    const params = [yearPattern, yearPattern];
+    const params = [yearPattern];
 
     let reasonList = [];
     if (Array.isArray(reasons)) {
@@ -345,18 +341,16 @@ module.exports = function(db) {
       rows.forEach(r => {
         const orderNo = (r.order_no || '').trim();
         const status = (r.doc_status || '').trim();
+        if (!r.gen_date || !r.gen_date.startsWith(year)) return;
 
-        if (r.gen_date && r.gen_date.startsWith(year)) {
-          const mKey = r.gen_date.substring(0, 7);
-          if (monthMap[mKey]) {
-            if (orderNo) monthMap[mKey].genOrderSet.add(orderNo);
-            monthMap[mKey].genPcs += (r.suggest_qty || 0);
-          }
-        }
+        const mKey = r.gen_date.substring(0, 7);
+        if (monthMap[mKey]) {
+          // 1. 紀錄產生的單數與建議 PCS
+          if (orderNo) monthMap[mKey].genOrderSet.add(orderNo);
+          monthMap[mKey].genPcs += (r.suggest_qty || 0);
 
-        if (r.finish_date && r.finish_date.startsWith(year)) {
-          const mKey = r.finish_date.substring(0, 7);
-          if (monthMap[mKey]) {
+          // 2. 比對「該月份產生單據」的完成狀況
+          if (r.finish_date || r.finish_time) {
             if (status !== '已刪單') {
               if (orderNo) monthMap[mKey].finOrderSet.add(orderNo);
               monthMap[mKey].finPcs += (r.actual_pcs || 0);
