@@ -55,7 +55,7 @@ module.exports = function(db) {
     db.run(`ALTER TABLE replenish_details ADD COLUMN remark TEXT`, () => {});
   });
 
-  // 1. 匯入 API (專精解析 S 欄：備註說明)
+  // 1. 匯入 API (優先精準讀取 S 欄「備註說明」)
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     const fileName = req.body.fileName || 'latest_replenish.csv';
@@ -116,27 +116,27 @@ module.exports = function(db) {
           return v ? (parseFloat(v.replace(/,/g, '')) || 0) : 0;
         };
 
-        const warehouse = getVal('warehouse', '庫別') || '80';
-        const order_no = getVal('order_no', '補貨/調撥單號');
-        const doc_type = getVal('doc_type', '單據類別');
-        const dest_warehouse = getVal('dest_warehouse', '目的庫');
-        const doc_status = getVal('doc_status', '單據狀態');
-        const item_id = getVal('item_id', '商品編號');
-        const item_name = getVal('item_name', '商品名稱');
-        const item_spec = getVal('item_spec', '商品規格');
-        const supplier_item_no = getVal('supplier_item_no', '廠商料號');
-        const suggest_qty = getNum('suggest_qty', '建議撿貨數量');
-        const gen_date = standardizeDate(getVal('gen_date', '產生日期'));
-        const gen_time = standardizeTime(getVal('gen_time', '產生時間'));
-        const apply_user = getVal('apply_user', '申請人員');
-        const finish_date = standardizeDate(getVal('finish_date', '完成日期'));
-        const finish_time = standardizeTime(getVal('finish_time', '完成時間'));
-        const finish_user = getVal('finish_user', '完成人員');
-        const finish_remark = getVal('finish_remark', '完成備註');
+        const warehouse = getVal('庫別', 'warehouse') || '80';
+        const order_no = getVal('補貨/調撥單號', 'order_no');
+        const doc_type = getVal('單據類別', 'doc_type');
+        const dest_warehouse = getVal('目的庫', 'dest_warehouse');
+        const doc_status = getVal('單據狀態', 'doc_status');
+        const item_id = getVal('商品編號', 'item_id');
+        const item_name = getVal('商品名稱', 'item_name');
+        const item_spec = getVal('商品規格', 'item_spec');
+        const supplier_item_no = getVal('廠商料號', 'supplier_item_no');
+        const suggest_qty = getNum('建議撿貨數量', 'suggest_qty');
+        const gen_date = standardizeDate(getVal('產生日期', 'gen_date'));
+        const gen_time = standardizeTime(getVal('產生時間', 'gen_time'));
+        const apply_user = getVal('申請人員', 'apply_user');
+        const finish_date = standardizeDate(getVal('完成日期', 'finish_date'));
+        const finish_time = standardizeTime(getVal('完成時間', 'finish_time'));
+        const finish_user = getVal('完成人員', 'finish_user');
+        const finish_remark = getVal('完成備註', 'finish_remark');
         
-        // 🌟 專用唯一鎖定：S 欄: 備註說明
-        const remark = getVal('remark', '備註說明', '備註');
-        const actual_pcs = getNum('actual_pcs', '實際上架PCS');
+        // 🌟 優先精準鎖定 S 欄：備註說明
+        const remark = getVal('備註說明', 'remark', '備註');
+        const actual_pcs = getNum('實際上架PCS', 'actual_pcs');
 
         if (order_no || item_id) {
           stmt.run(
@@ -158,7 +158,7 @@ module.exports = function(db) {
     });
   });
 
-  // 2. 補貨單魚群時段分析 API (只比對 S 欄：備註說明)
+  // 2. 補貨單魚群時段分析 API (強效支援 S 欄比對與括號防護)
   router.get('/fish-analysis', (req, res) => {
     const { targetDate, reasons } = req.query;
 
@@ -174,13 +174,27 @@ module.exports = function(db) {
       if (err) return res.status(500).json({ success: false, message: err.message });
 
       rows = rows || [];
-      const reasonList = Array.isArray(reasons) ? reasons : (reasons || '').split(',').map(s => s.trim()).filter(Boolean);
+      
+      // 解析傳入的篩選條件陣列
+      let reasonList = [];
+      if (Array.isArray(reasons)) {
+        reasonList = reasons;
+      } else if (typeof reasons === 'string' && reasons.trim() !== '') {
+        reasonList = reasons.split(',').map(s => s.trim()).filter(Boolean);
+      }
 
-      // 🌟 純粹比對 S 欄 (remark)
+      // 🌟 強效過濾：將括號或無括號（如 "系統補開" 與 "(系統補開)"）自動相容比對
       const filteredRows = rows.filter(r => {
         if (!reasonList.length || reasonList.includes('all')) return true;
         const remarkTxt = (r.remark || '').trim();
-        return reasonList.some(opt => remarkTxt.includes(opt));
+        
+        return reasonList.some(opt => {
+          if (!opt || opt === 'all') return true;
+          // 清除括號進行軟性對比
+          const cleanOpt = opt.replace(/[()（）]/g, '');
+          const cleanRemark = remarkTxt.replace(/[()（）]/g, '');
+          return cleanRemark.includes(cleanOpt) || remarkTxt.includes(opt);
+        });
       });
 
       const hourlyData = Array.from({ length: 24 }, (_, h) => ({
@@ -226,7 +240,7 @@ module.exports = function(db) {
     });
   });
 
-  // 3. 每月每日總表 API (只比對 S 欄：備註說明)
+  // 3. 每月每日總表 API
   router.get('/monthly-summary', (req, res) => {
     const { month, reasons } = req.query;
 
@@ -242,12 +256,22 @@ module.exports = function(db) {
       if (err) return res.status(500).json({ success: false, message: err.message });
 
       rows = rows || [];
-      const reasonList = Array.isArray(reasons) ? reasons : (reasons || '').split(',').map(s => s.trim()).filter(Boolean);
+      let reasonList = [];
+      if (Array.isArray(reasons)) {
+        reasonList = reasons;
+      } else if (typeof reasons === 'string' && reasons.trim() !== '') {
+        reasonList = reasons.split(',').map(s => s.trim()).filter(Boolean);
+      }
 
       const filteredRows = rows.filter(r => {
         if (!reasonList.length || reasonList.includes('all')) return true;
         const remarkTxt = (r.remark || '').trim();
-        return reasonList.some(opt => remarkTxt.includes(opt));
+        return reasonList.some(opt => {
+          if (!opt || opt === 'all') return true;
+          const cleanOpt = opt.replace(/[()（）]/g, '');
+          const cleanRemark = remarkTxt.replace(/[()（）]/g, '');
+          return cleanRemark.includes(cleanOpt) || remarkTxt.includes(opt);
+        });
       });
 
       const daysMap = {};
