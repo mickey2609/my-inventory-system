@@ -537,7 +537,7 @@ export default {
         }
       } catch (e) {
         ElMessage.error('載入補貨魚群失敗：' + e.message);
-      } final {
+      } finally {
         this.loading = false;
       }
     },
