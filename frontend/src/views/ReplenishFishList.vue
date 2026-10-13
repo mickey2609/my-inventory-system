@@ -43,7 +43,7 @@
           <el-radio-button label="monthly">🗓️ 每月每日總表</el-radio-button>
         </el-radio-group>
 
-        <!-- 🌟 圖 1 需求：申請原因 / 單據類別下拉篩選選單 (含全選) -->
+        <!-- 🌟 下拉篩選選單 (系統補開、高棧板商品備貨、彙整列印新單、預購回填) -->
         <div class="reason-select-box">
           <span class="select-label">📋 申請原因類別：</span>
           <el-select
@@ -52,7 +52,7 @@
             collapse-tags
             size="small"
             placeholder="請選擇申請原因"
-            style="width: 220px;"
+            style="width: 230px;"
             @change="handleReasonChange"
           >
             <el-option label="🌐 全選 (所有類別)" value="all" />
@@ -240,7 +240,6 @@ export default {
       targetDate: new Date().toISOString().split('T')[0],
       targetMonth: new Date().toISOString().slice(0, 7),
       
-      // 圖 1 需求：申請原因選項
       reasonOptions: ['系統補開', '高棧板商品備貨', '彙整列印新單', '預購回填'],
       selectedReasons: ['all'],
 
@@ -314,8 +313,9 @@ export default {
       return parts.length >= 3 ? `${parts[2]}日` : dStr;
     },
 
+    // 🌟 全選與單選相容控制
     handleReasonChange(vals) {
-      if (vals.includes('all') && vals.length > 1) {
+      if (vals.includes('all')) {
         if (vals[vals.length - 1] === 'all') {
           this.selectedReasons = ['all'];
         } else {
@@ -417,10 +417,13 @@ export default {
     async fetchFishData() {
       this.loading = true;
       try {
+        // 🌟 清理 reasons 參數，只傳有效的關鍵字
+        const activeReasons = this.selectedReasons.includes('all') ? 'all' : this.selectedReasons.join(',');
+
         const res = await axios.get('/api/replenish/fish-analysis', {
           params: {
             targetDate: this.targetDate,
-            reasons: this.selectedReasons.join(',')
+            reasons: activeReasons
           }
         });
         if (res.data?.success) {
@@ -451,10 +454,12 @@ export default {
     async fetchMonthlySummary() {
       this.loadingMonthly = true;
       try {
+        const activeReasons = this.selectedReasons.includes('all') ? 'all' : this.selectedReasons.join(',');
+
         const res = await axios.get('/api/replenish/monthly-summary', {
           params: {
             month: this.targetMonth,
-            reasons: this.selectedReasons.join(',')
+            reasons: activeReasons
           }
         });
         if (res.data?.success) {

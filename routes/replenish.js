@@ -55,7 +55,7 @@ module.exports = function(db) {
     db.run(`ALTER TABLE replenish_details ADD COLUMN remark TEXT`, () => {});
   });
 
-  // 1. 匯入 API (優先精準讀取 S 欄「備註說明」)
+  // 1. 匯入 API
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     const fileName = req.body.fileName || 'latest_replenish.csv';
@@ -134,7 +134,7 @@ module.exports = function(db) {
         const finish_user = getVal('完成人員', 'finish_user');
         const finish_remark = getVal('完成備註', 'finish_remark');
         
-        // 🌟 優先精準鎖定 S 欄：備註說明
+        // 🌟 專用鎖定 S 欄「備註說明」
         const remark = getVal('備註說明', 'remark', '備註');
         const actual_pcs = getNum('實際上架PCS', 'actual_pcs');
 
@@ -158,7 +158,7 @@ module.exports = function(db) {
     });
   });
 
-  // 2. 補貨單魚群時段分析 API (強效支援 S 欄比對與括號防護)
+  // 2. 魚群分析 API
   router.get('/fish-analysis', (req, res) => {
     const { targetDate, reasons } = req.query;
 
@@ -175,7 +175,6 @@ module.exports = function(db) {
 
       rows = rows || [];
       
-      // 解析傳入的篩選條件陣列
       let reasonList = [];
       if (Array.isArray(reasons)) {
         reasonList = reasons;
@@ -183,18 +182,10 @@ module.exports = function(db) {
         reasonList = reasons.split(',').map(s => s.trim()).filter(Boolean);
       }
 
-      // 🌟 強效過濾：將括號或無括號（如 "系統補開" 與 "(系統補開)"）自動相容比對
       const filteredRows = rows.filter(r => {
         if (!reasonList.length || reasonList.includes('all')) return true;
         const remarkTxt = (r.remark || '').trim();
-        
-        return reasonList.some(opt => {
-          if (!opt || opt === 'all') return true;
-          // 清除括號進行軟性對比
-          const cleanOpt = opt.replace(/[()（）]/g, '');
-          const cleanRemark = remarkTxt.replace(/[()（）]/g, '');
-          return cleanRemark.includes(cleanOpt) || remarkTxt.includes(opt);
-        });
+        return reasonList.some(opt => opt !== 'all' && remarkTxt.includes(opt));
       });
 
       const hourlyData = Array.from({ length: 24 }, (_, h) => ({
@@ -240,7 +231,7 @@ module.exports = function(db) {
     });
   });
 
-  // 3. 每月每日總表 API
+  // 3. 每月總表 API
   router.get('/monthly-summary', (req, res) => {
     const { month, reasons } = req.query;
 
@@ -266,12 +257,7 @@ module.exports = function(db) {
       const filteredRows = rows.filter(r => {
         if (!reasonList.length || reasonList.includes('all')) return true;
         const remarkTxt = (r.remark || '').trim();
-        return reasonList.some(opt => {
-          if (!opt || opt === 'all') return true;
-          const cleanOpt = opt.replace(/[()（）]/g, '');
-          const cleanRemark = remarkTxt.replace(/[()（）]/g, '');
-          return cleanRemark.includes(cleanOpt) || remarkTxt.includes(opt);
-        });
+        return reasonList.some(opt => opt !== 'all' && remarkTxt.includes(opt));
       });
 
       const daysMap = {};
