@@ -113,7 +113,7 @@
 
         <div v-if="hasPermission('replenish_fish')" class="action-card" @click="openTab('replenish_fish')">
           <div class="action-icon">🐟</div>
-          <div class="action-title">開啟補貨單魚群</div>
+          <div class="action-title">立即補貨單魚群</div>
           <div class="action-desc">動態儲位補貨水位建議與補貨單產生</div>
         </div>
 
