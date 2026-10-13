@@ -46,7 +46,7 @@
             @refresh-summary="handleSummaryCalc"
           />
 
-          <!-- 🌟 80 庫專屬隔離數據 🌟 -->
+          <!-- 80 庫專屬隔離數據 -->
           <InvQuery80 
             v-else-if="currentTab === 'inv80'" key="inv80"
             :has-searched="hasSearched80" :summary="summary80" :search-time="searchTime80"
@@ -60,7 +60,7 @@
             @size-change="s => handlePageSizeChange(s, 'inv80')"
           />
 
-          <!-- 🌟 15 庫專屬隔離數據 🌟 -->
+          <!-- 15 庫專屬隔離數據 -->
           <InvSearch15 
             v-else-if="currentTab === 'inv15'" key="inv15"
             :has-searched="hasSearched15" :summary="summary15" :search-time="searchTime15"
@@ -75,20 +75,26 @@
             @refresh-metrics="fetchDashboardMetrics"
           />
 
-          <!-- 🌟 迴轉率清單專屬視圖 🌟 -->
+          <!-- 迴轉率清單專屬視圖 -->
           <TurnoverList 
             v-else-if="currentTab === 'turnover'" key="turnover" 
             :is-sys-admin="isSysAdmin"
           />
 
-          <!-- 🌟 魚群模組 🌟 -->
+          <!-- 進貨上架魚群模組 -->
           <InboundFishList 
             v-else-if="currentTab === 'inbound_fish'" key="inbound_fish"
           />
 
-          <!-- 🌟 全新：立即補貨單魚群模組 🌟 -->
+          <!-- 立即補貨單魚群模組 -->
           <ReplenishFishList 
             v-else-if="currentTab === 'replenish_fish'" key="replenish_fish"
+            :is-sys-admin="isSysAdmin"
+          />
+
+          <!-- 🌟 全新正式掛載：跨庫調撥 (80 ➔ 15) 魚群模組 🌟 -->
+          <Transfer8015FishList 
+            v-else-if="currentTab === 'transfer_80_15'" key="transfer_80_15"
             :is-sys-admin="isSysAdmin"
           />
 
@@ -205,6 +211,7 @@ import LocSummary from './views/LocSummary.vue'
 import TurnoverList from './views/TurnoverList.vue'
 import InboundFishList from './views/InboundFishList.vue'
 import ReplenishFishList from './views/ReplenishFishList.vue'
+import Transfer8015FishList from './views/Transfer8015FishList.vue' // 🌟 引入跨庫調撥組件
 import SettingsPerm from './views/SettingsPerm.vue'
 import SettingsLog from './views/SettingsLog.vue'
 
@@ -220,7 +227,7 @@ export default {
     TopNavbar, SystemDrawer, ColConfigModal, ParamMenuModal, WidthConfigModal,
     ImportTipModal, UserManagementModals, InventorySearchModal, HomeDashboard,
     LoginOverlay, InvQuery80, InvSearch15, LocSummary, TurnoverList, InboundFishList,
-    ReplenishFishList, SettingsPerm, SettingsLog
+    ReplenishFishList, Transfer8015FishList, SettingsPerm, SettingsLog // 🌟 註冊組件
   },
   setup() {
     const { sendLog, getDeviceType, setupAxiosInterceptor } = useSystemLogs();
@@ -256,7 +263,7 @@ export default {
     ];
 
     return {
-      appVersion: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'v2026.10.08',
+      appVersion: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'v2026.10.13',
       isLoggedIn: false, currentUser: '', currentUsername: '', currentUserRole: 'user', loginLoading: false, savingConfig: false,
       savingExportConfig: false, currentUserPermissions: [],
       showUnifiedDrawer: false, showSearchModal: false, showParamMenuDialog: false, showWidthConfigDialog: false,
@@ -291,7 +298,6 @@ export default {
         txt_monthly_sales: '', selected_columns: [...full48Cols], chk_show_loc: true, chk_show_dim: true, cbo_sort: '商品ID', sort_order: 'desc'
       },
 
-      // 🌟 授權模組清單
       availableModules: [
         { key: 'loc_summary', name: '📊 儲位數才數統整' },
         { key: 'inv80', name: '🔍 庫存查詢80' },
