@@ -132,7 +132,9 @@ module.exports = function(db) {
         const finish_time = standardizeTime(getVal('finish_time', '完成時間'));
         const finish_user = getVal('finish_user', '完成人員');
         const finish_remark = getVal('finish_remark', '完成備註');
-        const apply_reason = getVal('apply_reason', '(預開單) 申請原因', '(預開單)申請原因', '申請原因');
+        
+        // 🌟 關鍵對齊：將 S欄: 備註說明 寫入 apply_reason，相容多種欄位命名
+        const apply_reason = getVal('apply_reason', '備註說明', '備註', '(預開單) 申請原因', '(預開單)申請原因', '申請原因');
         const actual_pcs = getNum('actual_pcs', '實際上架PCS');
 
         if (order_no || item_id) {
@@ -155,7 +157,7 @@ module.exports = function(db) {
     });
   });
 
-  // 2. 補貨單魚群時段分析 API (支援申請原因/類別過濾)
+  // 2. 補貨單魚群時段分析 API (對齊 S欄 備註說明)
   router.get('/fish-analysis', (req, res) => {
     const { targetDate, reasons } = req.query;
 
@@ -173,10 +175,11 @@ module.exports = function(db) {
       rows = rows || [];
       const reasonList = Array.isArray(reasons) ? reasons : (reasons || '').split(',').map(s => s.trim()).filter(Boolean);
 
+      // 🌟 精準比對 S欄 備註說明 文字
       const filteredRows = rows.filter(r => {
         if (!reasonList.length || reasonList.includes('all')) return true;
-        const reason = (r.apply_reason || r.doc_type || '').trim();
-        return reasonList.some(opt => reason.includes(opt));
+        const remarkTxt = (r.apply_reason || r.doc_type || '').trim();
+        return reasonList.some(opt => remarkTxt.includes(opt));
       });
 
       const hourlyData = Array.from({ length: 24 }, (_, h) => ({
@@ -242,8 +245,8 @@ module.exports = function(db) {
 
       const filteredRows = rows.filter(r => {
         if (!reasonList.length || reasonList.includes('all')) return true;
-        const reason = (r.apply_reason || r.doc_type || '').trim();
-        return reasonList.some(opt => reason.includes(opt));
+        const remarkTxt = (r.apply_reason || r.doc_type || '').trim();
+        return reasonList.some(opt => remarkTxt.includes(opt));
       });
 
       const daysMap = {};
