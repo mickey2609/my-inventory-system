@@ -22,7 +22,7 @@
           size="small"
           value-format="YYYY-MM-DD"
           placeholder="選擇日期"
-          style="width: 135px;"
+          style="width: 125px;"
           @change="fetchFishData"
         />
 
@@ -34,7 +34,7 @@
           size="small"
           value-format="YYYY-MM"
           placeholder="選擇月份"
-          style="width: 135px;"
+          style="width: 125px;"
           @change="fetchMonthlySummary"
         />
 
@@ -46,11 +46,11 @@
           size="small"
           value-format="YYYY"
           placeholder="選擇年份"
-          style="width: 110px;"
+          style="width: 105px;"
           @change="fetchYearlySummary"
         />
 
-        <!-- 未完成追蹤日期區間選擇器 -->
+        <!-- 未完成追蹤日期區間選擇器 (微調寬度防止擠壓) -->
         <el-date-picker
           v-else-if="analysisMode === 'pending'"
           v-model="pendingDateRange"
@@ -60,7 +60,7 @@
           range-separator="至"
           start-placeholder="開始日期"
           end-placeholder="結束日期"
-          style="width: 230px;"
+          style="width: 200px;"
           @change="fetchPendingDetails"
         />
 
@@ -81,7 +81,7 @@
             collapse-tags
             size="small"
             placeholder="請選擇申請原因"
-            style="width: 220px;"
+            style="width: 200px;"
             @change="handleReasonChange"
           >
             <el-option label="🌐 全選 (所有類別)" value="all" />
@@ -108,7 +108,7 @@
           :loading="isUploading"
           @click="triggerSelectCsv"
         >
-          📥 匯入立即補貨單 CSV
+          📥 匯入補貨單 CSV
         </el-button>
       </div>
     </div>
@@ -685,32 +685,44 @@ export default {
   overflow-y: auto;
 }
 
+/* 🌟 核心修正：加入 flex-wrap: nowrap 嚴格禁止換列 */
 .top-bar {
   display: flex;
   justify-content: space-between;
   align-items: center;
   background: #1e293b;
-  padding: 8px 16px;
+  padding: 8px 12px;
   border-radius: 8px;
   border: 1px solid #334155;
+  flex-wrap: nowrap !important;
+  overflow-x: auto;
 }
 
 .title-group, .action-group, .reason-select-box {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .page-title {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: bold;
   color: #38bdf8;
+  white-space: nowrap;
 }
 
 .select-label {
-  font-size: 13px;
+  font-size: 12px;
   color: #f8fafc;
   font-weight: bold;
+  white-space: nowrap;
+}
+
+/* 🌟 讓單選按鈕文字更加緊湊 */
+:deep(.el-radio-button__inner) {
+  padding: 7px 10px !important;
+  font-size: 12px !important;
 }
 
 .table-container {
