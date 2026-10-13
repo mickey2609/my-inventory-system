@@ -48,12 +48,13 @@ module.exports = function(db) {
         finish_remark TEXT,
         remark TEXT,
         actual_pcs REAL,
-        imported_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        imported_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (warehouse, order_no, item_id)
       )
     `);
   });
 
-  // 1. 匯入 API
+  // 1. 匯入 API (比照進貨上架模式：UPSERT 智慧更新)
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     const fileName = req.body.fileName || 'latest_replenish.csv';
@@ -69,7 +70,6 @@ module.exports = function(db) {
       db.run('BEGIN TRANSACTION');
 
       if (isFirstChunk) {
-        db.run('DELETE FROM replenish_details');
         db.run(
           `INSERT INTO import_logs (module_type, file_name, row_count, imported_at) VALUES ('replenish', ?, ?, DATETIME('now'))`,
           [fileName, items.length]
@@ -83,6 +83,21 @@ module.exports = function(db) {
           gen_date, gen_time, apply_user, finish_date, finish_time,
           finish_user, finish_remark, remark, actual_pcs
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(warehouse, order_no, item_id) DO UPDATE SET
+          doc_type = EXCLUDED.doc_type,
+          dest_warehouse = EXCLUDED.dest_warehouse,
+          doc_status = EXCLUDED.doc_status,
+          suggest_qty = EXCLUDED.suggest_qty,
+          gen_date = EXCLUDED.gen_date,
+          gen_time = EXCLUDED.gen_time,
+          apply_user = EXCLUDED.apply_user,
+          finish_date = EXCLUDED.finish_date,
+          finish_time = EXCLUDED.finish_time,
+          finish_user = EXCLUDED.finish_user,
+          finish_remark = EXCLUDED.finish_remark,
+          remark = EXCLUDED.remark,
+          actual_pcs = EXCLUDED.actual_pcs,
+          imported_at = CURRENT_TIMESTAMP
       `);
 
       let processedCount = 0;
@@ -137,12 +152,12 @@ module.exports = function(db) {
       db.run('COMMIT', (err) => {
         db.run('PRAGMA synchronous = NORMAL');
         if (err) return res.status(500).json({ success: false, message: '補貨單寫入失敗：' + err.message });
-        res.json({ success: true, count: processedCount, message: `成功更新與處理 ${processedCount} 筆補貨單資料！` });
+        res.json({ success: true, count: processedCount, message: `成功同步與處理 ${processedCount} 筆補貨單資料！` });
       });
     });
   });
 
-  // 2. 單日時段魚群分析 API
+  // 2. 時段魚群分析 API
   router.get('/fish-analysis', (req, res) => {
     const { targetDate, reasons } = req.query;
 
@@ -223,7 +238,7 @@ module.exports = function(db) {
     });
   });
 
-  // 3. 每月總表 API (Cohort 完成率邏輯)
+  // 3. 每月總表 API (Cohort 完成率)
   router.get('/monthly-summary', (req, res) => {
     const { month, reasons } = req.query;
     if (!month) return res.status(400).json({ success: false, message: '請提供查詢月份 (YYYY-MM)' });
@@ -315,7 +330,7 @@ module.exports = function(db) {
     });
   });
 
-  // 4. 年度總表 API (Cohort 完成率邏輯)
+  // 4. 年度總表 API (Cohort 完成率)
   router.get('/yearly-summary', (req, res) => {
     const { year, reasons } = req.query;
     if (!year) return res.status(400).json({ success: false, message: '請提供查詢年份 (YYYY)' });
