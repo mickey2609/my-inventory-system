@@ -48,14 +48,12 @@ module.exports = function(db) {
         finish_remark TEXT,
         remark TEXT,
         actual_pcs REAL,
-        imported_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (warehouse, order_no, item_id)
+        imported_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
-    db.run(`ALTER TABLE replenish_details ADD COLUMN remark TEXT`, () => {});
   });
 
-  // 1. 匯入 API
+  // 1. 匯入 API (清空重建 + 寫入 S 欄備註說明)
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     const fileName = req.body.fileName || 'latest_replenish.csv';
@@ -70,7 +68,9 @@ module.exports = function(db) {
       db.run('PRAGMA journal_mode = MEMORY');
       db.run('BEGIN TRANSACTION');
 
+      // 🌟 第一區塊上傳時，徹底清空舊資料，確保所有 2.9 萬筆全新對齊 S 欄
       if (isFirstChunk) {
+        db.run('DELETE FROM replenish_details');
         db.run(
           `INSERT INTO import_logs (module_type, file_name, row_count, imported_at) VALUES ('replenish', ?, ?, DATETIME('now'))`,
           [fileName, items.length]
@@ -84,19 +84,6 @@ module.exports = function(db) {
           gen_date, gen_time, apply_user, finish_date, finish_time,
           finish_user, finish_remark, remark, actual_pcs
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(warehouse, order_no, item_id) DO UPDATE SET
-          doc_type = EXCLUDED.doc_type,
-          doc_status = EXCLUDED.doc_status,
-          suggest_qty = EXCLUDED.suggest_qty,
-          gen_date = EXCLUDED.gen_date,
-          gen_time = EXCLUDED.gen_time,
-          finish_date = EXCLUDED.finish_date,
-          finish_time = EXCLUDED.finish_time,
-          finish_user = EXCLUDED.finish_user,
-          finish_remark = EXCLUDED.finish_remark,
-          remark = EXCLUDED.remark,
-          actual_pcs = EXCLUDED.actual_pcs,
-          imported_at = CURRENT_TIMESTAMP
       `);
 
       let processedCount = 0;
@@ -134,7 +121,7 @@ module.exports = function(db) {
         const finish_user = getVal('完成人員', 'finish_user');
         const finish_remark = getVal('完成備註', 'finish_remark');
         
-        // 🌟 專用對齊：S欄 備註說明
+        // 🌟 專屬對齊 CSV 的「備註說明」標頭 (S 欄)
         const remark = getVal('備註說明', 'remark', '備註');
         const actual_pcs = getNum('實際上架PCS', 'actual_pcs');
 
@@ -158,7 +145,7 @@ module.exports = function(db) {
     });
   });
 
-  // 2. 魚群分析 API (原生 SQL 精準比對 S 欄)
+  // 2. 魚群分析 API
   router.get('/fish-analysis', (req, res) => {
     const { targetDate, reasons } = req.query;
 
@@ -170,7 +157,6 @@ module.exports = function(db) {
       params.push(targetDate, targetDate);
     }
 
-    // 解析 reasons
     let reasonList = [];
     if (Array.isArray(reasons)) {
       reasonList = reasons;
@@ -178,7 +164,6 @@ module.exports = function(db) {
       reasonList = reasons.split(',').map(s => s.trim()).filter(Boolean);
     }
 
-    // 🌟 原生 SQL 條件拼接
     if (reasonList.length > 0 && !reasonList.includes('all')) {
       const subConds = reasonList.map(() => `remark LIKE ?`);
       sql += ` AND (${subConds.join(' OR ')})`;
@@ -233,7 +218,7 @@ module.exports = function(db) {
     });
   });
 
-  // 3. 每月總表 API (原生 SQL 精準比對 S 欄)
+  // 3. 每月總表 API
   router.get('/monthly-summary', (req, res) => {
     const { month, reasons } = req.query;
 
