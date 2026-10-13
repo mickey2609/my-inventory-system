@@ -134,7 +134,7 @@ module.exports = function(db) {
         const finish_user = getVal('完成人員', 'finish_user');
         const finish_remark = getVal('完成備註', 'finish_remark');
         
-        // 🌟 專用鎖定 S 欄「備註說明」
+        // 🌟 專用對齊：S欄 備註說明
         const remark = getVal('備註說明', 'remark', '備註');
         const actual_pcs = getNum('實際上架PCS', 'actual_pcs');
 
@@ -158,7 +158,7 @@ module.exports = function(db) {
     });
   });
 
-  // 2. 魚群分析 API
+  // 2. 魚群分析 API (原生 SQL 精準比對 S 欄)
   router.get('/fish-analysis', (req, res) => {
     const { targetDate, reasons } = req.query;
 
@@ -170,23 +170,25 @@ module.exports = function(db) {
       params.push(targetDate, targetDate);
     }
 
+    // 解析 reasons
+    let reasonList = [];
+    if (Array.isArray(reasons)) {
+      reasonList = reasons;
+    } else if (typeof reasons === 'string' && reasons.trim() !== '') {
+      reasonList = reasons.split(',').map(s => s.trim()).filter(Boolean);
+    }
+
+    // 🌟 原生 SQL 條件拼接
+    if (reasonList.length > 0 && !reasonList.includes('all')) {
+      const subConds = reasonList.map(() => `remark LIKE ?`);
+      sql += ` AND (${subConds.join(' OR ')})`;
+      reasonList.forEach(r => params.push(`%${r}%`));
+    }
+
     db.all(sql, params, (err, rows) => {
       if (err) return res.status(500).json({ success: false, message: err.message });
 
       rows = rows || [];
-      
-      let reasonList = [];
-      if (Array.isArray(reasons)) {
-        reasonList = reasons;
-      } else if (typeof reasons === 'string' && reasons.trim() !== '') {
-        reasonList = reasons.split(',').map(s => s.trim()).filter(Boolean);
-      }
-
-      const filteredRows = rows.filter(r => {
-        if (!reasonList.length || reasonList.includes('all')) return true;
-        const remarkTxt = (r.remark || '').trim();
-        return reasonList.some(opt => opt !== 'all' && remarkTxt.includes(opt));
-      });
 
       const hourlyData = Array.from({ length: 24 }, (_, h) => ({
         hourStr: `${String(h).padStart(2, '0')}:00 ~ ${String(h + 1).padStart(2, '0')}:00`,
@@ -195,7 +197,7 @@ module.exports = function(db) {
         delOrderSet: new Set()
       }));
 
-      filteredRows.forEach(r => {
+      rows.forEach(r => {
         const orderNo = (r.order_no || '').trim();
         const status = (r.doc_status || '').trim();
 
@@ -227,11 +229,11 @@ module.exports = function(db) {
         delOrderCount: d.delOrderSet.size
       }));
 
-      res.json({ success: true, totalFiltered: filteredRows.length, hourlyStats });
+      res.json({ success: true, totalFiltered: rows.length, hourlyStats });
     });
   });
 
-  // 3. 每月總表 API
+  // 3. 每月總表 API (原生 SQL 精準比對 S 欄)
   router.get('/monthly-summary', (req, res) => {
     const { month, reasons } = req.query;
 
@@ -243,26 +245,26 @@ module.exports = function(db) {
     const monthPattern = `${month}%`;
     const params = [monthPattern, monthPattern];
 
+    let reasonList = [];
+    if (Array.isArray(reasons)) {
+      reasonList = reasons;
+    } else if (typeof reasons === 'string' && reasons.trim() !== '') {
+      reasonList = reasons.split(',').map(s => s.trim()).filter(Boolean);
+    }
+
+    if (reasonList.length > 0 && !reasonList.includes('all')) {
+      const subConds = reasonList.map(() => `remark LIKE ?`);
+      sql += ` AND (${subConds.join(' OR ')})`;
+      reasonList.forEach(r => params.push(`%${r}%`));
+    }
+
     db.all(sql, params, (err, rows) => {
       if (err) return res.status(500).json({ success: false, message: err.message });
 
       rows = rows || [];
-      let reasonList = [];
-      if (Array.isArray(reasons)) {
-        reasonList = reasons;
-      } else if (typeof reasons === 'string' && reasons.trim() !== '') {
-        reasonList = reasons.split(',').map(s => s.trim()).filter(Boolean);
-      }
-
-      const filteredRows = rows.filter(r => {
-        if (!reasonList.length || reasonList.includes('all')) return true;
-        const remarkTxt = (r.remark || '').trim();
-        return reasonList.some(opt => opt !== 'all' && remarkTxt.includes(opt));
-      });
-
       const daysMap = {};
 
-      filteredRows.forEach(r => {
+      rows.forEach(r => {
         const orderNo = (r.order_no || '').trim();
         const status = (r.doc_status || '').trim();
 
