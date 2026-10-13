@@ -223,7 +223,7 @@ export default {
   },
   methods: {
     openTab(tabKey) {
-      this.\$emit('open-tab', tabKey);
+      this.$emit('open-tab', tabKey);
     },
     formatNumber(val) {
       if (!val) return '0';
