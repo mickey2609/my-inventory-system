@@ -142,7 +142,7 @@ module.exports = function(db) {
     });
   });
 
-  // 2. 單日時段魚群分析 API (新增「當下產生但無完成日期」未完成筆數統計)
+  // 2. 單日時段魚群分析 API
   router.get('/fish-analysis', (req, res) => {
     const { targetDate, reasons } = req.query;
 
@@ -175,7 +175,7 @@ module.exports = function(db) {
       const hourlyData = Array.from({ length: 24 }, (_, h) => ({
         hourStr: `${String(h).padStart(2, '0')}:00 ~ ${String(h + 1).padStart(2, '0')}:00`,
         genOrderSet: new Set(), genPcs: 0,
-        pendingOrderSet: new Set(), pendingPcs: 0, // 🌟 當下產生但未完成
+        pendingOrderSet: new Set(), pendingPcs: 0,
         finOrderSet: new Set(), finPcs: 0,
         delOrderSet: new Set()
       }));
@@ -191,7 +191,6 @@ module.exports = function(db) {
             if (orderNo) hourlyData[h].genOrderSet.add(orderNo);
             hourlyData[h].genPcs += (r.suggest_qty || 0);
 
-            // 🌟 若沒有完成日期，即代表當下產生但未完成
             if (!hasFinishDate) {
               if (orderNo) hourlyData[h].pendingOrderSet.add(orderNo);
               hourlyData[h].pendingPcs += (r.suggest_qty || 0);
@@ -215,7 +214,7 @@ module.exports = function(db) {
       const hourlyStats = hourlyData.map(d => ({
         hourStr: d.hourStr,
         genOrderCount: d.genOrderSet.size, genPcs: d.genPcs,
-        pendingOrderCount: d.pendingOrderSet.size, pendingPcs: d.pendingPcs, // 🌟 傳回未完成數
+        pendingOrderCount: d.pendingOrderSet.size, pendingPcs: d.pendingPcs,
         finOrderCount: d.finOrderSet.size, finPcs: d.finPcs,
         delOrderCount: d.delOrderSet.size
       }));
@@ -379,6 +378,57 @@ module.exports = function(db) {
       });
 
       res.json({ success: true, year, monthlyList });
+    });
+  });
+
+  // 🌟 5. 全新：補貨未完成明細追蹤 API
+  router.get('/pending-details', (req, res) => {
+    const { startDate, endDate, reasons } = req.query;
+
+    let sql = `SELECT * FROM replenish_details WHERE (finish_date IS NULL OR finish_date = '') AND (doc_status IS NULL OR doc_status != '已刪單')`;
+    const params = [];
+
+    if (startDate && endDate) {
+      sql += ` AND gen_date BETWEEN ? AND ?`;
+      params.push(startDate, endDate);
+    } else if (startDate) {
+      sql += ` AND gen_date >= ?`;
+      params.push(startDate);
+    }
+
+    let reasonList = [];
+    if (Array.isArray(reasons)) {
+      reasonList = reasons;
+    } else if (typeof reasons === 'string' && reasons.trim() !== '') {
+      reasonList = reasons.split(',').map(s => s.trim()).filter(Boolean);
+    }
+
+    if (reasonList.length > 0 && !reasonList.includes('all')) {
+      const subConds = reasonList.map(() => `remark LIKE ?`);
+      sql += ` AND (${subConds.join(' OR ')})`;
+      reasonList.forEach(r => params.push(`%${r}%`));
+    }
+
+    sql += ` ORDER BY gen_date DESC, gen_time DESC`;
+
+    db.all(sql, params, (err, rows) => {
+      if (err) return res.status(500).json({ success: false, message: err.message });
+
+      rows = rows || [];
+      const pendingList = rows.map(r => ({
+        order_no: r.order_no || '-',
+        doc_type: r.doc_type || '-',
+        item_id: r.item_id || '-',
+        item_name: r.item_name || '-',
+        item_spec: r.item_spec || '-',
+        suggest_qty: r.suggest_qty || 0,
+        gen_date: r.gen_date || '-',
+        gen_time: r.gen_time || '-',
+        apply_user: r.apply_user || '-',
+        remark: r.remark || '-'
+      }));
+
+      res.json({ success: true, totalPending: pendingList.length, pendingList });
     });
   });
 
