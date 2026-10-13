@@ -91,7 +91,7 @@
       </div>
     </div>
 
-    <!-- 🌟 2. 第二排獨立工具列：申請原因類別篩選選單 (比照進貨獨立第二排) -->
+    <!-- 2. 第二排獨立工具列：申請原因類別篩選選單 -->
     <div class="filter-bar">
       <div class="reason-select-box">
         <span class="select-label">📋 申請原因類別：</span>
@@ -293,7 +293,7 @@
       </div>
     </div>
 
-    <!-- 3.4 補貨未完成明細追蹤區塊 -->
+    <!-- 🌟 3.4 補貨未完成明細追蹤 (包含【手動銷案】操作工具欄) -->
     <div class="table-container" v-loading="loadingPending" v-else-if="analysisMode === 'pending'">
       <div class="sheet-title alert-sheet-title">
         🚨 倉庫 立即補貨單 - 未完成單據明細追蹤 (共 {{ formatNumber(pendingList.length) }} 筆未完成)
@@ -310,7 +310,9 @@
               <th style="width: 160px;">商品編號</th>
               <th>商品名稱</th>
               <th style="width: 100px;">建議數量</th>
-              <th style="width: 140px;">備註說明</th>
+              <th style="width: 130px;">備註說明</th>
+              <!-- 🌟 銷案操作工具欄位 -->
+              <th style="width: 110px;">銷案工具</th>
             </tr>
           </thead>
 
@@ -324,9 +326,21 @@
               <td>{{ p.item_name }}</td>
               <td class="text-right font-bold text-red">{{ formatNumber(p.suggest_qty) }}</td>
               <td class="text-center">{{ p.remark }}</td>
+              
+              <!-- 🌟 即刻銷案按鈕 -->
+              <td class="text-center">
+                <el-button
+                  type="danger"
+                  size="mini"
+                  icon="el-icon-check"
+                  @click="openCloseDialog(p)"
+                >
+                  即刻銷案
+                </el-button>
+              </td>
             </tr>
             <tr v-if="pendingList.length === 0">
-              <td colspan="8" class="text-center text-green font-bold" style="padding: 20px;">
+              <td colspan="9" class="text-center text-green font-bold" style="padding: 20px;">
                 🎉 太棒了！當前條件下沒有任何滯留未完成的補貨單據！
               </td>
             </tr>
@@ -335,10 +349,45 @@
       </div>
     </div>
 
+    <!-- 🌟 手動銷案 Modal 對話框 -->
+    <el-dialog
+      v-model="showCloseModal"
+      title="🚨 補貨單據手動銷案確認"
+      width="420px"
+      append-to-body
+      custom-class="dark-dialog"
+    >
+      <div class="close-form-box" v-if="selectedCloseRow">
+        <p><strong>補貨單號：</strong> <span class="text-orange">{{ selectedCloseRow.order_no }}</span></p>
+        <p><strong>商品編號：</strong> <span class="text-blue">{{ selectedCloseRow.item_id }}</span></p>
+        <p><strong>商品名稱：</strong> {{ selectedCloseRow.item_name }}</p>
+        
+        <div style="margin-top: 12px;">
+          <label style="font-size: 13px; font-weight: bold; color: #cbd5e1;">銷案原因/備註說明：</label>
+          <el-input
+            type="textarea"
+            v-model="closeRemark"
+            placeholder="請輸入手動銷案原因（例：現場手動補完 / 系統重複開單）"
+            rows="3"
+            style="margin-top: 6px;"
+          />
+        </div>
+      </div>
+
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button size="small" @click="showCloseModal = false">取消</el-button>
+          <el-button type="danger" size="small" :loading="isClosing" @click="confirmCloseOrder">
+            確認完成銷案
+          </el-button>
+        </span>
+      </template>
+    </el-dialog>
+
     <!-- CSV 上傳進度 Modal -->
     <el-dialog
       v-model="showUploadProgressModal"
-      title="⚡ 正在寫入與覆蓋更新立即補貨單資料..."
+      title="⚡ 正在寫入與覆蓋更新體補貨單資料..."
       width="480px"
       :close-on-click-modal="false"
       :close-on-press-escape="false"
@@ -357,7 +406,7 @@
 
 <script>
 import axios from 'axios'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 export default {
   name: 'ReplenishFishList',
@@ -384,6 +433,12 @@ export default {
       monthlyDailyList: [],
       yearlyMonthlyList: [],
       pendingList: [],
+
+      // 🌟 手動銷案相關變數
+      showCloseModal: false,
+      selectedCloseRow: null,
+      closeRemark: '現場已手動補完銷案',
+      isClosing: false,
 
       isUploading: false,
       showUploadProgressModal: false,
@@ -550,7 +605,7 @@ export default {
               this.uploadPercent = Math.min(100, Math.round((processed / this.totalRowsToUpload) * 100));
             }
 
-            ElMessage.success(`🎉 成功寫入並更新 ${this.totalRowsToUpload.toLocaleString()} 筆立即補貨單資料！`);
+            ElMessage.success(`🎉 成功寫入並更新 ${this.totalRowsToUpload.toLocaleString()} 筆體補貨單資料！`);
             this.refreshAllData();
             this.resetUploadState(event);
           },
@@ -569,6 +624,42 @@ export default {
       this.isUploading = false;
       this.showUploadProgressModal = false;
       if (event && event.target) event.target.value = '';
+    },
+
+    // 🌟 打開手動銷案對話框
+    openCloseDialog(row) {
+      this.selectedCloseRow = row;
+      this.closeRemark = '現場已手動補完銷案';
+      this.showCloseModal = true;
+    },
+
+    // 🌟 確認銷案 API 請求
+    async confirmCloseOrder() {
+      if (!this.selectedCloseRow) return;
+
+      this.isClosing = true;
+      try {
+        const username = localStorage.getItem('currentUser') || localStorage.getItem('username') || '主管銷案';
+
+        const res = await axios.post('/api/replenish/close-order', {
+          orderNo: this.selectedCloseRow.order_no,
+          itemId: this.selectedCloseRow.item_id,
+          closeUser: username,
+          closeRemark: this.closeRemark
+        });
+
+        if (res.data?.success) {
+          ElMessage.success(res.data.message || '補貨單成功銷案！');
+          this.showCloseModal = false;
+          this.fetchPendingDetails();
+        } else {
+          ElMessage.error('銷案失敗：' + (res.data?.message || '未知錯誤'));
+        }
+      } catch (e) {
+        ElMessage.error('銷案處理失敗：' + e.message);
+      } finally {
+        this.isClosing = false;
+      }
     },
 
     async fetchFishData() {
@@ -687,7 +778,6 @@ export default {
   overflow-y: auto;
 }
 
-/* 1. 第一排頂部區域 */
 .top-bar {
   display: flex;
   justify-content: space-between;
@@ -698,7 +788,6 @@ export default {
   border: 1px solid #334155;
 }
 
-/* 🌟 2. 第二排獨立工具列：申請原因過濾 Bar */
 .filter-bar {
   display: flex;
   align-items: center;
@@ -823,4 +912,10 @@ export default {
 .text-orange { color: #fbbf24; }
 .text-red { color: #f87171; }
 .font-bold { font-weight: bold; }
+
+.close-form-box p {
+  margin: 6px 0;
+  font-size: 13px;
+  color: #f8fafc;
+}
 </style>

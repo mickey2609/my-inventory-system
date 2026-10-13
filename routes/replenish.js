@@ -54,7 +54,7 @@ module.exports = function(db) {
     `);
   });
 
-  // 1. 匯入 API (比照進貨上架模式：UPSERT 智慧更新)
+  // 1. 匯入 API
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     const fileName = req.body.fileName || 'latest_replenish.csv';
@@ -152,7 +152,7 @@ module.exports = function(db) {
       db.run('COMMIT', (err) => {
         db.run('PRAGMA synchronous = NORMAL');
         if (err) return res.status(500).json({ success: false, message: '補貨單寫入失敗：' + err.message });
-        res.json({ success: true, count: processedCount, message: `成功同步與處理 ${processedCount} 筆補貨單資料！` });
+        res.json({ success: true, count: processedCount, message: `成功更新與處理 ${processedCount} 筆補貨單資料！` });
       });
     });
   });
@@ -206,7 +206,7 @@ module.exports = function(db) {
             if (orderNo) hourlyData[h].genOrderSet.add(orderNo);
             hourlyData[h].genPcs += (r.suggest_qty || 0);
 
-            if (!hasFinishDate) {
+            if (!hasFinishDate && status !== '已刪單' && status !== '已銷案') {
               if (orderNo) hourlyData[h].pendingOrderSet.add(orderNo);
               hourlyData[h].pendingPcs += (r.suggest_qty || 0);
             }
@@ -427,7 +427,7 @@ module.exports = function(db) {
   router.get('/pending-details', (req, res) => {
     const { startDate, endDate, reasons } = req.query;
 
-    let sql = `SELECT * FROM replenish_details WHERE (finish_date IS NULL OR finish_date = '') AND (doc_status IS NULL OR doc_status != '已刪單')`;
+    let sql = `SELECT * FROM replenish_details WHERE (finish_date IS NULL OR finish_date = '') AND (doc_status IS NULL OR (doc_status != '已刪單' AND doc_status != '已銷案'))`;
     const params = [];
 
     if (startDate && endDate) {
@@ -458,6 +458,7 @@ module.exports = function(db) {
 
       rows = rows || [];
       const pendingList = rows.map(r => ({
+        warehouse: r.warehouse || '80',
         order_no: r.order_no || '-',
         doc_type: r.doc_type || '-',
         item_id: r.item_id || '-',
@@ -471,6 +472,44 @@ module.exports = function(db) {
       }));
 
       res.json({ success: true, totalPending: pendingList.length, pendingList });
+    });
+  });
+
+  // 🌟 6. 全新：補貨單手動銷案/強制結案 API (比照進貨銷案工具)
+  router.post('/close-order', (req, res) => {
+    const { orderNo, itemId, closeUser, closeRemark } = req.body;
+
+    if (!orderNo) {
+      return res.status(400).json({ success: false, message: '請提供銷案單號！' });
+    }
+
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+
+    let sql = `
+      UPDATE replenish_details
+      SET finish_date = ?,
+          finish_time = ?,
+          finish_user = ?,
+          finish_remark = ?,
+          doc_status = '已銷案'
+      WHERE order_no = ?
+    `;
+    const params = [todayStr, timeStr, closeUser || '主管銷案', closeRemark || '主管手動強銷案', orderNo];
+
+    if (itemId) {
+      sql += ` AND item_id = ?`;
+      params.push(itemId);
+    }
+
+    db.run(sql, params, function(err) {
+      if (err) return res.status(500).json({ success: false, message: '銷案失敗：' + err.message });
+      res.json({
+        success: true,
+        message: `補貨單 [${orderNo}] 已成功銷案結案！`,
+        changes: this.changes
+      });
     });
   });
 
