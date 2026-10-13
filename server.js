@@ -7,7 +7,7 @@ const path = require('path');
 const fs = require('fs');
 
 process.on('uncaughtException', (err) => {
-  console.error('⚠ [系統防護] 攔截到未處理的例外，伺服器維持運作：', err.message);
+  console.error('⚠️ [系統防護] 攔截到未處理的例外，伺服器維持運作：', err.message);
 });
 process.on('unhandledRejection', (reason, promise) => {
   console.error('⚠️ [系統防護] 攔截到未處理的 Promise 拒絕：', reason);
@@ -62,7 +62,7 @@ app.use('/api/location-stats', locationStatsModule(db));
 app.use('/api/turnover15', turnover15Module(db));
 app.use('/api/turnover80', turnover80Module(db));
 
-// 3. 首頁 Dashboard 統計數據 API (精準對齊 80 庫與 15 庫最新檔名)
+// 3. 首頁 Dashboard 統計數據 API
 app.get('/api/dashboard/stats', (req, res) => {
   const sql80 = `SELECT COUNT(*) as total_rows FROM inventory`;
   const sql15 = `SELECT COUNT(*) as total_rows FROM inventory_15`;
@@ -103,6 +103,30 @@ app.get('/api/dashboard/stats', (req, res) => {
       });
     });
   });
+});
+
+// 🌟 4. 全域跑馬燈公告同步 API (資料庫寫入/讀取)
+app.get('/api/announcement', (req, res) => {
+  db.get(`SELECT config_value FROM system_config WHERE config_key = 'announcement'`, [], (err, row) => {
+    if (err) return res.status(500).json({ success: false, message: err.message });
+    const announcement = row ? row.config_value : '🎉 歡迎使用庫存儲位管理系統！請確實核對進貨驗收與新品上架資料。';
+    res.json({ success: true, announcement });
+  });
+});
+
+app.post('/api/announcement', (req, res) => {
+  const { announcement } = req.body;
+  if (announcement === undefined) return res.status(400).json({ success: false, message: '請提供公告內容' });
+
+  db.run(
+    `INSERT INTO system_config (config_key, config_value) VALUES ('announcement', ?)
+     ON CONFLICT(config_key) DO UPDATE SET config_value = EXCLUDED.config_value`,
+    [announcement],
+    function(err) {
+      if (err) return res.status(500).json({ success: false, message: err.message });
+      res.json({ success: true, message: '🎉 跑馬燈公告已成功同步至全體使用者！' });
+    }
+  );
 });
 
 app.get('/api/get-global-config', (req, res) => {
@@ -297,7 +321,6 @@ app.post(['/api/import-locations-master', '/api/import-locations-master-json'], 
   });
 });
 
-// [GET] 📊 儲位才數與格數強效交叉計算 API
 app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, res) => {
   const masterSql = `SELECT COALESCE(floor, '') as floor, COALESCE(zone, '') as zone, COALESCE(loc_type, '') as loc_type, COALESCE(cubic_feet, 0) as cubic_feet, COALESCE(grid_count, 0) as grid_count, COALESCE(single_cubic_feet, 0) as single_cubic_feet FROM locations_master`;
   const inventorySql = `SELECT COALESCE(floor, '') as floor, COALESCE(floor_zone, '') as floor_zone, COALESCE(loc_type, '') as loc_type, COALESCE(heavy_rack_check, '') as heavy_rack_check, COALESCE(location, '') as location, COALESCE(loc_code_5, '') as loc_code_5, COALESCE(shelf_level, '') as shelf_level, COALESCE(total_cubic_feet, 0) as total_cubic_feet, COALESCE(cubic_feet, 0) as cubic_feet, COALESCE(qty, 0) as qty FROM inventory`;
@@ -496,7 +519,6 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         volPivotTable.push(volRow);
       });
 
-      // 附加黃色小計列
       Object.values(typeSubtotals).forEach(sub => {
         const subGridRow = { floor: sub.floor, loc_type: sub.loc_type, is_subtotal: true };
         const subVolRow = { floor: sub.floor, loc_type: sub.loc_type, is_subtotal: true };
@@ -555,7 +577,6 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         volPivotTable.push(subVolRow);
       });
 
-      // 附加綠色總計列
       const totalGridRow = { floor: grandTotalGrid.floor, loc_type: grandTotalGrid.loc_type, is_total: true };
       const totalVolRow = { floor: grandTotalGrid.floor, loc_type: grandTotalGrid.loc_type, is_total: true };
 
@@ -703,7 +724,7 @@ app.post('/api/delete-user', (req, res) => {
   });
 });
 
-// [GET] 庫存查詢 API (庫存 80)
+// [GET] 庫存查詢 API
 app.get('/api/search', (req, res) => {
   const page = parseInt(req.query.page || '1', 10);
   const pageSize = parseInt(req.query.pageSize || '500', 10);
@@ -892,7 +913,7 @@ app.get('/api/get-logs', (req, res) => {
   });
 });
 
-// [POST] 極速匯入 API (無條件寫入 import_logs)
+// [POST] 極速匯入 API
 app.post('/api/upload', (req, res) => {
   try {
     const { items, isFirstChunk, fileName } = req.body;

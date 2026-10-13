@@ -6,7 +6,7 @@
         <p class="subtitle">庫存儲位管理系統控制台 | 地端高效能資料庫</p>
       </div>
 
-      <!-- 🌟 跑馬燈公告欄 -->
+      <!-- 🌟 跑馬燈公告欄 (連結後端資料庫) -->
       <div class="marquee-wrapper">
         <div class="marquee-badge">📢 系統公告</div>
         <div class="marquee-content-box">
@@ -113,7 +113,7 @@
 
         <div v-if="hasPermission('replenish_fish')" class="action-card" @click="openTab('replenish_fish')">
           <div class="action-icon">🐟</div>
-          <div class="action-title">立即補貨單魚群</div>
+          <div class="action-title">開啟補貨單魚群</div>
           <div class="action-desc">動態儲位補貨水位建議與補貨單產生</div>
         </div>
 
@@ -151,7 +151,7 @@
       </el-form>
       <template #footer>
         <el-button size="small" @click="showAnnounceModal = false">取消</el-button>
-        <el-button type="primary" size="small" @click="saveAnnouncement">儲存公告</el-button>
+        <el-button type="primary" size="small" :loading="savingAnnounce" @click="saveAnnouncement">儲存並同步全體</el-button>
       </template>
     </el-dialog>
   </div>
@@ -178,9 +178,10 @@ export default {
       uptimeTimer: null,
       stats80: { total_rows: 0, file_name: '' },
       stats15: { total_rows: 0, file_name: '' },
-      announcementText: localStorage.getItem('system_announcement') || '🎉 歡迎使用庫存儲位管理系統！請確實核對進貨驗收與新品上架資料。',
+      announcementText: '',
       showAnnounceModal: false,
-      tempAnnouncement: ''
+      tempAnnouncement: '',
+      savingAnnounce: false
     }
   },
   computed: {
@@ -215,13 +216,14 @@ export default {
     this.localUptimeSec = this.dbMetrics.serverUptimeSec || 0;
     this.startUptimeTimer();
     this.fetchStats();
+    this.fetchAnnouncement(); // 🌟 載入時拉取資料庫最新公告
   },
   beforeUnmount() {
     if (this.uptimeTimer) clearInterval(this.uptimeTimer);
   },
   methods: {
     openTab(tabKey) {
-      this.$emit('open-tab', tabKey);
+      this.\$emit('open-tab', tabKey);
     },
     formatNumber(val) {
       if (!val) return '0';
@@ -253,18 +255,41 @@ export default {
         console.error('抓取首頁統計失敗:', e.message);
       }
     },
+    // 🌟 從伺服器拉取最新公告
+    async fetchAnnouncement() {
+      try {
+        const res = await axios.get('/api/announcement');
+        if (res.data?.success) {
+          this.announcementText = res.data.announcement;
+        }
+      } catch (e) {
+        console.error('抓取公告失敗:', e.message);
+      }
+    },
     openAnnounceDialog() {
       this.tempAnnouncement = this.announcementText;
       this.showAnnounceModal = true;
     },
-    saveAnnouncement() {
+    // 🌟 儲存公告至後端資料庫
+    async saveAnnouncement() {
       if (!this.tempAnnouncement.trim()) {
         return ElMessage.warning('公告內容不可為空！');
       }
-      this.announcementText = this.tempAnnouncement.trim();
-      localStorage.setItem('system_announcement', this.announcementText);
-      ElMessage.success('🎉 跑馬燈公告已成功更新！');
-      this.showAnnounceModal = false;
+      this.savingAnnounce = true;
+      try {
+        const res = await axios.post('/api/announcement', {
+          announcement: this.tempAnnouncement.trim()
+        });
+        if (res.data?.success) {
+          this.announcementText = this.tempAnnouncement.trim();
+          ElMessage.success('🎉 跑馬燈公告已成功同步至全體使用者！');
+          this.showAnnounceModal = false;
+        }
+      } catch (e) {
+        ElMessage.error('儲存公告失敗：' + e.message);
+      } finally {
+        this.savingAnnounce = false;
+      }
     }
   }
 }
