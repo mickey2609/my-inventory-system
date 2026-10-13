@@ -9,7 +9,7 @@
       @change="handleCsvFileSelected"
     />
 
-    <!-- 1. 頂部操作與篩選列 -->
+    <!-- 1. 第一排：核心標題、日期選擇器、維度切換與操作按鈕 -->
     <div class="top-bar">
       <div class="title-group">
         <span class="page-title">🐟 倉庫 立即補貨單魚群出沒分析 (80 人工倉)</span>
@@ -22,7 +22,7 @@
           size="small"
           value-format="YYYY-MM-DD"
           placeholder="選擇日期"
-          style="width: 125px;"
+          style="width: 135px;"
           @change="fetchFishData"
         />
 
@@ -34,7 +34,7 @@
           size="small"
           value-format="YYYY-MM"
           placeholder="選擇月份"
-          style="width: 125px;"
+          style="width: 135px;"
           @change="fetchMonthlySummary"
         />
 
@@ -46,11 +46,11 @@
           size="small"
           value-format="YYYY"
           placeholder="選擇年份"
-          style="width: 105px;"
+          style="width: 110px;"
           @change="fetchYearlySummary"
         />
 
-        <!-- 未完成追蹤日期區間選擇器 (微調寬度防止擠壓) -->
+        <!-- 未完成追蹤日期區間選擇器 -->
         <el-date-picker
           v-else-if="analysisMode === 'pending'"
           v-model="pendingDateRange"
@@ -60,7 +60,7 @@
           range-separator="至"
           start-placeholder="開始日期"
           end-placeholder="結束日期"
-          style="width: 200px;"
+          style="width: 230px;"
           @change="fetchPendingDetails"
         />
 
@@ -71,28 +71,6 @@
           <el-radio-button label="yearly">📅 年度每月總表</el-radio-button>
           <el-radio-button label="pending">🚨 補貨未完成追蹤</el-radio-button>
         </el-radio-group>
-
-        <!-- 申請原因類別下拉篩選選單 -->
-        <div class="reason-select-box">
-          <span class="select-label">📋 申請原因類別：</span>
-          <el-select
-            v-model="selectedReasons"
-            multiple
-            collapse-tags
-            size="small"
-            placeholder="請選擇申請原因"
-            style="width: 200px;"
-            @change="handleReasonChange"
-          >
-            <el-option label="🌐 全選 (所有類別)" value="all" />
-            <el-option
-              v-for="item in reasonOptions"
-              :key="item"
-              :label="item"
-              :value="item"
-            />
-          </el-select>
-        </div>
       </div>
 
       <div class="action-group">
@@ -113,7 +91,31 @@
       </div>
     </div>
 
-    <!-- 2.1 單日時段分析表格 -->
+    <!-- 🌟 2. 第二排獨立工具列：申請原因類別篩選選單 (比照進貨獨立第二排) -->
+    <div class="filter-bar">
+      <div class="reason-select-box">
+        <span class="select-label">📋 申請原因類別：</span>
+        <el-select
+          v-model="selectedReasons"
+          multiple
+          collapse-tags
+          size="small"
+          placeholder="請選擇申請原因"
+          style="width: 250px;"
+          @change="handleReasonChange"
+        >
+          <el-option label="🌐 全選 (所有類別)" value="all" />
+          <el-option
+            v-for="item in reasonOptions"
+            :key="item"
+            :label="item"
+            :value="item"
+          />
+        </el-select>
+      </div>
+    </div>
+
+    <!-- 3.1 單日時段分析表格 -->
     <div class="table-container" v-loading="loading" v-if="analysisMode === 'daily'">
       <div class="sheet-title">
         倉庫 魚群出沒時間分析 - {{ formatDateTitle(targetDate) }} (80 人工倉)
@@ -181,7 +183,7 @@
       </div>
     </div>
 
-    <!-- 2.2 每月每日總表區塊 -->
+    <!-- 3.2 每月每日總表區塊 -->
     <div class="table-container" v-loading="loadingMonthly" v-else-if="analysisMode === 'monthly'">
       <div class="sheet-title">
         🗓️ 倉庫 立即補貨單 - {{ targetMonth }} 月份每日總表 (80 人工倉)
@@ -236,7 +238,7 @@
       </div>
     </div>
 
-    <!-- 2.3 年度每月總表區塊 -->
+    <!-- 3.3 年度每月總表區塊 -->
     <div class="table-container" v-loading="loadingYearly" v-else-if="analysisMode === 'yearly'">
       <div class="sheet-title">
         📅 倉庫 立即補貨單 - {{ targetYear }} 年度每月總表 (80 人工倉)
@@ -291,7 +293,7 @@
       </div>
     </div>
 
-    <!-- 2.4 補貨未完成明細追蹤區塊 -->
+    <!-- 3.4 補貨未完成明細追蹤區塊 -->
     <div class="table-container" v-loading="loadingPending" v-else-if="analysisMode === 'pending'">
       <div class="sheet-title alert-sheet-title">
         🚨 倉庫 立即補貨單 - 未完成單據明細追蹤 (共 {{ formatNumber(pendingList.length) }} 筆未完成)
@@ -685,44 +687,45 @@ export default {
   overflow-y: auto;
 }
 
-/* 🌟 核心修正：加入 flex-wrap: nowrap 嚴格禁止換列 */
+/* 1. 第一排頂部區域 */
 .top-bar {
   display: flex;
   justify-content: space-between;
   align-items: center;
   background: #1e293b;
-  padding: 8px 12px;
+  padding: 8px 16px;
   border-radius: 8px;
   border: 1px solid #334155;
-  flex-wrap: nowrap !important;
-  overflow-x: auto;
+}
+
+/* 🌟 2. 第二排獨立工具列：申請原因過濾 Bar */
+.filter-bar {
+  display: flex;
+  align-items: center;
+  background: #1e293b;
+  padding: 6px 16px;
+  border-radius: 8px;
+  border: 1px solid #334155;
 }
 
 .title-group, .action-group, .reason-select-box {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
+  gap: 10px;
 }
 
 .page-title {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: bold;
   color: #38bdf8;
   white-space: nowrap;
 }
 
 .select-label {
-  font-size: 12px;
+  font-size: 13px;
   color: #f8fafc;
   font-weight: bold;
   white-space: nowrap;
-}
-
-/* 🌟 讓單選按鈕文字更加緊湊 */
-:deep(.el-radio-button__inner) {
-  padding: 7px 10px !important;
-  font-size: 12px !important;
 }
 
 .table-container {
