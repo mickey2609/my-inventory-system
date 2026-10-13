@@ -12,7 +12,7 @@
     <!-- 1. 頂部操作與篩選列 -->
     <div class="top-bar">
       <div class="title-group">
-        <span class="page-title">🐟 倉庫 立即補貨單魚群出沒分析</span>
+        <span class="page-title">🐟 倉庫 立即補貨單魚群出沒分析 (80 人工倉)</span>
         
         <!-- 日期選擇器 -->
         <el-date-picker
@@ -43,12 +43,27 @@
           <el-radio-button label="monthly">🗓️ 每月每日總表</el-radio-button>
         </el-radio-group>
 
-        <!-- 庫別選擇 -->
-        <el-radio-group v-model="warehouse" size="small" @change="handleFilterChange">
-          <el-radio-button label="all">🌐 雙庫合計</el-radio-button>
-          <el-radio-button label="80">📦 80 庫 (人工)</el-radio-button>
-          <el-radio-button label="15">🔍 15 庫 (自動)</el-radio-button>
-        </el-radio-group>
+        <!-- 🌟 圖 1 需求：申請原因 / 單據類別下拉篩選選單 (含全選) -->
+        <div class="reason-select-box">
+          <span class="select-label">📋 申請原因類別：</span>
+          <el-select
+            v-model="selectedReasons"
+            multiple
+            collapse-tags
+            size="small"
+            placeholder="請選擇申請原因"
+            style="width: 220px;"
+            @change="handleReasonChange"
+          >
+            <el-option label="🌐 全選 (所有類別)" value="all" />
+            <el-option
+              v-for="item in reasonOptions"
+              :key="item"
+              :label="item"
+              :value="item"
+            />
+          </el-select>
+        </div>
       </div>
 
       <div class="action-group">
@@ -72,7 +87,7 @@
     <!-- 2.1 單日時段分析表格 -->
     <div class="table-container" v-loading="loading" v-if="analysisMode === 'daily'">
       <div class="sheet-title">
-        倉庫 魚群出沒時間分析 - {{ formatDateTitle(targetDate) }} ({{ getWarehouseLabel(warehouse) }})
+        倉庫 魚群出沒時間分析 - {{ formatDateTitle(targetDate) }} (80 人工倉)
       </div>
 
       <div class="table-scroll-wrapper">
@@ -101,19 +116,16 @@
             <tr v-for="(h, idx) in hourlyStats" :key="idx" :class="{ 'row-zebra': idx % 2 === 1 }">
               <td class="col-time font-bold">{{ h.hourStr }}</td>
               
-              <!-- 產生補貨單 -->
               <td class="col-bar-cell"><div class="bar-fill blue-bar" :style="{ width: getBarWidth(h.genPct) }"></div></td>
               <td class="text-right">{{ formatPercent(h.genPct) }}</td>
               <td class="text-right">{{ formatNumber(h.genOrderCount) }}</td>
               <td class="text-right font-bold text-blue">{{ formatNumber(h.genPcs) }}</td>
 
-              <!-- 完成補貨單 -->
               <td class="col-bar-cell"><div class="bar-fill green-bar" :style="{ width: getBarWidth(h.finPct) }"></div></td>
               <td class="text-right">{{ formatPercent(h.finPct) }}</td>
               <td class="text-right">{{ formatNumber(h.finOrderCount) }}</td>
               <td class="text-right font-bold text-green">{{ formatNumber(h.finPcs) }}</td>
 
-              <!-- 異常/已刪單 -->
               <td class="text-right font-bold text-orange">{{ formatNumber(h.delOrderCount) }}</td>
             </tr>
           </tbody>
@@ -139,7 +151,7 @@
     <!-- 2.2 每月每日總表區塊 -->
     <div class="table-container" v-loading="loadingMonthly" v-else>
       <div class="sheet-title">
-        🗓️ 倉庫 立即補貨單 - {{ targetMonth }} 月份每日總表 ({{ getWarehouseLabel(warehouse) }})
+        🗓️ 倉庫 立即補貨單 - {{ targetMonth }} 月份每日總表 (80 人工倉)
       </div>
 
       <div class="table-scroll-wrapper">
@@ -227,7 +239,11 @@ export default {
       loadingMonthly: false,
       targetDate: new Date().toISOString().split('T')[0],
       targetMonth: new Date().toISOString().slice(0, 7),
-      warehouse: 'all',
+      
+      // 圖 1 需求：申請原因選項
+      reasonOptions: ['系統補開', '高棧板商品備貨', '彙整列印新單', '預購回填'],
+      selectedReasons: ['all'],
+
       hourlyStats: [],
       monthlyDailyList: [],
 
@@ -297,19 +313,24 @@ export default {
       const parts = dStr.split('-');
       return parts.length >= 3 ? `${parts[2]}日` : dStr;
     },
-    getWarehouseLabel(wh) {
-      if (wh === '80') return '80 庫';
-      if (wh === '15') return '15 庫';
-      return '雙庫合計';
+
+    handleReasonChange(vals) {
+      if (vals.includes('all') && vals.length > 1) {
+        if (vals[vals.length - 1] === 'all') {
+          this.selectedReasons = ['all'];
+        } else {
+          this.selectedReasons = vals.filter(v => v !== 'all');
+        }
+      } else if (vals.length === 0) {
+        this.selectedReasons = ['all'];
+      }
+
+      if (this.analysisMode === 'daily') this.fetchFishData();
+      else this.fetchMonthlySummary();
     },
 
     handleAnalysisModeChange(mode) {
       if (mode === 'daily') this.fetchFishData();
-      else this.fetchMonthlySummary();
-    },
-
-    handleFilterChange() {
-      if (this.analysisMode === 'daily') this.fetchFishData();
       else this.fetchMonthlySummary();
     },
 
@@ -397,7 +418,10 @@ export default {
       this.loading = true;
       try {
         const res = await axios.get('/api/replenish/fish-analysis', {
-          params: { targetDate: this.targetDate, warehouse: this.warehouse }
+          params: {
+            targetDate: this.targetDate,
+            reasons: this.selectedReasons.join(',')
+          }
         });
         if (res.data?.success) {
           const rawHourly = res.data.hourlyStats || [];
@@ -428,7 +452,10 @@ export default {
       this.loadingMonthly = true;
       try {
         const res = await axios.get('/api/replenish/monthly-summary', {
-          params: { month: this.targetMonth, warehouse: this.warehouse }
+          params: {
+            month: this.targetMonth,
+            reasons: this.selectedReasons.join(',')
+          }
         });
         if (res.data?.success) {
           this.monthlyDailyList = res.data.dailyList || [];
@@ -464,16 +491,22 @@ export default {
   border: 1px solid #334155;
 }
 
-.title-group, .action-group {
+.title-group, .action-group, .reason-select-box {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .page-title {
   font-size: 16px;
   font-weight: bold;
   color: #38bdf8;
+}
+
+.select-label {
+  font-size: 13px;
+  color: #f8fafc;
+  font-weight: bold;
 }
 
 .table-container {

@@ -26,7 +26,6 @@ module.exports = function(db) {
     return str;
   }
 
-  // 初始化立即補貨單資料表
   db.serialize(() => {
     db.run(`
       CREATE TABLE IF NOT EXISTS replenish_details (
@@ -47,11 +46,13 @@ module.exports = function(db) {
         finish_time TEXT,
         finish_user TEXT,
         finish_remark TEXT,
+        apply_reason TEXT,
         actual_pcs REAL,
         imported_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (warehouse, order_no, item_id)
       )
     `);
+    db.run(`ALTER TABLE replenish_details ADD COLUMN apply_reason TEXT`, () => {});
   });
 
   // 1. 匯入 API
@@ -81,8 +82,8 @@ module.exports = function(db) {
           warehouse, order_no, doc_type, dest_warehouse, doc_status,
           item_id, item_name, item_spec, supplier_item_no, suggest_qty,
           gen_date, gen_time, apply_user, finish_date, finish_time,
-          finish_user, finish_remark, actual_pcs
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          finish_user, finish_remark, apply_reason, actual_pcs
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(warehouse, order_no, item_id) DO UPDATE SET
           doc_status = EXCLUDED.doc_status,
           suggest_qty = EXCLUDED.suggest_qty,
@@ -92,6 +93,7 @@ module.exports = function(db) {
           finish_time = EXCLUDED.finish_time,
           finish_user = EXCLUDED.finish_user,
           finish_remark = EXCLUDED.finish_remark,
+          apply_reason = EXCLUDED.apply_reason,
           actual_pcs = EXCLUDED.actual_pcs,
           imported_at = CURRENT_TIMESTAMP
       `);
@@ -130,6 +132,7 @@ module.exports = function(db) {
         const finish_time = standardizeTime(getVal('finish_time', '完成時間'));
         const finish_user = getVal('finish_user', '完成人員');
         const finish_remark = getVal('finish_remark', '完成備註');
+        const apply_reason = getVal('apply_reason', '(預開單) 申請原因', '(預開單)申請原因', '申請原因');
         const actual_pcs = getNum('actual_pcs', '實際上架PCS');
 
         if (order_no || item_id) {
@@ -137,7 +140,7 @@ module.exports = function(db) {
             warehouse, order_no, doc_type, dest_warehouse, doc_status,
             item_id, item_name, item_spec, supplier_item_no, suggest_qty,
             gen_date, gen_time, apply_user, finish_date, finish_time,
-            finish_user, finish_remark, actual_pcs
+            finish_user, finish_remark, apply_reason, actual_pcs
           );
           processedCount++;
         }
@@ -152,9 +155,9 @@ module.exports = function(db) {
     });
   });
 
-  // 2. 🌟 補貨單魚群時段分析 API (精準還原 VBA 的 Set 去重與已刪單判定)
+  // 2. 補貨單魚群時段分析 API (支援申請原因/類別過濾)
   router.get('/fish-analysis', (req, res) => {
-    const { targetDate, warehouse } = req.query;
+    const { targetDate, reasons } = req.query;
 
     let sql = `SELECT * FROM replenish_details WHERE 1=1`;
     const params = [];
@@ -164,31 +167,29 @@ module.exports = function(db) {
       params.push(targetDate, targetDate);
     }
 
-    if (warehouse && warehouse !== 'all') {
-      sql += ` AND warehouse = ?`;
-      params.push(warehouse);
-    }
-
     db.all(sql, params, (err, rows) => {
       if (err) return res.status(500).json({ success: false, message: err.message });
 
       rows = rows || [];
+      const reasonList = Array.isArray(reasons) ? reasons : (reasons || '').split(',').map(s => s.trim()).filter(Boolean);
 
-      // 初始化 24 小時統計容器
+      const filteredRows = rows.filter(r => {
+        if (!reasonList.length || reasonList.includes('all')) return true;
+        const reason = (r.apply_reason || r.doc_type || '').trim();
+        return reasonList.some(opt => reason.includes(opt));
+      });
+
       const hourlyData = Array.from({ length: 24 }, (_, h) => ({
         hourStr: `${String(h).padStart(2, '0')}:00 ~ ${String(h + 1).padStart(2, '0')}:00`,
-        genOrderSet: new Set(),
-        genPcs: 0,
-        finOrderSet: new Set(),
-        finPcs: 0,
+        genOrderSet: new Set(), genPcs: 0,
+        finOrderSet: new Set(), finPcs: 0,
         delOrderSet: new Set()
       }));
 
-      rows.forEach(r => {
+      filteredRows.forEach(r => {
         const orderNo = (r.order_no || '').trim();
         const status = (r.doc_status || '').trim();
 
-        // A. 產生補貨單統計 (按 M 欄產生時間)
         if (r.gen_date === targetDate && r.gen_time) {
           const h = parseInt(r.gen_time.split(':')[0], 10);
           if (!isNaN(h) && h >= 0 && h < 24) {
@@ -197,7 +198,6 @@ module.exports = function(db) {
           }
         }
 
-        // B. 完成補貨單統計 (按 U 欄完成時間)
         if (r.finish_date === targetDate && r.finish_time) {
           const h = parseInt(r.finish_time.split(':')[0], 10);
           if (!isNaN(h) && h >= 0 && h < 24) {
@@ -205,7 +205,6 @@ module.exports = function(db) {
               if (orderNo) hourlyData[h].finOrderSet.add(orderNo);
               hourlyData[h].finPcs += (r.actual_pcs || 0);
             } else {
-              // 統計已刪單筆數
               if (orderNo) hourlyData[h].delOrderSet.add(orderNo);
             }
           }
@@ -214,24 +213,18 @@ module.exports = function(db) {
 
       const hourlyStats = hourlyData.map(d => ({
         hourStr: d.hourStr,
-        genOrderCount: d.genOrderSet.size,
-        genPcs: d.genPcs,
-        finOrderCount: d.finOrderSet.size,
-        finPcs: d.finPcs,
+        genOrderCount: d.genOrderSet.size, genPcs: d.genPcs,
+        finOrderCount: d.finOrderSet.size, finPcs: d.finPcs,
         delOrderCount: d.delOrderSet.size
       }));
 
-      res.json({
-        success: true,
-        totalFiltered: rows.length,
-        hourlyStats
-      });
+      res.json({ success: true, totalFiltered: filteredRows.length, hourlyStats });
     });
   });
 
   // 3. 每月每日總表 API
   router.get('/monthly-summary', (req, res) => {
-    const { month, warehouse } = req.query;
+    const { month, reasons } = req.query;
 
     if (!month) {
       return res.status(400).json({ success: false, message: '請提供查詢月份 (YYYY-MM)' });
@@ -241,22 +234,24 @@ module.exports = function(db) {
     const monthPattern = `${month}%`;
     const params = [monthPattern, monthPattern];
 
-    if (warehouse && warehouse !== 'all') {
-      sql += ` AND warehouse = ?`;
-      params.push(warehouse);
-    }
-
     db.all(sql, params, (err, rows) => {
       if (err) return res.status(500).json({ success: false, message: err.message });
 
       rows = rows || [];
+      const reasonList = Array.isArray(reasons) ? reasons : (reasons || '').split(',').map(s => s.trim()).filter(Boolean);
+
+      const filteredRows = rows.filter(r => {
+        if (!reasonList.length || reasonList.includes('all')) return true;
+        const reason = (r.apply_reason || r.doc_type || '').trim();
+        return reasonList.some(opt => reason.includes(opt));
+      });
+
       const daysMap = {};
 
-      rows.forEach(r => {
+      filteredRows.forEach(r => {
         const orderNo = (r.order_no || '').trim();
         const status = (r.doc_status || '').trim();
 
-        // 產生歸戶
         if (r.gen_date && r.gen_date.startsWith(month)) {
           const d = r.gen_date;
           if (!daysMap[d]) {
@@ -271,7 +266,6 @@ module.exports = function(db) {
           daysMap[d].genPcs += (r.suggest_qty || 0);
         }
 
-        // 完成歸戶
         if (r.finish_date && r.finish_date.startsWith(month)) {
           const d = r.finish_date;
           if (!daysMap[d]) {
@@ -297,10 +291,8 @@ module.exports = function(db) {
 
         return {
           date: item.date,
-          genOrderCount: item.genOrderSet.size,
-          genPcs: item.genPcs,
-          finOrderCount: item.finOrderSet.size,
-          finPcs: item.finPcs,
+          genOrderCount: item.genOrderSet.size, genPcs: item.genPcs,
+          finOrderCount: item.finOrderSet.size, finPcs: item.finPcs,
           delOrderCount: item.delOrderSet.size,
           finishRate: Math.min(100, rateVal).toFixed(2) + '%'
         };
