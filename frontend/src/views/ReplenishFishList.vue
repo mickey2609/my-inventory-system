@@ -64,7 +64,7 @@
           @change="fetchPendingDetails"
         />
 
-        <!-- 🌟 4 維度分析模式切換 (單日 / 每月 / 年度 / 未完成追蹤) -->
+        <!-- 4 維度分析模式切換 -->
         <el-radio-group v-model="analysisMode" size="small" @change="handleAnalysisModeChange">
           <el-radio-button label="daily">📅 單日時段分析</el-radio-button>
           <el-radio-button label="monthly">🗓️ 每月每日總表</el-radio-button>
@@ -291,7 +291,7 @@
       </div>
     </div>
 
-    <!-- 🌟 2.4 全新：補貨未完成明細追蹤區塊 -->
+    <!-- 2.4 補貨未完成明細追蹤區塊 -->
     <div class="table-container" v-loading="loadingPending" v-else-if="analysisMode === 'pending'">
       <div class="sheet-title alert-sheet-title">
         🚨 倉庫 立即補貨單 - 未完成單據明細追蹤 (共 {{ formatNumber(pendingList.length) }} 筆未完成)
@@ -417,27 +417,29 @@ export default {
       return tot;
     },
     monthlySummaryTotal() {
-      const tot = { genOrderCount: 0, genPcs: 0, finOrderCount: 0, finPcs: 0, delOrderCount: 0 };
+      const tot = { genOrderCount: 0, genPcs: 0, cohortFinOrderCount: 0, finOrderCount: 0, finPcs: 0, delOrderCount: 0 };
       this.monthlyDailyList.forEach(d => {
         tot.genOrderCount += d.genOrderCount || 0;
         tot.genPcs += d.genPcs || 0;
+        tot.cohortFinOrderCount += d.cohortFinOrderCount || 0;
         tot.finOrderCount += d.finOrderCount || 0;
         tot.finPcs += d.finPcs || 0;
         tot.delOrderCount += d.delOrderCount || 0;
       });
-      const finishRate = tot.genPcs > 0 ? ((tot.finPcs / tot.genPcs) * 100).toFixed(2) + '%' : '0.00%';
+      const finishRate = tot.genOrderCount > 0 ? ((tot.cohortFinOrderCount / tot.genOrderCount) * 100).toFixed(2) + '%' : '0.00%';
       return { ...tot, finishRate };
     },
     yearlySummaryTotal() {
-      const tot = { genOrderCount: 0, genPcs: 0, finOrderCount: 0, finPcs: 0, delOrderCount: 0 };
+      const tot = { genOrderCount: 0, genPcs: 0, cohortFinOrderCount: 0, finOrderCount: 0, finPcs: 0, delOrderCount: 0 };
       this.yearlyMonthlyList.forEach(m => {
         tot.genOrderCount += m.genOrderCount || 0;
         tot.genPcs += m.genPcs || 0;
+        tot.cohortFinOrderCount += m.cohortFinOrderCount || 0;
         tot.finOrderCount += m.finOrderCount || 0;
         tot.finPcs += m.finPcs || 0;
         tot.delOrderCount += m.delOrderCount || 0;
       });
-      const finishRate = tot.genPcs > 0 ? ((tot.finPcs / tot.genPcs) * 100).toFixed(2) + '%' : '0.00%';
+      const finishRate = tot.genOrderCount > 0 ? ((tot.cohortFinOrderCount / tot.genOrderCount) * 100).toFixed(2) + '%' : '0.00%';
       return { ...tot, finishRate };
     }
   },
@@ -645,7 +647,6 @@ export default {
       }
     },
 
-    // 🌟 全新：載入補貨未完成明細追蹤數據
     async fetchPendingDetails() {
       this.loadingPending = true;
       try {

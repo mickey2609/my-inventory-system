@@ -142,7 +142,7 @@ module.exports = function(db) {
     });
   });
 
-  // 2. 時段魚群分析 API
+  // 2. 單日時段魚群分析 API
   router.get('/fish-analysis', (req, res) => {
     const { targetDate, reasons } = req.query;
 
@@ -223,17 +223,14 @@ module.exports = function(db) {
     });
   });
 
-  // 🌟 3. 每月總表 API (完成率 = 完成筆數 / 產生筆數)
+  // 3. 每月總表 API (Cohort 完成率邏輯)
   router.get('/monthly-summary', (req, res) => {
     const { month, reasons } = req.query;
+    if (!month) return res.status(400).json({ success: false, message: '請提供查詢月份 (YYYY-MM)' });
 
-    if (!month) {
-      return res.status(400).json({ success: false, message: '請提供查詢月份 (YYYY-MM)' });
-    }
-
-    let sql = `SELECT * FROM replenish_details WHERE gen_date LIKE ?`;
+    let sql = `SELECT * FROM replenish_details WHERE (gen_date LIKE ? OR finish_date LIKE ?)`;
     const monthPattern = `${month}%`;
-    const params = [monthPattern];
+    const params = [monthPattern, monthPattern];
 
     let reasonList = [];
     if (Array.isArray(reasons)) {
@@ -257,28 +254,43 @@ module.exports = function(db) {
       rows.forEach(r => {
         const orderNo = (r.order_no || '').trim();
         const status = (r.doc_status || '').trim();
-        const d = r.gen_date;
+        const gDate = r.gen_date;
+        const fDate = r.finish_date;
+        const isFinished = !!(fDate || r.finish_time) && status !== '已刪單';
 
-        if (!d || !d.startsWith(month)) return;
+        if (gDate && gDate.startsWith(month)) {
+          if (!daysMap[gDate]) {
+            daysMap[gDate] = {
+              date: gDate,
+              genOrderSet: new Set(), genPcs: 0,
+              cohortFinOrderSet: new Set(),
+              finOrderSet: new Set(), finPcs: 0,
+              delOrderSet: new Set()
+            };
+          }
+          if (orderNo) daysMap[gDate].genOrderSet.add(orderNo);
+          daysMap[gDate].genPcs += (r.suggest_qty || 0);
 
-        if (!daysMap[d]) {
-          daysMap[d] = {
-            date: d,
-            genOrderSet: new Set(), genPcs: 0,
-            finOrderSet: new Set(), finPcs: 0,
-            delOrderSet: new Set()
-          };
+          if (isFinished && orderNo) {
+            daysMap[gDate].cohortFinOrderSet.add(orderNo);
+          }
         }
 
-        if (orderNo) daysMap[d].genOrderSet.add(orderNo);
-        daysMap[d].genPcs += (r.suggest_qty || 0);
-
-        if (r.finish_date || r.finish_time) {
+        if (fDate && fDate.startsWith(month)) {
+          if (!daysMap[fDate]) {
+            daysMap[fDate] = {
+              date: fDate,
+              genOrderSet: new Set(), genPcs: 0,
+              cohortFinOrderSet: new Set(),
+              finOrderSet: new Set(), finPcs: 0,
+              delOrderSet: new Set()
+            };
+          }
           if (status !== '已刪單') {
-            if (orderNo) daysMap[d].finOrderSet.add(orderNo);
-            daysMap[d].finPcs += (r.actual_pcs || 0);
+            if (orderNo) daysMap[fDate].finOrderSet.add(orderNo);
+            daysMap[fDate].finPcs += (r.actual_pcs || 0);
           } else {
-            if (orderNo) daysMap[d].delOrderSet.add(orderNo);
+            if (orderNo) daysMap[fDate].delOrderSet.add(orderNo);
           }
         }
       });
@@ -286,16 +298,15 @@ module.exports = function(db) {
       const dailyList = Object.keys(daysMap).sort().map(d => {
         const item = daysMap[d];
         const genCount = item.genOrderSet.size;
-        const finCount = item.finOrderSet.size;
-        
-        // 🌟 正確公式：完成筆數 / 產生筆數
-        const rateVal = genCount > 0 ? (finCount / genCount) * 100 : 0;
+        const cohortFinCount = item.cohortFinOrderSet.size;
+        const rateVal = genCount > 0 ? (cohortFinCount / genCount) * 100 : 0;
 
         return {
           date: item.date,
           genOrderCount: genCount, genPcs: item.genPcs,
-          finOrderCount: finCount, finPcs: item.finPcs,
+          finOrderCount: item.finOrderSet.size, finPcs: item.finPcs,
           delOrderCount: item.delOrderSet.size,
+          cohortFinOrderCount: cohortFinCount,
           finishRate: Math.min(100, rateVal).toFixed(2) + '%'
         };
       });
@@ -304,17 +315,14 @@ module.exports = function(db) {
     });
   });
 
-  // 🌟 4. 年度總表 API (完成率 = 完成筆數 / 產生筆數)
+  // 4. 年度總表 API (Cohort 完成率邏輯)
   router.get('/yearly-summary', (req, res) => {
     const { year, reasons } = req.query;
+    if (!year) return res.status(400).json({ success: false, message: '請提供查詢年份 (YYYY)' });
 
-    if (!year) {
-      return res.status(400).json({ success: false, message: '請提供查詢年份 (YYYY)' });
-    }
-
-    let sql = `SELECT * FROM replenish_details WHERE gen_date LIKE ?`;
+    let sql = `SELECT * FROM replenish_details WHERE (gen_date LIKE ? OR finish_date LIKE ?)`;
     const yearPattern = `${year}%`;
-    const params = [yearPattern];
+    const params = [yearPattern, yearPattern];
 
     let reasonList = [];
     if (Array.isArray(reasons)) {
@@ -341,6 +349,7 @@ module.exports = function(db) {
           month: mKey,
           monthLabel: `${String(m).padStart(2, '0')}月`,
           genOrderSet: new Set(), genPcs: 0,
+          cohortFinOrderSet: new Set(),
           finOrderSet: new Set(), finPcs: 0,
           delOrderSet: new Set()
         };
@@ -349,14 +358,25 @@ module.exports = function(db) {
       rows.forEach(r => {
         const orderNo = (r.order_no || '').trim();
         const status = (r.doc_status || '').trim();
-        if (!r.gen_date || !r.gen_date.startsWith(year)) return;
+        const gDate = r.gen_date;
+        const fDate = r.finish_date;
+        const isFinished = !!(fDate || r.finish_time) && status !== '已刪單';
 
-        const mKey = r.gen_date.substring(0, 7);
-        if (monthMap[mKey]) {
-          if (orderNo) monthMap[mKey].genOrderSet.add(orderNo);
-          monthMap[mKey].genPcs += (r.suggest_qty || 0);
+        if (gDate && gDate.startsWith(year)) {
+          const mKey = gDate.substring(0, 7);
+          if (monthMap[mKey]) {
+            if (orderNo) monthMap[mKey].genOrderSet.add(orderNo);
+            monthMap[mKey].genPcs += (r.suggest_qty || 0);
 
-          if (r.finish_date || r.finish_time) {
+            if (isFinished && orderNo) {
+              monthMap[mKey].cohortFinOrderSet.add(orderNo);
+            }
+          }
+        }
+
+        if (fDate && fDate.startsWith(year)) {
+          const mKey = fDate.substring(0, 7);
+          if (monthMap[mKey]) {
             if (status !== '已刪單') {
               if (orderNo) monthMap[mKey].finOrderSet.add(orderNo);
               monthMap[mKey].finPcs += (r.actual_pcs || 0);
@@ -370,17 +390,16 @@ module.exports = function(db) {
       const monthlyList = Object.keys(monthMap).sort().map(m => {
         const item = monthMap[m];
         const genCount = item.genOrderSet.size;
-        const finCount = item.finOrderSet.size;
-
-        // 🌟 正確公式：完成筆數 / 產生筆數
-        const rateVal = genCount > 0 ? (finCount / genCount) * 100 : 0;
+        const cohortFinCount = item.cohortFinOrderSet.size;
+        const rateVal = genCount > 0 ? (cohortFinCount / genCount) * 100 : 0;
 
         return {
           month: item.month,
           monthLabel: item.monthLabel,
           genOrderCount: genCount, genPcs: item.genPcs,
-          finOrderCount: finCount, finPcs: item.finPcs,
+          finOrderCount: item.finOrderSet.size, finPcs: item.finPcs,
           delOrderCount: item.delOrderSet.size,
+          cohortFinOrderCount: cohortFinCount,
           finishRate: Math.min(100, rateVal).toFixed(2) + '%'
         };
       });
@@ -389,7 +408,7 @@ module.exports = function(db) {
     });
   });
 
-  // 5. 補貨未完成明細追蹤 API
+  // 5. 未完成明細 API
   router.get('/pending-details', (req, res) => {
     const { startDate, endDate, reasons } = req.query;
 
