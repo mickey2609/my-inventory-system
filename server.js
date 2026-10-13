@@ -51,11 +51,15 @@ app.use(express.urlencoded({ limit: '100mb', extended: true }));
 const inboundRouter = require('./routes/inbound')(db);
 app.use('/api/inbound', inboundRouter);
 
-// 🌟 2. 立即補貨單魚群分析 API
+// 2. 立即補貨單魚群分析 API
 const replenishRouter = require('./routes/replenish')(db);
 app.use('/api/replenish', replenishRouter);
 
-// 3. 庫存與儲位分析模組 API
+// 🌟 3. 全新掛載：跨庫調撥 (80 ➔ 15) 魚群分析 API
+const transfer8015Router = require('./routes/transfer8015')(db);
+app.use('/api/transfer8015', transfer8015Router);
+
+// 4. 庫存與儲位分析模組 API
 const inventory15Module = require('./routes/inventory15');
 const locationStatsModule = require('./routes/locationStats');
 const turnover15Module = require('./routes/turnover15');
@@ -66,7 +70,7 @@ app.use('/api/location-stats', locationStatsModule(db));
 app.use('/api/turnover15', turnover15Module(db));
 app.use('/api/turnover80', turnover80Module(db));
 
-// 4. 首頁 Dashboard 統計數據 API
+// 5. 首頁 Dashboard 統計數據 API
 app.get('/api/dashboard/stats', (req, res) => {
   const sql80 = `SELECT COUNT(*) as total_rows FROM inventory`;
   const sql15 = `SELECT COUNT(*) as total_rows FROM inventory_15`;
@@ -109,7 +113,7 @@ app.get('/api/dashboard/stats', (req, res) => {
   });
 });
 
-// 🌟 5. 全域跑馬燈公告同步 API (資料庫寫入/讀取)
+// 6. 全域跑馬燈公告同步 API
 app.get('/api/announcement', (req, res) => {
   db.get(`SELECT config_value FROM system_config WHERE config_key = 'announcement'`, [], (err, row) => {
     if (err) return res.status(500).json({ success: false, message: err.message });
@@ -141,7 +145,7 @@ app.get('/api/get-global-config', (req, res) => {
       success: true,
       data: {
         system_name: "庫存儲位管理系統",
-        version: "v2026.10.02-SNAP",
+        version: "v2026.10.13",
         server_uptime_seconds: currentUptimeSec,
         latest_inventory15_filename: fn15
       }
@@ -166,9 +170,7 @@ app.post('/api/system/update-server-code', (req, res) => {
   proxyReq.end();
 });
 
-// -----------------------------------------------------------------------------
 // 初始化資料庫 Schema
-// -----------------------------------------------------------------------------
 db.serialize(() => {
   db.all("PRAGMA table_info(inventory)", [], (err, columns) => {
     const hasLocCode3 = columns && columns.some(c => c.name === 'loc_code_3');
