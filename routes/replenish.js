@@ -53,7 +53,7 @@ module.exports = function(db) {
     `);
   });
 
-  // 1. 匯入 API (清空重建 + 寫入 S 欄備註說明)
+  // 1. 匯入 API
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     const fileName = req.body.fileName || 'latest_replenish.csv';
@@ -68,7 +68,6 @@ module.exports = function(db) {
       db.run('PRAGMA journal_mode = MEMORY');
       db.run('BEGIN TRANSACTION');
 
-      // 🌟 第一區塊上傳時，徹底清空舊資料，確保所有 2.9 萬筆全新對齊 S 欄
       if (isFirstChunk) {
         db.run('DELETE FROM replenish_details');
         db.run(
@@ -120,8 +119,6 @@ module.exports = function(db) {
         const finish_time = standardizeTime(getVal('完成時間', 'finish_time'));
         const finish_user = getVal('完成人員', 'finish_user');
         const finish_remark = getVal('完成備註', 'finish_remark');
-        
-        // 🌟 專屬對齊 CSV 的「備註說明」標頭 (S 欄)
         const remark = getVal('備註說明', 'remark', '備註');
         const actual_pcs = getNum('實際上架PCS', 'actual_pcs');
 
@@ -145,7 +142,7 @@ module.exports = function(db) {
     });
   });
 
-  // 2. 魚群分析 API
+  // 2. 單日時段魚群分析 API
   router.get('/fish-analysis', (req, res) => {
     const { targetDate, reasons } = req.query;
 
@@ -218,7 +215,7 @@ module.exports = function(db) {
     });
   });
 
-  // 3. 每月總表 API
+  // 3. 每月每日總表 API
   router.get('/monthly-summary', (req, res) => {
     const { month, reasons } = req.query;
 
@@ -300,6 +297,91 @@ module.exports = function(db) {
       });
 
       res.json({ success: true, month, dailyList });
+    });
+  });
+
+  // 🌟 4. 全新：年度每月總表 API
+  router.get('/yearly-summary', (req, res) => {
+    const { year, reasons } = req.query;
+
+    if (!year) {
+      return res.status(400).json({ success: false, message: '請提供查詢年份 (YYYY)' });
+    }
+
+    let sql = `SELECT * FROM replenish_details WHERE (gen_date LIKE ? OR finish_date LIKE ?)`;
+    const yearPattern = `${year}%`;
+    const params = [yearPattern, yearPattern];
+
+    let reasonList = [];
+    if (Array.isArray(reasons)) {
+      reasonList = reasons;
+    } else if (typeof reasons === 'string' && reasons.trim() !== '') {
+      reasonList = reasons.split(',').map(s => s.trim()).filter(Boolean);
+    }
+
+    if (reasonList.length > 0 && !reasonList.includes('all')) {
+      const subConds = reasonList.map(() => `remark LIKE ?`);
+      sql += ` AND (${subConds.join(' OR ')})`;
+      reasonList.forEach(r => params.push(`%${r}%`));
+    }
+
+    db.all(sql, params, (err, rows) => {
+      if (err) return res.status(500).json({ success: false, message: err.message });
+
+      rows = rows || [];
+      const monthMap = {};
+
+      for (let m = 1; m <= 12; m++) {
+        const mKey = `${year}-${String(m).padStart(2, '0')}`;
+        monthMap[mKey] = {
+          month: mKey,
+          monthLabel: `${String(m).padStart(2, '0')}月`,
+          genOrderSet: new Set(), genPcs: 0,
+          finOrderSet: new Set(), finPcs: 0,
+          delOrderSet: new Set()
+        };
+      }
+
+      rows.forEach(r => {
+        const orderNo = (r.order_no || '').trim();
+        const status = (r.doc_status || '').trim();
+
+        if (r.gen_date && r.gen_date.startsWith(year)) {
+          const mKey = r.gen_date.substring(0, 7);
+          if (monthMap[mKey]) {
+            if (orderNo) monthMap[mKey].genOrderSet.add(orderNo);
+            monthMap[mKey].genPcs += (r.suggest_qty || 0);
+          }
+        }
+
+        if (r.finish_date && r.finish_date.startsWith(year)) {
+          const mKey = r.finish_date.substring(0, 7);
+          if (monthMap[mKey]) {
+            if (status !== '已刪單') {
+              if (orderNo) monthMap[mKey].finOrderSet.add(orderNo);
+              monthMap[mKey].finPcs += (r.actual_pcs || 0);
+            } else {
+              if (orderNo) monthMap[mKey].delOrderSet.add(orderNo);
+            }
+          }
+        }
+      });
+
+      const monthlyList = Object.keys(monthMap).sort().map(m => {
+        const item = monthMap[m];
+        const rateVal = item.genPcs > 0 ? (item.finPcs / item.genPcs) * 100 : 0;
+
+        return {
+          month: item.month,
+          monthLabel: item.monthLabel,
+          genOrderCount: item.genOrderSet.size, genPcs: item.genPcs,
+          finOrderCount: item.finOrderSet.size, finPcs: item.finPcs,
+          delOrderCount: item.delOrderSet.size,
+          finishRate: Math.min(100, rateVal).toFixed(2) + '%'
+        };
+      });
+
+      res.json({ success: true, year, monthlyList });
     });
   });
 

@@ -14,7 +14,7 @@
       <div class="title-group">
         <span class="page-title">🐟 倉庫 立即補貨單魚群出沒分析 (80 人工倉)</span>
         
-        <!-- 日期選擇器 -->
+        <!-- 單日時段選擇器 -->
         <el-date-picker
           v-if="analysisMode === 'daily'"
           v-model="targetDate"
@@ -26,8 +26,9 @@
           @change="fetchFishData"
         />
 
+        <!-- 每月總表選擇器 -->
         <el-date-picker
-          v-else
+          v-else-if="analysisMode === 'monthly'"
           v-model="targetMonth"
           type="month"
           size="small"
@@ -37,13 +38,26 @@
           @change="fetchMonthlySummary"
         />
 
-        <!-- 分析模式切換（單日 vs 每月） -->
+        <!-- 🌟 全新：年度總表選擇器 -->
+        <el-date-picker
+          v-else-if="analysisMode === 'yearly'"
+          v-model="targetYear"
+          type="year"
+          size="small"
+          value-format="YYYY"
+          placeholder="選擇年份"
+          style="width: 110px;"
+          @change="fetchYearlySummary"
+        />
+
+        <!-- 🌟 3 維度分析模式切換 (單日 / 每月 / 年度) -->
         <el-radio-group v-model="analysisMode" size="small" @change="handleAnalysisModeChange">
           <el-radio-button label="daily">📅 單日時段分析</el-radio-button>
           <el-radio-button label="monthly">🗓️ 每月每日總表</el-radio-button>
+          <el-radio-button label="yearly">📅 年度每月總表</el-radio-button>
         </el-radio-group>
 
-        <!-- 🌟 下拉篩選選單 (系統補開、高棧板商品備貨、彙整列印新單、預購回填) -->
+        <!-- 申請原因類別下拉篩選選單 -->
         <div class="reason-select-box">
           <span class="select-label">📋 申請原因類別：</span>
           <el-select
@@ -149,7 +163,7 @@
     </div>
 
     <!-- 2.2 每月每日總表區塊 -->
-    <div class="table-container" v-loading="loadingMonthly" v-else>
+    <div class="table-container" v-loading="loadingMonthly" v-else-if="analysisMode === 'monthly'">
       <div class="sheet-title">
         🗓️ 倉庫 立即補貨單 - {{ targetMonth }} 月份每日總表 (80 人工倉)
       </div>
@@ -203,6 +217,61 @@
       </div>
     </div>
 
+    <!-- 🌟 2.3 全新：年度每月總表區塊 -->
+    <div class="table-container" v-loading="loadingYearly" v-else-if="analysisMode === 'yearly'">
+      <div class="sheet-title">
+        📅 倉庫 立即補貨單 - {{ targetYear }} 年度每月總表 (80 人工倉)
+      </div>
+
+      <div class="table-scroll-wrapper">
+        <table class="vba-style-table">
+          <thead>
+            <tr class="header-main">
+              <th style="width: 110px;" rowspan="2">月份</th>
+              <th colspan="2" class="group-blue-header">產生補貨單匯總</th>
+              <th colspan="2" class="group-green-header">完成補貨單匯總</th>
+              <th class="col-ratio-header" rowspan="2" style="width: 100px;">已刪單筆數</th>
+              <th class="col-ratio-header" rowspan="2" style="width: 110px;">完成率 (%)</th>
+            </tr>
+            <tr class="header-sub">
+              <th style="width: 120px;">產生單數</th>
+              <th style="width: 130px;">產生 PCS</th>
+              <th style="width: 120px;">完成單數</th>
+              <th style="width: 130px;">完成 PCS</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            <tr v-for="(m, idx) in yearlyMonthlyList" :key="idx" :class="{ 'row-zebra': idx % 2 === 1 }">
+              <td class="text-center font-bold">{{ m.monthLabel }} ({{ m.month }})</td>
+              <td class="text-right">{{ formatNumber(m.genOrderCount) }}</td>
+              <td class="text-right font-bold text-blue">{{ formatNumber(m.genPcs) }}</td>
+              
+              <td class="text-right">{{ formatNumber(m.finOrderCount) }}</td>
+              <td class="text-right font-bold text-green">{{ formatNumber(m.finPcs) }}</td>
+              
+              <td class="text-right font-bold text-orange">{{ formatNumber(m.delOrderCount) }}</td>
+              <td class="text-right font-bold text-orange">{{ m.finishRate }}</td>
+            </tr>
+          </tbody>
+
+          <tfoot>
+            <tr class="row-summary">
+              <td class="text-center font-bold">全年總計</td>
+              <td class="text-right font-bold">{{ formatNumber(yearlySummaryTotal.genOrderCount) }}</td>
+              <td class="text-right font-bold text-blue">{{ formatNumber(yearlySummaryTotal.genPcs) }}</td>
+              
+              <td class="text-right font-bold">{{ formatNumber(yearlySummaryTotal.finOrderCount) }}</td>
+              <td class="text-right font-bold text-green">{{ formatNumber(yearlySummaryTotal.finPcs) }}</td>
+              
+              <td class="text-right font-bold text-orange">{{ formatNumber(yearlySummaryTotal.delOrderCount) }}</td>
+              <td class="text-right font-bold text-orange">{{ yearlySummaryTotal.finishRate }}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+
     <!-- CSV 上傳進度 Modal -->
     <el-dialog
       v-model="showUploadProgressModal"
@@ -237,14 +306,17 @@ export default {
       analysisMode: 'daily',
       loading: false,
       loadingMonthly: false,
+      loadingYearly: false,
       targetDate: new Date().toISOString().split('T')[0],
       targetMonth: new Date().toISOString().slice(0, 7),
+      targetYear: new Date().getFullYear().toString(),
       
       reasonOptions: ['系統補開', '高棧板商品備貨', '彙整列印新單', '預購回填'],
       selectedReasons: ['all'],
 
       hourlyStats: [],
       monthlyDailyList: [],
+      yearlyMonthlyList: [],
 
       isUploading: false,
       showUploadProgressModal: false,
@@ -289,6 +361,18 @@ export default {
       });
       const finishRate = tot.genPcs > 0 ? ((tot.finPcs / tot.genPcs) * 100).toFixed(2) + '%' : '0.00%';
       return { ...tot, finishRate };
+    },
+    yearlySummaryTotal() {
+      const tot = { genOrderCount: 0, genPcs: 0, finOrderCount: 0, finPcs: 0, delOrderCount: 0 };
+      this.yearlyMonthlyList.forEach(m => {
+        tot.genOrderCount += m.genOrderCount || 0;
+        tot.genPcs += m.genPcs || 0;
+        tot.finOrderCount += m.finOrderCount || 0;
+        tot.finPcs += m.finPcs || 0;
+        tot.delOrderCount += m.delOrderCount || 0;
+      });
+      const finishRate = tot.genPcs > 0 ? ((tot.finPcs / tot.genPcs) * 100).toFixed(2) + '%' : '0.00%';
+      return { ...tot, finishRate };
     }
   },
   mounted() {
@@ -313,7 +397,6 @@ export default {
       return parts.length >= 3 ? `${parts[2]}日` : dStr;
     },
 
-    // 🌟 全選與單選相容控制
     handleReasonChange(vals) {
       if (vals.includes('all')) {
         if (vals[vals.length - 1] === 'all') {
@@ -325,18 +408,21 @@ export default {
         this.selectedReasons = ['all'];
       }
 
-      if (this.analysisMode === 'daily') this.fetchFishData();
-      else this.fetchMonthlySummary();
+      this.refreshCurrentMode();
     },
 
     handleAnalysisModeChange(mode) {
-      if (mode === 'daily') this.fetchFishData();
-      else this.fetchMonthlySummary();
+      this.refreshCurrentMode();
+    },
+
+    async refreshCurrentMode() {
+      if (this.analysisMode === 'daily') await this.fetchFishData();
+      else if (this.analysisMode === 'monthly') await this.fetchMonthlySummary();
+      else if (this.analysisMode === 'yearly') await this.fetchYearlySummary();
     },
 
     async refreshAllData() {
-      if (this.analysisMode === 'daily') await this.fetchFishData();
-      else await this.fetchMonthlySummary();
+      await this.refreshCurrentMode();
       ElMessage.success('🎉 資料已成功重新整理！');
     },
 
@@ -393,7 +479,7 @@ export default {
               this.uploadPercent = Math.min(100, Math.round((processed / this.totalRowsToUpload) * 100));
             }
 
-            ElMessage.success(`🎉 成功寫入並更新 ${this.totalRowsToUpload.toLocaleString()} 筆立即補貨單資料！`);
+            ElMessage.success(`🎉 成功寫入並更新 ${this.totalRowsToUpload.toLocaleString()} 筆點即補貨單資料！`);
             this.refreshAllData();
             this.resetUploadState(event);
           },
@@ -417,7 +503,6 @@ export default {
     async fetchFishData() {
       this.loading = true;
       try {
-        // 🌟 清理 reasons 參數，只傳有效的關鍵字
         const activeReasons = this.selectedReasons.includes('all') ? 'all' : this.selectedReasons.join(',');
 
         const res = await axios.get('/api/replenish/fish-analysis', {
@@ -469,6 +554,28 @@ export default {
         ElMessage.error('載入每月總表失敗：' + e.message);
       } finally {
         this.loadingMonthly = false;
+      }
+    },
+
+    // 🌟 全新：載入年度每月總表
+    async fetchYearlySummary() {
+      this.loadingYearly = true;
+      try {
+        const activeReasons = this.selectedReasons.includes('all') ? 'all' : this.selectedReasons.join(',');
+
+        const res = await axios.get('/api/replenish/yearly-summary', {
+          params: {
+            year: this.targetYear,
+            reasons: activeReasons
+          }
+        });
+        if (res.data?.success) {
+          this.yearlyMonthlyList = res.data.monthlyList || [];
+        }
+      } catch (e) {
+        ElMessage.error('載入年度總表失敗：' + e.message);
+      } finally {
+        this.loadingYearly = false;
       }
     }
   }
