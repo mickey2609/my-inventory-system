@@ -81,9 +81,15 @@
             :is-sys-admin="isSysAdmin"
           />
 
-          <!-- 🌟 4 個全新魚群與調撥模組頁面 🌟 -->
+          <!-- 🌟 魚群模組 🌟 -->
           <InboundFishList 
             v-else-if="currentTab === 'inbound_fish'" key="inbound_fish"
+          />
+
+          <!-- 🌟 全新：立即補貨單魚群模組 🌟 -->
+          <ReplenishFishList 
+            v-else-if="currentTab === 'replenish_fish'" key="replenish_fish"
+            :is-sys-admin="isSysAdmin"
           />
 
           <SettingsLog 
@@ -198,6 +204,7 @@ import InvSearch15 from './views/InvSearch15.vue'
 import LocSummary from './views/LocSummary.vue'
 import TurnoverList from './views/TurnoverList.vue'
 import InboundFishList from './views/InboundFishList.vue'
+import ReplenishFishList from './views/ReplenishFishList.vue'
 import SettingsPerm from './views/SettingsPerm.vue'
 import SettingsLog from './views/SettingsLog.vue'
 
@@ -212,7 +219,8 @@ export default {
   components: {
     TopNavbar, SystemDrawer, ColConfigModal, ParamMenuModal, WidthConfigModal,
     ImportTipModal, UserManagementModals, InventorySearchModal, HomeDashboard,
-    LoginOverlay, InvQuery80, InvSearch15, LocSummary, TurnoverList, InboundFishList, SettingsPerm, SettingsLog
+    LoginOverlay, InvQuery80, InvSearch15, LocSummary, TurnoverList, InboundFishList,
+    ReplenishFishList, SettingsPerm, SettingsLog
   },
   setup() {
     const { sendLog, getDeviceType, setupAxiosInterceptor } = useSystemLogs();
@@ -283,7 +291,7 @@ export default {
         txt_monthly_sales: '', selected_columns: [...full48Cols], chk_show_loc: true, chk_show_dim: true, cbo_sort: '商品ID', sort_order: 'desc'
       },
 
-      // 🌟 可供授權勾選的全量模組清單 (含 4 個全新魚群與調撥模組)
+      // 🌟 授權模組清單
       availableModules: [
         { key: 'loc_summary', name: '📊 儲位數才數統整' },
         { key: 'inv80', name: '🔍 庫存查詢80' },
@@ -766,7 +774,7 @@ export default {
         }
       } catch (e) {
         this.isLoggedIn = false;
-        ElMessage.error('⚠ 伺服器未連線，請確認地端桌機 start_tunnel.bat 是否已啟動！');
+        ElMessage.error('⚠️ 伺服器未連線，請確認地端桌機 start_tunnel.bat 是否已啟動！');
       } finally { 
         this.loginLoading = false; 
       }
