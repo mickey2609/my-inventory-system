@@ -51,7 +51,11 @@ app.use(express.urlencoded({ limit: '100mb', extended: true }));
 const inboundRouter = require('./routes/inbound')(db);
 app.use('/api/inbound', inboundRouter);
 
-// 2. 庫存與儲位分析模組 API
+// 🌟 2. 立即補貨單魚群分析 API
+const replenishRouter = require('./routes/replenish')(db);
+app.use('/api/replenish', replenishRouter);
+
+// 3. 庫存與儲位分析模組 API
 const inventory15Module = require('./routes/inventory15');
 const locationStatsModule = require('./routes/locationStats');
 const turnover15Module = require('./routes/turnover15');
@@ -62,7 +66,7 @@ app.use('/api/location-stats', locationStatsModule(db));
 app.use('/api/turnover15', turnover15Module(db));
 app.use('/api/turnover80', turnover80Module(db));
 
-// 3. 首頁 Dashboard 統計數據 API
+// 4. 首頁 Dashboard 統計數據 API
 app.get('/api/dashboard/stats', (req, res) => {
   const sql80 = `SELECT COUNT(*) as total_rows FROM inventory`;
   const sql15 = `SELECT COUNT(*) as total_rows FROM inventory_15`;
@@ -105,7 +109,7 @@ app.get('/api/dashboard/stats', (req, res) => {
   });
 });
 
-// 🌟 4. 全域跑馬燈公告同步 API (資料庫寫入/讀取)
+// 🌟 5. 全域跑馬燈公告同步 API (資料庫寫入/讀取)
 app.get('/api/announcement', (req, res) => {
   db.get(`SELECT config_value FROM system_config WHERE config_key = 'announcement'`, [], (err, row) => {
     if (err) return res.status(500).json({ success: false, message: err.message });
