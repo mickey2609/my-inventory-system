@@ -38,7 +38,7 @@
           @change="fetchMonthlySummary"
         />
 
-        <!-- 🌟 全新：年度總表選擇器 -->
+        <!-- 年度總表選擇器 -->
         <el-date-picker
           v-else-if="analysisMode === 'yearly'"
           v-model="targetYear"
@@ -50,7 +50,7 @@
           @change="fetchYearlySummary"
         />
 
-        <!-- 🌟 3 維度分析模式切換 (單日 / 每月 / 年度) -->
+        <!-- 3 維度分析模式切換 -->
         <el-radio-group v-model="analysisMode" size="small" @change="handleAnalysisModeChange">
           <el-radio-button label="daily">📅 單日時段分析</el-radio-button>
           <el-radio-button label="monthly">🗓️ 每月每日總表</el-radio-button>
@@ -109,7 +109,7 @@
           <thead>
             <tr class="header-main">
               <th class="col-time" rowspan="2">時間<br>時段</th>
-              <th colspan="4" class="group-blue-header">產生補貨單統計 (M欄/K欄)</th>
+              <th colspan="5" class="group-blue-header">產生補貨單統計 (M欄/K欄)</th>
               <th colspan="4" class="group-green-header">完成補貨單統計 (U欄/AK欄)</th>
               <th class="col-ratio-header" rowspan="2" style="width: 90px;">已刪單筆數</th>
             </tr>
@@ -119,6 +119,7 @@
               <th style="width: 80px;">產生占比</th>
               <th style="width: 80px;">產生筆數</th>
               <th style="width: 90px;">產生PCS</th>
+              <th class="col-pending-header" style="width: 90px;">未完成筆數</th>
               <th class="col-bar-title">完成圖形</th>
               <th style="width: 80px;">完成占比</th>
               <th style="width: 80px;">完成筆數</th>
@@ -134,6 +135,9 @@
               <td class="text-right">{{ formatPercent(h.genPct) }}</td>
               <td class="text-right">{{ formatNumber(h.genOrderCount) }}</td>
               <td class="text-right font-bold text-blue">{{ formatNumber(h.genPcs) }}</td>
+
+              <!-- 🌟 額外新增：未完成筆數 -->
+              <td class="text-right font-bold text-red">{{ formatNumber(h.pendingOrderCount) }}</td>
 
               <td class="col-bar-cell"><div class="bar-fill green-bar" :style="{ width: getBarWidth(h.finPct) }"></div></td>
               <td class="text-right">{{ formatPercent(h.finPct) }}</td>
@@ -151,6 +155,7 @@
               <td class="text-right font-bold">100.00%</td>
               <td class="text-right font-bold">{{ formatNumber(summaryTotal.genOrderCount) }}</td>
               <td class="text-right font-bold text-blue">{{ formatNumber(summaryTotal.genPcs) }}</td>
+              <td class="text-right font-bold text-red">{{ formatNumber(summaryTotal.pendingOrderCount) }}</td>
               <td></td>
               <td class="text-right font-bold">100.00%</td>
               <td class="text-right font-bold">{{ formatNumber(summaryTotal.finOrderCount) }}</td>
@@ -217,7 +222,7 @@
       </div>
     </div>
 
-    <!-- 🌟 2.3 全新：年度每月總表區塊 -->
+    <!-- 2.3 年度每月總表區塊 -->
     <div class="table-container" v-loading="loadingYearly" v-else-if="analysisMode === 'yearly'">
       <div class="sheet-title">
         📅 倉庫 立即補貨單 - {{ targetYear }} 年度每月總表 (80 人工倉)
@@ -340,10 +345,11 @@ export default {
       return username === 'admin' || username === '系統管理員';
     },
     summaryTotal() {
-      const tot = { genOrderCount: 0, genPcs: 0, finOrderCount: 0, finPcs: 0, delOrderCount: 0 };
+      const tot = { genOrderCount: 0, genPcs: 0, pendingOrderCount: 0, finOrderCount: 0, finPcs: 0, delOrderCount: 0 };
       this.hourlyStats.forEach(h => {
         tot.genOrderCount += h.genOrderCount || 0;
         tot.genPcs += h.genPcs || 0;
+        tot.pendingOrderCount += h.pendingOrderCount || 0;
         tot.finOrderCount += h.finOrderCount || 0;
         tot.finPcs += h.finPcs || 0;
         tot.delOrderCount += h.delOrderCount || 0;
@@ -479,7 +485,7 @@ export default {
               this.uploadPercent = Math.min(100, Math.round((processed / this.totalRowsToUpload) * 100));
             }
 
-            ElMessage.success(`🎉 成功寫入並更新 ${this.totalRowsToUpload.toLocaleString()} 筆點即補貨單資料！`);
+            ElMessage.success(`🎉 成功寫入並更新 ${this.totalRowsToUpload.toLocaleString()} 筆立即補貨單資料！`);
             this.refreshAllData();
             this.resetUploadState(event);
           },
@@ -531,7 +537,7 @@ export default {
         }
       } catch (e) {
         ElMessage.error('載入補貨魚群失敗：' + e.message);
-      } finally {
+      } final {
         this.loading = false;
       }
     },
@@ -557,7 +563,6 @@ export default {
       }
     },
 
-    // 🌟 全新：載入年度每月總表
     async fetchYearlySummary() {
       this.loadingYearly = true;
       try {
@@ -683,6 +688,7 @@ export default {
 .group-blue-header { background: #1e3a8a; color: #bfdbfe; }
 .group-green-header { background: #14532d; color: #bbf7d0; }
 .col-ratio-header { background: #854d0e; color: #fef08a; }
+.col-pending-header { background: #991b1b; color: #fecaca; }
 
 .header-sub th {
   background: #334155;
@@ -707,5 +713,6 @@ export default {
 .text-blue { color: #38bdf8; }
 .text-green { color: #4ade80; }
 .text-orange { color: #fbbf24; }
+.text-red { color: #f87171; }
 .font-bold { font-weight: bold; }
 </style>

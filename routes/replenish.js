@@ -142,7 +142,7 @@ module.exports = function(db) {
     });
   });
 
-  // 2. 單日時段魚群分析 API (保持絕對時段分析)
+  // 2. 單日時段魚群分析 API (新增「當下產生但無完成日期」未完成筆數統計)
   router.get('/fish-analysis', (req, res) => {
     const { targetDate, reasons } = req.query;
 
@@ -175,6 +175,7 @@ module.exports = function(db) {
       const hourlyData = Array.from({ length: 24 }, (_, h) => ({
         hourStr: `${String(h).padStart(2, '0')}:00 ~ ${String(h + 1).padStart(2, '0')}:00`,
         genOrderSet: new Set(), genPcs: 0,
+        pendingOrderSet: new Set(), pendingPcs: 0, // 🌟 當下產生但未完成
         finOrderSet: new Set(), finPcs: 0,
         delOrderSet: new Set()
       }));
@@ -182,12 +183,19 @@ module.exports = function(db) {
       rows.forEach(r => {
         const orderNo = (r.order_no || '').trim();
         const status = (r.doc_status || '').trim();
+        const hasFinishDate = !!(r.finish_date && r.finish_date.trim() !== '');
 
         if (r.gen_date === targetDate && r.gen_time) {
           const h = parseInt(r.gen_time.split(':')[0], 10);
           if (!isNaN(h) && h >= 0 && h < 24) {
             if (orderNo) hourlyData[h].genOrderSet.add(orderNo);
             hourlyData[h].genPcs += (r.suggest_qty || 0);
+
+            // 🌟 若沒有完成日期，即代表當下產生但未完成
+            if (!hasFinishDate) {
+              if (orderNo) hourlyData[h].pendingOrderSet.add(orderNo);
+              hourlyData[h].pendingPcs += (r.suggest_qty || 0);
+            }
           }
         }
 
@@ -207,6 +215,7 @@ module.exports = function(db) {
       const hourlyStats = hourlyData.map(d => ({
         hourStr: d.hourStr,
         genOrderCount: d.genOrderSet.size, genPcs: d.genPcs,
+        pendingOrderCount: d.pendingOrderSet.size, pendingPcs: d.pendingPcs, // 🌟 傳回未完成數
         finOrderCount: d.finOrderSet.size, finPcs: d.finPcs,
         delOrderCount: d.delOrderSet.size
       }));
@@ -215,7 +224,7 @@ module.exports = function(db) {
     });
   });
 
-  // 🌟 3. 每月每日總表 API (以「產生日期 gen_date」為唯一 Cohort 追蹤完成率)
+  // 3. 每月總表 API
   router.get('/monthly-summary', (req, res) => {
     const { month, reasons } = req.query;
 
@@ -223,7 +232,6 @@ module.exports = function(db) {
       return res.status(400).json({ success: false, message: '請提供查詢月份 (YYYY-MM)' });
     }
 
-    // 🌟 核心修正：只撈取「產生日期」在該月份的所有單據
     let sql = `SELECT * FROM replenish_details WHERE gen_date LIKE ?`;
     const monthPattern = `${month}%`;
     const params = [monthPattern];
@@ -263,11 +271,9 @@ module.exports = function(db) {
           };
         }
 
-        // 1. 紀錄產生的單數與建議 PCS
         if (orderNo) daysMap[d].genOrderSet.add(orderNo);
         daysMap[d].genPcs += (r.suggest_qty || 0);
 
-        // 2. 比對「這批產生單據」的完成狀況（不論何時完成，只要有完成時間且狀態不為已刪單，即代表該產生單已被完成）
         if (r.finish_date || r.finish_time) {
           if (status !== '已刪單') {
             if (orderNo) daysMap[d].finOrderSet.add(orderNo);
@@ -295,7 +301,7 @@ module.exports = function(db) {
     });
   });
 
-  // 🌟 4. 年度每月總表 API (以「產生日期 gen_date」為唯一 Cohort 追蹤完成率)
+  // 4. 年度總表 API
   router.get('/yearly-summary', (req, res) => {
     const { year, reasons } = req.query;
 
@@ -303,7 +309,6 @@ module.exports = function(db) {
       return res.status(400).json({ success: false, message: '請提供查詢年份 (YYYY)' });
     }
 
-    // 🌟 核心修正：只撈取「產生日期」在該年份的所有單據
     let sql = `SELECT * FROM replenish_details WHERE gen_date LIKE ?`;
     const yearPattern = `${year}%`;
     const params = [yearPattern];
@@ -345,11 +350,9 @@ module.exports = function(db) {
 
         const mKey = r.gen_date.substring(0, 7);
         if (monthMap[mKey]) {
-          // 1. 紀錄產生的單數與建議 PCS
           if (orderNo) monthMap[mKey].genOrderSet.add(orderNo);
           monthMap[mKey].genPcs += (r.suggest_qty || 0);
 
-          // 2. 比對「該月份產生單據」的完成狀況
           if (r.finish_date || r.finish_time) {
             if (status !== '已刪單') {
               if (orderNo) monthMap[mKey].finOrderSet.add(orderNo);
