@@ -50,11 +50,26 @@
           @change="fetchYearlySummary"
         />
 
-        <!-- 3 維度分析模式切換 -->
+        <!-- 未完成追蹤日期區間選擇器 -->
+        <el-date-picker
+          v-else-if="analysisMode === 'pending'"
+          v-model="pendingDateRange"
+          type="daterange"
+          size="small"
+          value-format="YYYY-MM-DD"
+          range-separator="至"
+          start-placeholder="開始日期"
+          end-placeholder="結束日期"
+          style="width: 230px;"
+          @change="fetchPendingDetails"
+        />
+
+        <!-- 🌟 4 維度分析模式切換 (單日 / 每月 / 年度 / 未完成追蹤) -->
         <el-radio-group v-model="analysisMode" size="small" @change="handleAnalysisModeChange">
           <el-radio-button label="daily">📅 單日時段分析</el-radio-button>
           <el-radio-button label="monthly">🗓️ 每月每日總表</el-radio-button>
           <el-radio-button label="yearly">📅 年度每月總表</el-radio-button>
+          <el-radio-button label="pending">🚨 補貨未完成追蹤</el-radio-button>
         </el-radio-group>
 
         <!-- 申請原因類別下拉篩選選單 -->
@@ -66,7 +81,7 @@
             collapse-tags
             size="small"
             placeholder="請選擇申請原因"
-            style="width: 230px;"
+            style="width: 220px;"
             @change="handleReasonChange"
           >
             <el-option label="🌐 全選 (所有類別)" value="all" />
@@ -136,7 +151,6 @@
               <td class="text-right">{{ formatNumber(h.genOrderCount) }}</td>
               <td class="text-right font-bold text-blue">{{ formatNumber(h.genPcs) }}</td>
 
-              <!-- 🌟 額外新增：未完成筆數 -->
               <td class="text-right font-bold text-red">{{ formatNumber(h.pendingOrderCount) }}</td>
 
               <td class="col-bar-cell"><div class="bar-fill green-bar" :style="{ width: getBarWidth(h.finPct) }"></div></td>
@@ -277,6 +291,48 @@
       </div>
     </div>
 
+    <!-- 🌟 2.4 全新：補貨未完成明細追蹤區塊 -->
+    <div class="table-container" v-loading="loadingPending" v-else-if="analysisMode === 'pending'">
+      <div class="sheet-title alert-sheet-title">
+        🚨 倉庫 立即補貨單 - 未完成單據明細追蹤 (共 {{ formatNumber(pendingList.length) }} 筆未完成)
+      </div>
+
+      <div class="table-scroll-wrapper">
+        <table class="vba-style-table">
+          <thead>
+            <tr class="header-main group-red-header">
+              <th style="width: 140px;">補貨/調撥單號</th>
+              <th style="width: 110px;">產生日期</th>
+              <th style="width: 90px;">產生時間</th>
+              <th style="width: 100px;">申請人員</th>
+              <th style="width: 160px;">商品編號</th>
+              <th>商品名稱</th>
+              <th style="width: 100px;">建議數量</th>
+              <th style="width: 140px;">備註說明</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            <tr v-for="(p, idx) in pendingList" :key="idx" :class="{ 'row-zebra': idx % 2 === 1 }">
+              <td class="text-center font-bold text-orange">{{ p.order_no }}</td>
+              <td class="text-center">{{ p.gen_date }}</td>
+              <td class="text-center">{{ p.gen_time }}</td>
+              <td class="text-center">{{ p.apply_user }}</td>
+              <td class="text-center font-bold text-blue">{{ p.item_id }}</td>
+              <td>{{ p.item_name }}</td>
+              <td class="text-right font-bold text-red">{{ formatNumber(p.suggest_qty) }}</td>
+              <td class="text-center">{{ p.remark }}</td>
+            </tr>
+            <tr v-if="pendingList.length === 0">
+              <td colspan="8" class="text-center text-green font-bold" style="padding: 20px;">
+                🎉 太棒了！當前條件下沒有任何滯留未完成的補貨單據！
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- CSV 上傳進度 Modal -->
     <el-dialog
       v-model="showUploadProgressModal"
@@ -312,9 +368,12 @@ export default {
       loading: false,
       loadingMonthly: false,
       loadingYearly: false,
+      loadingPending: false,
+      
       targetDate: new Date().toISOString().split('T')[0],
       targetMonth: new Date().toISOString().slice(0, 7),
       targetYear: new Date().getFullYear().toString(),
+      pendingDateRange: [new Date().toISOString().split('T')[0], new Date().toISOString().split('T')[0]],
       
       reasonOptions: ['系統補開', '高棧板商品備貨', '彙整列印新單', '預購回填'],
       selectedReasons: ['all'],
@@ -322,6 +381,7 @@ export default {
       hourlyStats: [],
       monthlyDailyList: [],
       yearlyMonthlyList: [],
+      pendingList: [],
 
       isUploading: false,
       showUploadProgressModal: false,
@@ -425,6 +485,7 @@ export default {
       if (this.analysisMode === 'daily') await this.fetchFishData();
       else if (this.analysisMode === 'monthly') await this.fetchMonthlySummary();
       else if (this.analysisMode === 'yearly') await this.fetchYearlySummary();
+      else if (this.analysisMode === 'pending') await this.fetchPendingDetails();
     },
 
     async refreshAllData() {
@@ -582,6 +643,31 @@ export default {
       } finally {
         this.loadingYearly = false;
       }
+    },
+
+    // 🌟 全新：載入補貨未完成明細追蹤數據
+    async fetchPendingDetails() {
+      this.loadingPending = true;
+      try {
+        const activeReasons = this.selectedReasons.includes('all') ? 'all' : this.selectedReasons.join(',');
+        const start = this.pendingDateRange ? this.pendingDateRange[0] : '';
+        const end = this.pendingDateRange ? this.pendingDateRange[1] : '';
+
+        const res = await axios.get('/api/replenish/pending-details', {
+          params: {
+            startDate: start,
+            endDate: end,
+            reasons: activeReasons
+          }
+        });
+        if (res.data?.success) {
+          this.pendingList = res.data.pendingList || [];
+        }
+      } catch (e) {
+        ElMessage.error('載入未完成明細失敗：' + e.message);
+      } finally {
+        this.loadingPending = false;
+      }
     }
   }
 }
@@ -648,6 +734,11 @@ export default {
   margin-bottom: 8px;
 }
 
+.alert-sheet-title {
+  background: #f87171 !important;
+  color: #ffffff !important;
+}
+
 .table-scroll-wrapper {
   overflow-x: auto;
 }
@@ -687,6 +778,7 @@ export default {
 
 .group-blue-header { background: #1e3a8a; color: #bfdbfe; }
 .group-green-header { background: #14532d; color: #bbf7d0; }
+.group-red-header th { background: #991b1b; color: #fecaca; }
 .col-ratio-header { background: #854d0e; color: #fef08a; }
 .col-pending-header { background: #991b1b; color: #fecaca; }
 

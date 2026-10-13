@@ -142,7 +142,7 @@ module.exports = function(db) {
     });
   });
 
-  // 2. 單日時段魚群分析 API
+  // 2. 時段魚群分析 API
   router.get('/fish-analysis', (req, res) => {
     const { targetDate, reasons } = req.query;
 
@@ -223,7 +223,7 @@ module.exports = function(db) {
     });
   });
 
-  // 3. 每月總表 API
+  // 🌟 3. 每月總表 API (完成率 = 完成筆數 / 產生筆數)
   router.get('/monthly-summary', (req, res) => {
     const { month, reasons } = req.query;
 
@@ -285,12 +285,16 @@ module.exports = function(db) {
 
       const dailyList = Object.keys(daysMap).sort().map(d => {
         const item = daysMap[d];
-        const rateVal = item.genPcs > 0 ? (item.finPcs / item.genPcs) * 100 : 0;
+        const genCount = item.genOrderSet.size;
+        const finCount = item.finOrderSet.size;
+        
+        // 🌟 正確公式：完成筆數 / 產生筆數
+        const rateVal = genCount > 0 ? (finCount / genCount) * 100 : 0;
 
         return {
           date: item.date,
-          genOrderCount: item.genOrderSet.size, genPcs: item.genPcs,
-          finOrderCount: item.finOrderSet.size, finPcs: item.finPcs,
+          genOrderCount: genCount, genPcs: item.genPcs,
+          finOrderCount: finCount, finPcs: item.finPcs,
           delOrderCount: item.delOrderSet.size,
           finishRate: Math.min(100, rateVal).toFixed(2) + '%'
         };
@@ -300,7 +304,7 @@ module.exports = function(db) {
     });
   });
 
-  // 4. 年度總表 API
+  // 🌟 4. 年度總表 API (完成率 = 完成筆數 / 產生筆數)
   router.get('/yearly-summary', (req, res) => {
     const { year, reasons } = req.query;
 
@@ -365,13 +369,17 @@ module.exports = function(db) {
 
       const monthlyList = Object.keys(monthMap).sort().map(m => {
         const item = monthMap[m];
-        const rateVal = item.genPcs > 0 ? (item.finPcs / item.genPcs) * 100 : 0;
+        const genCount = item.genOrderSet.size;
+        const finCount = item.finOrderSet.size;
+
+        // 🌟 正確公式：完成筆數 / 產生筆數
+        const rateVal = genCount > 0 ? (finCount / genCount) * 100 : 0;
 
         return {
           month: item.month,
           monthLabel: item.monthLabel,
-          genOrderCount: item.genOrderSet.size, genPcs: item.genPcs,
-          finOrderCount: item.finOrderSet.size, finPcs: item.finPcs,
+          genOrderCount: genCount, genPcs: item.genPcs,
+          finOrderCount: finCount, finPcs: item.finPcs,
           delOrderCount: item.delOrderSet.size,
           finishRate: Math.min(100, rateVal).toFixed(2) + '%'
         };
@@ -381,7 +389,7 @@ module.exports = function(db) {
     });
   });
 
-  // 🌟 5. 全新：補貨未完成明細追蹤 API
+  // 5. 補貨未完成明細追蹤 API
   router.get('/pending-details', (req, res) => {
     const { startDate, endDate, reasons } = req.query;
 
