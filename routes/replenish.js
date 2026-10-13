@@ -46,16 +46,16 @@ module.exports = function(db) {
         finish_time TEXT,
         finish_user TEXT,
         finish_remark TEXT,
-        apply_reason TEXT,
+        remark TEXT,
         actual_pcs REAL,
         imported_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (warehouse, order_no, item_id)
       )
     `);
-    db.run(`ALTER TABLE replenish_details ADD COLUMN apply_reason TEXT`, () => {});
+    db.run(`ALTER TABLE replenish_details ADD COLUMN remark TEXT`, () => {});
   });
 
-  // 1. 匯入 API
+  // 1. 匯入 API (專精解析 S 欄：備註說明)
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     const fileName = req.body.fileName || 'latest_replenish.csv';
@@ -82,9 +82,10 @@ module.exports = function(db) {
           warehouse, order_no, doc_type, dest_warehouse, doc_status,
           item_id, item_name, item_spec, supplier_item_no, suggest_qty,
           gen_date, gen_time, apply_user, finish_date, finish_time,
-          finish_user, finish_remark, apply_reason, actual_pcs
+          finish_user, finish_remark, remark, actual_pcs
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(warehouse, order_no, item_id) DO UPDATE SET
+          doc_type = EXCLUDED.doc_type,
           doc_status = EXCLUDED.doc_status,
           suggest_qty = EXCLUDED.suggest_qty,
           gen_date = EXCLUDED.gen_date,
@@ -93,7 +94,7 @@ module.exports = function(db) {
           finish_time = EXCLUDED.finish_time,
           finish_user = EXCLUDED.finish_user,
           finish_remark = EXCLUDED.finish_remark,
-          apply_reason = EXCLUDED.apply_reason,
+          remark = EXCLUDED.remark,
           actual_pcs = EXCLUDED.actual_pcs,
           imported_at = CURRENT_TIMESTAMP
       `);
@@ -133,8 +134,8 @@ module.exports = function(db) {
         const finish_user = getVal('finish_user', '完成人員');
         const finish_remark = getVal('finish_remark', '完成備註');
         
-        // 🌟 關鍵對齊：將 S欄: 備註說明 寫入 apply_reason，相容多種欄位命名
-        const apply_reason = getVal('apply_reason', '備註說明', '備註', '(預開單) 申請原因', '(預開單)申請原因', '申請原因');
+        // 🌟 專用唯一鎖定：S 欄: 備註說明
+        const remark = getVal('remark', '備註說明', '備註');
         const actual_pcs = getNum('actual_pcs', '實際上架PCS');
 
         if (order_no || item_id) {
@@ -142,7 +143,7 @@ module.exports = function(db) {
             warehouse, order_no, doc_type, dest_warehouse, doc_status,
             item_id, item_name, item_spec, supplier_item_no, suggest_qty,
             gen_date, gen_time, apply_user, finish_date, finish_time,
-            finish_user, finish_remark, apply_reason, actual_pcs
+            finish_user, finish_remark, remark, actual_pcs
           );
           processedCount++;
         }
@@ -152,12 +153,12 @@ module.exports = function(db) {
       db.run('COMMIT', (err) => {
         db.run('PRAGMA synchronous = NORMAL');
         if (err) return res.status(500).json({ success: false, message: '補貨單寫入失敗：' + err.message });
-        res.json({ success: true, count: processedCount, message: `成功更新與處理 ${processedCount} 筆立即補貨單資料！` });
+        res.json({ success: true, count: processedCount, message: `成功更新與處理 ${processedCount} 筆補貨單資料！` });
       });
     });
   });
 
-  // 2. 補貨單魚群時段分析 API (對齊 S欄 備註說明)
+  // 2. 補貨單魚群時段分析 API (只比對 S 欄：備註說明)
   router.get('/fish-analysis', (req, res) => {
     const { targetDate, reasons } = req.query;
 
@@ -175,10 +176,10 @@ module.exports = function(db) {
       rows = rows || [];
       const reasonList = Array.isArray(reasons) ? reasons : (reasons || '').split(',').map(s => s.trim()).filter(Boolean);
 
-      // 🌟 精準比對 S欄 備註說明 文字
+      // 🌟 純粹比對 S 欄 (remark)
       const filteredRows = rows.filter(r => {
         if (!reasonList.length || reasonList.includes('all')) return true;
-        const remarkTxt = (r.apply_reason || r.doc_type || '').trim();
+        const remarkTxt = (r.remark || '').trim();
         return reasonList.some(opt => remarkTxt.includes(opt));
       });
 
@@ -225,7 +226,7 @@ module.exports = function(db) {
     });
   });
 
-  // 3. 每月每日總表 API
+  // 3. 每月每日總表 API (只比對 S 欄：備註說明)
   router.get('/monthly-summary', (req, res) => {
     const { month, reasons } = req.query;
 
@@ -245,7 +246,7 @@ module.exports = function(db) {
 
       const filteredRows = rows.filter(r => {
         if (!reasonList.length || reasonList.includes('all')) return true;
-        const remarkTxt = (r.apply_reason || r.doc_type || '').trim();
+        const remarkTxt = (r.remark || '').trim();
         return reasonList.some(opt => remarkTxt.includes(opt));
       });
 
