@@ -93,6 +93,16 @@
 
         <el-button
           v-if="checkSysAdmin"
+          type="warning"
+          size="small"
+          icon="el-icon-delete"
+          @click="cleanInvalidData"
+        >
+          🧹 修正誤匯單據
+        </el-button>
+
+        <el-button
+          v-if="checkSysAdmin"
           type="success"
           size="small"
           icon="el-icon-upload2"
@@ -440,7 +450,7 @@
 
 <script>
 import axios from 'axios'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import * as XLSX from 'xlsx'
 import Papa from 'papaparse'
 
@@ -542,7 +552,6 @@ export default {
   mounted() {
     this.fetchFishData();
 
-    // 🌟 1. 全域攔截：避免拖曳釋放點落在元件之外引發瀏覽器預設開啟/下載行為
     window.addEventListener('dragover', this.preventGlobalDrop);
     window.addEventListener('drop', this.preventGlobalDrop);
   },
@@ -569,7 +578,6 @@ export default {
       return parts.length >= 3 ? `${parts[2]}日` : dStr;
     },
 
-    // 🌟 全域防護方法
     preventGlobalDrop(e) {
       e.preventDefault();
     },
@@ -593,6 +601,22 @@ export default {
       if (files && files.length > 0) {
         this.processImportFile(files[0]);
       }
+    },
+
+    // 🌟 一鍵修正誤匯筆數
+    async cleanInvalidData() {
+      try {
+        await ElMessageBox.confirm('確定要自動掃除清理非 YW 開頭的誤匯單據嗎？正確的 YW 單據不會受到任何影響。', '提示', {
+          confirmButtonText: '確定清理',
+          cancelButtonText: '取消',
+          type: 'warning'
+        });
+        const res = await axios.post('/api/replenish/cleanup-invalid');
+        if (res.data?.success) {
+          ElMessage.success(res.data.message);
+          this.refreshAllData();
+        }
+      } catch (e) {}
     },
 
     handleDocTypeChange(vals) {
@@ -706,7 +730,7 @@ export default {
         this.refreshAllData();
         this.resetUploadState();
       } catch (e) {
-        ElMessage.error('解析或處理失敗：' + e.message);
+        ElMessage.error(e.response?.data?.message || '解析或處理失敗：' + e.message);
         this.resetUploadState();
       }
     },

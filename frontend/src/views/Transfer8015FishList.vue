@@ -93,6 +93,16 @@
 
         <el-button
           v-if="checkSysAdmin"
+          type="warning"
+          size="small"
+          icon="el-icon-delete"
+          @click="cleanInvalidData"
+        >
+          🧹 修正誤匯單據
+        </el-button>
+
+        <el-button
+          v-if="checkSysAdmin"
           type="success"
           size="small"
           icon="el-icon-upload2"
@@ -440,7 +450,7 @@
 
 <script>
 import axios from 'axios'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import * as XLSX from 'xlsx'
 import Papa from 'papaparse'
 
@@ -462,11 +472,9 @@ export default {
       targetYear: new Date().getFullYear().toString(),
       pendingDateRange: [new Date().toISOString().split('T')[0], new Date().toISOString().split('T')[0]],
       
-      // 單據類別 (D欄) 選擇清單與綁定
       docTypeOptions: ['人工倉跨庫調撥單', '緊急調撥單', '自動化倉補貨單'],
       selectedDocTypes: ['all'],
 
-      // 申請原因類別 選擇清單與綁定
       reasonOptions: ['系統補開', '高周轉跨庫調撥', '彙整列印新單', '預購回填'],
       selectedReasons: ['all'],
 
@@ -480,7 +488,6 @@ export default {
       closeRemark: '現場實體已完成搬移銷案',
       isClosing: false,
 
-      // 拖曳與匯入相關變數
       isDraggingOver: false,
       isUploading: false,
       showUploadProgressModal: false,
@@ -545,7 +552,6 @@ export default {
   mounted() {
     this.fetchFishData();
 
-    // 🌟 1. 全域防護：防止拖曳釋放點落在元件外時，觸發瀏覽器預設的「下載/開啟檔案」動作
     window.addEventListener('dragover', this.preventGlobalDrop);
     window.addEventListener('drop', this.preventGlobalDrop);
   },
@@ -572,7 +578,6 @@ export default {
       return parts.length >= 3 ? `${parts[2]}日` : dStr;
     },
 
-    // 🌟 全域防護方法
     preventGlobalDrop(e) {
       e.preventDefault();
     },
@@ -596,6 +601,22 @@ export default {
       if (files && files.length > 0) {
         this.processImportFile(files[0]);
       }
+    },
+
+    // 🌟 一鍵修正誤匯筆數
+    async cleanInvalidData() {
+      try {
+        await ElMessageBox.confirm('確定要自動掃除清理非 TR 開頭或目的庫為 80 的誤匯單據嗎？正確的 TR 單據不會受到任何影響。', '提示', {
+          confirmButtonText: '確定清理',
+          cancelButtonText: '取消',
+          type: 'warning'
+        });
+        const res = await axios.post('/api/transfer8015/cleanup-invalid');
+        if (res.data?.success) {
+          ElMessage.success(res.data.message);
+          this.refreshAllData();
+        }
+      } catch (e) {}
     },
 
     handleDocTypeChange(vals) {
@@ -709,7 +730,7 @@ export default {
         this.refreshAllData();
         this.resetUploadState();
       } catch (e) {
-        ElMessage.error('解析或處理失敗：' + e.message);
+        ElMessage.error(e.response?.data?.message || '解析或處理失敗：' + e.message);
         this.resetUploadState();
       }
     },

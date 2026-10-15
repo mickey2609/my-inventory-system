@@ -82,7 +82,7 @@ module.exports = function(db) {
     return sql;
   }
 
-  // 1. 匯入 API (加入 TR 單號與目的庫不為 80 的防呆檢查)
+  // 1. 匯入 API (防呆：檢查單號 TR 與目的庫 != 80)
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     const fileName = req.body.fileName || 'transfer_8015.csv';
@@ -92,7 +92,6 @@ module.exports = function(db) {
       return res.status(400).json({ success: false, message: '未收到有效的調撥單資料' });
     }
 
-    // 🌟 第一批時進行 TR 單號與目的庫 != 80 的驗證
     if (isFirstChunk) {
       const invalidRow = items.find(item => {
         const orderNo = String(item['補貨/調撥單號'] || item['調撥單號'] || item['order_no'] || '').trim().toUpperCase();
@@ -514,6 +513,19 @@ module.exports = function(db) {
         success: true,
         message: `跨庫調撥單 [${orderNo}] 已成功銷案結案！`,
         changes: this.changes
+      });
+    });
+  });
+
+  // 🌟 7. 一鍵精準清理誤匯的非 TR 或目的庫為 80 的調撥單據
+  router.post('/cleanup-invalid', (req, res) => {
+    const sql = `DELETE FROM transfer_8015_details WHERE (order_no NOT LIKE 'TR%' AND order_no != '') OR dest_warehouse = '80'`;
+    db.run(sql, function(err) {
+      if (err) return res.status(500).json({ success: false, message: '清理失敗：' + err.message });
+      res.json({
+        success: true,
+        message: `🎉 成功清除 ${this.changes} 筆誤匯入的非 80➔15 調撥單據！原正確資料已完整保留。`,
+        deletedCount: this.changes
       });
     });
   });

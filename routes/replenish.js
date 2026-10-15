@@ -82,7 +82,7 @@ module.exports = function(db) {
     return sql;
   }
 
-  // 1. 匯入 API (加入 YW 單號防呆檢查)
+  // 1. 匯入 API (防呆：檢查單號是否為 YW 開頭)
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     const fileName = req.body.fileName || 'latest_replenish.csv';
@@ -92,7 +92,6 @@ module.exports = function(db) {
       return res.status(400).json({ success: false, message: '未收到有效的補貨單資料' });
     }
 
-    // 🌟 第一批時進行檔頭/前幾筆資料的單號防呆驗證
     if (isFirstChunk) {
       const invalidRow = items.find(item => {
         const orderNo = String(item['補貨/調撥單號'] || item['order_no'] || '').trim().toUpperCase();
@@ -508,6 +507,19 @@ module.exports = function(db) {
         success: true,
         message: `補貨單 [${orderNo}] 已成功銷案結案！`,
         changes: this.changes
+      });
+    });
+  });
+
+  // 🌟 7. 一鍵精準清理誤匯的非 YW 補貨單據
+  router.post('/cleanup-invalid', (req, res) => {
+    const sql = `DELETE FROM replenish_details WHERE order_no NOT LIKE 'YW%' AND order_no != ''`;
+    db.run(sql, function(err) {
+      if (err) return res.status(500).json({ success: false, message: '清理失敗：' + err.message });
+      res.json({
+        success: true,
+        message: `🎉 成功清除 ${this.changes} 筆誤匯入的非 YW 補貨單據！原正確資料已完整保留。`,
+        deletedCount: this.changes
       });
     });
   });
