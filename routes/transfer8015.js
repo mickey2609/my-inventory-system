@@ -82,7 +82,7 @@ module.exports = function(db) {
     return sql;
   }
 
-  // 1. 匯入 API (防呆：檢查單號 TR 與目的庫 != 80)
+  // 1. 匯入 API (防呆：檢查單號 TR / GD 與目的庫 != 80)
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     const fileName = req.body.fileName || 'transfer_8015.csv';
@@ -92,15 +92,16 @@ module.exports = function(db) {
       return res.status(400).json({ success: false, message: '未收到有效的調撥單資料' });
     }
 
+    // 🌟 第一批時進行 TR / GD 單號與目的庫 != 80 的驗證
     if (isFirstChunk) {
       const invalidRow = items.find(item => {
         const orderNo = String(item['補貨/調撥單號'] || item['調撥單號'] || item['order_no'] || '').trim().toUpperCase();
         const destWh = String(item['目的庫'] || item['dest_warehouse'] || '').trim();
         
-        const isNotTR = orderNo && !orderNo.startsWith('TR');
+        const isNotTRorGD = orderNo && !orderNo.startsWith('TR') && !orderNo.startsWith('GD');
         const isDest80 = destWh === '80';
 
-        return isNotTR || isDest80;
+        return isNotTRorGD || isDest80;
       });
 
       if (invalidRow) {
@@ -108,7 +109,7 @@ module.exports = function(db) {
         const errDest = String(invalidRow['目的庫'] || invalidRow['dest_warehouse'] || '未指定').trim();
         return res.status(400).json({
           success: false,
-          message: `⚠️ 匯入失敗：偵測到非 80➔15 跨庫調撥單據（單號：${errNo}，目的庫：${errDest}）。跨庫調撥單單號必須為 TR 開頭且目的庫不可為 80！`
+          message: `⚠️ 匯入失敗：偵測到非 80➔15 跨庫調撥單據（單號：${errNo}，目的庫：${errDest}）。跨庫調撥單單號必須為 TR 或 GD 開頭且目的庫不可為 80！`
         });
       }
     }
@@ -517,18 +518,22 @@ module.exports = function(db) {
     });
   });
 
-  // 🌟 7. 取得所有非 TR 開頭或目的庫為 80 的異常單據列表 API
+  // 🌟 7. 取得所有非 TR 及 GD 開頭，或目的庫為 80 的異常單據列表 API
   router.get('/invalid-orders', (req, res) => {
-    const sql = `SELECT * FROM transfer_8015_details WHERE (order_no NOT LIKE 'TR%' AND order_no != '') OR dest_warehouse = '80' ORDER BY gen_date DESC, gen_time DESC`;
+    const sql = `
+      SELECT * FROM transfer_8015_details 
+      WHERE ((order_no NOT LIKE 'TR%' AND order_no NOT LIKE 'GD%' AND order_no != '') OR dest_warehouse = '80')
+      ORDER BY gen_date DESC, gen_time DESC
+    `;
     db.all(sql, [], (err, rows) => {
       if (err) return res.status(500).json({ success: false, message: err.message });
       res.json({ success: true, list: rows || [] });
     });
   });
 
-  // 🌟 8. 批次精準刪除指定的異常單據 API
+  // 8. 批次精準刪除指定的異常單據 API
   router.post('/delete-batch-invalid', (req, res) => {
-    const { keys } = req.body; // Array of { orderNo, itemId }
+    const { keys } = req.body;
     if (!Array.isArray(keys) || keys.length === 0) {
       return res.status(400).json({ success: false, message: '請勾選要刪除的異常單據！' });
     }

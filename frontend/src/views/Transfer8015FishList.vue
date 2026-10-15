@@ -401,7 +401,7 @@
     >
       <div class="invalid-modal-content" v-loading="loadingInvalid">
         <p style="margin-bottom: 12px; font-size: 13px; color: #94a3b8;">
-          以下為非 <strong class="text-orange">TR 開頭</strong> 或 <strong class="text-orange">目的庫為 80</strong> 之誤匯筆數。請勾選欲剔除的資料，未勾選者將完整保留。
+          以下為非 <strong class="text-orange">TR / GD 開頭</strong> 或 <strong class="text-orange">目的庫為 80</strong> 之誤匯筆數。請勾選欲剔除的資料，未勾選者將完整保留。
         </p>
 
         <el-table
@@ -777,7 +777,6 @@ export default {
       }
     },
 
-    // 🌟 關鍵改動：設定 raw: false 讓所有 Excel 欄位（含單號）強制以純文字（字串）讀取，保留開頭英文與補零
     async processImportFile(file) {
       const fileName = file.name.toLowerCase();
       if (!fileName.endsWith('.csv') && !fileName.endsWith('.xls') && !fileName.endsWith('.xlsx')) {
@@ -796,14 +795,12 @@ export default {
 
         if (fileName.endsWith('.xls') || fileName.endsWith('.xlsx')) {
           const arrayBuffer = await file.arrayBuffer();
-          // raw: false 強制取得純文字格式
           const workbook = XLSX.read(arrayBuffer, { type: 'array', raw: false });
           const firstSheetName = workbook.SheetNames[0];
           const worksheet = workbook.Sheets[firstSheetName];
           rawData = XLSX.utils.sheet_to_json(worksheet, { defval: '', raw: false });
         } else {
           const text = await file.text();
-          // dynamicTyping: false 強制當成字串處理
           const results = Papa.parse(text, { header: true, skipEmptyLines: true, dynamicTyping: false });
           rawData = results.data || [];
         }
