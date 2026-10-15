@@ -82,7 +82,7 @@ module.exports = function(db) {
     return sql;
   }
 
-  // 1. 匯入 API (防呆驗證：過濾掉純數字/筆數列)
+  // 1. 匯入 API (精準忽略末列總計/筆數列 1045)
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     const fileName = req.body.fileName || 'latest_replenish.csv';
@@ -92,23 +92,21 @@ module.exports = function(db) {
       return res.status(400).json({ success: false, message: '未收到有效的補貨單資料' });
     }
 
-    // 🌟 第一批驗證：自動忽略空單號、純數字（筆數統計列）、包含「總計/筆數」字樣之資料
+    // 🌟 第一批驗證：自動忽略商品編號為空，或單號為純數字 (如 1045) 的底部總計列
     if (isFirstChunk) {
       const invalidRow = items.find(item => {
         const orderNo = String(item['補貨/調撥單號'] || item['order_no'] || '').trim().toUpperCase();
-        
-        // 1. 空單號跳過
-        if (!orderNo) return false;
+        const itemId = String(item['商品編號'] || item['item_id'] || '').trim();
 
-        // 2. 純數字（系統匯出的末列總筆數，例如 1045）跳過
-        if (/^\d+\$/.test(orderNo)) return false;
+        // 1. 若沒有商品編號、或單號為空，視為末列總計列，直接跳過驗證
+        if (!itemId || !orderNo) return false;
 
-        // 3. 包含統計字詞跳過
-        if (orderNo.includes('筆數') || orderNo.includes('總計') || orderNo.includes('合計') || orderNo.includes('筆') || orderNo.includes('TOTAL')) {
+        // 2. 若單號為純數字（如 1045）或包含統計關鍵字，視為末列總計列，跳過驗證
+        if (/^\d+\$/.test(orderNo) || orderNo.includes('筆數') || orderNo.includes('總計') || orderNo.includes('合計') || orderNo.includes('TOTAL')) {
           return false;
         }
 
-        // 不以 YW 開頭則攔截
+        // 3. 真正的明細資料：必須為 YW 開頭
         return !orderNo.startsWith('YW');
       });
 
@@ -177,8 +175,8 @@ module.exports = function(db) {
         const order_no = getVal('補貨/調撥單號', 'order_no');
         const item_id = getVal('商品編號', 'item_id');
 
-        // 🌟 寫入時跳過純數字筆數列或彙總列
-        if (!order_no || /^\d+\$/.test(order_no) || order_no.includes('筆數') || order_no.includes('總計') || order_no.includes('合計') || order_no.includes('筆') || order_no.includes('TOTAL')) {
+        // 🌟 寫入時跳過無商品編號、純數字筆數列或彙總列
+        if (!item_id || !order_no || /^\d+\$/.test(order_no) || order_no.includes('筆數') || order_no.includes('總計') || order_no.includes('合計') || order_no.includes('TOTAL')) {
           continue;
         }
 
@@ -200,15 +198,13 @@ module.exports = function(db) {
         const remark = getVal('備註說明', 'remark', '備註');
         const actual_pcs = getNum('實際上架PCS', 'actual_pcs');
 
-        if (order_no || item_id) {
-          stmt.run(
-            warehouse, order_no, doc_type, dest_warehouse, doc_status,
-            item_id, item_name, item_spec, supplier_item_no, suggest_qty,
-            gen_date, gen_time, apply_user, finish_date, finish_time,
-            finish_user, finish_remark, remark, actual_pcs
-          );
-          processedCount++;
-        }
+        stmt.run(
+          warehouse, order_no, doc_type, dest_warehouse, doc_status,
+          item_id, item_name, item_spec, supplier_item_no, suggest_qty,
+          gen_date, gen_time, apply_user, finish_date, finish_time,
+          finish_user, finish_remark, remark, actual_pcs
+        );
+        processedCount++;
       }
 
       stmt.finalize();
@@ -531,12 +527,14 @@ module.exports = function(db) {
     });
   });
 
-  // 7. 取得所有非 YW 開頭且非純數字的異常單據列表 API
+  // 7. 取得所有非 YW 開頭且有商品編號的異常單據列表 API
   router.get('/invalid-orders', (req, res) => {
     const sql = `
       SELECT * FROM replenish_details 
       WHERE order_no NOT LIKE 'YW%' 
         AND order_no != '' 
+        AND item_id != '' 
+        AND item_id IS NOT NULL
         AND order_no NOT LIKE '%筆數%' 
         AND order_no NOT LIKE '%總計%' 
         AND order_no NOT LIKE '%合計%'
