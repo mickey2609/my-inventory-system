@@ -25,7 +25,7 @@
     <!-- 1. 第一排：核心標題、日期選擇器、維度切換與操作按鈕 -->
     <div class="top-bar">
       <div class="title-group">
-        <span class="page-title">🐟 倉庫 立即補貨單魚群出沒分析 (80 人工倉)</span>
+        <span class="page-title">🐟 倉庫 實時補貨單魚群出沒分析 (80 人工倉)</span>
         
         <!-- 單日時段選擇器 -->
         <el-date-picker
@@ -104,9 +104,32 @@
       </div>
     </div>
 
-    <!-- 2. 第二排獨立工具列：申請原因類別篩選選單 -->
+    <!-- 🌟 2. 第二排獨立工具列：單據類別 (D欄) + 申請原因類別 雙對應篩選選單 -->
     <div class="filter-bar">
-      <div class="reason-select-box">
+      <!-- 🌟 新增：單據類別 (D欄) 下拉選單 -->
+      <div class="filter-item-box">
+        <span class="select-label">📄 單據類別 (D欄)：</span>
+        <el-select
+          v-model="selectedDocTypes"
+          multiple
+          collapse-tags
+          size="small"
+          placeholder="請選擇單據類別"
+          style="width: 230px;"
+          @change="handleDocTypeChange"
+        >
+          <el-option label="🌐 全選 (所有單據)" value="all" />
+          <el-option
+            v-for="item in docTypeOptions"
+            :key="item"
+            :label="item"
+            :value="item"
+          />
+        </el-select>
+      </div>
+
+      <!-- 申請原因類別 下拉選單 -->
+      <div class="filter-item-box">
         <span class="select-label">📋 申請原因類別：</span>
         <el-select
           v-model="selectedReasons"
@@ -114,10 +137,10 @@
           collapse-tags
           size="small"
           placeholder="請選擇申請原因"
-          style="width: 250px;"
+          style="width: 230px;"
           @change="handleReasonChange"
         >
-          <el-option label="🌐 全選 (所有類別)" value="all" />
+          <el-option label="🌐 全選 (所有原因)" value="all" />
           <el-option
             v-for="item in reasonOptions"
             :key="item"
@@ -398,7 +421,7 @@
     <!-- 檔案上傳進度 Modal -->
     <el-dialog
       v-model="showUploadProgressModal"
-      title="⚡ 正在寫入與覆蓋更新立即補貨單資料..."
+      title="⚡ 正在寫入與覆蓋更新體補貨單資料..."
       width="480px"
       :close-on-click-modal="false"
       :close-on-press-escape="false"
@@ -439,6 +462,11 @@ export default {
       targetYear: new Date().getFullYear().toString(),
       pendingDateRange: [new Date().toISOString().split('T')[0], new Date().toISOString().split('T')[0]],
       
+      // 🌟 單據類別 (D欄) 選擇清單與綁定
+      docTypeOptions: ['已售出立即補貨單', '緊急調撥單', '定期補貨單'],
+      selectedDocTypes: ['all'],
+
+      // 申請原因類別 選擇清單與綁定
       reasonOptions: ['系統補開', '高棧板商品備貨', '彙整列印新單', '預購回填'],
       selectedReasons: ['all'],
 
@@ -452,7 +480,6 @@ export default {
       closeRemark: '現場已手動補完銷案',
       isClosing: false,
 
-      // 🌟 拖曳與匯入相關變數
       isDraggingOver: false,
       isUploading: false,
       showUploadProgressModal: false,
@@ -536,7 +563,6 @@ export default {
       return parts.length >= 3 ? `${parts[2]}日` : dStr;
     },
 
-    // 🌟 拖曳檔案處理
     onDragOver() {
       this.isDraggingOver = true;
     },
@@ -551,6 +577,22 @@ export default {
       }
     },
 
+    // 🌟 處理單據類別 (D欄) 變更
+    handleDocTypeChange(vals) {
+      if (vals.includes('all')) {
+        if (vals[vals.length - 1] === 'all') {
+          this.selectedDocTypes = ['all'];
+        } else {
+          this.selectedDocTypes = vals.filter(v => v !== 'all');
+        }
+      } else if (vals.length === 0) {
+        this.selectedDocTypes = ['all'];
+      }
+
+      this.refreshCurrentMode();
+    },
+
+    // 處理申請原因類別變更
     handleReasonChange(vals) {
       if (vals.includes('all')) {
         if (vals[vals.length - 1] === 'all') {
@@ -592,7 +634,6 @@ export default {
       }
     },
 
-    // 🌟 核心：同時支援 .xls, .xlsx, .csv 的智慧解析處理引擎
     async processImportFile(file) {
       const fileName = file.name.toLowerCase();
       if (!fileName.endsWith('.csv') && !fileName.endsWith('.xls') && !fileName.endsWith('.xlsx')) {
@@ -610,14 +651,12 @@ export default {
         let rawData = [];
 
         if (fileName.endsWith('.xls') || fileName.endsWith('.xlsx')) {
-          // 📄 解析 Excel 格式 (.xls / .xlsx)
           const arrayBuffer = await file.arrayBuffer();
           const workbook = XLSX.read(arrayBuffer, { type: 'array' });
           const firstSheetName = workbook.SheetNames[0];
           const worksheet = workbook.Sheets[firstSheetName];
           rawData = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
         } else {
-          // 📄 解析 CSV 格式
           const text = await file.text();
           const results = Papa.parse(text, { header: true, skipEmptyLines: true });
           rawData = results.data || [];
@@ -699,11 +738,13 @@ export default {
     async fetchFishData() {
       this.loading = true;
       try {
+        const activeDocTypes = this.selectedDocTypes.includes('all') ? 'all' : this.selectedDocTypes.join(',');
         const activeReasons = this.selectedReasons.includes('all') ? 'all' : this.selectedReasons.join(',');
 
         const res = await axios.get('/api/replenish/fish-analysis', {
           params: {
             targetDate: this.targetDate,
+            docTypes: activeDocTypes,
             reasons: activeReasons
           }
         });
@@ -735,11 +776,13 @@ export default {
     async fetchMonthlySummary() {
       this.loadingMonthly = true;
       try {
+        const activeDocTypes = this.selectedDocTypes.includes('all') ? 'all' : this.selectedDocTypes.join(',');
         const activeReasons = this.selectedReasons.includes('all') ? 'all' : this.selectedReasons.join(',');
 
         const res = await axios.get('/api/replenish/monthly-summary', {
           params: {
             month: this.targetMonth,
+            docTypes: activeDocTypes,
             reasons: activeReasons
           }
         });
@@ -756,11 +799,13 @@ export default {
     async fetchYearlySummary() {
       this.loadingYearly = true;
       try {
+        const activeDocTypes = this.selectedDocTypes.includes('all') ? 'all' : this.selectedDocTypes.join(',');
         const activeReasons = this.selectedReasons.includes('all') ? 'all' : this.selectedReasons.join(',');
 
         const res = await axios.get('/api/replenish/yearly-summary', {
           params: {
             year: this.targetYear,
+            docTypes: activeDocTypes,
             reasons: activeReasons
           }
         });
@@ -777,6 +822,7 @@ export default {
     async fetchPendingDetails() {
       this.loadingPending = true;
       try {
+        const activeDocTypes = this.selectedDocTypes.includes('all') ? 'all' : this.selectedDocTypes.join(',');
         const activeReasons = this.selectedReasons.includes('all') ? 'all' : this.selectedReasons.join(',');
         const start = this.pendingDateRange ? this.pendingDateRange[0] : '';
         const end = this.pendingDateRange ? this.pendingDateRange[1] : '';
@@ -785,6 +831,7 @@ export default {
           params: {
             startDate: start,
             endDate: end,
+            docTypes: activeDocTypes,
             reasons: activeReasons
           }
         });
@@ -813,7 +860,6 @@ export default {
   overflow-y: auto;
 }
 
-/* 🌟 拖曳上傳提示遮罩 */
 .drag-overlay {
   position: absolute;
   top: 0; left: 0; right: 0; bottom: 0;
@@ -845,16 +891,24 @@ export default {
   border: 1px solid #334155;
 }
 
+/* 🌟 第二排工具列排版：支援雙下拉選單併排 */
 .filter-bar {
   display: flex;
   align-items: center;
+  gap: 20px;
   background: #1e293b;
   padding: 6px 16px;
   border-radius: 8px;
   border: 1px solid #334155;
 }
 
-.title-group, .action-group, .reason-select-box {
+.filter-item-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.title-group, .action-group {
   display: flex;
   align-items: center;
   gap: 10px;
