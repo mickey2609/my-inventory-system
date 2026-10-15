@@ -54,7 +54,36 @@ module.exports = function(db) {
     `);
   });
 
-  // 1. 匯入 API (完全複製補貨單 logic)
+  // 輔助函式：動態組合 docType 與 reasons 條件
+  function applyFilters(sql, params, docTypes, reasons) {
+    let docList = [];
+    if (Array.isArray(docTypes)) docList = docTypes;
+    else if (typeof docTypes === 'string' && docTypes.trim() !== '') {
+      docList = docTypes.split(',').map(s => s.trim()).filter(Boolean);
+    }
+
+    if (docList.length > 0 && !docList.includes('all')) {
+      const subConds = docList.map(() => `doc_type LIKE ?`);
+      sql += ` AND (${subConds.join(' OR ')})`;
+      docList.forEach(d => params.push(`%${d}%`));
+    }
+
+    let reasonList = [];
+    if (Array.isArray(reasons)) reasonList = reasons;
+    else if (typeof reasons === 'string' && reasons.trim() !== '') {
+      reasonList = reasons.split(',').map(s => s.trim()).filter(Boolean);
+    }
+
+    if (reasonList.length > 0 && !reasonList.includes('all')) {
+      const subConds = reasonList.map(() => `remark LIKE ?`);
+      sql += ` AND (${subConds.join(' OR ')})`;
+      reasonList.forEach(r => params.push(`%${r}%`));
+    }
+
+    return sql;
+  }
+
+  // 1. 跨庫調撥 80->15 匯入 API (UPSERT 智慧更新)
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     const fileName = req.body.fileName || 'transfer_8015.csv';
@@ -118,7 +147,7 @@ module.exports = function(db) {
         };
 
         const warehouse = getVal('庫別', 'warehouse') || '80';
-        const order_no = getVal('補貨/調撥單號', 'order_no');
+        const order_no = getVal('補貨/調撥單號', '調撥單號', 'order_no');
         const doc_type = getVal('單據類別', 'doc_type');
         const dest_warehouse = getVal('目的庫', 'dest_warehouse') || '15';
         const doc_status = getVal('單據狀態', 'doc_status');
@@ -126,7 +155,7 @@ module.exports = function(db) {
         const item_name = getVal('商品名稱', 'item_name');
         const item_spec = getVal('商品規格', 'item_spec');
         const supplier_item_no = getVal('廠商料號', 'supplier_item_no');
-        const suggest_qty = getNum('建議撿貨數量', 'suggest_qty');
+        const suggest_qty = getNum('建議撿貨數量', '調撥數量', 'suggest_qty');
         const gen_date = standardizeDate(getVal('產生日期', 'gen_date'));
         const gen_time = standardizeTime(getVal('產生時間', 'gen_time'));
         const apply_user = getVal('申請人員', 'apply_user');
@@ -159,7 +188,7 @@ module.exports = function(db) {
 
   // 2. 單日時段魚群分析 API
   router.get('/fish-analysis', (req, res) => {
-    const { targetDate, reasons } = req.query;
+    const { targetDate, docTypes, reasons } = req.query;
 
     let sql = `SELECT * FROM transfer_8015_details WHERE 1=1`;
     const params = [];
@@ -169,18 +198,7 @@ module.exports = function(db) {
       params.push(targetDate, targetDate);
     }
 
-    let reasonList = [];
-    if (Array.isArray(reasons)) {
-      reasonList = reasons;
-    } else if (typeof reasons === 'string' && reasons.trim() !== '') {
-      reasonList = reasons.split(',').map(s => s.trim()).filter(Boolean);
-    }
-
-    if (reasonList.length > 0 && !reasonList.includes('all')) {
-      const subConds = reasonList.map(() => `remark LIKE ?`);
-      sql += ` AND (${subConds.join(' OR ')})`;
-      reasonList.forEach(r => params.push(`%${r}%`));
-    }
+    sql = applyFilters(sql, params, docTypes, reasons);
 
     db.all(sql, params, (err, rows) => {
       if (err) return res.status(500).json({ success: false, message: err.message });
@@ -240,25 +258,14 @@ module.exports = function(db) {
 
   // 3. 每月總表 API (Cohort 完成率)
   router.get('/monthly-summary', (req, res) => {
-    const { month, reasons } = req.query;
+    const { month, docTypes, reasons } = req.query;
     if (!month) return res.status(400).json({ success: false, message: '請提供查詢月份 (YYYY-MM)' });
 
     let sql = `SELECT * FROM transfer_8015_details WHERE (gen_date LIKE ? OR finish_date LIKE ?)`;
     const monthPattern = `${month}%`;
     const params = [monthPattern, monthPattern];
 
-    let reasonList = [];
-    if (Array.isArray(reasons)) {
-      reasonList = reasons;
-    } else if (typeof reasons === 'string' && reasons.trim() !== '') {
-      reasonList = reasons.split(',').map(s => s.trim()).filter(Boolean);
-    }
-
-    if (reasonList.length > 0 && !reasonList.includes('all')) {
-      const subConds = reasonList.map(() => `remark LIKE ?`);
-      sql += ` AND (${subConds.join(' OR ')})`;
-      reasonList.forEach(r => params.push(`%${r}%`));
-    }
+    sql = applyFilters(sql, params, docTypes, reasons);
 
     db.all(sql, params, (err, rows) => {
       if (err) return res.status(500).json({ success: false, message: err.message });
@@ -330,27 +337,16 @@ module.exports = function(db) {
     });
   });
 
-  // 4. 年度總表 API (Cohort 完成率)
+  // 4. 年度總表 API
   router.get('/yearly-summary', (req, res) => {
-    const { year, reasons } = req.query;
+    const { year, docTypes, reasons } = req.query;
     if (!year) return res.status(400).json({ success: false, message: '請提供查詢年份 (YYYY)' });
 
     let sql = `SELECT * FROM transfer_8015_details WHERE (gen_date LIKE ? OR finish_date LIKE ?)`;
     const yearPattern = `${year}%`;
     const params = [yearPattern, yearPattern];
 
-    let reasonList = [];
-    if (Array.isArray(reasons)) {
-      reasonList = reasons;
-    } else if (typeof reasons === 'string' && reasons.trim() !== '') {
-      reasonList = reasons.split(',').map(s => s.trim()).filter(Boolean);
-    }
-
-    if (reasonList.length > 0 && !reasonList.includes('all')) {
-      const subConds = reasonList.map(() => `remark LIKE ?`);
-      sql += ` AND (${subConds.join(' OR ')})`;
-      reasonList.forEach(r => params.push(`%${r}%`));
-    }
+    sql = applyFilters(sql, params, docTypes, reasons);
 
     db.all(sql, params, (err, rows) => {
       if (err) return res.status(500).json({ success: false, message: err.message });
@@ -425,7 +421,7 @@ module.exports = function(db) {
 
   // 5. 未完成明細 API
   router.get('/pending-details', (req, res) => {
-    const { startDate, endDate, reasons } = req.query;
+    const { startDate, endDate, docTypes, reasons } = req.query;
 
     let sql = `SELECT * FROM transfer_8015_details WHERE (finish_date IS NULL OR finish_date = '') AND (doc_status IS NULL OR (doc_status != '已刪單' AND doc_status != '已銷案'))`;
     const params = [];
@@ -438,19 +434,7 @@ module.exports = function(db) {
       params.push(startDate);
     }
 
-    let reasonList = [];
-    if (Array.isArray(reasons)) {
-      reasonList = reasons;
-    } else if (typeof reasons === 'string' && reasons.trim() !== '') {
-      reasonList = reasons.split(',').map(s => s.trim()).filter(Boolean);
-    }
-
-    if (reasonList.length > 0 && !reasonList.includes('all')) {
-      const subConds = reasonList.map(() => `remark LIKE ?`);
-      sql += ` AND (${subConds.join(' OR ')})`;
-      reasonList.forEach(r => params.push(`%${r}%`));
-    }
-
+    sql = applyFilters(sql, params, docTypes, reasons);
     sql += ` ORDER BY gen_date DESC, gen_time DESC`;
 
     db.all(sql, params, (err, rows) => {

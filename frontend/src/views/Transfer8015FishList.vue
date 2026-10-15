@@ -1,13 +1,26 @@
 <template>
-  <div class="transfer-fish-page dark-bg">
-    <!-- 隱藏的 CSV 檔案選擇器 -->
+  <div 
+    class="transfer-fish-page dark-bg"
+    @dragover.prevent="onDragOver"
+    @dragleave.prevent="onDragLeave"
+    @drop.prevent="handleFileDrop"
+  >
+    <!-- 隱藏的檔案選擇器 (支援 .csv, .xls, .xlsx) -->
     <input
       type="file"
       ref="csvFileInput"
       style="display: none;"
-      accept=".csv"
+      accept=".csv, .xls, .xlsx"
       @change="handleCsvFileSelected"
     />
+
+    <!-- 拖曳浮層提示 -->
+    <div v-if="isDraggingOver" class="drag-overlay">
+      <div class="drag-tip-box">
+        <i class="el-icon-upload" style="font-size: 48px; color: #38bdf8;"></i>
+        <p style="font-size: 18px; font-weight: bold; margin-top: 10px;">放開滑鼠即可直接匯入 .xls / .xlsx / .csv 跨庫調撥單檔案！</p>
+      </div>
+    </div>
 
     <!-- 1. 第一排：核心標題、日期選擇器、維度切換與操作按鈕 -->
     <div class="top-bar">
@@ -86,14 +99,37 @@
           :loading="isUploading"
           @click="triggerSelectCsv"
         >
-          📥 匯入 80➔15 調撥 CSV
+          📥 匯入 80➔15 調撥 (支援 .xls / .xlsx / .csv)
         </el-button>
       </div>
     </div>
 
-    <!-- 2. 第二排獨立工具列：申請原因類別篩選選單 -->
+    <!-- 2. 第二排獨立工具列：單據類別 (D欄) + 申請原因類別 雙對應篩選選單 -->
     <div class="filter-bar">
-      <div class="reason-select-box">
+      <!-- 單據類別 (D欄) 下拉選單 -->
+      <div class="filter-item-box">
+        <span class="select-label">📄 單據類別 (D欄)：</span>
+        <el-select
+          v-model="selectedDocTypes"
+          multiple
+          collapse-tags
+          size="small"
+          placeholder="請選擇單據類別"
+          style="width: 230px;"
+          @change="handleDocTypeChange"
+        >
+          <el-option label="🌐 全選 (所有單據)" value="all" />
+          <el-option
+            v-for="item in docTypeOptions"
+            :key="item"
+            :label="item"
+            :value="item"
+          />
+        </el-select>
+      </div>
+
+      <!-- 申請原因類別 下拉選單 -->
+      <div class="filter-item-box">
         <span class="select-label">📋 申請原因類別：</span>
         <el-select
           v-model="selectedReasons"
@@ -101,10 +137,10 @@
           collapse-tags
           size="small"
           placeholder="請選擇申請原因"
-          style="width: 250px;"
+          style="width: 230px;"
           @change="handleReasonChange"
         >
-          <el-option label="🌐 全選 (所有類別)" value="all" />
+          <el-option label="🌐 全選 (所有原因)" value="all" />
           <el-option
             v-for="item in reasonOptions"
             :key="item"
@@ -126,8 +162,8 @@
           <thead>
             <tr class="header-main">
               <th class="col-time" rowspan="2">時間<br>時段</th>
-              <th colspan="5" class="group-blue-header">產生調撥單統計 (M欄/K欄)</th>
-              <th colspan="4" class="group-green-header">完成調撥單統計 (U欄/AK欄)</th>
+              <th colspan="5" class="group-blue-header">產生調撥單統計 (80倉發單)</th>
+              <th colspan="4" class="group-green-header">完成調撥單統計 (15倉上架)</th>
               <th class="col-ratio-header" rowspan="2" style="width: 90px;">已刪單筆數</th>
             </tr>
 
@@ -135,7 +171,7 @@
               <th class="col-bar-title">產生圖形</th>
               <th style="width: 80px;">產生占比</th>
               <th style="width: 80px;">產生筆數</th>
-              <th style="width: 90px;">產生PCS</th>
+              <th style="width: 90px;">調撥PCS</th>
               <th class="col-pending-header" style="width: 90px;">未完成筆數</th>
               <th class="col-bar-title">完成圖形</th>
               <th style="width: 80px;">完成占比</th>
@@ -303,13 +339,13 @@
         <table class="vba-style-table">
           <thead>
             <tr class="header-main group-red-header">
-              <th style="width: 140px;">補貨/調撥單號</th>
+              <th style="width: 140px;">調撥單號</th>
               <th style="width: 110px;">產生日期</th>
               <th style="width: 90px;">產生時間</th>
               <th style="width: 100px;">申請人員</th>
               <th style="width: 160px;">商品編號</th>
               <th>商品名稱</th>
-              <th style="width: 100px;">建議數量</th>
+              <th style="width: 100px;">調撥數量</th>
               <th style="width: 130px;">備註說明</th>
               <th style="width: 110px;">銷案工具</th>
             </tr>
@@ -382,7 +418,7 @@
       </template>
     </el-dialog>
 
-    <!-- CSV 上傳進度 Modal -->
+    <!-- CSV / Excel 上傳進度 Modal -->
     <el-dialog
       v-model="showUploadProgressModal"
       title="⚡ 正在寫入與同步 80➔15 跨庫調撥單資料..."
@@ -405,6 +441,8 @@
 <script>
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
+import * as XLSX from 'xlsx'
+import Papa from 'papaparse'
 
 export default {
   name: 'Transfer8015FishList',
@@ -424,7 +462,12 @@ export default {
       targetYear: new Date().getFullYear().toString(),
       pendingDateRange: [new Date().toISOString().split('T')[0], new Date().toISOString().split('T')[0]],
       
-      reasonOptions: ['系統補開', '高棧板商品備貨', '彙整列印新單', '預購回填'],
+      // 單據類別 (D欄) 選擇清單與綁定
+      docTypeOptions: ['人工倉跨庫調撥單', '緊急調撥單', '自動化倉補貨單'],
+      selectedDocTypes: ['all'],
+
+      // 申請原因類別 選擇清單與綁定
+      reasonOptions: ['系統補開', '高周轉跨庫調撥', '彙整列印新單', '預購回填'],
       selectedReasons: ['all'],
 
       hourlyStats: [],
@@ -437,6 +480,8 @@ export default {
       closeRemark: '現場實體已完成搬移銷案',
       isClosing: false,
 
+      // 拖曳與匯入相關變數
+      isDraggingOver: false,
       isUploading: false,
       showUploadProgressModal: false,
       uploadingFileName: '',
@@ -519,6 +564,34 @@ export default {
       return parts.length >= 3 ? `${parts[2]}日` : dStr;
     },
 
+    onDragOver() {
+      this.isDraggingOver = true;
+    },
+    onDragLeave() {
+      this.isDraggingOver = false;
+    },
+    handleFileDrop(e) {
+      this.isDraggingOver = false;
+      const files = e.dataTransfer.files;
+      if (files && files.length > 0) {
+        this.processImportFile(files[0]);
+      }
+    },
+
+    handleDocTypeChange(vals) {
+      if (vals.includes('all')) {
+        if (vals[vals.length - 1] === 'all') {
+          this.selectedDocTypes = ['all'];
+        } else {
+          this.selectedDocTypes = vals.filter(v => v !== 'all');
+        }
+      } else if (vals.length === 0) {
+        this.selectedDocTypes = ['all'];
+      }
+
+      this.refreshCurrentMode();
+    },
+
     handleReasonChange(vals) {
       if (vals.includes('all')) {
         if (vals[vals.length - 1] === 'all') {
@@ -553,14 +626,17 @@ export default {
       if (this.$refs.csvFileInput) this.$refs.csvFileInput.click();
     },
 
-    async handleCsvFileSelected(event) {
+    handleCsvFileSelected(event) {
       const file = event.target.files[0];
-      if (!file) return;
+      if (file) {
+        this.processImportFile(file);
+      }
+    },
 
-      if (!file.name.endsWith('.csv')) {
-        ElMessage.error('請選擇 .csv 格式的調撥單檔案！');
-        event.target.value = '';
-        return;
+    async processImportFile(file) {
+      const fileName = file.name.toLowerCase();
+      if (!fileName.endsWith('.csv') && !fileName.endsWith('.xls') && !fileName.endsWith('.xlsx')) {
+        return ElMessage.error('請上傳 .xls, .xlsx 或 .csv 格式的調撥單檔案！');
       }
 
       this.isUploading = true;
@@ -571,56 +647,57 @@ export default {
       this.totalRowsToUpload = 0;
 
       try {
-        const Papa = (await import('papaparse')).default;
+        let rawData = [];
 
-        Papa.parse(file, {
-          header: true,
-          skipEmptyLines: true,
-          complete: async (results) => {
-            const rawData = results.data || [];
-            if (rawData.length === 0) {
-              this.resetUploadState(event);
-              return ElMessage.error('CSV 檔案內無有效資料！');
-            }
+        if (fileName.endsWith('.xls') || fileName.endsWith('.xlsx')) {
+          const arrayBuffer = await file.arrayBuffer();
+          const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+          const firstSheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheetName];
+          rawData = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+        } else {
+          const text = await file.text();
+          const results = Papa.parse(text, { header: true, skipEmptyLines: true });
+          rawData = results.data || [];
+        }
 
-            this.totalRowsToUpload = rawData.length;
-            const BATCH_SIZE = 10000;
-            let processed = 0;
+        if (!rawData || rawData.length === 0) {
+          this.resetUploadState();
+          return ElMessage.error('檔案內無有效資料！');
+        }
 
-            for (let i = 0; i < rawData.length; i += BATCH_SIZE) {
-              const chunk = rawData.slice(i, i + BATCH_SIZE);
-              const isFirstChunk = (i === 0);
+        this.totalRowsToUpload = rawData.length;
+        const BATCH_SIZE = 10000;
+        let processed = 0;
 
-              await axios.post('/api/transfer8015/import-json', {
-                items: chunk,
-                fileName: file.name,
-                isFirstChunk
-              });
+        for (let i = 0; i < rawData.length; i += BATCH_SIZE) {
+          const chunk = rawData.slice(i, i + BATCH_SIZE);
+          const isFirstChunk = (i === 0);
 
-              processed += chunk.length;
-              this.uploadedRows = processed;
-              this.uploadPercent = Math.min(100, Math.round((processed / this.totalRowsToUpload) * 100));
-            }
+          await axios.post('/api/transfer8015/import-json', {
+            items: chunk,
+            fileName: file.name,
+            isFirstChunk
+          });
 
-            ElMessage.success(`🎉 成功同步 ${this.totalRowsToUpload.toLocaleString()} 筆跨庫調撥單資料！`);
-            this.refreshAllData();
-            this.resetUploadState(event);
-          },
-          error: (err) => {
-            ElMessage.error('解析 CSV 失敗：' + err.message);
-            this.resetUploadState(event);
-          }
-        });
+          processed += chunk.length;
+          this.uploadedRows = processed;
+          this.uploadPercent = Math.min(100, Math.round((processed / this.totalRowsToUpload) * 100));
+        }
+
+        ElMessage.success(`🎉 成功同步 ${this.totalRowsToUpload.toLocaleString()} 筆跨庫調撥單資料！`);
+        this.refreshAllData();
+        this.resetUploadState();
       } catch (e) {
-        ElMessage.error('上傳處理失敗：' + e.message);
-        this.resetUploadState(event);
+        ElMessage.error('解析或處理失敗：' + e.message);
+        this.resetUploadState();
       }
     },
 
-    resetUploadState(event) {
+    resetUploadState() {
       this.isUploading = false;
       this.showUploadProgressModal = false;
-      if (event && event.target) event.target.value = '';
+      if (this.$refs.csvFileInput) this.$refs.csvFileInput.value = '';
     },
 
     openCloseDialog(row) {
@@ -660,11 +737,13 @@ export default {
     async fetchFishData() {
       this.loading = true;
       try {
+        const activeDocTypes = this.selectedDocTypes.includes('all') ? 'all' : this.selectedDocTypes.join(',');
         const activeReasons = this.selectedReasons.includes('all') ? 'all' : this.selectedReasons.join(',');
 
         const res = await axios.get('/api/transfer8015/fish-analysis', {
           params: {
             targetDate: this.targetDate,
+            docTypes: activeDocTypes,
             reasons: activeReasons
           }
         });
@@ -696,11 +775,13 @@ export default {
     async fetchMonthlySummary() {
       this.loadingMonthly = true;
       try {
+        const activeDocTypes = this.selectedDocTypes.includes('all') ? 'all' : this.selectedDocTypes.join(',');
         const activeReasons = this.selectedReasons.includes('all') ? 'all' : this.selectedReasons.join(',');
 
         const res = await axios.get('/api/transfer8015/monthly-summary', {
           params: {
             month: this.targetMonth,
+            docTypes: activeDocTypes,
             reasons: activeReasons
           }
         });
@@ -717,11 +798,13 @@ export default {
     async fetchYearlySummary() {
       this.loadingYearly = true;
       try {
+        const activeDocTypes = this.selectedDocTypes.includes('all') ? 'all' : this.selectedDocTypes.join(',');
         const activeReasons = this.selectedReasons.includes('all') ? 'all' : this.selectedReasons.join(',');
 
         const res = await axios.get('/api/transfer8015/yearly-summary', {
           params: {
             year: this.targetYear,
+            docTypes: activeDocTypes,
             reasons: activeReasons
           }
         });
@@ -738,6 +821,7 @@ export default {
     async fetchPendingDetails() {
       this.loadingPending = true;
       try {
+        const activeDocTypes = this.selectedDocTypes.includes('all') ? 'all' : this.selectedDocTypes.join(',');
         const activeReasons = this.selectedReasons.includes('all') ? 'all' : this.selectedReasons.join(',');
         const start = this.pendingDateRange ? this.pendingDateRange[0] : '';
         const end = this.pendingDateRange ? this.pendingDateRange[1] : '';
@@ -746,6 +830,7 @@ export default {
           params: {
             startDate: start,
             endDate: end,
+            docTypes: activeDocTypes,
             reasons: activeReasons
           }
         });
@@ -764,6 +849,7 @@ export default {
 
 <style scoped>
 .transfer-fish-page {
+  position: relative;
   padding: 16px;
   height: calc(100vh - 52px);
   box-sizing: border-box;
@@ -771,6 +857,27 @@ export default {
   flex-direction: column;
   gap: 10px;
   overflow-y: auto;
+}
+
+.drag-overlay {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(15, 23, 42, 0.85);
+  border: 3px dashed #38bdf8;
+  z-index: 9999;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  border-radius: 8px;
+}
+
+.drag-tip-box {
+  text-align: center;
+  color: #38bdf8;
+  background: #1e293b;
+  padding: 30px 50px;
+  border-radius: 12px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
 }
 
 .top-bar {
@@ -786,13 +893,20 @@ export default {
 .filter-bar {
   display: flex;
   align-items: center;
+  gap: 20px;
   background: #1e293b;
   padding: 6px 16px;
   border-radius: 8px;
   border: 1px solid #334155;
 }
 
-.title-group, .action-group, .reason-select-box {
+.filter-item-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.title-group, .action-group {
   display: flex;
   align-items: center;
   gap: 10px;
