@@ -82,7 +82,7 @@ module.exports = function(db) {
     return sql;
   }
 
-  // 1. 匯入 API (防呆：檢查單號 TR / GD，自動跳過最後一列總計/筆數列)
+  // 1. 匯入 API (防呆驗證：過濾掉純數字/筆數列)
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     const fileName = req.body.fileName || 'transfer_8015.csv';
@@ -92,14 +92,20 @@ module.exports = function(db) {
       return res.status(400).json({ success: false, message: '未收到有效的調撥單資料' });
     }
 
-    // 🌟 第一批時進行 TR / GD 單號與目的庫 != 80 的驗證，自動忽略尾列「總計/筆數」列
+    // 🌟 第一批驗證：自動忽略空單號、純數字（筆數統計列）、包含「總計/筆數」字樣之資料
     if (isFirstChunk) {
       const invalidRow = items.find(item => {
         const orderNo = String(item['補貨/調撥單號'] || item['調撥單號'] || item['order_no'] || '').trim().toUpperCase();
         const destWh = String(item['目的庫'] || item['dest_warehouse'] || '').trim();
         
-        // 忽略沒有單號、或是匯總/筆數列 (包含「筆數」、「總計」、「合計」、「筆」)
-        if (!orderNo || orderNo.includes('筆數') || orderNo.includes('總計') || orderNo.includes('合計') || orderNo.includes('筆') || orderNo.includes('TOTAL')) {
+        // 1. 空單號跳過
+        if (!orderNo) return false;
+
+        // 2. 純數字（系統匯出的末列總筆數，例如 1045）跳過
+        if (/^\d+\$/.test(orderNo)) return false;
+
+        // 3. 包含統計字詞跳過
+        if (orderNo.includes('筆數') || orderNo.includes('總計') || orderNo.includes('合計') || orderNo.includes('筆') || orderNo.includes('TOTAL')) {
           return false;
         }
 
@@ -175,8 +181,8 @@ module.exports = function(db) {
         const order_no = getVal('補貨/調撥單號', '調撥單號', 'order_no');
         const item_id = getVal('商品編號', 'item_id');
 
-        // 🌟 跳過無效資料或筆數/總計統計列
-        if (!order_no || order_no.includes('筆數') || order_no.includes('總計') || order_no.includes('合計') || order_no.includes('筆') || order_no.includes('TOTAL')) {
+        // 🌟 寫入時跳過純數字筆數列或彙總列
+        if (!order_no || /^\d+\$/.test(order_no) || order_no.includes('筆數') || order_no.includes('總計') || order_no.includes('合計') || order_no.includes('筆') || order_no.includes('TOTAL')) {
           continue;
         }
 
@@ -218,7 +224,7 @@ module.exports = function(db) {
     });
   });
 
-  // 2. 單日時段魚群分析 API
+  // 2. 時段魚群分析 API
   router.get('/fish-analysis', (req, res) => {
     const { targetDate, docTypes, reasons } = req.query;
 
@@ -529,7 +535,7 @@ module.exports = function(db) {
     });
   });
 
-  // 7. 取得所有非 TR 及 GD 開頭，或目的庫為 80 的異常單據列表 API
+  // 7. 取得所有非 TR 及 GD 開頭且非純數字的異常單據列表 API
   router.get('/invalid-orders', (req, res) => {
     const sql = `
       SELECT * FROM transfer_8015_details 
@@ -545,7 +551,7 @@ module.exports = function(db) {
     });
   });
 
-  // 8. 批次精準刪除指定的異常單據 API
+  // 8. 批次刪除 API
   router.post('/delete-batch-invalid', (req, res) => {
     const { keys } = req.body;
     if (!Array.isArray(keys) || keys.length === 0) {
