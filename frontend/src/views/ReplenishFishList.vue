@@ -1,9 +1,9 @@
 <template>
   <div 
     class="replenish-fish-page dark-bg"
-    @dragover.prevent="onDragOver"
-    @dragleave.prevent="onDragLeave"
-    @drop.prevent="handleFileDrop"
+    @dragover="onDragOver"
+    @dragleave="onDragLeave"
+    @drop="handleFileDrop"
   >
     <!-- 隱藏的檔案選擇器 (支援 .csv, .xls, .xlsx) -->
     <input
@@ -104,9 +104,9 @@
       </div>
     </div>
 
-    <!-- 🌟 2. 第二排獨立工具列：單據類別 (D欄) + 申請原因類別 雙對應篩選選單 -->
+    <!-- 2. 第二排獨立工具列：單據類別 (D欄) + 申請原因類別 雙對應篩選選單 -->
     <div class="filter-bar">
-      <!-- 🌟 新增：單據類別 (D欄) 下拉選單 -->
+      <!-- 單據類別 (D欄) 下拉選單 -->
       <div class="filter-item-box">
         <span class="select-label">📄 單據類別 (D欄)：</span>
         <el-select
@@ -462,11 +462,9 @@ export default {
       targetYear: new Date().getFullYear().toString(),
       pendingDateRange: [new Date().toISOString().split('T')[0], new Date().toISOString().split('T')[0]],
       
-      // 🌟 單據類別 (D欄) 選擇清單與綁定
       docTypeOptions: ['已售出立即補貨單', '緊急調撥單', '定期補貨單'],
       selectedDocTypes: ['all'],
 
-      // 申請原因類別 選擇清單與綁定
       reasonOptions: ['系統補開', '高棧板商品備貨', '彙整列印新單', '預購回填'],
       selectedReasons: ['all'],
 
@@ -543,6 +541,14 @@ export default {
   },
   mounted() {
     this.fetchFishData();
+
+    // 🌟 1. 全域攔截：避免拖曳釋放點落在元件之外引發瀏覽器預設開啟/下載行為
+    window.addEventListener('dragover', this.preventGlobalDrop);
+    window.addEventListener('drop', this.preventGlobalDrop);
+  },
+  beforeUnmount() {
+    window.removeEventListener('dragover', this.preventGlobalDrop);
+    window.removeEventListener('drop', this.preventGlobalDrop);
   },
   methods: {
     formatNumber(val) {
@@ -563,21 +569,32 @@ export default {
       return parts.length >= 3 ? `${parts[2]}日` : dStr;
     },
 
-    onDragOver() {
+    // 🌟 全域防護方法
+    preventGlobalDrop(e) {
+      e.preventDefault();
+    },
+
+    onDragOver(e) {
+      e.preventDefault();
+      e.stopPropagation();
       this.isDraggingOver = true;
     },
-    onDragLeave() {
+    onDragLeave(e) {
+      e.preventDefault();
+      e.stopPropagation();
       this.isDraggingOver = false;
     },
     handleFileDrop(e) {
+      e.preventDefault();
+      e.stopPropagation();
       this.isDraggingOver = false;
+
       const files = e.dataTransfer.files;
       if (files && files.length > 0) {
         this.processImportFile(files[0]);
       }
     },
 
-    // 🌟 處理單據類別 (D欄) 變更
     handleDocTypeChange(vals) {
       if (vals.includes('all')) {
         if (vals[vals.length - 1] === 'all') {
@@ -592,7 +609,6 @@ export default {
       this.refreshCurrentMode();
     },
 
-    // 處理申請原因類別變更
     handleReasonChange(vals) {
       if (vals.includes('all')) {
         if (vals[vals.length - 1] === 'all') {
@@ -891,7 +907,6 @@ export default {
   border: 1px solid #334155;
 }
 
-/* 🌟 第二排工具列排版：支援雙下拉選單併排 */
 .filter-bar {
   display: flex;
   align-items: center;
