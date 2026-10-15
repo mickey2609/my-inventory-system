@@ -391,7 +391,7 @@
       </div>
     </div>
 
-    <!-- 🌟 4. 誤匯單據點選與批次勾選彈窗 -->
+    <!-- 4. 誤匯單據點選與批次勾選彈窗 -->
     <el-dialog
       v-model="showInvalidModal"
       title="⚠️ 誤匯入跨庫調撥單之異常單據對照清單"
@@ -548,7 +548,6 @@ export default {
       yearlyMonthlyList: [],
       pendingList: [],
 
-      // 誤匯清單與勾選變數
       showInvalidModal: false,
       loadingInvalid: false,
       invalidList: [],
@@ -675,7 +674,6 @@ export default {
       }
     },
 
-    // 🌟 打開異常單據對照彈窗
     async openInvalidModal() {
       this.showInvalidModal = true;
       this.loadingInvalid = true;
@@ -694,12 +692,10 @@ export default {
       }
     },
 
-    // 🌟 勾選監聽
     handleInvalidSelectionChange(selection) {
       this.selectedInvalidRows = selection;
     },
 
-    // 🌟 執行批次刪除選取的誤匯筆數
     async confirmDeleteSelectedInvalid() {
       if (this.selectedInvalidRows.length === 0) return;
 
@@ -716,8 +712,8 @@ export default {
         const res = await axios.post('/api/transfer8015/delete-batch-invalid', { keys });
         if (res.data?.success) {
           ElMessage.success(res.data.message);
-          await this.openInvalidModal(); // 刷新對照清單
-          this.refreshAllData(); // 刷新魚群分析圖
+          await this.openInvalidModal();
+          this.refreshAllData();
         }
       } catch (e) {
         if (e !== 'cancel') ElMessage.error('刪除處理失敗：' + e.message);
@@ -781,6 +777,7 @@ export default {
       }
     },
 
+    // 🌟 關鍵改動：設定 raw: false 讓所有 Excel 欄位（含單號）強制以純文字（字串）讀取，保留開頭英文與補零
     async processImportFile(file) {
       const fileName = file.name.toLowerCase();
       if (!fileName.endsWith('.csv') && !fileName.endsWith('.xls') && !fileName.endsWith('.xlsx')) {
@@ -799,13 +796,15 @@ export default {
 
         if (fileName.endsWith('.xls') || fileName.endsWith('.xlsx')) {
           const arrayBuffer = await file.arrayBuffer();
-          const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+          // raw: false 強制取得純文字格式
+          const workbook = XLSX.read(arrayBuffer, { type: 'array', raw: false });
           const firstSheetName = workbook.SheetNames[0];
           const worksheet = workbook.Sheets[firstSheetName];
-          rawData = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+          rawData = XLSX.utils.sheet_to_json(worksheet, { defval: '', raw: false });
         } else {
           const text = await file.text();
-          const results = Papa.parse(text, { header: true, skipEmptyLines: true });
+          // dynamicTyping: false 強制當成字串處理
+          const results = Papa.parse(text, { header: true, skipEmptyLines: true, dynamicTyping: false });
           rawData = results.data || [];
         }
 
