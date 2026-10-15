@@ -54,7 +54,6 @@ module.exports = function(db) {
     `);
   });
 
-  // 輔助函式：動態組合 docType 與 reasons 條件
   function applyFilters(sql, params, docTypes, reasons) {
     let docList = [];
     if (Array.isArray(docTypes)) docList = docTypes;
@@ -83,7 +82,7 @@ module.exports = function(db) {
     return sql;
   }
 
-  // 1. 跨庫調撥 80->15 匯入 API (UPSERT 智慧更新)
+  // 1. 匯入 API (加入 TR 單號與目的庫不為 80 的防呆檢查)
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     const fileName = req.body.fileName || 'transfer_8015.csv';
@@ -91,6 +90,28 @@ module.exports = function(db) {
 
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ success: false, message: '未收到有效的調撥單資料' });
+    }
+
+    // 🌟 第一批時進行 TR 單號與目的庫 != 80 的驗證
+    if (isFirstChunk) {
+      const invalidRow = items.find(item => {
+        const orderNo = String(item['補貨/調撥單號'] || item['調撥單號'] || item['order_no'] || '').trim().toUpperCase();
+        const destWh = String(item['目的庫'] || item['dest_warehouse'] || '').trim();
+        
+        const isNotTR = orderNo && !orderNo.startsWith('TR');
+        const isDest80 = destWh === '80';
+
+        return isNotTR || isDest80;
+      });
+
+      if (invalidRow) {
+        const errNo = String(invalidRow['補貨/調撥單號'] || invalidRow['調撥單號'] || invalidRow['order_no'] || '').trim();
+        const errDest = String(invalidRow['目的庫'] || invalidRow['dest_warehouse'] || '未指定').trim();
+        return res.status(400).json({
+          success: false,
+          message: `⚠️ 匯入失敗：偵測到非 80➔15 跨庫調撥單據（單號：${errNo}，目的庫：${errDest}）。跨庫調撥單單號必須為 TR 開頭且目的庫不可為 80！`
+        });
+      }
     }
 
     db.serialize(() => {
@@ -256,7 +277,7 @@ module.exports = function(db) {
     });
   });
 
-  // 3. 每月總表 API (Cohort 完成率)
+  // 3. 每月總表 API
   router.get('/monthly-summary', (req, res) => {
     const { month, docTypes, reasons } = req.query;
     if (!month) return res.status(400).json({ success: false, message: '請提供查詢月份 (YYYY-MM)' });

@@ -54,7 +54,6 @@ module.exports = function(db) {
     `);
   });
 
-  // 輔助函式：動態組合 docType 與 reasons 條件
   function applyFilters(sql, params, docTypes, reasons) {
     let docList = [];
     if (Array.isArray(docTypes)) docList = docTypes;
@@ -83,7 +82,7 @@ module.exports = function(db) {
     return sql;
   }
 
-  // 1. 匯入 API
+  // 1. 匯入 API (加入 YW 單號防呆檢查)
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     const fileName = req.body.fileName || 'latest_replenish.csv';
@@ -91,6 +90,22 @@ module.exports = function(db) {
 
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ success: false, message: '未收到有效的補貨單資料' });
+    }
+
+    // 🌟 第一批時進行檔頭/前幾筆資料的單號防呆驗證
+    if (isFirstChunk) {
+      const invalidRow = items.find(item => {
+        const orderNo = String(item['補貨/調撥單號'] || item['order_no'] || '').trim().toUpperCase();
+        return orderNo && !orderNo.startsWith('YW');
+      });
+
+      if (invalidRow) {
+        const errNo = String(invalidRow['補貨/調撥單號'] || invalidRow['order_no'] || '').trim();
+        return res.status(400).json({
+          success: false,
+          message: `⚠️ 匯入失敗：偵測到非立即補貨單據（單號：${errNo}）。立即補貨單單號必須為 YW 開頭，若為跨庫調撥單請至【跨庫調撥 80 ➔ 15】模組匯入！`
+        });
+      }
     }
 
     db.serialize(() => {
@@ -186,7 +201,7 @@ module.exports = function(db) {
     });
   });
 
-  // 2. 時段魚群分析 API (加入 docTypes 篩選)
+  // 2. 時段魚群分析 API
   router.get('/fish-analysis', (req, res) => {
     const { targetDate, docTypes, reasons } = req.query;
 
@@ -256,7 +271,7 @@ module.exports = function(db) {
     });
   });
 
-  // 3. 每月總表 API (加入 docTypes 篩選)
+  // 3. 每月總表 API
   router.get('/monthly-summary', (req, res) => {
     const { month, docTypes, reasons } = req.query;
     if (!month) return res.status(400).json({ success: false, message: '請提供查詢月份 (YYYY-MM)' });
@@ -337,7 +352,7 @@ module.exports = function(db) {
     });
   });
 
-  // 4. 年度總表 API (加入 docTypes 篩選)
+  // 4. 年度總表 API
   router.get('/yearly-summary', (req, res) => {
     const { year, docTypes, reasons } = req.query;
     if (!year) return res.status(400).json({ success: false, message: '請提供查詢年份 (YYYY)' });
@@ -419,7 +434,7 @@ module.exports = function(db) {
     });
   });
 
-  // 5. 未完成明細 API (加入 docTypes 篩選)
+  // 5. 未完成明細 API
   router.get('/pending-details', (req, res) => {
     const { startDate, endDate, docTypes, reasons } = req.query;
 
