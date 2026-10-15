@@ -82,7 +82,7 @@ module.exports = function(db) {
     return sql;
   }
 
-  // 1. 匯入 API (徹底忽略純數字 2920 與尾列統計數據)
+  // 1. 匯入 API (🌟 先判斷商品 ID，再判斷單號與目的庫)
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     const fileName = req.body.fileName || 'transfer_8015.csv';
@@ -92,24 +92,23 @@ module.exports = function(db) {
       return res.status(400).json({ success: false, message: '未收到有效的調撥單資料' });
     }
 
-    // 🌟 第一批驗證：自動忽略無商品編號、純數字（如 2920 筆數列）、無目的庫或包含總計詞彙之末列
+    // 🌟 第一批驗證：優先判斷「有無商品 ID」，沒有者（如底端總計列）直接忽略！
     if (isFirstChunk) {
       const invalidRow = items.find(item => {
+        const itemId = String(item['商品編號'] || item['item_id'] || '').trim();
+        
+        // 1. 先判斷有無商品 ID，若無商品 ID（如末列總計列），直接跳過！
+        if (!itemId) return false;
+
         const orderNo = String(item['補貨/調撥單號'] || item['調撥單號'] || item['order_no'] || '').trim().toUpperCase();
         const destWh = String(item['目的庫'] || item['dest_warehouse'] || '').trim();
-        const itemId = String(item['商品編號'] || item['item_id'] || '').trim();
 
-        // 1. 空單號、無商品編號，直接跳過驗證
-        if (!itemId || !orderNo) return false;
-
-        // 2. 純數字（系統匯出的末列總筆數，例如 2920）直接跳過驗證
-        if (/^\d+\$/.test(orderNo)) return false;
-
-        // 3. 包含統計關鍵字詞彙直接跳過
-        if (orderNo.includes('筆數') || orderNo.includes('總計') || orderNo.includes('合計') || orderNo.includes('TOTAL')) {
+        // 2. 有商品 ID 的真實明細：若單號為空，或為純數字/總計字眼，跳過
+        if (!orderNo || /^\d+\$/.test(orderNo) || orderNo.includes('筆數') || orderNo.includes('總計') || orderNo.includes('合計') || orderNo.includes('TOTAL')) {
           return false;
         }
 
+        // 3. 有商品 ID 且有單號：判斷是否非 TR/GD 開頭或目的庫為 80
         const isNotTRorGD = !orderNo.startsWith('TR') && !orderNo.startsWith('GD');
         const isDest80 = destWh === '80';
 
@@ -179,10 +178,10 @@ module.exports = function(db) {
           return v ? (parseFloat(v.replace(/,/g, '')) || 0) : 0;
         };
 
-        const order_no = getVal('補貨/調撥單號', '調撥單號', 'order_no');
         const item_id = getVal('商品編號', 'item_id');
+        const order_no = getVal('補貨/調撥單號', '調撥單號', 'order_no');
 
-        // 🌟 跳過無商品編號、純數字筆數列 (如 2920) 或彙總列
+        // 🌟 寫入前檢查：無商品 ID 者，直接跳過不處理！
         if (!item_id || !order_no || /^\d+\$/.test(order_no) || order_no.includes('筆數') || order_no.includes('總計') || order_no.includes('合計') || order_no.includes('TOTAL')) {
           continue;
         }
@@ -223,7 +222,7 @@ module.exports = function(db) {
     });
   });
 
-  // 2. 時段魚群分析 API
+  // 2. 單日時段魚群分析 API
   router.get('/fish-analysis', (req, res) => {
     const { targetDate, docTypes, reasons } = req.query;
 
