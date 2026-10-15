@@ -82,7 +82,7 @@ module.exports = function(db) {
     return sql;
   }
 
-  // 1. 匯入 API (防呆：檢查單號是否為 YW 開頭)
+  // 1. 匯入 API (防呆：檢查單號 YW 開頭，自動跳過最後一列總計/筆數列)
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     const fileName = req.body.fileName || 'latest_replenish.csv';
@@ -92,10 +92,17 @@ module.exports = function(db) {
       return res.status(400).json({ success: false, message: '未收到有效的補貨單資料' });
     }
 
+    // 🌟 第一批時進行單號防呆驗證，自動過濾掉尾列「總計/筆數」列
     if (isFirstChunk) {
       const invalidRow = items.find(item => {
         const orderNo = String(item['補貨/調撥單號'] || item['order_no'] || '').trim().toUpperCase();
-        return orderNo && !orderNo.startsWith('YW');
+        
+        // 忽略沒有單號、或是匯總/筆數列 (包含「筆數」、「總計」、「合計」、「筆」)
+        if (!orderNo || orderNo.includes('筆數') || orderNo.includes('總計') || orderNo.includes('合計') || orderNo.includes('筆') || orderNo.includes('TOTAL')) {
+          return false;
+        }
+
+        return !orderNo.startsWith('YW');
       });
 
       if (invalidRow) {
@@ -160,12 +167,18 @@ module.exports = function(db) {
           return v ? (parseFloat(v.replace(/,/g, '')) || 0) : 0;
         };
 
-        const warehouse = getVal('庫別', 'warehouse') || '80';
         const order_no = getVal('補貨/調撥單號', 'order_no');
+        const item_id = getVal('商品編號', 'item_id');
+
+        // 🌟 跳過無效資料或筆數/總計統計列
+        if (!order_no || order_no.includes('筆數') || order_no.includes('總計') || order_no.includes('合計') || order_no.includes('筆') || order_no.includes('TOTAL')) {
+          continue;
+        }
+
+        const warehouse = getVal('庫別', 'warehouse') || '80';
         const doc_type = getVal('單據類別', 'doc_type');
         const dest_warehouse = getVal('目的庫', 'dest_warehouse');
         const doc_status = getVal('單據狀態', 'doc_status');
-        const item_id = getVal('商品編號', 'item_id');
         const item_name = getVal('商品名稱', 'item_name');
         const item_spec = getVal('商品規格', 'item_spec');
         const supplier_item_no = getVal('廠商料號', 'supplier_item_no');
@@ -511,18 +524,26 @@ module.exports = function(db) {
     });
   });
 
-  // 🌟 7. 取得所有非 YW 開頭的異常單據列表 API
+  // 7. 取得所有非 YW 開頭的異常單據列表 API
   router.get('/invalid-orders', (req, res) => {
-    const sql = `SELECT * FROM replenish_details WHERE order_no NOT LIKE 'YW%' AND order_no != '' ORDER BY gen_date DESC, gen_time DESC`;
+    const sql = `
+      SELECT * FROM replenish_details 
+      WHERE order_no NOT LIKE 'YW%' 
+        AND order_no != '' 
+        AND order_no NOT LIKE '%筆數%' 
+        AND order_no NOT LIKE '%總計%' 
+        AND order_no NOT LIKE '%合計%'
+      ORDER BY gen_date DESC, gen_time DESC
+    `;
     db.all(sql, [], (err, rows) => {
       if (err) return res.status(500).json({ success: false, message: err.message });
       res.json({ success: true, list: rows || [] });
     });
   });
 
-  // 🌟 8. 批次精準刪除指定的異常單據 API
+  // 8. 批次精準刪除指定的異常單據 API
   router.post('/delete-batch-invalid', (req, res) => {
-    const { keys } = req.body; // Array of { orderNo, itemId }
+    const { keys } = req.body;
     if (!Array.isArray(keys) || keys.length === 0) {
       return res.status(400).json({ success: false, message: '請勾選要刪除的異常單據！' });
     }

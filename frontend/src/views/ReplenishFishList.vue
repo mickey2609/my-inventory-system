@@ -1,9 +1,10 @@
 <template>
   <div 
     class="replenish-fish-page dark-bg"
-    @dragover="onDragOver"
-    @dragleave="onDragLeave"
-    @drop="handleFileDrop"
+    @dragenter.prevent.stop="onDragOver"
+    @dragover.prevent.stop="onDragOver"
+    @dragleave.prevent.stop="onDragLeave"
+    @drop.prevent.stop="handleFileDrop"
   >
     <!-- 隱藏的檔案選擇器 (支援 .csv, .xls, .xlsx) -->
     <input
@@ -27,7 +28,6 @@
       <div class="title-group">
         <span class="page-title">🐟 倉庫 實時補貨單魚群出沒分析 (80 人工倉)</span>
         
-        <!-- 單日時段選擇器 -->
         <el-date-picker
           v-if="analysisMode === 'daily'"
           v-model="targetDate"
@@ -39,7 +39,6 @@
           @change="fetchFishData"
         />
 
-        <!-- 每月總表選擇器 -->
         <el-date-picker
           v-else-if="analysisMode === 'monthly'"
           v-model="targetMonth"
@@ -51,7 +50,6 @@
           @change="fetchMonthlySummary"
         />
 
-        <!-- 年度總表選擇器 -->
         <el-date-picker
           v-else-if="analysisMode === 'yearly'"
           v-model="targetYear"
@@ -63,7 +61,6 @@
           @change="fetchYearlySummary"
         />
 
-        <!-- 未完成追蹤日期區間選擇器 -->
         <el-date-picker
           v-else-if="analysisMode === 'pending'"
           v-model="pendingDateRange"
@@ -77,7 +74,6 @@
           @change="fetchPendingDetails"
         />
 
-        <!-- 4 維度分析模式切換 -->
         <el-radio-group v-model="analysisMode" size="small" @change="handleAnalysisModeChange">
           <el-radio-button label="daily">📅 單日時段分析</el-radio-button>
           <el-radio-button label="monthly">🗓️ 每月每日總表</el-radio-button>
@@ -114,7 +110,7 @@
       </div>
     </div>
 
-    <!-- 2. 第二排獨立工具列：單據類別 (D欄) + 申請原因類別 雙對應篩選選單 -->
+    <!-- 2. 第二排獨立工具列 -->
     <div class="filter-bar">
       <div class="filter-item-box">
         <span class="select-label">📄 單據類別 (D欄)：</span>
@@ -285,7 +281,7 @@
     <!-- 3.3 年度每月總表區塊 -->
     <div class="table-container" v-loading="loadingYearly" v-else-if="analysisMode === 'yearly'">
       <div class="sheet-title">
-        📅 倉庫 立即補貨單 - {{ targetYear }} 年度每月總表 (80 人工倉)
+        📅 倉庫 欄位補貨單 - {{ targetYear }} 年度每月總表 (80 人工倉)
       </div>
 
       <div class="table-scroll-wrapper">
@@ -340,7 +336,7 @@
     <!-- 3.4 補貨未完成明細追蹤 -->
     <div class="table-container" v-loading="loadingPending" v-else-if="analysisMode === 'pending'">
       <div class="sheet-title alert-sheet-title">
-        🚨 倉庫 立即補貨單 - 未完成單據明細追蹤 (共 {{ formatNumber(pendingList.length) }} 筆未完成)
+        🚨 倉庫 實時補貨單 - 未完成單據明細追蹤 (共 {{ formatNumber(pendingList.length) }} 筆未完成)
       </div>
 
       <div class="table-scroll-wrapper">
@@ -391,7 +387,7 @@
       </div>
     </div>
 
-    <!-- 4. 誤匯單據點選與批次勾選彈窗 -->
+    <!-- 4. 誤匯單據對照彈窗 -->
     <el-dialog
       v-model="showInvalidModal"
       title="⚠️ 誤匯入補貨單之異常單據對照清單"
@@ -619,12 +615,15 @@ export default {
   mounted() {
     this.fetchFishData();
 
-    window.addEventListener('dragover', this.preventGlobalDrop);
-    window.addEventListener('drop', this.preventGlobalDrop);
+    // 🌟 強化全域防攔截，確保瀏覽器不接管開檔/下載
+    window.addEventListener('dragenter', this.preventGlobalDrop, true);
+    window.addEventListener('dragover', this.preventGlobalDrop, true);
+    window.addEventListener('drop', this.preventGlobalDrop, true);
   },
   beforeUnmount() {
-    window.removeEventListener('dragover', this.preventGlobalDrop);
-    window.removeEventListener('drop', this.preventGlobalDrop);
+    window.removeEventListener('dragenter', this.preventGlobalDrop, true);
+    window.removeEventListener('dragover', this.preventGlobalDrop, true);
+    window.removeEventListener('drop', this.preventGlobalDrop, true);
   },
   methods: {
     formatNumber(val) {
@@ -647,11 +646,15 @@ export default {
 
     preventGlobalDrop(e) {
       e.preventDefault();
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = 'copy';
+      }
     },
 
     onDragOver(e) {
       e.preventDefault();
       e.stopPropagation();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
       this.isDraggingOver = true;
     },
     onDragLeave(e) {
@@ -773,7 +776,6 @@ export default {
       }
     },
 
-    // 🌟 關鍵改動：設定 raw: false 讓所有 Excel 欄位（含單號）強制以純文字（字串）讀取，保留開頭英文與補零
     async processImportFile(file) {
       const fileName = file.name.toLowerCase();
       if (!fileName.endsWith('.csv') && !fileName.endsWith('.xls') && !fileName.endsWith('.xlsx')) {
@@ -792,14 +794,12 @@ export default {
 
         if (fileName.endsWith('.xls') || fileName.endsWith('.xlsx')) {
           const arrayBuffer = await file.arrayBuffer();
-          // raw: false 強制取得純文字格式
           const workbook = XLSX.read(arrayBuffer, { type: 'array', raw: false });
           const firstSheetName = workbook.SheetNames[0];
           const worksheet = workbook.Sheets[firstSheetName];
           rawData = XLSX.utils.sheet_to_json(worksheet, { defval: '', raw: false });
         } else {
           const text = await file.text();
-          // dynamicTyping: false 強制當成字串處理
           const results = Papa.parse(text, { header: true, skipEmptyLines: true, dynamicTyping: false });
           rawData = results.data || [];
         }

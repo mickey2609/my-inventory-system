@@ -1,9 +1,10 @@
 <template>
   <div 
     class="transfer-fish-page dark-bg"
-    @dragover="onDragOver"
-    @dragleave="onDragLeave"
-    @drop="handleFileDrop"
+    @dragenter.prevent.stop="onDragOver"
+    @dragover.prevent.stop="onDragOver"
+    @dragleave.prevent.stop="onDragLeave"
+    @drop.prevent.stop="handleFileDrop"
   >
     <!-- 隱藏的檔案選擇器 (支援 .csv, .xls, .xlsx) -->
     <input
@@ -27,7 +28,6 @@
       <div class="title-group">
         <span class="page-title">🔄 倉庫 跨庫調撥 (80 ➔ 15) 魚群分析</span>
         
-        <!-- 單日時段選擇器 -->
         <el-date-picker
           v-if="analysisMode === 'daily'"
           v-model="targetDate"
@@ -39,7 +39,6 @@
           @change="fetchFishData"
         />
 
-        <!-- 每月總表選擇器 -->
         <el-date-picker
           v-else-if="analysisMode === 'monthly'"
           v-model="targetMonth"
@@ -51,7 +50,6 @@
           @change="fetchMonthlySummary"
         />
 
-        <!-- 年度總表選擇器 -->
         <el-date-picker
           v-else-if="analysisMode === 'yearly'"
           v-model="targetYear"
@@ -63,7 +61,6 @@
           @change="fetchYearlySummary"
         />
 
-        <!-- 未完成追蹤日期區間選擇器 -->
         <el-date-picker
           v-else-if="analysisMode === 'pending'"
           v-model="pendingDateRange"
@@ -77,7 +74,6 @@
           @change="fetchPendingDetails"
         />
 
-        <!-- 4 維度分析模式切換 -->
         <el-radio-group v-model="analysisMode" size="small" @change="handleAnalysisModeChange">
           <el-radio-button label="daily">📅 單日時段分析</el-radio-button>
           <el-radio-button label="monthly">🗓️ 每月每日總表</el-radio-button>
@@ -114,7 +110,7 @@
       </div>
     </div>
 
-    <!-- 2. 第二排獨立工具列：單據類別 (D欄) + 申請原因類別 雙對應篩選選單 -->
+    <!-- 2. 第二排獨立工具列 -->
     <div class="filter-bar">
       <div class="filter-item-box">
         <span class="select-label">📄 單據類別 (D欄)：</span>
@@ -623,12 +619,15 @@ export default {
   mounted() {
     this.fetchFishData();
 
-    window.addEventListener('dragover', this.preventGlobalDrop);
-    window.addEventListener('drop', this.preventGlobalDrop);
+    // 🌟 強化全域防攔截，確保瀏覽器不接管開檔/下載
+    window.addEventListener('dragenter', this.preventGlobalDrop, true);
+    window.addEventListener('dragover', this.preventGlobalDrop, true);
+    window.addEventListener('drop', this.preventGlobalDrop, true);
   },
   beforeUnmount() {
-    window.removeEventListener('dragover', this.preventGlobalDrop);
-    window.removeEventListener('drop', this.preventGlobalDrop);
+    window.removeEventListener('dragenter', this.preventGlobalDrop, true);
+    window.removeEventListener('dragover', this.preventGlobalDrop, true);
+    window.removeEventListener('drop', this.preventGlobalDrop, true);
   },
   methods: {
     formatNumber(val) {
@@ -651,11 +650,15 @@ export default {
 
     preventGlobalDrop(e) {
       e.preventDefault();
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = 'copy';
+      }
     },
 
     onDragOver(e) {
       e.preventDefault();
       e.stopPropagation();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
       this.isDraggingOver = true;
     },
     onDragLeave(e) {

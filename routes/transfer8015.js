@@ -82,7 +82,7 @@ module.exports = function(db) {
     return sql;
   }
 
-  // 1. 匯入 API (防呆：檢查單號 TR / GD 與目的庫 != 80)
+  // 1. 匯入 API (防呆：檢查單號 TR / GD，自動跳過最後一列總計/筆數列)
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     const fileName = req.body.fileName || 'transfer_8015.csv';
@@ -92,13 +92,18 @@ module.exports = function(db) {
       return res.status(400).json({ success: false, message: '未收到有效的調撥單資料' });
     }
 
-    // 🌟 第一批時進行 TR / GD 單號與目的庫 != 80 的驗證
+    // 🌟 第一批時進行 TR / GD 單號與目的庫 != 80 的驗證，自動忽略尾列「總計/筆數」列
     if (isFirstChunk) {
       const invalidRow = items.find(item => {
         const orderNo = String(item['補貨/調撥單號'] || item['調撥單號'] || item['order_no'] || '').trim().toUpperCase();
         const destWh = String(item['目的庫'] || item['dest_warehouse'] || '').trim();
         
-        const isNotTRorGD = orderNo && !orderNo.startsWith('TR') && !orderNo.startsWith('GD');
+        // 忽略沒有單號、或是匯總/筆數列 (包含「筆數」、「總計」、「合計」、「筆」)
+        if (!orderNo || orderNo.includes('筆數') || orderNo.includes('總計') || orderNo.includes('合計') || orderNo.includes('筆') || orderNo.includes('TOTAL')) {
+          return false;
+        }
+
+        const isNotTRorGD = !orderNo.startsWith('TR') && !orderNo.startsWith('GD');
         const isDest80 = destWh === '80';
 
         return isNotTRorGD || isDest80;
@@ -167,12 +172,18 @@ module.exports = function(db) {
           return v ? (parseFloat(v.replace(/,/g, '')) || 0) : 0;
         };
 
-        const warehouse = getVal('庫別', 'warehouse') || '80';
         const order_no = getVal('補貨/調撥單號', '調撥單號', 'order_no');
+        const item_id = getVal('商品編號', 'item_id');
+
+        // 🌟 跳過無效資料或筆數/總計統計列
+        if (!order_no || order_no.includes('筆數') || order_no.includes('總計') || order_no.includes('合計') || order_no.includes('筆') || order_no.includes('TOTAL')) {
+          continue;
+        }
+
+        const warehouse = getVal('庫別', 'warehouse') || '80';
         const doc_type = getVal('單據類別', 'doc_type');
         const dest_warehouse = getVal('目的庫', 'dest_warehouse') || '15';
         const doc_status = getVal('單據狀態', 'doc_status');
-        const item_id = getVal('商品編號', 'item_id');
         const item_name = getVal('商品名稱', 'item_name');
         const item_spec = getVal('商品規格', 'item_spec');
         const supplier_item_no = getVal('廠商料號', 'supplier_item_no');
@@ -518,11 +529,14 @@ module.exports = function(db) {
     });
   });
 
-  // 🌟 7. 取得所有非 TR 及 GD 開頭，或目的庫為 80 的異常單據列表 API
+  // 7. 取得所有非 TR 及 GD 開頭，或目的庫為 80 的異常單據列表 API
   router.get('/invalid-orders', (req, res) => {
     const sql = `
       SELECT * FROM transfer_8015_details 
       WHERE ((order_no NOT LIKE 'TR%' AND order_no NOT LIKE 'GD%' AND order_no != '') OR dest_warehouse = '80')
+        AND order_no NOT LIKE '%筆數%' 
+        AND order_no NOT LIKE '%總計%' 
+        AND order_no NOT LIKE '%合計%'
       ORDER BY gen_date DESC, gen_time DESC
     `;
     db.all(sql, [], (err, rows) => {
