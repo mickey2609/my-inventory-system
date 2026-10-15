@@ -1,9 +1,9 @@
 <template>
   <div 
     class="transfer-fish-page dark-bg"
-    @dragover.prevent="onDragOver"
-    @dragleave.prevent="onDragLeave"
-    @drop.prevent="handleFileDrop"
+    @dragover="onDragOver"
+    @dragleave="onDragLeave"
+    @drop="handleFileDrop"
   >
     <!-- 隱藏的檔案選擇器 (支援 .csv, .xls, .xlsx) -->
     <input
@@ -544,6 +544,14 @@ export default {
   },
   mounted() {
     this.fetchFishData();
+
+    // 🌟 1. 全域防護：防止拖曳釋放點落在元件外時，觸發瀏覽器預設的「下載/開啟檔案」動作
+    window.addEventListener('dragover', this.preventGlobalDrop);
+    window.addEventListener('drop', this.preventGlobalDrop);
+  },
+  beforeUnmount() {
+    window.removeEventListener('dragover', this.preventGlobalDrop);
+    window.removeEventListener('drop', this.preventGlobalDrop);
   },
   methods: {
     formatNumber(val) {
@@ -564,14 +572,26 @@ export default {
       return parts.length >= 3 ? `${parts[2]}日` : dStr;
     },
 
-    onDragOver() {
+    // 🌟 全域防護方法
+    preventGlobalDrop(e) {
+      e.preventDefault();
+    },
+
+    onDragOver(e) {
+      e.preventDefault();
+      e.stopPropagation();
       this.isDraggingOver = true;
     },
-    onDragLeave() {
+    onDragLeave(e) {
+      e.preventDefault();
+      e.stopPropagation();
       this.isDraggingOver = false;
     },
     handleFileDrop(e) {
+      e.preventDefault();
+      e.stopPropagation();
       this.isDraggingOver = false;
+
       const files = e.dataTransfer.files;
       if (files && files.length > 0) {
         this.processImportFile(files[0]);
