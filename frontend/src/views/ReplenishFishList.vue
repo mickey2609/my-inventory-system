@@ -1,13 +1,26 @@
 <template>
-  <div class="replenish-fish-page dark-bg">
-    <!-- 隱藏的 CSV 檔案選擇器 -->
+  <div 
+    class="replenish-fish-page dark-bg"
+    @dragover.prevent="onDragOver"
+    @dragleave.prevent="onDragLeave"
+    @drop.prevent="handleFileDrop"
+  >
+    <!-- 隱藏的檔案選擇器 (支援 .csv, .xls, .xlsx) -->
     <input
       type="file"
       ref="csvFileInput"
       style="display: none;"
-      accept=".csv"
+      accept=".csv, .xls, .xlsx"
       @change="handleCsvFileSelected"
     />
+
+    <!-- 拖曳浮層提示 -->
+    <div v-if="isDraggingOver" class="drag-overlay">
+      <div class="drag-tip-box">
+        <i class="el-icon-upload" style="font-size: 48px; color: #38bdf8;"></i>
+        <p style="font-size: 18px; font-weight: bold; margin-top: 10px;">放開滑鼠即可直接匯入 .xls / .xlsx / .csv 補貨單檔案！</p>
+      </div>
+    </div>
 
     <!-- 1. 第一排：核心標題、日期選擇器、維度切換與操作按鈕 -->
     <div class="top-bar">
@@ -86,7 +99,7 @@
           :loading="isUploading"
           @click="triggerSelectCsv"
         >
-          📥 匯入補貨單 CSV
+          📥 匯入補貨單 (支援 .xls / .xlsx / .csv)
         </el-button>
       </div>
     </div>
@@ -186,7 +199,7 @@
     <!-- 3.2 每月每日總表區塊 -->
     <div class="table-container" v-loading="loadingMonthly" v-else-if="analysisMode === 'monthly'">
       <div class="sheet-title">
-        🗓️ 倉庫 立即補貨單 - {{ targetMonth }} 月份每日總表 (80 人工倉)
+        🗓️ 倉庫 實時補貨單 - {{ targetMonth }} 月份每日總表 (80 人工倉)
       </div>
 
       <div class="table-scroll-wrapper">
@@ -293,7 +306,7 @@
       </div>
     </div>
 
-    <!-- 🌟 3.4 補貨未完成明細追蹤 (包含【手動銷案】操作工具欄) -->
+    <!-- 3.4 補貨未完成明細追蹤 -->
     <div class="table-container" v-loading="loadingPending" v-else-if="analysisMode === 'pending'">
       <div class="sheet-title alert-sheet-title">
         🚨 倉庫 立即補貨單 - 未完成單據明細追蹤 (共 {{ formatNumber(pendingList.length) }} 筆未完成)
@@ -311,7 +324,6 @@
               <th>商品名稱</th>
               <th style="width: 100px;">建議數量</th>
               <th style="width: 130px;">備註說明</th>
-              <!-- 🌟 銷案操作工具欄位 -->
               <th style="width: 110px;">銷案工具</th>
             </tr>
           </thead>
@@ -327,7 +339,6 @@
               <td class="text-right font-bold text-red">{{ formatNumber(p.suggest_qty) }}</td>
               <td class="text-center">{{ p.remark }}</td>
               
-              <!-- 🌟 即刻銷案按鈕 -->
               <td class="text-center">
                 <el-button
                   type="danger"
@@ -349,7 +360,7 @@
       </div>
     </div>
 
-    <!-- 🌟 手動銷案 Modal 對話框 -->
+    <!-- 手動銷案 Modal 對話框 -->
     <el-dialog
       v-model="showCloseModal"
       title="🚨 補貨單據手動銷案確認"
@@ -384,10 +395,10 @@
       </template>
     </el-dialog>
 
-    <!-- CSV 上傳進度 Modal -->
+    <!-- 檔案上傳進度 Modal -->
     <el-dialog
       v-model="showUploadProgressModal"
-      title="⚡ 正在寫入與覆蓋更新體補貨單資料..."
+      title="⚡ 正在寫入與覆蓋更新立即補貨單資料..."
       width="480px"
       :close-on-click-modal="false"
       :close-on-press-escape="false"
@@ -406,7 +417,9 @@
 
 <script>
 import axios from 'axios'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
+import * as XLSX from 'xlsx'
+import Papa from 'papaparse'
 
 export default {
   name: 'ReplenishFishList',
@@ -434,12 +447,13 @@ export default {
       yearlyMonthlyList: [],
       pendingList: [],
 
-      // 🌟 手動銷案相關變數
       showCloseModal: false,
       selectedCloseRow: null,
       closeRemark: '現場已手動補完銷案',
       isClosing: false,
 
+      // 🌟 拖曳與匯入相關變數
+      isDraggingOver: false,
       isUploading: false,
       showUploadProgressModal: false,
       uploadingFileName: '',
@@ -522,6 +536,21 @@ export default {
       return parts.length >= 3 ? `${parts[2]}日` : dStr;
     },
 
+    // 🌟 拖曳檔案處理
+    onDragOver() {
+      this.isDraggingOver = true;
+    },
+    onDragLeave() {
+      this.isDraggingOver = false;
+    },
+    handleFileDrop(e) {
+      this.isDraggingOver = false;
+      const files = e.dataTransfer.files;
+      if (files && files.length > 0) {
+        this.processImportFile(files[0]);
+      }
+    },
+
     handleReasonChange(vals) {
       if (vals.includes('all')) {
         if (vals[vals.length - 1] === 'all') {
@@ -556,14 +585,18 @@ export default {
       if (this.$refs.csvFileInput) this.$refs.csvFileInput.click();
     },
 
-    async handleCsvFileSelected(event) {
+    handleCsvFileSelected(event) {
       const file = event.target.files[0];
-      if (!file) return;
+      if (file) {
+        this.processImportFile(file);
+      }
+    },
 
-      if (!file.name.endsWith('.csv')) {
-        ElMessage.error('請選擇 .csv 格式的補貨單檔案！');
-        event.target.value = '';
-        return;
+    // 🌟 核心：同時支援 .xls, .xlsx, .csv 的智慧解析處理引擎
+    async processImportFile(file) {
+      const fileName = file.name.toLowerCase();
+      if (!fileName.endsWith('.csv') && !fileName.endsWith('.xls') && !fileName.endsWith('.xlsx')) {
+        return ElMessage.error('請上傳 .xls, .xlsx 或 .csv 格式的補貨單檔案！');
       }
 
       this.isUploading = true;
@@ -574,66 +607,67 @@ export default {
       this.totalRowsToUpload = 0;
 
       try {
-        const Papa = (await import('papaparse')).default;
+        let rawData = [];
 
-        Papa.parse(file, {
-          header: true,
-          skipEmptyLines: true,
-          complete: async (results) => {
-            const rawData = results.data || [];
-            if (rawData.length === 0) {
-              this.resetUploadState(event);
-              return ElMessage.error('CSV 檔案內無有效資料！');
-            }
+        if (fileName.endsWith('.xls') || fileName.endsWith('.xlsx')) {
+          // 📄 解析 Excel 格式 (.xls / .xlsx)
+          const arrayBuffer = await file.arrayBuffer();
+          const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+          const firstSheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheetName];
+          rawData = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+        } else {
+          // 📄 解析 CSV 格式
+          const text = await file.text();
+          const results = Papa.parse(text, { header: true, skipEmptyLines: true });
+          rawData = results.data || [];
+        }
 
-            this.totalRowsToUpload = rawData.length;
-            const BATCH_SIZE = 10000;
-            let processed = 0;
+        if (!rawData || rawData.length === 0) {
+          this.resetUploadState();
+          return ElMessage.error('檔案內無有效資料！');
+        }
 
-            for (let i = 0; i < rawData.length; i += BATCH_SIZE) {
-              const chunk = rawData.slice(i, i + BATCH_SIZE);
-              const isFirstChunk = (i === 0);
+        this.totalRowsToUpload = rawData.length;
+        const BATCH_SIZE = 10000;
+        let processed = 0;
 
-              await axios.post('/api/replenish/import-json', {
-                items: chunk,
-                fileName: file.name,
-                isFirstChunk
-              });
+        for (let i = 0; i < rawData.length; i += BATCH_SIZE) {
+          const chunk = rawData.slice(i, i + BATCH_SIZE);
+          const isFirstChunk = (i === 0);
 
-              processed += chunk.length;
-              this.uploadedRows = processed;
-              this.uploadPercent = Math.min(100, Math.round((processed / this.totalRowsToUpload) * 100));
-            }
+          await axios.post('/api/replenish/import-json', {
+            items: chunk,
+            fileName: file.name,
+            isFirstChunk
+          });
 
-            ElMessage.success(`🎉 成功寫入並更新 ${this.totalRowsToUpload.toLocaleString()} 筆體補貨單資料！`);
-            this.refreshAllData();
-            this.resetUploadState(event);
-          },
-          error: (err) => {
-            ElMessage.error('解析 CSV 失敗：' + err.message);
-            this.resetUploadState(event);
-          }
-        });
+          processed += chunk.length;
+          this.uploadedRows = processed;
+          this.uploadPercent = Math.min(100, Math.round((processed / this.totalRowsToUpload) * 100));
+        }
+
+        ElMessage.success(`🎉 成功直接寫入與更新 ${this.totalRowsToUpload.toLocaleString()} 筆立即補貨單資料！`);
+        this.refreshAllData();
+        this.resetUploadState();
       } catch (e) {
-        ElMessage.error('上傳處理失敗：' + e.message);
-        this.resetUploadState(event);
+        ElMessage.error('解析或處理失敗：' + e.message);
+        this.resetUploadState();
       }
     },
 
-    resetUploadState(event) {
+    resetUploadState() {
       this.isUploading = false;
       this.showUploadProgressModal = false;
-      if (event && event.target) event.target.value = '';
+      if (this.$refs.csvFileInput) this.$refs.csvFileInput.value = '';
     },
 
-    // 🌟 打開手動銷案對話框
     openCloseDialog(row) {
       this.selectedCloseRow = row;
       this.closeRemark = '現場已手動補完銷案';
       this.showCloseModal = true;
     },
 
-    // 🌟 確認銷案 API 請求
     async confirmCloseOrder() {
       if (!this.selectedCloseRow) return;
 
@@ -769,6 +803,7 @@ export default {
 
 <style scoped>
 .replenish-fish-page {
+  position: relative;
   padding: 16px;
   height: calc(100vh - 52px);
   box-sizing: border-box;
@@ -776,6 +811,28 @@ export default {
   flex-direction: column;
   gap: 10px;
   overflow-y: auto;
+}
+
+/* 🌟 拖曳上傳提示遮罩 */
+.drag-overlay {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(15, 23, 42, 0.85);
+  border: 3px dashed #38bdf8;
+  z-index: 9999;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  border-radius: 8px;
+}
+
+.drag-tip-box {
+  text-align: center;
+  color: #38bdf8;
+  background: #1e293b;
+  padding: 30px 50px;
+  border-radius: 12px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
 }
 
 .top-bar {
