@@ -95,10 +95,10 @@
           v-if="checkSysAdmin"
           type="warning"
           size="small"
-          icon="el-icon-delete"
-          @click="cleanInvalidData"
+          icon="el-icon-warning-outline"
+          @click="openInvalidModal"
         >
-          🧹 修正誤匯單據
+          🔍 查看與清除誤匯單據
         </el-button>
 
         <el-button
@@ -116,7 +116,6 @@
 
     <!-- 2. 第二排獨立工具列：單據類別 (D欄) + 申請原因類別 雙對應篩選選單 -->
     <div class="filter-bar">
-      <!-- 單據類別 (D欄) 下拉選單 -->
       <div class="filter-item-box">
         <span class="select-label">📄 單據類別 (D欄)：</span>
         <el-select
@@ -138,7 +137,6 @@
         </el-select>
       </div>
 
-      <!-- 申請原因類別 下拉選單 -->
       <div class="filter-item-box">
         <span class="select-label">📋 申請原因類別：</span>
         <el-select
@@ -393,6 +391,73 @@
       </div>
     </div>
 
+    <!-- 🌟 4. 誤匯單據點選與批次勾選彈窗 -->
+    <el-dialog
+      v-model="showInvalidModal"
+      title="⚠️ 誤匯入跨庫調撥單之異常單據對照清單"
+      width="900px"
+      append-to-body
+      custom-class="dark-dialog"
+    >
+      <div class="invalid-modal-content" v-loading="loadingInvalid">
+        <p style="margin-bottom: 12px; font-size: 13px; color: #94a3b8;">
+          以下為非 <strong class="text-orange">TR 開頭</strong> 或 <strong class="text-orange">目的庫為 80</strong> 之誤匯筆數。請勾選欲剔除的資料，未勾選者將完整保留。
+        </p>
+
+        <el-table
+          :data="invalidList"
+          style="width: 100%; font-size: 12px;"
+          height="380"
+          border
+          @selection-change="handleInvalidSelectionChange"
+        >
+          <el-table-column type="selection" width="45" align="center" />
+          <el-table-column prop="order_no" label="誤匯單號" width="150" align="center">
+            <template #default="scope">
+              <span class="text-red font-bold">{{ scope.row.order_no }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="item_id" label="商品編號" width="130" align="center">
+            <template #default="scope">
+              <span class="text-blue font-bold">{{ scope.row.item_id }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="item_name" label="商品名稱" show-overflow-tooltip />
+          <el-table-column prop="dest_warehouse" label="目的庫" width="80" align="center">
+            <template #default="scope">
+              <span :class="scope.row.dest_warehouse === '80' ? 'text-red font-bold' : ''">{{ scope.row.dest_warehouse }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="suggest_qty" label="調撥數量" width="90" align="right">
+            <template #default="scope">
+              {{ formatNumber(scope.row.suggest_qty) }}
+            </template>
+          </el-table-column>
+          <el-table-column prop="gen_date" label="產生日期" width="100" align="center" />
+          <el-table-column prop="remark" label="備註說明" width="120" show-overflow-tooltip />
+        </el-table>
+
+        <div style="margin-top: 15px; display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-size: 13px; color: #f8fafc;">
+            已選取 <strong class="text-red">{{ selectedInvalidRows.length }}</strong> / {{ invalidList.length }} 筆異常資料
+          </span>
+          <div>
+            <el-button size="small" @click="showInvalidModal = false">關閉</el-button>
+            <el-button
+              type="danger"
+              size="small"
+              icon="el-icon-delete"
+              :disabled="selectedInvalidRows.length === 0"
+              :loading="isDeletingInvalid"
+              @click="confirmDeleteSelectedInvalid"
+            >
+              批次刪除選取筆數 ({{ selectedInvalidRows.length }})
+            </el-button>
+          </div>
+        </div>
+      </div>
+    </el-dialog>
+
     <!-- 手動銷案 Modal 對話框 -->
     <el-dialog
       v-model="showCloseModal"
@@ -482,6 +547,13 @@ export default {
       monthlyDailyList: [],
       yearlyMonthlyList: [],
       pendingList: [],
+
+      // 誤匯清單與勾選變數
+      showInvalidModal: false,
+      loadingInvalid: false,
+      invalidList: [],
+      selectedInvalidRows: [],
+      isDeletingInvalid: false,
 
       showCloseModal: false,
       selectedCloseRow: null,
@@ -603,20 +675,55 @@ export default {
       }
     },
 
-    // 🌟 一鍵修正誤匯筆數
-    async cleanInvalidData() {
+    // 🌟 打開異常單據對照彈窗
+    async openInvalidModal() {
+      this.showInvalidModal = true;
+      this.loadingInvalid = true;
       try {
-        await ElMessageBox.confirm('確定要自動掃除清理非 TR 開頭或目的庫為 80 的誤匯單據嗎？正確的 TR 單據不會受到任何影響。', '提示', {
-          confirmButtonText: '確定清理',
+        const res = await axios.get('/api/transfer8015/invalid-orders');
+        if (res.data?.success) {
+          this.invalidList = res.data.list || [];
+          if (this.invalidList.length === 0) {
+            ElMessage.info('🎉 目前沒有發現任何誤匯入的異常跨庫調撥單據！');
+          }
+        }
+      } catch (e) {
+        ElMessage.error('取得異常單據失敗：' + e.message);
+      } finally {
+        this.loadingInvalid = false;
+      }
+    },
+
+    // 🌟 勾選監聽
+    handleInvalidSelectionChange(selection) {
+      this.selectedInvalidRows = selection;
+    },
+
+    // 🌟 執行批次刪除選取的誤匯筆數
+    async confirmDeleteSelectedInvalid() {
+      if (this.selectedInvalidRows.length === 0) return;
+
+      try {
+        await ElMessageBox.confirm(`確定要剔除勾選的 ${this.selectedInvalidRows.length} 筆異常單據嗎？未勾選的資料將完整保留。`, '警告', {
+          confirmButtonText: '確定刪除',
           cancelButtonText: '取消',
-          type: 'warning'
+          type: 'danger'
         });
-        const res = await axios.post('/api/transfer8015/cleanup-invalid');
+
+        this.isDeletingInvalid = true;
+        const keys = this.selectedInvalidRows.map(r => ({ orderNo: r.order_no, itemId: r.item_id }));
+
+        const res = await axios.post('/api/transfer8015/delete-batch-invalid', { keys });
         if (res.data?.success) {
           ElMessage.success(res.data.message);
-          this.refreshAllData();
+          await this.openInvalidModal(); // 刷新對照清單
+          this.refreshAllData(); // 刷新魚群分析圖
         }
-      } catch (e) {}
+      } catch (e) {
+        if (e !== 'cancel') ElMessage.error('刪除處理失敗：' + e.message);
+      } finally {
+        this.isDeletingInvalid = false;
+      }
     },
 
     handleDocTypeChange(vals) {
@@ -1067,5 +1174,9 @@ export default {
   margin: 6px 0;
   font-size: 13px;
   color: #f8fafc;
+}
+
+.invalid-modal-content {
+  padding: 10px 0;
 }
 </style>

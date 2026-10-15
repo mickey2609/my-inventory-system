@@ -517,15 +517,40 @@ module.exports = function(db) {
     });
   });
 
-  // 🌟 7. 一鍵精準清理誤匯的非 TR 或目的庫為 80 的調撥單據
-  router.post('/cleanup-invalid', (req, res) => {
-    const sql = `DELETE FROM transfer_8015_details WHERE (order_no NOT LIKE 'TR%' AND order_no != '') OR dest_warehouse = '80'`;
-    db.run(sql, function(err) {
-      if (err) return res.status(500).json({ success: false, message: '清理失敗：' + err.message });
-      res.json({
-        success: true,
-        message: `🎉 成功清除 ${this.changes} 筆誤匯入的非 80➔15 調撥單據！原正確資料已完整保留。`,
-        deletedCount: this.changes
+  // 🌟 7. 取得所有非 TR 開頭或目的庫為 80 的異常單據列表 API
+  router.get('/invalid-orders', (req, res) => {
+    const sql = `SELECT * FROM transfer_8015_details WHERE (order_no NOT LIKE 'TR%' AND order_no != '') OR dest_warehouse = '80' ORDER BY gen_date DESC, gen_time DESC`;
+    db.all(sql, [], (err, rows) => {
+      if (err) return res.status(500).json({ success: false, message: err.message });
+      res.json({ success: true, list: rows || [] });
+    });
+  });
+
+  // 🌟 8. 批次精準刪除指定的異常單據 API
+  router.post('/delete-batch-invalid', (req, res) => {
+    const { keys } = req.body; // Array of { orderNo, itemId }
+    if (!Array.isArray(keys) || keys.length === 0) {
+      return res.status(400).json({ success: false, message: '請勾選要刪除的異常單據！' });
+    }
+
+    db.serialize(() => {
+      db.run('BEGIN TRANSACTION');
+      const stmt = db.prepare(`DELETE FROM transfer_8015_details WHERE order_no = ? AND item_id = ?`);
+      let count = 0;
+
+      for (const k of keys) {
+        stmt.run(k.orderNo, k.itemId);
+        count++;
+      }
+
+      stmt.finalize();
+      db.run('COMMIT', (err) => {
+        if (err) return res.status(500).json({ success: false, message: '刪除失敗：' + err.message });
+        res.json({
+          success: true,
+          message: `🎉 成功剔除 ${count} 筆勾選的異常跨庫調撥單據！`,
+          deletedCount: count
+        });
       });
     });
   });
