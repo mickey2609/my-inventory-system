@@ -54,7 +54,7 @@
           <el-radio-button label="yearly">📅 年度每月總表</el-radio-button>
         </el-radio-group>
 
-        <!-- 🌟 點擊觸發像進貨未上架一樣的對話框監控模式 -->
+        <!-- 點擊觸發像進貨未上架一樣的對話框監控模式 -->
         <el-button
           type="danger"
           size="small"
@@ -316,7 +316,7 @@
       </div>
     </div>
 
-    <!-- 🌟 4. 進貨未上架同款「未完成追蹤」對話框彈窗 -->
+    <!-- 4. 進貨未上架同款「未完成追蹤」對話框彈窗 -->
     <el-dialog
       v-model="showPendingDialog"
       title="⚠️ 尚未調撥完成單據明細監控與更正處置"
@@ -605,7 +605,7 @@ export default {
       monthlyDailyList: [],
       yearlyMonthlyList: [],
 
-      // 🌟 未完成追蹤彈窗專用數據
+      // 未完成追蹤彈窗專用數據
       showPendingDialog: false,
       pendingDateList: [],
       activePendingDate: '',
@@ -733,7 +733,7 @@ export default {
       }
     },
 
-    // 🌟 開啟未完成監控對話框 (載入左側日期選單)
+    // 開啟未完成監控對話框 (載入左側日期選單)
     async openPendingDialog() {
       this.showPendingDialog = true;
       await this.fetchPendingDateList();
@@ -776,7 +776,7 @@ export default {
       }
     },
 
-    // 🌟 勾選批次銷案
+    // 勾選批次銷案
     async batchCloseOrders() {
       if (this.selectedPendingRows.length === 0) return;
 
@@ -806,7 +806,7 @@ export default {
       }
     },
 
-    // 🌟 依日期區間一鍵銷案
+    // 依日期區間一鍵銷案
     async openDateRangeCloseDialog() {
       try {
         const { value: formValues } = await ElMessageBox.prompt('請輸入要批次銷案的日期區間 (格式：YYYY-MM-DD, YYYY-MM-DD)', '依日期區間一鍵銷案 (歷史舊單處置)', {
@@ -1300,7 +1300,7 @@ export default {
 .text-red { color: #f87171; }
 .font-bold { font-weight: bold; }
 
-/* 🌟 進貨未上架同款「監控與處置彈窗」樣式 */
+/* 進貨未上架同款「監控與處置彈窗」樣式 */
 .monitor-container {
   display: flex;
   gap: 15px;
