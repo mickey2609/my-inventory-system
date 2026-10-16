@@ -1,12 +1,6 @@
 <template>
-  <div 
-    class="transfer-fish-page dark-bg"
-    @dragenter.prevent.stop="onDragOver"
-    @dragover.prevent.stop="onDragOver"
-    @dragleave.prevent.stop="onDragLeave"
-    @drop.prevent.stop="handleFileDrop"
-  >
-    <!-- 隱藏的檔案選擇器 (支援 .csv, .xls, .xlsx) -->
+  <div class="transfer-fish-page dark-bg">
+    <!-- 隱藏的檔案選擇器 -->
     <input
       type="file"
       ref="csvFileInput"
@@ -14,14 +8,6 @@
       accept=".csv, .xls, .xlsx"
       @change="handleCsvFileSelected"
     />
-
-    <!-- 拖曳浮層提示 -->
-    <div v-if="isDraggingOver" class="drag-overlay">
-      <div class="drag-tip-box">
-        <i class="el-icon-upload" style="font-size: 48px; color: #38bdf8;"></i>
-        <p style="font-size: 18px; font-weight: bold; margin-top: 10px;">放開滑鼠即可直接匯入 .xls / .xlsx / .csv 跨庫調撥單檔案！</p>
-      </div>
-    </div>
 
     <!-- 1. 第一排：核心標題、日期選擇器、維度切換與操作按鈕 -->
     <div class="top-bar">
@@ -103,9 +89,9 @@
           size="small"
           icon="el-icon-upload2"
           :loading="isUploading"
-          @click="triggerSelectCsv"
+          @click="showUploadCardModal = true"
         >
-          📥 匯入 80➔15 調撥 (支援 .xls / .xlsx / .csv)
+          📥 匯入 80➔15 調撥 (小卡投放)
         </el-button>
       </div>
     </div>
@@ -387,7 +373,40 @@
       </div>
     </div>
 
-    <!-- 4. 誤匯單據點選與批次勾選彈窗 -->
+    <!-- 🌟 4. 專屬互動式檔案拖曳投放小卡 Modal -->
+    <el-dialog
+      v-model="showUploadCardModal"
+      title="📥 匯入 80➔15 跨庫調撥單據"
+      width="540px"
+      append-to-body
+      custom-class="dark-dialog upload-card-dialog"
+    >
+      <div
+        class="drop-card-box"
+        :class="{ 'drop-card-active': isCardHover }"
+        @dragenter.prevent.stop="isCardHover = true"
+        @dragover.prevent.stop="isCardHover = true"
+        @dragleave.prevent.stop="isCardHover = false"
+        @drop.prevent.stop="handleCardDrop"
+        @click="triggerSelectCsv"
+      >
+        <div class="drop-icon-wrapper">
+          <i class="el-icon-upload drop-cloud-icon"></i>
+        </div>
+        <div class="drop-text-primary">
+          將 <span class="highlight-text">.xls / .xlsx / .csv</span> 調撥單檔案拖曳至此小卡
+        </div>
+        <div class="drop-text-secondary">
+          或點擊此區域從電腦選取檔案
+        </div>
+
+        <div class="security-badge">
+          🛡️ 系統自動判定 TR / GD 開頭且目的庫不為 80，自動跳過末列筆數列
+        </div>
+      </div>
+    </el-dialog>
+
+    <!-- 5. 誤匯單據對照彈窗 -->
     <el-dialog
       v-model="showInvalidModal"
       title="⚠️ 誤匯入跨庫調撥單之異常單據對照清單"
@@ -544,6 +563,10 @@ export default {
       yearlyMonthlyList: [],
       pendingList: [],
 
+      // 🌟 小卡與匯入彈窗狀態
+      showUploadCardModal: false,
+      isCardHover: false,
+
       showInvalidModal: false,
       loadingInvalid: false,
       invalidList: [],
@@ -555,7 +578,6 @@ export default {
       closeRemark: '現場實體已完成搬移銷案',
       isClosing: false,
 
-      isDraggingOver: false,
       isUploading: false,
       showUploadProgressModal: false,
       uploadingFileName: '',
@@ -619,15 +641,15 @@ export default {
   mounted() {
     this.fetchFishData();
 
-    // 🌟 強化全域防攔截，確保瀏覽器不接管開檔/下載
-    window.addEventListener('dragenter', this.preventGlobalDrop, true);
-    window.addEventListener('dragover', this.preventGlobalDrop, true);
-    window.addEventListener('drop', this.preventGlobalDrop, true);
+    // 🌟 1. 最高優先級 Capture 階段防護：徹底鎖死瀏覽器全全域預設開啟/下載行為
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(evt => {
+      window.addEventListener(evt, this.globalBlockDrop, true);
+    });
   },
   beforeUnmount() {
-    window.removeEventListener('dragenter', this.preventGlobalDrop, true);
-    window.removeEventListener('dragover', this.preventGlobalDrop, true);
-    window.removeEventListener('drop', this.preventGlobalDrop, true);
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(evt => {
+      window.removeEventListener(evt, this.globalBlockDrop, true);
+    });
   },
   methods: {
     formatNumber(val) {
@@ -648,31 +670,16 @@ export default {
       return parts.length >= 3 ? `${parts[2]}日` : dStr;
     },
 
-    preventGlobalDrop(e) {
+    globalBlockDrop(e) {
       e.preventDefault();
-      if (e.dataTransfer) {
-        e.dataTransfer.dropEffect = 'copy';
-      }
+      e.stopPropagation();
     },
 
-    onDragOver(e) {
-      e.preventDefault();
-      e.stopPropagation();
-      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
-      this.isDraggingOver = true;
-    },
-    onDragLeave(e) {
-      e.preventDefault();
-      e.stopPropagation();
-      this.isDraggingOver = false;
-    },
-    handleFileDrop(e) {
-      e.preventDefault();
-      e.stopPropagation();
-      this.isDraggingOver = false;
-
-      const files = e.dataTransfer.files;
+    handleCardDrop(e) {
+      this.isCardHover = false;
+      const files = e.dataTransfer ? e.dataTransfer.files : [];
       if (files && files.length > 0) {
+        this.showUploadCardModal = false;
         this.processImportFile(files[0]);
       }
     },
@@ -776,6 +783,7 @@ export default {
     handleCsvFileSelected(event) {
       const file = event.target.files[0];
       if (file) {
+        this.showUploadCardModal = false;
         this.processImportFile(file);
       }
     },
@@ -1006,27 +1014,6 @@ export default {
   overflow-y: auto;
 }
 
-.drag-overlay {
-  position: absolute;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(15, 23, 42, 0.85);
-  border: 3px dashed #38bdf8;
-  z-index: 9999;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  border-radius: 8px;
-}
-
-.drag-tip-box {
-  text-align: center;
-  color: #38bdf8;
-  background: #1e293b;
-  padding: 30px 50px;
-  border-radius: 12px;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
-}
-
 .top-bar {
   display: flex;
   justify-content: space-between;
@@ -1169,13 +1156,66 @@ export default {
 .text-red { color: #f87171; }
 .font-bold { font-weight: bold; }
 
-.close-form-box p {
-  margin: 6px 0;
-  font-size: 13px;
-  color: #f8fafc;
+/* 🌟 投放小卡專業樣式 */
+.drop-card-box {
+  background: #0f172a;
+  border: 2px dashed #38bdf8;
+  border-radius: 12px;
+  padding: 35px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  user-select: none;
 }
 
-.invalid-modal-content {
-  padding: 10px 0;
+.drop-card-box:hover, .drop-card-active {
+  background: #1e293b;
+  border-color: #22c55e;
+  box-shadow: 0 0 20px rgba(34, 197, 94, 0.2);
+  transform: translateY(-2px);
+}
+
+.drop-icon-wrapper {
+  margin-bottom: 12px;
+}
+
+.drop-cloud-icon {
+  font-size: 56px;
+  color: #38bdf8;
+  pointer-events: none;
+}
+
+.drop-card-box:hover .drop-cloud-icon {
+  color: #22c55e;
+  transform: scale(1.08);
+}
+
+.drop-text-primary {
+  font-size: 15px;
+  font-weight: bold;
+  color: #f8fafc;
+  pointer-events: none;
+}
+
+.highlight-text {
+  color: #38bdf8;
+}
+
+.drop-text-secondary {
+  font-size: 13px;
+  color: #94a3b8;
+  margin-top: 6px;
+  pointer-events: none;
+}
+
+.security-badge {
+  display: inline-block;
+  margin-top: 18px;
+  padding: 4px 12px;
+  background: #1e3a8a;
+  color: #bfdbfe;
+  font-size: 11px;
+  border-radius: 20px;
+  pointer-events: none;
 }
 </style>
