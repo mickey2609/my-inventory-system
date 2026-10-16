@@ -53,8 +53,10 @@
           <el-radio-button label="monthly">🗓️ 每月每日總表</el-radio-button>
           <el-radio-button label="yearly">📅 年度每月總表</el-radio-button>
         </el-radio-group>
+      </div>
 
-        <!-- 🌟 點擊觸發像進貨未上架一樣的對話框監控模式 -->
+      <!-- 右側操作按鈕區（已將未完成追蹤移至最前頭） -->
+      <div class="action-group">
         <el-button
           type="danger"
           size="small"
@@ -63,9 +65,7 @@
         >
           🚨 補貨未完成追蹤
         </el-button>
-      </div>
 
-      <div class="action-group">
         <el-button type="info" size="small" icon="el-icon-refresh" :loading="loading" @click="refreshAllData">
           🔄 重新整理
         </el-button>
@@ -264,7 +264,7 @@
     <!-- 3.3 年度每月總表區塊 -->
     <div class="table-container" v-loading="loadingYearly" v-else-if="analysisMode === 'yearly'">
       <div class="sheet-title">
-        📅 倉庫 欄位補貨單 - {{ targetYear }} 年度每月總表 (80 人工倉)
+        📅 倉庫 立即補貨單 - {{ targetYear }} 年度每月總表 (80 人工倉)
       </div>
 
       <div class="table-scroll-wrapper">
@@ -316,7 +316,7 @@
       </div>
     </div>
 
-    <!-- 🌟 4. 進貨未上架同款「未完成追蹤」對話框彈窗 -->
+    <!-- 4. 進貨未上架同款「未完成追蹤」對話框彈窗 -->
     <el-dialog
       v-model="showPendingDialog"
       title="⚠️ 尚未補貨完成單據明細監控與更正處置"
@@ -326,7 +326,7 @@
       custom-class="dark-dialog full-monitor-dialog"
     >
       <div class="monitor-container" v-loading="loadingPending">
-        <!-- 左側：日期導航選單 (同圖2進貨未上架模式) -->
+        <!-- 左側：日期導航選單 -->
         <div class="side-date-nav">
           <div class="nav-title">📅 選擇產生日期：</div>
           <div class="nav-scroll-list">
@@ -348,7 +348,6 @@
 
         <!-- 右側：未完成明細表格與批次工具列 -->
         <div class="main-monitor-content">
-          <!-- 頂部批次工具列 -->
           <div class="monitor-top-toolbar">
             <span class="current-date-header">
               🔍 <strong>{{ activePendingDate || '全部日期' }}</strong> 未完成明細 ({{ formatNumber(pendingList.length) }} 筆)
@@ -375,7 +374,6 @@
             </div>
           </div>
 
-          <!-- 明細表格 -->
           <el-table
             ref="pendingTable"
             :data="pendingList"
@@ -601,7 +599,7 @@ export default {
       monthlyDailyList: [],
       yearlyMonthlyList: [],
 
-      // 🌟 未完成追蹤彈窗專用數據
+      // 未完成追蹤彈窗專用數據
       showPendingDialog: false,
       pendingDateList: [],
       activePendingDate: '',
@@ -729,7 +727,6 @@ export default {
       }
     },
 
-    // 🌟 開啟未完成監控對話框 (載入左側日期選單)
     async openPendingDialog() {
       this.showPendingDialog = true;
       await this.fetchPendingDateList();
@@ -772,7 +769,6 @@ export default {
       }
     },
 
-    // 🌟 勾選批次銷案
     async batchCloseOrders() {
       if (this.selectedPendingRows.length === 0) return;
 
@@ -794,7 +790,7 @@ export default {
 
         if (res.data?.success) {
           ElMessage.success(res.data.message);
-          this.fetchPendingDateList(); // 刷新日期與列表
+          this.fetchPendingDateList();
           this.refreshAllData();
         }
       } catch (e) {
@@ -802,7 +798,6 @@ export default {
       }
     },
 
-    // 🌟 依日期區間一鍵銷案
     async openDateRangeCloseDialog() {
       try {
         const { value: formValues } = await ElMessageBox.prompt('請輸入要批次銷案的日期區間 (格式：YYYY-MM-DD, YYYY-MM-DD)', '依日期區間一鍵銷案 (歷史舊單處置)', {
@@ -1296,7 +1291,7 @@ export default {
 .text-red { color: #f87171; }
 .font-bold { font-weight: bold; }
 
-/* 🌟 進貨未上架同款「監控與處置彈窗」樣式 */
+/* 進貨未上架同款「監控與處置彈窗」樣式 */
 .monitor-container {
   display: flex;
   gap: 15px;

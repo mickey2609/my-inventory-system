@@ -47,28 +47,25 @@
           @change="fetchYearlySummary"
         />
 
-        <el-date-picker
-          v-else-if="analysisMode === 'pending'"
-          v-model="pendingDateRange"
-          type="daterange"
-          size="small"
-          value-format="YYYY-MM-DD"
-          range-separator="至"
-          start-placeholder="開始日期"
-          end-placeholder="結束日期"
-          style="width: 230px;"
-          @change="fetchPendingDetails"
-        />
-
+        <!-- 3 維度分析模式切換 -->
         <el-radio-group v-model="analysisMode" size="small" @change="handleAnalysisModeChange">
           <el-radio-button label="daily">📅 單日時段分析</el-radio-button>
           <el-radio-button label="monthly">🗓️ 每月每日總表</el-radio-button>
           <el-radio-button label="yearly">📅 年度每月總表</el-radio-button>
-          <el-radio-button label="pending">🚨 調撥未完成追蹤</el-radio-button>
         </el-radio-group>
       </div>
 
+      <!-- 右側操作按鈕區（已將未完成追蹤移至最前頭） -->
       <div class="action-group">
+        <el-button
+          type="danger"
+          size="small"
+          icon="el-icon-bell"
+          @click="openPendingDialog"
+        >
+          🚨 調撥未完成追蹤
+        </el-button>
+
         <el-button type="info" size="small" icon="el-icon-refresh" :loading="loading" @click="refreshAllData">
           🔄 重新整理
         </el-button>
@@ -319,61 +316,106 @@
       </div>
     </div>
 
-    <!-- 3.4 調撥未完成明細追蹤 -->
-    <div class="table-container" v-loading="loadingPending" v-else-if="analysisMode === 'pending'">
-      <div class="sheet-title alert-sheet-title">
-        🚨 倉庫 跨庫調撥 (80➔15) - 未完成單據明細追蹤 (共 {{ formatNumber(pendingList.length) }} 筆未完成)
-      </div>
+    <!-- 4. 進貨未上架同款「未完成追蹤」對話框彈窗 -->
+    <el-dialog
+      v-model="showPendingDialog"
+      title="⚠️ 尚未調撥完成單據明細監控與更正處置"
+      width="95%"
+      top="3vh"
+      append-to-body
+      custom-class="dark-dialog full-monitor-dialog"
+    >
+      <div class="monitor-container" v-loading="loadingPending">
+        <!-- 左側：日期導航選單 -->
+        <div class="side-date-nav">
+          <div class="nav-title">📅 選擇產生日期：</div>
+          <div class="nav-scroll-list">
+            <div
+              v-for="d in pendingDateList"
+              :key="d.gen_date"
+              class="nav-date-item"
+              :class="{ 'active-date': activePendingDate === d.gen_date }"
+              @click="selectPendingDate(d.gen_date)"
+            >
+              <span class="date-str">{{ d.gen_date }}</span>
+              <span class="count-badge">{{ formatNumber(d.count) }} 筆</span>
+            </div>
+            <div v-if="pendingDateList.length === 0" class="empty-date-tip">
+              目前無滯留單據
+            </div>
+          </div>
+        </div>
 
-      <div class="table-scroll-wrapper">
-        <table class="vba-style-table">
-          <thead>
-            <tr class="header-main group-red-header">
-              <th style="width: 140px;">調撥單號</th>
-              <th style="width: 110px;">產生日期</th>
-              <th style="width: 90px;">產生時間</th>
-              <th style="width: 100px;">申請人員</th>
-              <th style="width: 160px;">商品編號</th>
-              <th>商品名稱</th>
-              <th style="width: 100px;">調撥數量</th>
-              <th style="width: 130px;">備註說明</th>
-              <th style="width: 110px;">銷案工具</th>
-            </tr>
-          </thead>
+        <!-- 右側：未完成明細表格與批次工具列 -->
+        <div class="main-monitor-content">
+          <div class="monitor-top-toolbar">
+            <span class="current-date-header">
+              🔍 <strong>{{ activePendingDate || '全部日期' }}</strong> 未完成明細 ({{ formatNumber(pendingList.length) }} 筆)
+            </span>
 
-          <tbody>
-            <tr v-for="(p, idx) in pendingList" :key="idx" :class="{ 'row-zebra': idx % 2 === 1 }">
-              <td class="text-center font-bold text-orange">{{ p.order_no }}</td>
-              <td class="text-center">{{ p.gen_date }}</td>
-              <td class="text-center">{{ p.gen_time }}</td>
-              <td class="text-center">{{ p.apply_user }}</td>
-              <td class="text-center font-bold text-blue">{{ p.item_id }}</td>
-              <td>{{ p.item_name }}</td>
-              <td class="text-right font-bold text-red">{{ formatNumber(p.suggest_qty) }}</td>
-              <td class="text-center">{{ p.remark }}</td>
-              
-              <td class="text-center">
-                <el-button
-                  type="danger"
-                  size="mini"
-                  icon="el-icon-check"
-                  @click="openCloseDialog(p)"
-                >
-                  即刻銷案
+            <div class="toolbar-btns">
+              <el-button size="mini" type="info" @click="toggleSelectAll">
+                {{ isAllSelected ? '取消全選' : '全選當頁 (' + pendingList.length + ' 筆)' }}
+              </el-button>
+
+              <el-button
+                size="mini"
+                type="danger"
+                icon="el-icon-delete"
+                :disabled="selectedPendingRows.length === 0"
+                @click="batchCloseOrders"
+              >
+                🛠️ 勾選批次銷案 (已選 {{ selectedPendingRows.length }} 筆)
+              </el-button>
+
+              <el-button size="mini" type="warning" icon="el-icon-date" @click="openDateRangeCloseDialog">
+                📅 依日期區間一鍵銷案 (專處理歷史舊單)
+              </el-button>
+            </div>
+          </div>
+
+          <el-table
+            ref="pendingTable"
+            :data="pendingList"
+            style="width: 100%; font-size: 12px;"
+            height="calc(80vh - 120px)"
+            border
+            @selection-change="handlePendingSelectionChange"
+          >
+            <el-table-column type="selection" width="45" align="center" />
+            <el-table-column prop="gen_date" label="產生日期" width="100" align="center" />
+            <el-table-column prop="gen_time" label="產生時間" width="85" align="center" />
+            <el-table-column prop="order_no" label="調撥單號" width="150" align="center">
+              <template #default="scope">
+                <span class="text-orange font-bold">{{ scope.row.order_no }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="item_id" label="商品編號" width="140" align="center">
+              <template #default="scope">
+                <span class="text-blue font-bold">{{ scope.row.item_id }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="item_name" label="商品名稱" show-overflow-tooltip />
+            <el-table-column prop="suggest_qty" label="調撥數量" width="85" align="right">
+              <template #default="scope">
+                <span class="text-red font-bold">{{ formatNumber(scope.row.suggest_qty) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="apply_user" label="申請人員" width="90" align="center" />
+            <el-table-column prop="remark" label="備註說明" show-overflow-tooltip />
+            <el-table-column label="處置" width="90" align="center" fixed="right">
+              <template #default="scope">
+                <el-button size="mini" type="danger" plain icon="el-icon-wrench" @click="openCloseDialog(scope.row)">
+                  銷案
                 </el-button>
-              </td>
-            </tr>
-            <tr v-if="pendingList.length === 0">
-              <td colspan="9" class="text-center text-green font-bold" style="padding: 20px;">
-                🎉 太棒了！當前條件下沒有任何滯留未完成的跨庫調撥單據！
-              </td>
-            </tr>
-          </tbody>
-        </table>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
       </div>
-    </div>
+    </el-dialog>
 
-    <!-- 4. 專屬互動式檔案拖曳投放小卡 Modal -->
+    <!-- 5. 專屬互動式檔案拖曳投放小卡 Modal -->
     <el-dialog
       v-model="showUploadCardModal"
       title="📥 匯入 80➔15 跨庫調撥單據"
@@ -406,7 +448,7 @@
       </div>
     </el-dialog>
 
-    <!-- 5. 誤匯單據對照彈窗 -->
+    <!-- 6. 誤匯單據對照彈窗 -->
     <el-dialog
       v-model="showInvalidModal"
       title="⚠️ 誤匯入跨庫調撥單之異常單據對照清單"
@@ -473,7 +515,7 @@
       </div>
     </el-dialog>
 
-    <!-- 6. 手動銷案 Modal 對話框 -->
+    <!-- 7. 手動銷案 Modal 對話框 -->
     <el-dialog
       v-model="showCloseModal"
       title="🚨 跨庫調撥單據手動銷案確認"
@@ -508,7 +550,7 @@
       </template>
     </el-dialog>
 
-    <!-- 7. CSV / Excel 上傳進度 Modal -->
+    <!-- 8. CSV / Excel 上傳進度 Modal -->
     <el-dialog
       v-model="showUploadProgressModal"
       title="⚡ 正在寫入與同步 80➔15 跨庫調撥單資料..."
@@ -550,7 +592,6 @@ export default {
       targetDate: new Date().toISOString().split('T')[0],
       targetMonth: new Date().toISOString().slice(0, 7),
       targetYear: new Date().getFullYear().toString(),
-      pendingDateRange: [new Date().toISOString().split('T')[0], new Date().toISOString().split('T')[0]],
       
       docTypeOptions: ['人工倉跨庫調撥單', '緊急調撥單', '自動化倉補貨單'],
       selectedDocTypes: ['all'],
@@ -561,7 +602,14 @@ export default {
       hourlyStats: [],
       monthlyDailyList: [],
       yearlyMonthlyList: [],
+
+      // 未完成追蹤彈窗專用數據
+      showPendingDialog: false,
+      pendingDateList: [],
+      activePendingDate: '',
       pendingList: [],
+      selectedPendingRows: [],
+      isAllSelected: false,
 
       showUploadCardModal: false,
       isCardHover: false,
@@ -683,6 +731,107 @@ export default {
       }
     },
 
+    async openPendingDialog() {
+      this.showPendingDialog = true;
+      await this.fetchPendingDateList();
+    },
+
+    async fetchPendingDateList() {
+      try {
+        const res = await axios.get('/api/transfer8015/pending-dates');
+        if (res.data?.success) {
+          this.pendingDateList = res.data.list || [];
+          if (this.pendingDateList.length > 0) {
+            this.activePendingDate = this.pendingDateList[0].gen_date;
+            this.fetchPendingDetails();
+          } else {
+            this.pendingList = [];
+          }
+        }
+      } catch (e) {
+        ElMessage.error('載入未完成日期選單失敗：' + e.message);
+      }
+    },
+
+    selectPendingDate(dStr) {
+      this.activePendingDate = dStr;
+      this.fetchPendingDetails();
+    },
+
+    handlePendingSelectionChange(val) {
+      this.selectedPendingRows = val;
+      this.isAllSelected = (val.length === this.pendingList.length && this.pendingList.length > 0);
+    },
+
+    toggleSelectAll() {
+      if (this.$refs.pendingTable) {
+        if (this.isAllSelected) {
+          this.$refs.pendingTable.clearSelection();
+        } else {
+          this.$refs.pendingTable.toggleAllSelection();
+        }
+      }
+    },
+
+    async batchCloseOrders() {
+      if (this.selectedPendingRows.length === 0) return;
+
+      try {
+        await ElMessageBox.confirm(`確定要將已勾選的 ${this.selectedPendingRows.length} 筆調撥單據進行批次結案銷案嗎？`, '警告', {
+          confirmButtonText: '確定銷案',
+          cancelButtonText: '取消',
+          type: 'warning'
+        });
+
+        const username = localStorage.getItem('currentUser') || localStorage.getItem('username') || '主管銷案';
+        const keys = this.selectedPendingRows.map(r => ({ orderNo: r.order_no, itemId: r.item_id }));
+
+        const res = await axios.post('/api/transfer8015/close-order', {
+          keys,
+          closeUser: username,
+          closeRemark: '主管批次勾選銷案'
+        });
+
+        if (res.data?.success) {
+          ElMessage.success(res.data.message);
+          this.fetchPendingDateList();
+          this.refreshAllData();
+        }
+      } catch (e) {
+        if (e !== 'cancel') ElMessage.error('批次銷案失敗：' + e.message);
+      }
+    },
+
+    async openDateRangeCloseDialog() {
+      try {
+        const { value: formValues } = await ElMessageBox.prompt('請輸入要批次銷案的日期區間 (格式：YYYY-MM-DD, YYYY-MM-DD)', '依日期區間一鍵銷案 (歷史舊單處置)', {
+          confirmButtonText: '執行銷案',
+          cancelButtonText: '取消',
+          inputValue: '2026-01-01, 2026-08-31',
+          inputPattern: /^\d{4}-\d{2}-\d{2}\s*,\s*\d{4}-\d{2}-\d{2}\$/,
+          inputErrorMessage: '格式不正確，例：2026-01-01, 2026-08-31'
+        });
+
+        if (formValues) {
+          const [start, end] = formValues.split(',').map(s => s.trim());
+          const username = localStorage.getItem('currentUser') || localStorage.getItem('username') || '主管銷案';
+
+          const res = await axios.post('/api/transfer8015/close-order', {
+            startDate: start,
+            endDate: end,
+            closeUser: username,
+            closeRemark: `依日期區間 ${start} ~ ${end} 一鍵銷案`
+          });
+
+          if (res.data?.success) {
+            ElMessage.success(res.data.message);
+            this.fetchPendingDateList();
+            this.refreshAllData();
+          }
+        }
+      } catch (e) {}
+    },
+
     async openInvalidModal() {
       this.showInvalidModal = true;
       this.loadingInvalid = true;
@@ -767,11 +916,11 @@ export default {
       if (this.analysisMode === 'daily') await this.fetchFishData();
       else if (this.analysisMode === 'monthly') await this.fetchMonthlySummary();
       else if (this.analysisMode === 'yearly') await this.fetchYearlySummary();
-      else if (this.analysisMode === 'pending') await this.fetchPendingDetails();
     },
 
     async refreshAllData() {
       await this.refreshCurrentMode();
+      if (this.showPendingDialog) await this.fetchPendingDateList();
       ElMessage.success('🎉 資料已成功重新整理！');
     },
 
@@ -868,8 +1017,7 @@ export default {
         const username = localStorage.getItem('currentUser') || localStorage.getItem('username') || '主管銷案';
 
         const res = await axios.post('/api/transfer8015/close-order', {
-          orderNo: this.selectedCloseRow.order_no,
-          itemId: this.selectedCloseRow.item_id,
+          keys: [{ orderNo: this.selectedCloseRow.order_no, itemId: this.selectedCloseRow.item_id }],
           closeUser: username,
           closeRemark: this.closeRemark
         });
@@ -877,7 +1025,7 @@ export default {
         if (res.data?.success) {
           ElMessage.success(res.data.message || '跨庫調撥單成功銷案！');
           this.showCloseModal = false;
-          this.fetchPendingDetails();
+          this.fetchPendingDateList();
         } else {
           ElMessage.error('銷案失敗：' + (res.data?.message || '未知錯誤'));
         }
@@ -977,13 +1125,10 @@ export default {
       try {
         const activeDocTypes = this.selectedDocTypes.includes('all') ? 'all' : this.selectedDocTypes.join(',');
         const activeReasons = this.selectedReasons.includes('all') ? 'all' : this.selectedReasons.join(',');
-        const start = this.pendingDateRange ? this.pendingDateRange[0] : '';
-        const end = this.pendingDateRange ? this.pendingDateRange[1] : '';
 
         const res = await axios.get('/api/transfer8015/pending-details', {
           params: {
-            startDate: start,
-            endDate: end,
+            targetDate: this.activePendingDate,
             docTypes: activeDocTypes,
             reasons: activeReasons
           }
@@ -1154,6 +1299,110 @@ export default {
 .text-orange { color: #fbbf24; }
 .text-red { color: #f87171; }
 .font-bold { font-weight: bold; }
+
+/* 進貨未上架同款「監控與處置彈窗」樣式 */
+.monitor-container {
+  display: flex;
+  gap: 15px;
+  height: calc(85vh - 80px);
+}
+
+.side-date-nav {
+  width: 220px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+}
+
+.nav-title {
+  font-size: 13px;
+  font-weight: bold;
+  color: #38bdf8;
+  margin-bottom: 10px;
+  border-bottom: 1px solid #334155;
+  padding-bottom: 6px;
+}
+
+.nav-scroll-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.nav-date-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: #1e293b;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 12px;
+  border: 1px solid transparent;
+}
+
+.nav-date-item:hover {
+  background: #334155;
+}
+
+.active-date {
+  background: #0284c7 !important;
+  border-color: #38bdf8 !important;
+  font-weight: bold;
+}
+
+.count-badge {
+  background: #ef4444;
+  color: #ffffff;
+  padding: 2px 6px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: bold;
+}
+
+.main-monitor-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.monitor-top-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #1e293b;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid #334155;
+}
+
+.current-date-header {
+  font-size: 14px;
+  color: #f8fafc;
+}
+
+.toolbar-btns {
+  display: flex;
+  gap: 8px;
+}
+
+.empty-date-tip {
+  text-align: center;
+  color: #22c55e;
+  padding: 20px 0;
+  font-weight: bold;
+}
 
 /* 投放小卡樣式 */
 .drop-card-box {
