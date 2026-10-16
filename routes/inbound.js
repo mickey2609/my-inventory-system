@@ -55,7 +55,7 @@ module.exports = function(db) {
     }
 
     if (docList.length > 0 && !docList.includes('all')) {
-      const subConds = docList.map(() => `batch_no LIKE ? OR receipt_no LIKE ?`);
+      const subConds = docList.map(() => `(batch_no LIKE ? OR receipt_no LIKE ?)`);
       sql += ` AND (${subConds.join(' OR ')})`;
       docList.forEach(d => {
         params.push(`%${d}%`, `%${d}%`);
@@ -125,7 +125,6 @@ module.exports = function(db) {
         const receipt_no = getVal('進貨單號', 'receipt_no', '進貨單據');
         const recv_qty_str = getVal('驗收數量', '驗收數量(PCS)', 'recv_qty');
 
-        // 自動過濾頂部標頭列 (如 筆數: 1,359) 與底端總計列 (如 總數: 26,353)
         if (
           !item_id ||
           item_id.includes('筆數') ||
@@ -383,7 +382,7 @@ module.exports = function(db) {
       const monthlyList = Object.keys(monthMap).sort().map(m => {
         const item = monthMap[m];
         const genCount = item.genOrderSet.size;
-        const cohortFinCount = item.cohortFinOrderSet.size;
+        const cohortFinCount = item.cohortFinOrderCount.size;
         const rateVal = genCount > 0 ? (cohortFinCount / genCount) * 100 : 0;
 
         return {
@@ -401,7 +400,7 @@ module.exports = function(db) {
     });
   });
 
-  // 5. 未上架明細日期選單 (左側導航)
+  // 5. 未上架明細日期選單
   router.get('/pending-dates', (req, res) => {
     const sql = `
       SELECT recv_date as gen_date, COUNT(*) as count 
