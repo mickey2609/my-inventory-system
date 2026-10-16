@@ -63,7 +63,7 @@ module.exports = function(db) {
     });
   });
 
-  // 🌟 恢復為上上次邏輯：只依據【驗收日期 rec_date】進行準確刪除，保護非該驗收日之歷史紀錄！
+  // 依驗收日期刪除 API (保護非該驗收日之歷史紀錄)
   router.post('/delete-by-date', (req, res) => {
     const { startDate, endDate, warehouse } = req.body;
 
@@ -75,7 +75,6 @@ module.exports = function(db) {
     const params = [];
 
     const targetEnd = endDate || startDate;
-    // 只刪除 rec_date 在指定驗收區間內的資料
     sql += ` AND rec_date >= ? AND rec_date <= ?`;
     params.push(startDate, targetEnd);
 
@@ -95,7 +94,7 @@ module.exports = function(db) {
     });
   });
 
-  // 1. 匯入 API (智慧相容 B 欄 Unnamed: 1 庫別)
+  // 1. 匯入 API (精準支援 JS XLSX 解析產生的 __EMPTY 與 __EMPTY_1 欄位名稱)
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     const fileName = req.body.fileName || 'latest_inbound.csv';
@@ -171,7 +170,8 @@ module.exports = function(db) {
           continue;
         }
 
-        let warehouse = getVal('warehouse', '庫別', 'Unnamed: 1') || '80';
+        // 🌟 最關鍵修正：同時加入 JS XLSX 的 '__EMPTY' 與 '__EMPTY_1'，確保精準抓到 15 庫數值！
+        let warehouse = getVal('warehouse', '__EMPTY', '__EMPTY_1', '庫別', 'Unnamed: 1') || '80';
         if (warehouse === '-') warehouse = '80';
 
         const rec_date = standardizeDate(getVal('rec_date', '驗收日期'));
