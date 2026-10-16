@@ -63,7 +63,7 @@ module.exports = function(db) {
     });
   });
 
-  // 1. 匯入 API (智慧支援 XLS / CSV 多重格式與欄位偏移)
+  // 1. 匯入 API (智慧相容 B 欄 Unnamed: 1 庫別)
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     const fileName = req.body.fileName || 'latest_inbound.csv';
@@ -127,7 +127,7 @@ module.exports = function(db) {
         const batch_no = getVal('batch_no', '驗收批號');
         const qty_str = getVal('qty', '驗收數量', '驗收數量(PCS)');
 
-        // 自動跳過 Row 2 狀態/筆數註記列與底部統計總計列
+        // 跳過 Row 2 狀態/筆數列與底部總計列
         if (
           !item_id ||
           item_id.includes('筆數') ||
@@ -140,7 +140,7 @@ module.exports = function(db) {
           continue;
         }
 
-        // 相容 A/B 欄合併與欄位偏移 (例如 A 欄為 '-' 時自動切換抓取 B 欄 Unnamed: 1)
+        // 🌟 關鍵修復：新增 'Unnamed: 1' 讀取，讓 15 庫數值能精準抓到
         let warehouse = getVal('warehouse', '庫別', 'Unnamed: 1') || '80';
         if (warehouse === '-') warehouse = '80';
 
