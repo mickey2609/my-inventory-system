@@ -55,11 +55,42 @@ module.exports = function(db) {
     db.run(`ALTER TABLE inbound_details ADD COLUMN resolve_reason TEXT`, () => {});
   });
 
-  // 清空地端進貨明細 API
+  // 清空地端所有進貨明細 API
   router.post('/clear-inbound-data', (req, res) => {
     db.run('DELETE FROM inbound_details', (err) => {
       if (err) return res.status(500).json({ success: false, message: '清空失敗：' + err.message });
       res.json({ success: true, message: '🎉 已成功清空地端所有進貨明細資料！' });
+    });
+  });
+
+  // 🌟 新增：依日期/日期區間與庫別刪除進貨明細 API
+  router.post('/delete-by-date', (req, res) => {
+    const { startDate, endDate, warehouse } = req.body;
+
+    if (!startDate) {
+      return res.status(400).json({ success: false, message: '請提供欲刪除的日期！' });
+    }
+
+    let sql = `DELETE FROM inbound_details WHERE 1=1`;
+    const params = [];
+
+    const targetEnd = endDate || startDate;
+    sql += ` AND rec_date >= ? AND rec_date <= ?`;
+    params.push(startDate, targetEnd);
+
+    if (warehouse && warehouse !== 'all') {
+      sql += ` AND warehouse = ?`;
+      params.push(warehouse);
+    }
+
+    db.run(sql, params, function(err) {
+      if (err) return res.status(500).json({ success: false, message: '刪除資料失敗：' + err.message });
+      const whLabel = warehouse && warehouse !== 'all' ? `${warehouse} 庫` : '雙庫';
+      res.json({ 
+        success: true, 
+        count: this.changes, 
+        message: `🗑️ 成功刪除 ${whLabel} 於 ${startDate} ${endDate ? '~ ' + endDate : ''} 區間共 ${this.changes} 筆進貨明細資料！` 
+      });
     });
   });
 
@@ -127,7 +158,6 @@ module.exports = function(db) {
         const batch_no = getVal('batch_no', '驗收批號');
         const qty_str = getVal('qty', '驗收數量', '驗收數量(PCS)');
 
-        // 跳過 Row 2 狀態/筆數列與底部總計列
         if (
           !item_id ||
           item_id.includes('筆數') ||
@@ -140,7 +170,6 @@ module.exports = function(db) {
           continue;
         }
 
-        // 🌟 關鍵修復：新增 'Unnamed: 1' 讀取，讓 15 庫數值能精準抓到
         let warehouse = getVal('warehouse', '庫別', 'Unnamed: 1') || '80';
         if (warehouse === '-') warehouse = '80';
 

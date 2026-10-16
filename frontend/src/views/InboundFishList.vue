@@ -71,6 +71,16 @@
 
         <el-button
           v-if="checkSysAdmin"
+          type="danger"
+          size="small"
+          icon="el-icon-delete"
+          @click="openDeleteDialog"
+        >
+          🗑️ 刪除進貨資料
+        </el-button>
+
+        <el-button
+          v-if="checkSysAdmin"
           type="success"
           size="small"
           icon="el-icon-upload2"
@@ -369,7 +379,7 @@
       </div>
     </div>
 
-    <!-- 4. 專屬互動式檔案拖曳投放小卡 Modal (智慧支援 XLS / CSV) -->
+    <!-- 4. 專屬互動式檔案拖曳投放小卡 Modal -->
     <el-dialog
       v-model="showUploadCardModal"
       title="📥 匯入 進貨驗收與新品上架單據"
@@ -402,7 +412,46 @@
       </div>
     </el-dialog>
 
-    <!-- 5. CSV / Excel 上傳進度條 Modal -->
+    <!-- 🌟 5. 逐日/區間 批次刪除進貨明細 Modal -->
+    <el-dialog
+      v-model="showDeleteModal"
+      title="🗑️ 逐日 / 批次刪除地端進貨明細"
+      width="460px"
+      append-to-body
+      custom-class="dark-dialog"
+    >
+      <div class="resolve-form">
+        <p style="color: #f87171; font-weight: bold;">
+          ⚠️ 警告：將會徹底刪除地端指定日期與庫別的進貨紀錄！
+        </p>
+
+        <el-form label-width="100px" size="small">
+          <el-form-item label="刪除庫別：">
+            <el-radio-group v-model="deleteWarehouse">
+              <el-radio label="all">🌐 雙庫 (所有庫別)</el-radio>
+              <el-radio label="80">📦 僅 80 庫</el-radio>
+              <el-radio label="15">🔍 僅 15 庫</el-radio>
+            </el-radio-group>
+          </el-form-item>
+
+          <el-form-item label="開始日期：">
+            <el-date-picker v-model="deleteStartDate" type="date" value-format="YYYY-MM-DD" style="width: 100%;" />
+          </el-form-item>
+
+          <el-form-item label="結束日期：">
+            <el-date-picker v-model="deleteEndDate" type="date" value-format="YYYY-MM-DD" placeholder="（留空表示僅刪除單日）" style="width: 100%;" />
+          </el-form-item>
+        </el-form>
+      </div>
+      <template #footer>
+        <el-button size="small" @click="showDeleteModal = false">取消</el-button>
+        <el-button type="danger" size="small" :loading="isDeleting" @click="submitDeleteByDate">
+          確認執行刪除
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 6. CSV / Excel 上傳進度條 Modal -->
     <el-dialog
       v-model="showUploadProgressModal"
       title="⚡ 正在寫入與覆蓋更新進貨明細資料..."
@@ -426,7 +475,7 @@
       </div>
     </el-dialog>
 
-    <!-- 6. 高對比寬版未上架彈窗 (支援全選當頁與按日期區間一鍵銷案) -->
+    <!-- 7. 高對比寬版未上架彈窗 (支援全選當頁與按日期區間一鍵銷案) -->
     <el-dialog 
       v-model="showPendingDialog" 
       title="⚠️ 尚未上架明細監控與更正處置" 
@@ -519,7 +568,7 @@
       </div>
     </el-dialog>
 
-    <!-- 7. 更正銷案 Modal (勾選) -->
+    <!-- 8. 更正銷案 Modal (勾選) -->
     <el-dialog v-model="showResolveModal" title="🛠️ 銷案/更正未上架記錄" width="420px" append-to-body custom-class="dark-dialog">
       <div class="resolve-form">
         <p>準備更正 <strong>{{ targetResolveItems.length }}</strong> 筆未上架項目：</p>
@@ -544,7 +593,7 @@
       </template>
     </el-dialog>
 
-    <!-- 8. 日期區間一鍵銷案 Modal -->
+    <!-- 9. 日期區間一鍵銷案 Modal -->
     <el-dialog v-model="showRangeResolveModal" title="🗓️ 依日期區間一鍵批次銷案" width="460px" append-to-body custom-class="dark-dialog">
       <div class="resolve-form">
         <p style="color: #fbbf24;">⚠️ 將會把指定日期範圍內**所有未上架項目**一次全數銷案！</p>
@@ -608,6 +657,13 @@ export default {
 
       showUploadCardModal: false,
       isCardHover: false,
+
+      // 🌟 逐日/批次刪除 Modal
+      showDeleteModal: false,
+      deleteWarehouse: 'all',
+      deleteStartDate: new Date().toISOString().split('T')[0],
+      deleteEndDate: '',
+      isDeleting: false,
 
       showResolveModal: false,
       targetResolveItems: [],
@@ -747,6 +803,49 @@ export default {
       if (files && files.length > 0) {
         this.showUploadCardModal = false;
         this.processImportFile(files[0]);
+      }
+    },
+
+    openDeleteDialog() {
+      this.deleteWarehouse = this.warehouse || 'all';
+      this.deleteStartDate = this.targetDate || new Date().toISOString().split('T')[0];
+      this.deleteEndDate = '';
+      this.showDeleteModal = true;
+    },
+
+    async submitDeleteByDate() {
+      if (!this.deleteStartDate) {
+        return ElMessage.warning('請選擇要刪除的開始日期！');
+      }
+
+      const whLabel = this.deleteWarehouse === 'all' ? '所有庫別 (80與15庫)' : `${this.deleteWarehouse} 庫`;
+      const dateLabel = this.deleteEndDate ? `${this.deleteStartDate} ~ ${this.deleteEndDate}` : `${this.deleteStartDate}`;
+
+      try {
+        await ElMessageBox.confirm(
+          `確定要刪除 ${whLabel} 於 [ ${dateLabel} ] 期間的所有進貨明細嗎？此動作無法復原！`,
+          '⚠️ 確定刪除進貨明細？',
+          { confirmButtonText: '確定刪除', cancelButtonText: '取消', type: 'error' }
+        );
+
+        this.isDeleting = true;
+        const res = await axios.post('/api/inbound/delete-by-date', {
+          startDate: this.deleteStartDate,
+          endDate: this.deleteEndDate,
+          warehouse: this.deleteWarehouse
+        });
+
+        if (res.data?.success) {
+          ElMessage.success(res.data.message);
+          this.showDeleteModal = false;
+          this.refreshAllData();
+        }
+      } catch (e) {
+        if (e !== 'cancel') {
+          ElMessage.error('刪除失敗：' + (e.response?.data?.message || e.message));
+        }
+      } finally {
+        this.isDeleting = false;
       }
     },
 
