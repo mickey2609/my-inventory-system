@@ -1,20 +1,19 @@
 <template>
   <div class="inbound-fish-page dark-bg">
-    <!-- 隱藏的 CSV 檔案選擇器 -->
+    <!-- 隱藏的檔案選擇器 -->
     <input
       type="file"
       ref="csvFileInput"
       style="display: none;"
-      accept=".csv"
+      accept=".csv, .xls, .xlsx"
       @change="handleCsvFileSelected"
     />
 
-    <!-- 1. 頂部操作與篩選列 -->
+    <!-- 1. 第一排：核心標題、日期選擇器、維度切換與操作按鈕 -->
     <div class="top-bar">
       <div class="title-group">
-        <span class="page-title">🐟 倉庫 進貨驗收與新品上架分析</span>
+        <span class="page-title">📥 倉庫 實時進貨上架魚群出沒分析 (15 自動化倉)</span>
         
-        <!-- 日期/月份/年份 選擇器 -->
         <el-date-picker
           v-if="analysisMode === 'daily'"
           v-model="targetDate"
@@ -38,7 +37,7 @@
         />
 
         <el-date-picker
-          v-else
+          v-else-if="analysisMode === 'yearly'"
           v-model="targetYear"
           type="year"
           size="small"
@@ -48,24 +47,23 @@
           @change="fetchYearlySummary"
         />
 
-        <!-- 分析模式切換（置中） -->
+        <!-- 3 維度分析模式切換 -->
         <el-radio-group v-model="analysisMode" size="small" @change="handleAnalysisModeChange">
           <el-radio-button label="daily">📅 單日時段分析</el-radio-button>
           <el-radio-button label="monthly">🗓️ 每月每日總表</el-radio-button>
-          <el-radio-button label="yearly">📊 年度每月總表</el-radio-button>
-        </el-radio-group>
-
-        <!-- 庫別選擇 -->
-        <el-radio-group v-model="warehouse" size="small" @change="handleFilterChange">
-          <el-radio-button label="all">🌐 雙庫合計</el-radio-button>
-          <el-radio-button label="80">📦 80 庫 (人工)</el-radio-button>
-          <el-radio-button label="15">🔍 15 庫 (自動)</el-radio-button>
+          <el-radio-button label="yearly">📅 年度每月總表</el-radio-button>
         </el-radio-group>
       </div>
 
+      <!-- 右側操作按鈕區（紅色未上架追蹤按鈕在最前頭） -->
       <div class="action-group">
-        <el-button type="warning" size="small" icon="el-icon-warning" @click="openPendingDialog">
-          未上架追蹤 ({{ totalPendingCount }} 筆)
+        <el-button
+          type="danger"
+          size="small"
+          icon="el-icon-bell"
+          @click="openPendingDialog"
+        >
+          🚨 尚未上架明細追蹤
         </el-button>
 
         <el-button type="info" size="small" icon="el-icon-refresh" :loading="loading" @click="refreshAllData">
@@ -78,178 +76,99 @@
           size="small"
           icon="el-icon-upload2"
           :loading="isUploading"
-          @click="triggerSelectCsv"
+          @click="showUploadCardModal = true"
         >
-          📥 匯入進貨明細 CSV
+          📥 匯入進貨單據 (小卡投放)
         </el-button>
       </div>
     </div>
 
-    <!-- 2. 控制卡片 -->
-    <div class="filter-card">
-      <div class="filter-item">
-        <span class="filter-label">🏷️ 收貨備註魚群條件：</span>
-        <el-checkbox-group v-model="selectedRemarks" size="small" @change="handleFilterChange">
-          <el-checkbox label="empty">⚪ 空白 (正常件)</el-checkbox>
-          <el-checkbox label="15">📦 (原15庫)</el-checkbox>
-          <el-checkbox label="abnormal">⚠️ 異常件 (其他文字說明)</el-checkbox>
-        </el-checkbox-group>
-      </div>
-
-      <div class="filter-item view-switcher" v-if="analysisMode === 'daily'">
-        <span class="filter-label">📌 統計檢視維度：</span>
-        <el-radio-group v-model="activeViewTab" size="small">
-          <el-radio-button label="po">📋 依進貨單號分析</el-radio-button>
-          <el-radio-button label="batch">🏷️ 依驗收批號分析</el-radio-button>
-          <el-radio-button label="both">📊 雙檢視對照 (完整)</el-radio-button>
-        </el-radio-group>
+    <!-- 2. 第二排獨立工具列 -->
+    <div class="filter-bar">
+      <div class="filter-item-box">
+        <span class="select-label">📄 驗收批號 / 進貨單號：</span>
+        <el-select
+          v-model="selectedDocTypes"
+          multiple
+          collapse-tags
+          size="small"
+          placeholder="請選擇單據號碼"
+          style="width: 250px;"
+          @change="handleDocTypeChange"
+        >
+          <el-option label="🌐 全選 (所有單據)" value="all" />
+          <el-option
+            v-for="item in docTypeOptions"
+            :key="item"
+            :label="item"
+            :value="item"
+          />
+        </el-select>
       </div>
     </div>
 
-    <!-- 3.1 單日分析表格區塊 -->
+    <!-- 3.1 單日時段分析表格 -->
     <div class="table-container" v-loading="loading" v-if="analysisMode === 'daily'">
       <div class="sheet-title">
-        倉庫 進貨驗收與新品上架分析 - {{ formatDateTitle(targetDate) }} ({{ getWarehouseLabel(warehouse) }})
-        <span class="mode-tag">
-          [{{ activeViewTab === 'po' ? '進貨單號模式' : (activeViewTab === 'batch' ? '驗收批號模式' : '雙視圖模式') }}]
-        </span>
+        倉庫 魚群出沒時間分析 - {{ formatDateTitle(targetDate) }} (15 自動化倉)
       </div>
 
       <div class="table-scroll-wrapper">
         <table class="vba-style-table">
-          <colgroup>
-            <col style="width: 70px;" />
-            <template v-if="activeViewTab === 'po' || activeViewTab === 'both'">
-              <col class="col-bar-group" />
-              <col style="width: 68px;" />
-              <col style="width: 64px;" />
-              <col style="width: 72px;" />
-              <col class="col-bar-group" />
-              <col style="width: 68px;" />
-              <col style="width: 64px;" />
-              <col style="width: 72px;" />
-            </template>
-            <col v-if="activeViewTab === 'both'" style="width: 6px;" />
-            <template v-if="activeViewTab === 'batch' || activeViewTab === 'both'">
-              <col class="col-bar-group" />
-              <col style="width: 68px;" />
-              <col style="width: 64px;" />
-              <col style="width: 72px;" />
-              <col style="width: 76px;" />
-              <col class="col-bar-group" />
-              <col style="width: 68px;" />
-              <col style="width: 64px;" />
-              <col style="width: 72px;" />
-              <col style="width: 76px;" />
-            </template>
-          </colgroup>
-
           <thead>
             <tr class="header-main">
               <th class="col-time" rowspan="2">時間<br>時段</th>
-              <template v-if="activeViewTab === 'po' || activeViewTab === 'both'">
-                <th colspan="4" class="group-blue-header">進貨單號驗收統計</th>
-                <th colspan="4" class="group-green-header">新品單號上架統計</th>
-              </template>
-              <th v-if="activeViewTab === 'both'" class="col-sep"></th>
-              <template v-if="activeViewTab === 'batch' || activeViewTab === 'both'">
-                <th colspan="4" class="group-blue-header">驗收批號驗收統計</th>
-                <th class="col-ratio-header">比例</th>
-                <th colspan="4" class="group-green-header">驗收批號上架統計</th>
-                <th class="col-ratio-header">比例</th>
-              </template>
+              <th colspan="5" class="group-blue-header">進貨驗收單統計</th>
+              <th colspan="4" class="group-green-header">完成上架單統計</th>
+              <th class="col-ratio-header" rowspan="2" style="width: 90px;">已刪單筆數</th>
             </tr>
 
             <tr class="header-sub">
-              <template v-if="activeViewTab === 'po' || activeViewTab === 'both'">
-                <th class="col-bar-title">單號圖形</th>
-                <th>單號占比</th>
-                <th>單號筆數</th>
-                <th>驗收PCS</th>
-                <th class="col-bar-title">上架圖形</th>
-                <th>上架占比</th>
-                <th>上架筆數</th>
-                <th>上架PCS</th>
-              </template>
-
-              <th v-if="activeViewTab === 'both'" class="col-sep"></th>
-
-              <template v-if="activeViewTab === 'batch' || activeViewTab === 'both'">
-                <th class="col-bar-title">批號圖形</th>
-                <th>批號占比</th>
-                <th>批號筆數</th>
-                <th>批號PCS</th>
-                <th>驗收單/批比</th>
-                <th class="col-bar-title">批上圖形</th>
-                <th>批上占比</th>
-                <th>批號筆數</th>
-                <th>批號PCS</th>
-                <th>上架單/批比</th>
-              </template>
+              <th class="col-bar-title">產生圖形</th>
+              <th style="width: 80px;">產生占比</th>
+              <th style="width: 80px;">驗收筆數</th>
+              <th style="width: 90px;">驗收PCS</th>
+              <th class="col-pending-header" style="width: 90px;">未完成筆數</th>
+              <th class="col-bar-title">完成圖形</th>
+              <th style="width: 80px;">完成占比</th>
+              <th style="width: 80px;">上架筆數</th>
+              <th style="width: 90px;">上架PCS</th>
             </tr>
           </thead>
 
           <tbody>
             <tr v-for="(h, idx) in hourlyStats" :key="idx" :class="{ 'row-zebra': idx % 2 === 1 }">
               <td class="col-time font-bold">{{ h.hourStr }}</td>
-              <template v-if="activeViewTab === 'po' || activeViewTab === 'both'">
-                <td class="col-bar-cell"><div class="bar-fill blue-bar" :style="{ width: getBarWidth(h.recPoPct) }"></div></td>
-                <td class="text-right">{{ formatPercent(h.recPoPct) }}</td>
-                <td class="text-right">{{ formatNumber(h.recPoCount) }}</td>
-                <td class="text-right font-bold text-blue">{{ formatNumber(h.recPoPcs) }}</td>
+              
+              <td class="col-bar-cell"><div class="bar-fill blue-bar" :style="{ width: getBarWidth(h.genPct) }"></div></td>
+              <td class="text-right">{{ formatPercent(h.genPct) }}</td>
+              <td class="text-right">{{ formatNumber(h.genOrderCount) }}</td>
+              <td class="text-right font-bold text-blue">{{ formatNumber(h.genPcs) }}</td>
 
-                <td class="col-bar-cell"><div class="bar-fill green-bar" :style="{ width: getBarWidth(h.putPoPct) }"></div></td>
-                <td class="text-right">{{ formatPercent(h.putPoPct) }}</td>
-                <td class="text-right">{{ formatNumber(h.putPoCount) }}</td>
-                <td class="text-right font-bold text-green">{{ formatNumber(h.putPoPcs) }}</td>
-              </template>
+              <td class="text-right font-bold text-red">{{ formatNumber(h.pendingOrderCount) }}</td>
 
-              <td v-if="activeViewTab === 'both'" class="col-sep"></td>
+              <td class="col-bar-cell"><div class="bar-fill green-bar" :style="{ width: getBarWidth(h.finPct) }"></div></td>
+              <td class="text-right">{{ formatPercent(h.finPct) }}</td>
+              <td class="text-right">{{ formatNumber(h.finOrderCount) }}</td>
+              <td class="text-right font-bold text-green">{{ formatNumber(h.finPcs) }}</td>
 
-              <template v-if="activeViewTab === 'batch' || activeViewTab === 'both'">
-                <td class="col-bar-cell"><div class="bar-fill blue-bar" :style="{ width: getBarWidth(h.recBatPct) }"></div></td>
-                <td class="text-right">{{ formatPercent(h.recBatPct) }}</td>
-                <td class="text-right">{{ formatNumber(h.recBatCount) }}</td>
-                <td class="text-right font-bold text-blue">{{ formatNumber(h.recBatPcs) }}</td>
-                <td class="text-right font-bold">{{ formatRatio(h.recBatCount, h.recPoCount) }}</td>
-
-                <td class="col-bar-cell"><div class="bar-fill green-bar" :style="{ width: getBarWidth(h.putBatPct) }"></div></td>
-                <td class="text-right">{{ formatPercent(h.putBatPct) }}</td>
-                <td class="text-right">{{ formatNumber(h.putBatCount) }}</td>
-                <td class="text-right font-bold text-green">{{ formatNumber(h.putBatPcs) }}</td>
-                <td class="text-right font-bold">{{ formatRatio(h.putBatCount, h.putPoCount) }}</td>
-              </template>
+              <td class="text-right font-bold text-orange">{{ formatNumber(h.delOrderCount) }}</td>
             </tr>
           </tbody>
 
           <tfoot>
             <tr class="row-summary">
               <td class="col-time font-bold">總計</td>
-              <template v-if="activeViewTab === 'po' || activeViewTab === 'both'">
-                <td></td>
-                <td class="text-right font-bold">100.00%</td>
-                <td class="text-right font-bold">{{ formatNumber(summaryTotal.recPoCount) }}</td>
-                <td class="text-right font-bold text-blue">{{ formatNumber(summaryTotal.recPoPcs) }}</td>
-                <td></td>
-                <td class="text-right font-bold">100.00%</td>
-                <td class="text-right font-bold">{{ formatNumber(summaryTotal.putPoCount) }}</td>
-                <td class="text-right font-bold text-green">{{ formatNumber(summaryTotal.putPoPcs) }}</td>
-              </template>
-
-              <td v-if="activeViewTab === 'both'" class="col-sep"></td>
-
-              <template v-if="activeViewTab === 'batch' || activeViewTab === 'both'">
-                <td></td>
-                <td class="text-right font-bold">100.00%</td>
-                <td class="text-right font-bold">{{ formatNumber(summaryTotal.recBatCount) }}</td>
-                <td class="text-right font-bold text-blue">{{ formatNumber(summaryTotal.recBatPcs) }}</td>
-                <td class="text-right font-bold">{{ formatRatio(summaryTotal.recBatCount, summaryTotal.recPoCount) }}</td>
-                <td></td>
-                <td class="text-right font-bold">100.00%</td>
-                <td class="text-right font-bold">{{ formatNumber(summaryTotal.putBatCount) }}</td>
-                <td class="text-right font-bold text-green">{{ formatNumber(summaryTotal.putBatPcs) }}</td>
-                <td class="text-right font-bold">{{ formatRatio(summaryTotal.putBatCount, summaryTotal.putPoCount) }}</td>
-              </template>
+              <td></td>
+              <td class="text-right font-bold">100.00%</td>
+              <td class="text-right font-bold">{{ formatNumber(summaryTotal.genOrderCount) }}</td>
+              <td class="text-right font-bold text-blue">{{ formatNumber(summaryTotal.genPcs) }}</td>
+              <td class="text-right font-bold text-red">{{ formatNumber(summaryTotal.pendingOrderCount) }}</td>
+              <td></td>
+              <td class="text-right font-bold">100.00%</td>
+              <td class="text-right font-bold">{{ formatNumber(summaryTotal.finOrderCount) }}</td>
+              <td class="text-right font-bold text-green">{{ formatNumber(summaryTotal.finPcs) }}</td>
+              <td class="text-right font-bold text-orange">{{ formatNumber(summaryTotal.delOrderCount) }}</td>
             </tr>
           </tfoot>
         </table>
@@ -259,55 +178,52 @@
     <!-- 3.2 每月每日總表區塊 -->
     <div class="table-container" v-loading="loadingMonthly" v-else-if="analysisMode === 'monthly'">
       <div class="sheet-title">
-        🗓️ 倉庫 進貨驗收與新品上架 - {{ targetMonth }} 月份每日總表 ({{ getWarehouseLabel(warehouse) }})
+        🗓️ 倉庫 實時進貨上架 - {{ targetMonth }} 月份每日總表 (15 自動化倉)
       </div>
 
       <div class="table-scroll-wrapper">
         <table class="vba-style-table">
           <thead>
             <tr class="header-main">
-              <th style="width: 110px;" rowspan="2">驗收/上架日期</th>
-              <th colspan="3" class="group-blue-header">進貨驗收每日匯總</th>
-              <th colspan="3" class="group-green-header">新品上架每日匯總</th>
-              <th class="col-ratio-header" rowspan="2" style="width: 100px;">當日上架率 (%)</th>
+              <th style="width: 110px;" rowspan="2">日期</th>
+              <th colspan="2" class="group-blue-header">進貨驗收匯總</th>
+              <th colspan="2" class="group-green-header">完成上架匯總</th>
+              <th class="col-ratio-header" rowspan="2" style="width: 100px;">已刪單筆數</th>
+              <th class="col-ratio-header" rowspan="2" style="width: 110px;">上架率 (%)</th>
             </tr>
             <tr class="header-sub">
-              <th style="width: 110px;">進貨單數 (PO)</th>
-              <th style="width: 110px;">驗收批數</th>
-              <th style="width: 120px;">驗收 PCS</th>
-              <th style="width: 110px;">上架單數 (PO)</th>
-              <th style="width: 110px;">上架批數</th>
-              <th style="width: 120px;">上架 PCS</th>
+              <th style="width: 120px;">驗收單數</th>
+              <th style="width: 130px;">驗收 PCS</th>
+              <th style="width: 120px;">上架單數</th>
+              <th style="width: 130px;">上架 PCS</th>
             </tr>
           </thead>
 
           <tbody>
             <tr v-for="(day, idx) in monthlyDailyList" :key="idx" :class="{ 'row-zebra': idx % 2 === 1 }">
               <td class="text-center font-bold">{{ day.date }}</td>
-              <td class="text-right">{{ formatNumber(day.recPoCount) }}</td>
-              <td class="text-right">{{ formatNumber(day.recBatCount) }}</td>
-              <td class="text-right font-bold text-blue">{{ formatNumber(day.recPcs) }}</td>
+              <td class="text-right">{{ formatNumber(day.genOrderCount) }}</td>
+              <td class="text-right font-bold text-blue">{{ formatNumber(day.genPcs) }}</td>
               
-              <td class="text-right">{{ formatNumber(day.putPoCount) }}</td>
-              <td class="text-right">{{ formatNumber(day.putBatCount) }}</td>
-              <td class="text-right font-bold text-green">{{ formatNumber(day.putPcs) }}</td>
+              <td class="text-right">{{ formatNumber(day.finOrderCount) }}</td>
+              <td class="text-right font-bold text-green">{{ formatNumber(day.finPcs) }}</td>
               
-              <td class="text-right font-bold text-orange">{{ day.putRate }}</td>
+              <td class="text-right font-bold text-orange">{{ formatNumber(day.delOrderCount) }}</td>
+              <td class="text-right font-bold text-orange">{{ day.finishRate }}</td>
             </tr>
           </tbody>
 
           <tfoot>
             <tr class="row-summary">
               <td class="text-center font-bold">全月總計</td>
-              <td class="text-right font-bold">{{ formatNumber(monthlySummaryTotal.recPoCount) }}</td>
-              <td class="text-right font-bold">{{ formatNumber(monthlySummaryTotal.recBatCount) }}</td>
-              <td class="text-right font-bold text-blue">{{ formatNumber(monthlySummaryTotal.recPcs) }}</td>
+              <td class="text-right font-bold">{{ formatNumber(monthlySummaryTotal.genOrderCount) }}</td>
+              <td class="text-right font-bold text-blue">{{ formatNumber(monthlySummaryTotal.genPcs) }}</td>
               
-              <td class="text-right font-bold">{{ formatNumber(monthlySummaryTotal.putPoCount) }}</td>
-              <td class="text-right font-bold">{{ formatNumber(monthlySummaryTotal.putBatCount) }}</td>
-              <td class="text-right font-bold text-green">{{ formatNumber(monthlySummaryTotal.putPcs) }}</td>
+              <td class="text-right font-bold">{{ formatNumber(monthlySummaryTotal.finOrderCount) }}</td>
+              <td class="text-right font-bold text-green">{{ formatNumber(monthlySummaryTotal.finPcs) }}</td>
               
-              <td class="text-right font-bold text-orange">{{ monthlySummaryTotal.putRate }}</td>
+              <td class="text-right font-bold text-orange">{{ formatNumber(monthlySummaryTotal.delOrderCount) }}</td>
+              <td class="text-right font-bold text-orange">{{ monthlySummaryTotal.finishRate }}</td>
             </tr>
           </tfoot>
         </table>
@@ -315,67 +231,231 @@
     </div>
 
     <!-- 3.3 年度每月總表區塊 -->
-    <div class="table-container" v-loading="loadingYearly" v-else>
+    <div class="table-container" v-loading="loadingYearly" v-else-if="analysisMode === 'yearly'">
       <div class="sheet-title">
-        📊 倉庫 進貨驗收與新品上架 - {{ targetYear }} 年度每月總表 ({{ getWarehouseLabel(warehouse) }})
+        📅 倉庫 實時進貨上架 - {{ targetYear }} 年度每月總表 (15 自動化倉)
       </div>
 
       <div class="table-scroll-wrapper">
         <table class="vba-style-table">
           <thead>
             <tr class="header-main">
-              <th style="width: 110px;" rowspan="2">驗收/上架月份</th>
-              <th colspan="3" class="group-blue-header">進貨驗收每月匯總</th>
-              <th colspan="3" class="group-green-header">新品上架每月匯總</th>
-              <th class="col-ratio-header" rowspan="2" style="width: 110px;">當月上架率 (%)</th>
+              <th style="width: 110px;" rowspan="2">月份</th>
+              <th colspan="2" class="group-blue-header">進貨驗收匯總</th>
+              <th colspan="2" class="group-green-header">完成上架匯總</th>
+              <th class="col-ratio-header" rowspan="2" style="width: 100px;">已刪單筆數</th>
+              <th class="col-ratio-header" rowspan="2" style="width: 110px;">上架率 (%)</th>
             </tr>
             <tr class="header-sub">
-              <th style="width: 110px;">進貨單數 (PO)</th>
-              <th style="width: 110px;">驗收批數</th>
-              <th style="width: 120px;">驗收 PCS</th>
-              <th style="width: 110px;">上架單數 (PO)</th>
-              <th style="width: 110px;">上架批數</th>
-              <th style="width: 120px;">上架 PCS</th>
+              <th style="width: 120px;">驗收單數</th>
+              <th style="width: 130px;">驗收 PCS</th>
+              <th style="width: 120px;">上架單數</th>
+              <th style="width: 130px;">上架 PCS</th>
             </tr>
           </thead>
 
           <tbody>
             <tr v-for="(m, idx) in yearlyMonthlyList" :key="idx" :class="{ 'row-zebra': idx % 2 === 1 }">
-              <td class="text-center font-bold">{{ m.month }}</td>
-              <td class="text-right">{{ formatNumber(m.recPoCount) }}</td>
-              <td class="text-right">{{ formatNumber(m.recBatCount) }}</td>
-              <td class="text-right font-bold text-blue">{{ formatNumber(m.recPcs) }}</td>
+              <td class="text-center font-bold">{{ m.monthLabel }} ({{ m.month }})</td>
+              <td class="text-right">{{ formatNumber(m.genOrderCount) }}</td>
+              <td class="text-right font-bold text-blue">{{ formatNumber(m.genPcs) }}</td>
               
-              <td class="text-right">{{ formatNumber(m.putPoCount) }}</td>
-              <td class="text-right">{{ formatNumber(m.putBatCount) }}</td>
-              <td class="text-right font-bold text-green">{{ formatNumber(m.putPcs) }}</td>
+              <td class="text-right">{{ formatNumber(m.finOrderCount) }}</td>
+              <td class="text-right font-bold text-green">{{ formatNumber(m.finPcs) }}</td>
               
-              <td class="text-right font-bold text-orange">{{ m.putRate }}</td>
+              <td class="text-right font-bold text-orange">{{ formatNumber(m.delOrderCount) }}</td>
+              <td class="text-right font-bold text-orange">{{ m.finishRate }}</td>
             </tr>
           </tbody>
 
           <tfoot>
             <tr class="row-summary">
-              <td class="text-center font-bold">全年度總計</td>
-              <td class="text-right font-bold">{{ formatNumber(yearlySummaryTotal.recPoCount) }}</td>
-              <td class="text-right font-bold">{{ formatNumber(yearlySummaryTotal.recBatCount) }}</td>
-              <td class="text-right font-bold text-blue">{{ formatNumber(yearlySummaryTotal.recPcs) }}</td>
+              <td class="text-center font-bold">全年總計</td>
+              <td class="text-right font-bold">{{ formatNumber(yearlySummaryTotal.genOrderCount) }}</td>
+              <td class="text-right font-bold text-blue">{{ formatNumber(yearlySummaryTotal.genPcs) }}</td>
               
-              <td class="text-right font-bold">{{ formatNumber(yearlySummaryTotal.putPoCount) }}</td>
-              <td class="text-right font-bold">{{ formatNumber(yearlySummaryTotal.putBatCount) }}</td>
-              <td class="text-right font-bold text-green">{{ formatNumber(yearlySummaryTotal.putPcs) }}</td>
+              <td class="text-right font-bold">{{ formatNumber(yearlySummaryTotal.finOrderCount) }}</td>
+              <td class="text-right font-bold text-green">{{ formatNumber(yearlySummaryTotal.finPcs) }}</td>
               
-              <td class="text-right font-bold text-orange">{{ yearlySummaryTotal.putRate }}</td>
+              <td class="text-right font-bold text-orange">{{ formatNumber(yearlySummaryTotal.delOrderCount) }}</td>
+              <td class="text-right font-bold text-orange">{{ yearlySummaryTotal.finishRate }}</td>
             </tr>
           </tfoot>
         </table>
       </div>
     </div>
 
-    <!-- 4. CSV 上傳進度條 Modal -->
+    <!-- 4. 未上架追蹤對話框彈窗 (左側日期選單 + 右側批量處置) -->
+    <el-dialog
+      v-model="showPendingDialog"
+      title="⚠️ 尚未上架明細監控與更正處置"
+      width="95%"
+      top="3vh"
+      append-to-body
+      custom-class="dark-dialog full-monitor-dialog"
+    >
+      <div class="monitor-container" v-loading="loadingPending">
+        <!-- 左側：日期導航選單 -->
+        <div class="side-date-nav">
+          <div class="nav-title">📅 選擇驗收日期：</div>
+          <div class="nav-scroll-list">
+            <div
+              v-for="d in pendingDateList"
+              :key="d.gen_date"
+              class="nav-date-item"
+              :class="{ 'active-date': activePendingDate === d.gen_date }"
+              @click="selectPendingDate(d.gen_date)"
+            >
+              <span class="date-str">{{ d.gen_date }}</span>
+              <span class="count-badge">{{ formatNumber(d.count) }} 筆</span>
+            </div>
+            <div v-if="pendingDateList.length === 0" class="empty-date-tip">
+              目前無滯留單據
+            </div>
+          </div>
+        </div>
+
+        <!-- 右側：未上架明細表格與批次工具列 -->
+        <div class="main-monitor-content">
+          <div class="monitor-top-toolbar">
+            <span class="current-date-header">
+              🔍 <strong>{{ activePendingDate || '全部日期' }}</strong> 未上架明細 ({{ formatNumber(pendingList.length) }} 筆)
+            </span>
+
+            <div class="toolbar-btns">
+              <el-button size="mini" type="info" @click="toggleSelectAll">
+                {{ isAllSelected ? '取消全選' : '全選當頁 (' + pendingList.length + ' 筆)' }}
+              </el-button>
+
+              <el-button
+                size="mini"
+                type="danger"
+                icon="el-icon-delete"
+                :disabled="selectedPendingRows.length === 0"
+                @click="batchCloseOrders"
+              >
+                🛠️ 勾選批次銷案 (已選 {{ selectedPendingRows.length }} 筆)
+              </el-button>
+
+              <el-button size="mini" type="warning" icon="el-icon-date" @click="openDateRangeCloseDialog">
+                📅 依日期區間一鍵銷案 (專處理歷史舊單)
+              </el-button>
+            </div>
+          </div>
+
+          <el-table
+            ref="pendingTable"
+            :data="pendingList"
+            style="width: 100%; font-size: 12px;"
+            height="calc(80vh - 120px)"
+            border
+            @selection-change="handlePendingSelectionChange"
+          >
+            <el-table-column type="selection" width="45" align="center" />
+            <el-table-column prop="gen_date" label="驗收日期" width="100" align="center" />
+            <el-table-column prop="gen_time" label="驗收時間" width="85" align="center" />
+            <el-table-column prop="order_no" label="進貨單號" width="150" align="center">
+              <template #default="scope">
+                <span class="text-orange font-bold">{{ scope.row.order_no }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="batch_no" label="驗收批號" width="150" align="center" />
+            <el-table-column prop="item_id" label="商品編號" width="140" align="center">
+              <template #default="scope">
+                <span class="text-blue font-bold">{{ scope.row.item_id }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="item_name" label="商品名稱" show-overflow-tooltip />
+            <el-table-column prop="suggest_qty" label="驗收數量" width="85" align="right">
+              <template #default="scope">
+                <span class="text-red font-bold">{{ formatNumber(scope.row.suggest_qty) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="remark" label="收貨備註" show-overflow-tooltip />
+            <el-table-column label="處置" width="90" align="center" fixed="right">
+              <template #default="scope">
+                <el-button size="mini" type="danger" plain icon="el-icon-wrench" @click="openCloseDialog(scope.row)">
+                  銷案
+                </el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+      </div>
+    </el-dialog>
+
+    <!-- 5. 專屬互動式檔案拖曳投放小卡 Modal (智慧支援 XLS / CSV) -->
+    <el-dialog
+      v-model="showUploadCardModal"
+      title="📥 匯入 15 倉實時進貨單據"
+      width="540px"
+      append-to-body
+      custom-class="dark-dialog upload-card-dialog"
+    >
+      <div
+        class="drop-card-box"
+        :class="{ 'drop-card-active': isCardHover }"
+        @dragenter.prevent="isCardHover = true"
+        @dragover.prevent="isCardHover = true"
+        @dragleave.prevent="isCardHover = false"
+        @drop.prevent="handleCardDrop"
+        @click="triggerSelectCsv"
+      >
+        <div class="drop-icon-wrapper">
+          <i class="el-icon-upload drop-cloud-icon"></i>
+        </div>
+        <div class="drop-text-primary">
+          將 <span class="highlight-text">.xls / .xlsx / .csv</span> 進貨檔案拖曳至此小卡
+        </div>
+        <div class="drop-text-secondary">
+          或點擊此區域從電腦選取檔案
+        </div>
+
+        <div class="security-badge">
+          🛡️ 系統自動適應 XLS / CSV 多重欄位格線，跳過標頭與總計筆數
+        </div>
+      </div>
+    </el-dialog>
+
+    <!-- 6. 手動銷案 Modal 對話框 -->
+    <el-dialog
+      v-model="showCloseModal"
+      title="🚨 進貨單據手動銷案確認"
+      width="420px"
+      append-to-body
+      custom-class="dark-dialog"
+    >
+      <div class="close-form-box" v-if="selectedCloseRow">
+        <p><strong>進貨單號：</strong> <span class="text-orange">{{ selectedCloseRow.order_no }}</span></p>
+        <p><strong>商品編號：</strong> <span class="text-blue">{{ selectedCloseRow.item_id }}</span></p>
+        <p><strong>商品名稱：</strong> {{ selectedCloseRow.item_name }}</p>
+        
+        <div style="margin-top: 12px;">
+          <label style="font-size: 13px; font-weight: bold; color: #cbd5e1;">銷案原因/備註說明：</label>
+          <el-input
+            type="textarea"
+            v-model="closeRemark"
+            placeholder="請輸入手動銷案原因（例：現場手動上架完成 / 系統重複開單）"
+            rows="3"
+            style="margin-top: 6px;"
+          />
+        </div>
+      </div>
+
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button size="small" @click="showCloseModal = false">取消</el-button>
+          <el-button type="danger" size="small" :loading="isClosing" @click="confirmCloseOrder">
+            確認完成銷案
+          </el-button>
+        </span>
+      </template>
+    </el-dialog>
+
+    <!-- 7. CSV / Excel 上傳進度 Modal -->
     <el-dialog
       v-model="showUploadProgressModal"
-      title="⚡ 正在寫入與覆蓋更新進貨明細資料..."
+      title="⚡ 正在寫入與同步 15 倉進貨單資料..."
       width="480px"
       :close-on-click-modal="false"
       :close-on-press-escape="false"
@@ -386,159 +466,8 @@
       <div class="progress-box">
         <p class="file-name-info">📁 匯入檔案：<strong>{{ uploadingFileName }}</strong></p>
         <p class="status-info">已處理：{{ formatNumber(uploadedRows) }} / {{ formatNumber(totalRowsToUpload) }} 筆 ({{ uploadPercent }}%)</p>
-        <el-progress
-          :percentage="uploadPercent"
-          :stroke-width="18"
-          :text-inside="true"
-          status="success"
-        />
-        <p class="tip-info">💡 系統正使用高效 Transaction 進行資料比對與覆蓋更新，請勿關閉視窗...</p>
+        <el-progress :percentage="uploadPercent" :stroke-width="18" :text-inside="true" status="success" />
       </div>
-    </el-dialog>
-
-    <!-- 🌟 5. 高對比寬版未上架彈窗 (支援全選當頁與按日期區間一鍵銷案) -->
-    <el-dialog 
-      v-model="showPendingDialog" 
-      title="⚠️ 尚未上架明細監控與更正處置" 
-      width="92%" 
-      top="4vh"
-      append-to-body 
-      custom-class="dark-dialog large-pending-dialog"
-    >
-      <div class="pending-dialog-body">
-        <div class="pending-summary-sidebar">
-          <p class="sidebar-title">📅 選擇驗收日期：</p>
-          <div class="date-list">
-            <div
-              v-for="item in pendingSummary"
-              :key="item.rec_date"
-              class="date-item"
-              :class="{ active: selectedPendingDate === item.rec_date }"
-              @click="loadPendingDetails(item.rec_date)"
-            >
-              <span class="d-text">{{ item.rec_date }}</span>
-              <span class="d-badge">{{ item.pending_count }} 筆</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="pending-details-content" v-loading="loadingDetails">
-          <div class="content-header" v-if="selectedPendingDate">
-            <span class="detail-title">🔍 <strong>{{ selectedPendingDate }}</strong> 未上架明細 ({{ currentDetailsList.length }} 筆)</span>
-            
-            <div class="btn-group">
-              <!-- 🌟 方案一快捷按鈕：全選當頁 -->
-              <el-button
-                type="info"
-                size="small"
-                plain
-                @click="toggleSelectAllPage"
-              >
-                ☑️ 全選當頁 ({{ currentDetailsList.length }} 筆)
-              </el-button>
-
-              <el-button
-                type="danger"
-                size="small"
-                :disabled="selectedDetailRows.length === 0"
-                @click="openResolveDialog(selectedDetailRows)"
-              >
-                🛠️ 勾選批次銷案 (已選 {{ selectedDetailRows.length }} 筆)
-              </el-button>
-
-              <!-- 🌟 方案一快捷按鈕：依日期區間一鍵銷案 -->
-              <el-button
-                type="warning"
-                size="small"
-                @click="openRangeResolveDialog"
-              >
-                🗓️ 依日期區間一鍵銷案 (專處理1~8月)
-              </el-button>
-            </div>
-          </div>
-
-          <el-table
-            ref="pendingTable"
-            :data="currentDetailsList"
-            border
-            stripe
-            size="small"
-            height="460px"
-            class="dark-table"
-            @selection-change="handleSelectionChange"
-          >
-            <el-table-column type="selection" width="45" align="center" />
-            <el-table-column prop="rec_date" label="驗收日期" width="105" align="center" />
-            <el-table-column prop="rec_time" label="驗收時間" width="85" align="center" />
-            <el-table-column prop="po_no" label="進貨單號" width="150" align="center" />
-            <el-table-column prop="batch_no" label="驗收批號" width="150" align="center" />
-            <el-table-column prop="item_name" label="商品名稱" min-width="220" show-overflow-tooltip />
-            <el-table-column prop="qty" label="數量" width="70" align="right">
-              <template #default="scope">
-                <span class="font-bold text-blue">{{ scope.row.qty }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column prop="remark" label="收貨備註" min-width="160" show-overflow-tooltip />
-            <el-table-column label="處置" width="90" align="center" fixed="right">
-              <template #default="scope">
-                <el-button type="danger" size="mini" plain @click="openResolveDialog([scope.row])">
-                  🛠️ 銷案
-                </el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-        </div>
-      </div>
-    </el-dialog>
-
-    <!-- 6. 更正銷案 Modal (勾選) -->
-    <el-dialog v-model="showResolveModal" title="🛠️ 銷案/更正未上架記錄" width="420px" append-to-body custom-class="dark-dialog">
-      <div class="resolve-form">
-        <p>準備更正 <strong>{{ targetResolveItems.length }}</strong> 筆未上架項目：</p>
-        
-        <el-form label-width="90px" size="small">
-          <el-form-item label="更正原因：">
-            <el-radio-group v-model="resolveReason">
-              <el-radio label="同仁多驗/誤驗收 (無法上架)">同仁多驗/誤驗收 (無法上架)</el-radio>
-              <el-radio label="廠商退回/異常件處置">廠商退回/異常件處置</el-radio>
-              <el-radio label="補填預設上架日期">補填預設上架日期</el-radio>
-            </el-radio-group>
-          </el-form-item>
-
-          <el-form-item v-if="resolveReason === '補填預設上架日期'" label="上架日期：">
-            <el-date-picker v-model="customPutDate" type="date" value-format="YYYY-MM-DD" placeholder="選擇上架日期" />
-          </el-form-item>
-        </el-form>
-      </div>
-      <template #footer>
-        <el-button size="small" @click="showResolveModal = false">取消</el-button>
-        <el-button type="primary" size="small" :loading="resolving" @click="submitResolve">確認銷案更正</el-button>
-      </template>
-    </el-dialog>
-
-    <!-- 🌟 7. 日期區間一鍵銷案 Modal -->
-    <el-dialog v-model="showRangeResolveModal" title="🗓️ 依日期區間一鍵批次銷案" width="460px" append-to-body custom-class="dark-dialog">
-      <div class="resolve-form">
-        <p style="color: #fbbf24;">⚠️ 將會把指定日期範圍內**所有未上架項目**一次全數銷案！</p>
-        
-        <el-form label-width="100px" size="small">
-          <el-form-item label="開始日期：">
-            <el-date-picker v-model="rangeStartDate" type="date" value-format="YYYY-MM-DD" style="width: 100%;" />
-          </el-form-item>
-
-          <el-form-item label="結束日期：">
-            <el-date-picker v-model="rangeEndDate" type="date" value-format="YYYY-MM-DD" style="width: 100%;" />
-          </el-form-item>
-
-          <el-form-item label="銷案備註：">
-            <el-input v-model="rangeReason" placeholder="例如: 1~8月歷史資料批次銷案" />
-          </el-form-item>
-        </el-form>
-      </div>
-      <template #footer>
-        <el-button size="small" @click="showRangeResolveModal = false">取消</el-button>
-        <el-button type="danger" size="small" :loading="resolvingRange" @click="submitRangeResolve">確認一鍵銷案</el-button>
-      </template>
     </el-dialog>
   </div>
 </template>
@@ -546,6 +475,8 @@
 <script>
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import * as XLSX from 'xlsx'
+import Papa from 'papaparse'
 
 export default {
   name: 'InboundFishList',
@@ -554,42 +485,38 @@ export default {
   },
   data() {
     return {
-      analysisMode: 'daily', // 'daily' | 'monthly' | 'yearly'
+      analysisMode: 'daily',
       loading: false,
       loadingMonthly: false,
       loadingYearly: false,
+      loadingPending: false,
+      
       targetDate: new Date().toISOString().split('T')[0],
-      targetMonth: new Date().toISOString().slice(0, 7), // YYYY-MM
-      targetYear: new Date().getFullYear().toString(), // YYYY
-      warehouse: 'all',
-      selectedRemarks: ['empty', '15', 'abnormal'],
-      activeViewTab: 'po',
+      targetMonth: new Date().toISOString().slice(0, 7),
+      targetYear: new Date().getFullYear().toString(),
+      
+      docTypeOptions: ['PR261016B000156', 'BR2609290034520'],
+      selectedDocTypes: ['all'],
+
       hourlyStats: [],
       monthlyDailyList: [],
       yearlyMonthlyList: [],
 
+      // 未上架追蹤彈窗專用數據
       showPendingDialog: false,
-      pendingSummary: [],
-      totalPendingCount: 0,
+      pendingDateList: [],
+      activePendingDate: '',
+      pendingList: [],
+      selectedPendingRows: [],
+      isAllSelected: false,
 
-      selectedPendingDate: '',
-      currentDetailsList: [],
-      selectedDetailRows: [],
-      loadingDetails: false,
+      showUploadCardModal: false,
+      isCardHover: false,
 
-      // 單筆/多筆銷案
-      showResolveModal: false,
-      targetResolveItems: [],
-      resolveReason: '同仁多驗/誤驗收 (無法上架)',
-      customPutDate: '',
-      resolving: false,
-
-      // 日期區間一鍵銷案
-      showRangeResolveModal: false,
-      rangeStartDate: '2026-01-01',
-      rangeEndDate: '2026-08-31',
-      rangeReason: '1~8月歷史匯入資料批次銷案',
-      resolvingRange: false,
+      showCloseModal: false,
+      selectedCloseRow: null,
+      closeRemark: '現場手動上架完成銷案',
+      isClosing: false,
 
       isUploading: false,
       showUploadProgressModal: false,
@@ -613,60 +540,53 @@ export default {
       return username === 'admin' || username === '系統管理員';
     },
     summaryTotal() {
-      const tot = {
-        recPoCount: 0, recPoPcs: 0,
-        putPoCount: 0, putPoPcs: 0,
-        recBatCount: 0, recBatPcs: 0,
-        putBatCount: 0, putBatPcs: 0
-      };
+      const tot = { genOrderCount: 0, genPcs: 0, pendingOrderCount: 0, finOrderCount: 0, finPcs: 0, delOrderCount: 0 };
       this.hourlyStats.forEach(h => {
-        tot.recPoCount += h.recPoCount || 0;
-        tot.recPoPcs += h.recPoPcs || 0;
-        tot.putPoCount += h.putPoCount || 0;
-        tot.putPoPcs += h.putPoPcs || 0;
-        tot.recBatCount += h.recBatCount || 0;
-        tot.recBatPcs += h.recBatPcs || 0;
-        tot.putBatCount += h.putBatCount || 0;
-        tot.putBatPcs += h.putBatPcs || 0;
+        tot.genOrderCount += h.genOrderCount || 0;
+        tot.genPcs += h.genPcs || 0;
+        tot.pendingOrderCount += h.pendingOrderCount || 0;
+        tot.finOrderCount += h.finOrderCount || 0;
+        tot.finPcs += h.finPcs || 0;
+        tot.delOrderCount += h.delOrderCount || 0;
       });
       return tot;
     },
     monthlySummaryTotal() {
-      const tot = {
-        recPoCount: 0, recBatCount: 0, recPcs: 0,
-        putPoCount: 0, putBatCount: 0, putPcs: 0
-      };
+      const tot = { genOrderCount: 0, genPcs: 0, cohortFinOrderCount: 0, finOrderCount: 0, finPcs: 0, delOrderCount: 0 };
       this.monthlyDailyList.forEach(d => {
-        tot.recPoCount += d.recPoCount || 0;
-        tot.recBatCount += d.recBatCount || 0;
-        tot.recPcs += d.recPcs || 0;
-        tot.putPoCount += d.putPoCount || 0;
-        tot.putBatCount += d.putBatCount || 0;
-        tot.putPcs += d.putPcs || 0;
+        tot.genOrderCount += d.genOrderCount || 0;
+        tot.genPcs += d.genPcs || 0;
+        tot.cohortFinOrderCount += d.cohortFinOrderCount || 0;
+        tot.finOrderCount += d.finOrderCount || 0;
+        tot.finPcs += d.finPcs || 0;
+        tot.delOrderCount += d.delOrderCount || 0;
       });
-      const putRate = tot.recPcs > 0 ? ((tot.putPcs / tot.recPcs) * 100).toFixed(2) + '%' : '0.00%';
-      return { ...tot, putRate };
+      const finishRate = tot.genOrderCount > 0 ? ((tot.cohortFinOrderCount / tot.genOrderCount) * 100).toFixed(2) + '%' : '0.00%';
+      return { ...tot, finishRate };
     },
     yearlySummaryTotal() {
-      const tot = {
-        recPoCount: 0, recBatCount: 0, recPcs: 0,
-        putPoCount: 0, putBatCount: 0, putPcs: 0
-      };
+      const tot = { genOrderCount: 0, genPcs: 0, cohortFinOrderCount: 0, finOrderCount: 0, finPcs: 0, delOrderCount: 0 };
       this.yearlyMonthlyList.forEach(m => {
-        tot.recPoCount += m.recPoCount || 0;
-        tot.recBatCount += m.recBatCount || 0;
-        tot.recPcs += m.recPcs || 0;
-        tot.putPoCount += m.putPoCount || 0;
-        tot.putBatCount += m.putBatCount || 0;
-        tot.putPcs += m.putPcs || 0;
+        tot.genOrderCount += m.genOrderCount || 0;
+        tot.genPcs += m.genPcs || 0;
+        tot.cohortFinOrderCount += m.cohortFinOrderCount || 0;
+        tot.finOrderCount += m.finOrderCount || 0;
+        tot.finPcs += m.finPcs || 0;
+        tot.delOrderCount += m.delOrderCount || 0;
       });
-      const putRate = tot.recPcs > 0 ? ((tot.putPcs / tot.recPcs) * 100).toFixed(2) + '%' : '0.00%';
-      return { ...tot, putRate };
+      const finishRate = tot.genOrderCount > 0 ? ((tot.cohortFinOrderCount / tot.genOrderCount) * 100).toFixed(2) + '%' : '0.00%';
+      return { ...tot, finishRate };
     }
   },
   mounted() {
     this.fetchFishData();
-    this.fetchPendingSummary();
+
+    window.addEventListener('dragover', this.globalBlockDrop, false);
+    window.addEventListener('drop', this.globalBlockDrop, false);
+  },
+  beforeUnmount() {
+    window.removeEventListener('dragover', this.globalBlockDrop, false);
+    window.removeEventListener('drop', this.globalBlockDrop, false);
   },
   methods: {
     formatNumber(val) {
@@ -677,10 +597,6 @@ export default {
       if (!val) return '0.00%';
       return (val * 100).toFixed(2) + '%';
     },
-    formatRatio(num, den) {
-      if (!den || den === 0) return '0.00';
-      return (num / den).toFixed(2);
-    },
     getBarWidth(pct) {
       if (!pct) return '0%';
       return Math.min(100, pct * 100 * 3) + '%';
@@ -690,57 +606,171 @@ export default {
       const parts = dStr.split('-');
       return parts.length >= 3 ? `${parts[2]}日` : dStr;
     },
-    getWarehouseLabel(wh) {
-      if (wh === '80') return '80 庫';
-      if (wh === '15') return '15 庫';
-      return '雙庫合計';
+
+    globalBlockDrop(e) {
+      e.preventDefault();
+    },
+
+    handleCardDrop(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      this.isCardHover = false;
+
+      const dt = e.dataTransfer;
+      const files = dt ? dt.files : [];
+      if (files && files.length > 0) {
+        this.showUploadCardModal = false;
+        this.processImportFile(files[0]);
+      }
+    },
+
+    async openPendingDialog() {
+      this.showPendingDialog = true;
+      await this.fetchPendingDateList();
+    },
+
+    async fetchPendingDateList() {
+      try {
+        const res = await axios.get('/api/inbound/pending-dates');
+        if (res.data?.success) {
+          this.pendingDateList = res.data.list || [];
+          if (this.pendingDateList.length > 0) {
+            this.activePendingDate = this.pendingDateList[0].gen_date;
+            this.fetchPendingDetails();
+          } else {
+            this.pendingList = [];
+          }
+        }
+      } catch (e) {
+        ElMessage.error('載入未上架日期選單失敗：' + e.message);
+      }
+    },
+
+    selectPendingDate(dStr) {
+      this.activePendingDate = dStr;
+      this.fetchPendingDetails();
+    },
+
+    handlePendingSelectionChange(val) {
+      this.selectedPendingRows = val;
+      this.isAllSelected = (val.length === this.pendingList.length && this.pendingList.length > 0);
+    },
+
+    toggleSelectAll() {
+      if (this.$refs.pendingTable) {
+        if (this.isAllSelected) {
+          this.$refs.pendingTable.clearSelection();
+        } else {
+          this.$refs.pendingTable.toggleAllSelection();
+        }
+      }
+    },
+
+    async batchCloseOrders() {
+      if (this.selectedPendingRows.length === 0) return;
+
+      try {
+        await ElMessageBox.confirm(`確定要將已勾選的 ${this.selectedPendingRows.length} 筆進貨單據進行批次結案銷案嗎？`, '警告', {
+          confirmButtonText: '確定銷案',
+          cancelButtonText: '取消',
+          type: 'warning'
+        });
+
+        const username = localStorage.getItem('currentUser') || localStorage.getItem('username') || '主管銷案';
+        const keys = this.selectedPendingRows.map(r => ({ orderNo: r.order_no, itemId: r.item_id }));
+
+        const res = await axios.post('/api/inbound/close-order', {
+          keys,
+          closeUser: username,
+          closeRemark: '主管批次勾選銷案'
+        });
+
+        if (res.data?.success) {
+          ElMessage.success(res.data.message);
+          this.fetchPendingDateList();
+          this.refreshAllData();
+        }
+      } catch (e) {
+        if (e !== 'cancel') ElMessage.error('批次銷案失敗：' + e.message);
+      }
+    },
+
+    async openDateRangeCloseDialog() {
+      try {
+        const { value: formValues } = await ElMessageBox.prompt('請輸入要批次銷案的日期區間 (格式：YYYY-MM-DD, YYYY-MM-DD)', '依日期區間一鍵銷案 (歷史舊單處置)', {
+          confirmButtonText: '執行銷案',
+          cancelButtonText: '取消',
+          inputValue: '2026-01-01, 2026-08-31',
+          inputPattern: /^\d{4}-\d{2}-\d{2}\s*,\s*\d{4}-\d{2}-\d{2}\$/,
+          inputErrorMessage: '格式不正確，例：2026-01-01, 2026-08-31'
+        });
+
+        if (formValues) {
+          const [start, end] = formValues.split(',').map(s => s.trim());
+          const username = localStorage.getItem('currentUser') || localStorage.getItem('username') || '主管銷案';
+
+          const res = await axios.post('/api/inbound/close-order', {
+            startDate: start,
+            endDate: end,
+            closeUser: username,
+            closeRemark: `依日期區間 ${start} ~ ${end} 一鍵銷案`
+          });
+
+          if (res.data?.success) {
+            ElMessage.success(res.data.message);
+            this.fetchPendingDateList();
+            this.refreshAllData();
+          }
+        }
+      } catch (e) {}
+    },
+
+    handleDocTypeChange(vals) {
+      if (vals.includes('all')) {
+        if (vals[vals.length - 1] === 'all') {
+          this.selectedDocTypes = ['all'];
+        } else {
+          this.selectedDocTypes = vals.filter(v => v !== 'all');
+        }
+      } else if (vals.length === 0) {
+        this.selectedDocTypes = ['all'];
+      }
+
+      this.refreshCurrentMode();
     },
 
     handleAnalysisModeChange(mode) {
-      if (mode === 'daily') {
-        this.fetchFishData();
-      } else if (mode === 'monthly') {
-        this.fetchMonthlySummary();
-      } else {
-        this.fetchYearlySummary();
-      }
+      this.refreshCurrentMode();
     },
 
-    handleFilterChange() {
-      if (this.analysisMode === 'daily') {
-        this.fetchFishData();
-      } else if (this.analysisMode === 'monthly') {
-        this.fetchMonthlySummary();
-      } else {
-        this.fetchYearlySummary();
-      }
+    async refreshCurrentMode() {
+      if (this.analysisMode === 'daily') await this.fetchFishData();
+      else if (this.analysisMode === 'monthly') await this.fetchMonthlySummary();
+      else if (this.analysisMode === 'yearly') await this.fetchYearlySummary();
     },
 
     async refreshAllData() {
-      if (this.analysisMode === 'daily') {
-        await Promise.all([this.fetchFishData(), this.fetchPendingSummary()]);
-      } else if (this.analysisMode === 'monthly') {
-        await Promise.all([this.fetchMonthlySummary(), this.fetchPendingSummary()]);
-      } else {
-        await Promise.all([this.fetchYearlySummary(), this.fetchPendingSummary()]);
-      }
+      await this.refreshCurrentMode();
+      if (this.showPendingDialog) await this.fetchPendingDateList();
       ElMessage.success('🎉 資料已成功重新整理！');
     },
 
     triggerSelectCsv() {
-      if (this['$refs'] && this['$refs'].csvFileInput) {
-        this['\$refs'].csvFileInput.click();
+      if (this.$refs.csvFileInput) this.$refs.csvFileInput.click();
+    },
+
+    handleCsvFileSelected(event) {
+      const file = event.target.files[0];
+      if (file) {
+        this.showUploadCardModal = false;
+        this.processImportFile(file);
       }
     },
 
-    async handleCsvFileSelected(event) {
-      const file = event.target.files[0];
-      if (!file) return;
-
-      if (!file.name.endsWith('.csv')) {
-        ElMessage.error('請選擇 .csv 格式的進貨明細檔案！');
-        event.target.value = '';
-        return;
+    async processImportFile(file) {
+      const fileName = file.name.toLowerCase();
+      if (!fileName.endsWith('.csv') && !fileName.endsWith('.xls') && !fileName.endsWith('.xlsx')) {
+        return ElMessage.error('請上傳 .xls, .xlsx 或 .csv 格式的進貨單檔案！');
       }
 
       this.isUploading = true;
@@ -751,77 +781,109 @@ export default {
       this.totalRowsToUpload = 0;
 
       try {
-        const Papa = (await import('papaparse')).default;
+        let rawData = [];
 
-        Papa.parse(file, {
-          header: true,
-          skipEmptyLines: true,
-          complete: async (results) => {
-            const rawData = results.data || [];
-            if (rawData.length === 0) {
-              this.resetUploadState(event);
-              return ElMessage.error('CSV 檔案內無有效資料！');
-            }
+        if (fileName.endsWith('.xls') || fileName.endsWith('.xlsx')) {
+          const arrayBuffer = await file.arrayBuffer();
+          const workbook = XLSX.read(arrayBuffer, { type: 'array', raw: false });
+          const firstSheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheetName];
+          rawData = XLSX.utils.sheet_to_json(worksheet, { defval: '', raw: false });
+        } else {
+          const text = await file.text();
+          const results = Papa.parse(text, { header: true, skipEmptyLines: true, dynamicTyping: false });
+          rawData = results.data || [];
+        }
 
-            this.totalRowsToUpload = rawData.length;
-            const BATCH_SIZE = 10000;
-            let processed = 0;
+        if (!rawData || rawData.length === 0) {
+          this.resetUploadState();
+          return ElMessage.error('檔案內無有效資料！');
+        }
 
-            for (let i = 0; i < rawData.length; i += BATCH_SIZE) {
-              const chunk = rawData.slice(i, i + BATCH_SIZE);
-              const isFirstChunk = (i === 0);
+        this.totalRowsToUpload = rawData.length;
+        const BATCH_SIZE = 10000;
+        let processed = 0;
 
-              await axios.post('/api/inbound/import-json', {
-                items: chunk,
-                fileName: file.name,
-                isFirstChunk: isFirstChunk
-              });
+        for (let i = 0; i < rawData.length; i += BATCH_SIZE) {
+          const chunk = rawData.slice(i, i + BATCH_SIZE);
+          const isFirstChunk = (i === 0);
 
-              processed += chunk.length;
-              this.uploadedRows = processed;
-              this.uploadPercent = Math.min(100, Math.round((processed / this.totalRowsToUpload) * 100));
-            }
+          await axios.post('/api/inbound/import-json', {
+            items: chunk,
+            fileName: file.name,
+            isFirstChunk
+          });
 
-            ElMessage.success(`🎉 成功寫入並更新 ${this.totalRowsToUpload.toLocaleString()} 筆進貨明細資料！`);
-            this.refreshAllData();
-            this.resetUploadState(event);
-          },
-          error: (err) => {
-            ElMessage.error('解析 CSV 失敗：' + err.message);
-            this.resetUploadState(event);
-          }
-        });
+          processed += chunk.length;
+          this.uploadedRows = processed;
+          this.uploadPercent = Math.min(100, Math.round((processed / this.totalRowsToUpload) * 100));
+        }
+
+        ElMessage.success(`🎉 成功同步 ${this.totalRowsToUpload.toLocaleString()} 筆進貨單資料！`);
+        this.refreshAllData();
+        this.resetUploadState();
       } catch (e) {
-        ElMessage.error('上傳處理失敗：' + e.message);
-        this.resetUploadState(event);
+        ElMessage.error(e.response?.data?.message || '解析或處理失敗：' + e.message);
+        this.resetUploadState();
       }
     },
 
-    resetUploadState(event) {
+    resetUploadState() {
       this.isUploading = false;
       this.showUploadProgressModal = false;
-      if (event && event.target) event.target.value = '';
+      if (this.$refs.csvFileInput) this.$refs.csvFileInput.value = '';
+    },
+
+    openCloseDialog(row) {
+      this.selectedCloseRow = row;
+      this.closeRemark = '現場手動上架完成銷案';
+      this.showCloseModal = true;
+    },
+
+    async confirmCloseOrder() {
+      if (!this.selectedCloseRow) return;
+
+      this.isClosing = true;
+      try {
+        const username = localStorage.getItem('currentUser') || localStorage.getItem('username') || '主管銷案';
+
+        const res = await axios.post('/api/inbound/close-order', {
+          keys: [{ orderNo: this.selectedCloseRow.order_no, itemId: this.selectedCloseRow.item_id }],
+          closeUser: username,
+          closeRemark: this.closeRemark
+        });
+
+        if (res.data?.success) {
+          ElMessage.success(res.data.message || '進貨單成功銷案！');
+          this.showCloseModal = false;
+          this.fetchPendingDateList();
+        } else {
+          ElMessage.error('銷案失敗：' + (res.data?.message || '未知錯誤'));
+        }
+      } catch (e) {
+        ElMessage.error('銷案處理失敗：' + e.message);
+      } finally {
+        this.isClosing = false;
+      }
     },
 
     async fetchFishData() {
       this.loading = true;
       try {
+        const activeDocTypes = this.selectedDocTypes.includes('all') ? 'all' : this.selectedDocTypes.join(',');
+
         const res = await axios.get('/api/inbound/fish-analysis', {
           params: {
             targetDate: this.targetDate,
-            warehouse: this.warehouse,
-            remarks: this.selectedRemarks.join(',')
+            docTypes: activeDocTypes
           }
         });
         if (res.data?.success) {
           const rawHourly = res.data.hourlyStats || [];
-          
-          let totRecPo = 0, totPutPo = 0, totRecBat = 0, totPutBat = 0;
+          let totGenOrder = 0, totFinOrder = 0;
           rawHourly.forEach(r => {
-            totRecPo += r.recPoCount || 0;
-            totPutPo += r.putPoCount || 0;
-            totRecBat += r.recBatCount || 0;
-            totPutBat += r.putBatCount || 0;
+            totGenOrder += r.genOrderCount || 0;
+            totFinOrder += r.finOrderCount || 0;
           });
 
           this.hourlyStats = rawHourly.map((r, i) => {
@@ -829,17 +891,13 @@ export default {
             return {
               ...r,
               hourStr: hStr,
-              recBatPcs: r.recPoPcs || 0,
-              putBatPcs: r.putPoPcs || 0,
-              recPoPct: totRecPo > 0 ? (r.recPoCount / totRecPo) : 0,
-              putPoPct: totPutPo > 0 ? (r.putPoCount / totPutPo) : 0,
-              recBatPct: totRecBat > 0 ? (r.recBatCount / totRecBat) : 0,
-              putBatPct: totPutBat > 0 ? (r.putBatCount / totPutBat) : 0
+              genPct: totGenOrder > 0 ? (r.genOrderCount / totGenOrder) : 0,
+              finPct: totFinOrder > 0 ? (r.finOrderCount / totFinOrder) : 0
             };
           });
         }
       } catch (e) {
-        ElMessage.error('載入魚群資料失敗：' + e.message);
+        ElMessage.error('載入進貨魚群失敗：' + e.message);
       } finally {
         this.loading = false;
       }
@@ -848,11 +906,12 @@ export default {
     async fetchMonthlySummary() {
       this.loadingMonthly = true;
       try {
+        const activeDocTypes = this.selectedDocTypes.includes('all') ? 'all' : this.selectedDocTypes.join(',');
+
         const res = await axios.get('/api/inbound/monthly-summary', {
           params: {
             month: this.targetMonth,
-            warehouse: this.warehouse,
-            remarks: this.selectedRemarks.join(',')
+            docTypes: activeDocTypes
           }
         });
         if (res.data?.success) {
@@ -868,11 +927,12 @@ export default {
     async fetchYearlySummary() {
       this.loadingYearly = true;
       try {
+        const activeDocTypes = this.selectedDocTypes.includes('all') ? 'all' : this.selectedDocTypes.join(',');
+
         const res = await axios.get('/api/inbound/yearly-summary', {
           params: {
             year: this.targetYear,
-            warehouse: this.warehouse,
-            remarks: this.selectedRemarks.join(',')
+            docTypes: activeDocTypes
           }
         });
         if (res.data?.success) {
@@ -885,142 +945,24 @@ export default {
       }
     },
 
-    async fetchPendingSummary() {
+    async fetchPendingDetails() {
+      this.loadingPending = true;
       try {
-        const res = await axios.get('/api/inbound/pending-putaway');
-        if (res.data?.success) {
-          this.pendingSummary = res.data.pendingSummary || [];
-          this.totalPendingCount = this.pendingSummary.reduce((sum, item) => sum + item.pending_count, 0);
-          if (this.pendingSummary.length > 0) {
-            this.selectedPendingDate = this.pendingSummary[0].rec_date;
-            this.loadPendingDetails(this.selectedPendingDate);
+        const activeDocTypes = this.selectedDocTypes.includes('all') ? 'all' : this.selectedDocTypes.join(',');
+
+        const res = await axios.get('/api/inbound/pending-details', {
+          params: {
+            targetDate: this.activePendingDate,
+            docTypes: activeDocTypes
           }
-        }
-      } catch (e) {
-        console.error('抓取未上架統計失敗:', e.message);
-      }
-    },
-
-    openPendingDialog() {
-      this.fetchPendingSummary();
-      this.showPendingDialog = true;
-    },
-
-    async loadPendingDetails(recDate) {
-      this.selectedPendingDate = recDate;
-      this.loadingDetails = true;
-      try {
-        const res = await axios.get('/api/inbound/pending-details', { params: { recDate } });
-        if (res.data?.success) {
-          this.currentDetailsList = res.data.pendingDetails || [];
-          if (res.data.selectedDate) {
-            this.selectedPendingDate = res.data.selectedDate;
-          }
-        }
-      } catch (e) {
-        ElMessage.error('載入明細失敗：' + e.message);
-      } finally {
-        this.loadingDetails = false;
-      }
-    },
-
-    handleSelectionChange(val) {
-      this.selectedDetailRows = val;
-    },
-
-    // 🌟 方案一：一鍵全選當頁
-    toggleSelectAllPage() {
-      if (!this['\$refs'].pendingTable) return;
-      const isAllSelected = this.selectedDetailRows.length === this.currentDetailsList.length;
-      if (isAllSelected) {
-        this['\$refs'].pendingTable.clearSelection();
-      } else {
-        this.currentDetailsList.forEach(row => {
-          this['\$refs'].pendingTable.toggleRowSelection(row, true);
         });
-      }
-    },
-
-    openResolveDialog(items) {
-      this.targetResolveItems = items;
-      this.resolveReason = '同仁多驗/誤驗收 (無法上架)';
-      this.customPutDate = '';
-      this.showResolveModal = true;
-    },
-
-    async submitResolve() {
-      if (!this.targetResolveItems.length) return;
-      this.resolving = true;
-      try {
-        const keys = this.targetResolveItems.map(row => ({
-          warehouse: row.warehouse,
-          po_no: row.po_no,
-          batch_no: row.batch_no,
-          item_id: row.item_id
-        }));
-
-        const res = await axios.post('/api/inbound/update-pending-status', {
-          keys,
-          reason: this.resolveReason,
-          customPutDate: this.customPutDate
-        });
-
         if (res.data?.success) {
-          ElMessage.success(res.data.message);
-          this.showResolveModal = false;
-          await this.fetchPendingSummary();
-          if (this.selectedPendingDate) {
-            await this.loadPendingDetails(this.selectedPendingDate);
-          }
-          this.refreshAllData();
+          this.pendingList = res.data.pendingList || [];
         }
       } catch (e) {
-        ElMessage.error('銷案失敗：' + e.message);
+        ElMessage.error('載入未上架明細失敗：' + e.message);
       } finally {
-        this.resolving = false;
-      }
-    },
-
-    // 🌟 方案一：開啟按日期區間一鍵銷案 Modal
-    openRangeResolveDialog() {
-      this.rangeStartDate = '2026-01-01';
-      this.rangeEndDate = '2026-08-31';
-      this.rangeReason = '1~8月歷史匯入資料批次銷案';
-      this.showRangeResolveModal = true;
-    },
-
-    // 🌟 方案一：提交日期區間銷案
-    async submitRangeResolve() {
-      if (!this.rangeStartDate || !this.rangeEndDate) {
-        return ElMessage.warning('請選擇開始與結束日期！');
-      }
-
-      try {
-        await ElMessageBox.confirm(
-          `確定要將 ${this.rangeStartDate} ~ ${this.rangeEndDate} 期間的所有未上架資料全數銷案嗎？`,
-          '⚠️ 警告：批次銷案確認',
-          { confirmButtonText: '確定銷案', cancelButtonText: '取消', type: 'warning' }
-        );
-
-        this.resolvingRange = true;
-        const res = await axios.post('/api/inbound/batch-resolve-range', {
-          startDate: this.rangeStartDate,
-          endDate: this.rangeEndDate,
-          reason: this.rangeReason
-        });
-
-        if (res.data?.success) {
-          ElMessage.success(res.data.message);
-          this.showRangeResolveModal = false;
-          await this.fetchPendingSummary();
-          this.refreshAllData();
-        }
-      } catch (e) {
-        if (e !== 'cancel') {
-          ElMessage.error('區間銷案失敗：' + e.message);
-        }
-      } finally {
-        this.resolvingRange = false;
+        this.loadingPending = false;
       }
     }
   }
@@ -1029,6 +971,7 @@ export default {
 
 <style scoped>
 .inbound-fish-page {
+  position: relative;
   padding: 16px;
   height: calc(100vh - 52px);
   box-sizing: border-box;
@@ -1048,40 +991,40 @@ export default {
   border: 1px solid #334155;
 }
 
-.title-group, .action-group, .btn-group {
+.filter-bar {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 20px;
+  background: #1e293b;
+  padding: 6px 16px;
+  border-radius: 8px;
+  border: 1px solid #334155;
+}
+
+.filter-item-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.title-group, .action-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .page-title {
   font-size: 16px;
   font-weight: bold;
   color: #38bdf8;
+  white-space: nowrap;
 }
 
-.filter-card {
-  background: #1e293b;
-  padding: 8px 16px;
-  border-radius: 6px;
-  border: 1px solid #334155;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.filter-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.filter-label {
+.select-label {
   font-size: 13px;
   color: #f8fafc;
   font-weight: bold;
+  white-space: nowrap;
 }
 
 .table-container {
@@ -1104,16 +1047,6 @@ export default {
   padding: 6px;
   border-radius: 4px;
   margin-bottom: 8px;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 8px;
-}
-
-.mode-tag {
-  font-size: 12px;
-  color: #0369a1;
-  font-weight: normal;
 }
 
 .table-scroll-wrapper {
@@ -1140,16 +1073,12 @@ export default {
 .col-time {
   text-align: center;
   background: #1e293b;
+  width: 70px;
 }
 
-.col-bar-group, .col-bar-title, .col-bar-cell {
+.col-bar-title, .col-bar-cell {
   width: auto !important;
   padding: 2px 6px !important;
-}
-
-.col-sep {
-  background: #334155;
-  padding: 0 !important;
 }
 
 .header-main th {
@@ -1157,20 +1086,11 @@ export default {
   text-align: center;
 }
 
-.group-blue-header {
-  background: #1e3a8a;
-  color: #bfdbfe;
-}
-
-.group-green-header {
-  background: #14532d;
-  color: #bbf7d0;
-}
-
-.col-ratio-header {
-  background: #854d0e;
-  color: #fef08a;
-}
+.group-blue-header { background: #1e3a8a; color: #bfdbfe; }
+.group-green-header { background: #14532d; color: #bbf7d0; }
+.group-red-header th { background: #991b1b; color: #fecaca; }
+.col-ratio-header { background: #854d0e; color: #fef08a; }
+.col-pending-header { background: #991b1b; color: #fecaca; }
 
 .header-sub th {
   background: #334155;
@@ -1187,155 +1107,181 @@ export default {
 .blue-bar { background: #38bdf8; }
 .green-bar { background: #22c55e; }
 
-.row-zebra td {
-  background: rgba(255, 255, 255, 0.03);
-}
-
-.row-summary td {
-  background: #334155;
-  font-weight: bold;
-}
-
-/* 強制彈窗背景與文字對比高顯度 */
-:deep(.el-dialog.dark-dialog.large-pending-dialog) {
-  background-color: #1e293b !important;
-  color: #f8fafc !important;
-  border: 1px solid #334155 !important;
-  border-radius: 8px !important;
-  margin-bottom: 20px !important;
-}
-
-:deep(.large-pending-dialog .el-dialog__header) {
-  background-color: #0f172a !important;
-  border-bottom: 1px solid #334155 !important;
-  padding: 14px 20px !important;
-  margin-right: 0 !important;
-}
-
-:deep(.large-pending-dialog .el-dialog__body) {
-  background-color: #1e293b !important;
-  padding: 16px !important;
-  color: #f8fafc !important;
-}
-
-:deep(.dark-dialog .el-dialog__title) {
-  color: #38bdf8 !important;
-  font-weight: bold;
-  font-size: 16px;
-}
-
-:deep(.dark-table) {
-  background-color: #1e293b !important;
-  color: #f8fafc !important;
-}
-
-:deep(.dark-table th.el-table__cell) {
-  background-color: #0f172a !important;
-  color: #38bdf8 !important;
-  border-bottom: 1px solid #334155 !important;
-}
-
-:deep(.dark-table td.el-table__cell) {
-  background-color: #1e293b !important;
-  color: #f8fafc !important;
-  border-bottom: 1px solid #334155 !important;
-}
-
-.pending-dialog-body {
-  display: flex;
-  gap: 16px;
-  background-color: #1e293b;
-  width: 100%;
-  box-sizing: border-box;
-}
-
-.pending-summary-sidebar {
-  width: 220px;
-  flex-shrink: 0;
-  border-right: 1px solid #334155;
-  padding-right: 12px;
-}
-
-.sidebar-title {
-  margin: 0 0 10px 0;
-  font-size: 13px;
-  color: #38bdf8;
-  font-weight: bold;
-}
-
-.date-list {
-  max-height: 460px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.date-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 12px;
-  background: #0f172a;
-  border: 1px solid #334155;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 13px;
-  color: #f8fafc !important;
-  font-weight: 500;
-}
-
-.date-item:hover {
-  border-color: #38bdf8;
-  background: rgba(56, 189, 248, 0.2);
-}
-
-.date-item.active {
-  border-color: #38bdf8;
-  background: #0284c7 !important;
-  color: #ffffff !important;
-  font-weight: bold;
-}
-
-.d-badge {
-  color: #fbbf24;
-  font-weight: bold;
-}
-
-.date-item.active .d-badge {
-  color: #fef08a;
-}
-
-.pending-details-content {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-width: 0;
-}
-
-.content-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.detail-title {
-  font-size: 13px;
-  color: #f8fafc;
-}
-
-.resolve-form {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  color: #f8fafc;
-}
+.row-zebra td { background: rgba(255, 255, 255, 0.03); }
+.row-summary td { background: #334155; font-weight: bold; }
 
 .text-center { text-align: center; }
 .text-right { text-align: right; }
 .text-blue { color: #38bdf8; }
 .text-green { color: #4ade80; }
 .text-orange { color: #fbbf24; }
+.text-red { color: #f87171; }
 .font-bold { font-weight: bold; }
+
+/* 監控與處置彈窗樣式 */
+.monitor-container {
+  display: flex;
+  gap: 15px;
+  height: calc(85vh - 80px);
+}
+
+.side-date-nav {
+  width: 220px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+}
+
+.nav-title {
+  font-size: 13px;
+  font-weight: bold;
+  color: #38bdf8;
+  margin-bottom: 10px;
+  border-bottom: 1px solid #334155;
+  padding-bottom: 6px;
+}
+
+.nav-scroll-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.nav-date-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: #1e293b;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 12px;
+  border: 1px solid transparent;
+}
+
+.nav-date-item:hover {
+  background: #334155;
+}
+
+.active-date {
+  background: #0284c7 !important;
+  border-color: #38bdf8 !important;
+  font-weight: bold;
+}
+
+.count-badge {
+  background: #ef4444;
+  color: #ffffff;
+  padding: 2px 6px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: bold;
+}
+
+.main-monitor-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.monitor-top-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #1e293b;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid #334155;
+}
+
+.current-date-header {
+  font-size: 14px;
+  color: #f8fafc;
+}
+
+.toolbar-btns {
+  display: flex;
+  gap: 8px;
+}
+
+.empty-date-tip {
+  text-align: center;
+  color: #22c55e;
+  padding: 20px 0;
+  font-weight: bold;
+}
+
+/* 投放小卡樣式 */
+.drop-card-box {
+  background: #0f172a;
+  border: 2px dashed #38bdf8;
+  border-radius: 12px;
+  padding: 35px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  user-select: none;
+}
+
+.drop-card-box:hover, .drop-card-active {
+  background: #1e293b;
+  border-color: #22c55e;
+  box-shadow: 0 0 20px rgba(34, 197, 94, 0.2);
+  transform: translateY(-2px);
+}
+
+.drop-icon-wrapper {
+  margin-bottom: 12px;
+}
+
+.drop-cloud-icon {
+  font-size: 56px;
+  color: #38bdf8;
+  pointer-events: none;
+}
+
+.drop-card-box:hover .drop-cloud-icon {
+  color: #22c55e;
+  transform: scale(1.08);
+}
+
+.drop-text-primary {
+  font-size: 15px;
+  font-weight: bold;
+  color: #f8fafc;
+  pointer-events: none;
+}
+
+.highlight-text {
+  color: #38bdf8;
+}
+
+.drop-text-secondary {
+  font-size: 13px;
+  color: #94a3b8;
+  margin-top: 6px;
+  pointer-events: none;
+}
+
+.security-badge {
+  display: inline-block;
+  margin-top: 18px;
+  padding: 4px 12px;
+  background: #1e3a8a;
+  color: #bfdbfe;
+  font-size: 11px;
+  border-radius: 20px;
+  pointer-events: none;
+}
 </style>
