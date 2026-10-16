@@ -63,7 +63,7 @@ module.exports = function(db) {
     });
   });
 
-  // 1. 匯入 API
+  // 1. 匯入 API (智慧支援 XLS / CSV 多重格式與欄位偏移)
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     const fileName = req.body.fileName || 'latest_inbound.csv';
@@ -122,7 +122,28 @@ module.exports = function(db) {
           return v ? (parseFloat(v.replace(/,/g, '')) || 0) : 0;
         };
 
-        const warehouse = getVal('warehouse', '庫別') || '80';
+        const item_id = getVal('item_id', '商品編號', '商品ID');
+        const po_no = getVal('po_no', '進貨單號', '進貨單據');
+        const batch_no = getVal('batch_no', '驗收批號');
+        const qty_str = getVal('qty', '驗收數量', '驗收數量(PCS)');
+
+        // 自動跳過 Row 2 狀態/筆數註記列與底部統計總計列
+        if (
+          !item_id ||
+          item_id.includes('筆數') ||
+          item_id.includes('總數') ||
+          po_no.includes('筆數') ||
+          po_no.includes('狀態') ||
+          qty_str.includes('總數') ||
+          qty_str.includes('筆數')
+        ) {
+          continue;
+        }
+
+        // 相容 A/B 欄合併與欄位偏移 (例如 A 欄為 '-' 時自動切換抓取 B 欄 Unnamed: 1)
+        let warehouse = getVal('warehouse', '庫別', 'Unnamed: 1') || '80';
+        if (warehouse === '-') warehouse = '80';
+
         const rec_date = standardizeDate(getVal('rec_date', '驗收日期'));
         const rec_time = standardizeTime(getVal('rec_time', '驗收時間'));
         
@@ -130,25 +151,20 @@ module.exports = function(db) {
         let put_date = standardizeDate(rawPutDate);
 
         const put_time = standardizeTime(getVal('put_time', '上架時間'));
-        const batch_no = getVal('batch_no', '驗收批號');
-        const po_no = getVal('po_no', '進貨單號');
-        const remark = getVal('remark', '收貨備註');
-        const item_id = getVal('item_id', '商品編號', '商品ID');
+        const remark = getVal('remark', '收貨備註', '備註');
         const item_name = getVal('item_name', '商品名稱');
-        const qty = getNum('qty', '驗收數量');
+        const qty = getNum('qty', '驗收數量', '驗收數量(PCS)');
         const length = getNum('length', '長(cm)');
         const width = getNum('width', '寬(cm)');
         const height = getNum('height', '高(cm)');
         const weight = getNum('weight', '重量(kg)');
 
-        if (po_no || batch_no || item_id) {
-          stmt.run(
-            warehouse, rec_date, rec_time, put_date, put_time,
-            batch_no, po_no, remark, item_id, item_name,
-            qty, length, width, height, weight
-          );
-          processedCount++;
-        }
+        stmt.run(
+          warehouse, rec_date, rec_time, put_date, put_time,
+          batch_no, po_no, remark, item_id, item_name,
+          qty, length, width, height, weight
+        );
+        processedCount++;
       }
 
       stmt.finalize();

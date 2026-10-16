@@ -1,11 +1,11 @@
 <template>
   <div class="inbound-fish-page dark-bg">
-    <!-- 隱藏的 CSV 檔案選擇器 -->
+    <!-- 隱藏的 CSV / Excel 檔案選擇器 -->
     <input
       type="file"
       ref="csvFileInput"
       style="display: none;"
-      accept=".csv"
+      accept=".csv, .xls, .xlsx"
       @change="handleCsvFileSelected"
     />
 
@@ -14,7 +14,6 @@
       <div class="title-group">
         <span class="page-title">🐟 倉庫 進貨驗收與新品上架分析</span>
         
-        <!-- 日期/月份/年份 選擇器 -->
         <el-date-picker
           v-if="analysisMode === 'daily'"
           v-model="targetDate"
@@ -48,14 +47,12 @@
           @change="fetchYearlySummary"
         />
 
-        <!-- 分析模式切換（置中） -->
         <el-radio-group v-model="analysisMode" size="small" @change="handleAnalysisModeChange">
           <el-radio-button label="daily">📅 單日時段分析</el-radio-button>
           <el-radio-button label="monthly">🗓️ 每月每日總表</el-radio-button>
           <el-radio-button label="yearly">📊 年度每月總表</el-radio-button>
         </el-radio-group>
 
-        <!-- 庫別選擇 -->
         <el-radio-group v-model="warehouse" size="small" @change="handleFilterChange">
           <el-radio-button label="all">🌐 雙庫合計</el-radio-button>
           <el-radio-button label="80">📦 80 庫 (人工)</el-radio-button>
@@ -78,9 +75,9 @@
           size="small"
           icon="el-icon-upload2"
           :loading="isUploading"
-          @click="triggerSelectCsv"
+          @click="showUploadCardModal = true"
         >
-          📥 匯入進貨明細 CSV
+          📥 匯入進貨單據 (小卡投放)
         </el-button>
       </div>
     </div>
@@ -372,7 +369,40 @@
       </div>
     </div>
 
-    <!-- 4. CSV 上傳進度條 Modal -->
+    <!-- 4. 專屬互動式檔案拖曳投放小卡 Modal (智慧支援 XLS / CSV) -->
+    <el-dialog
+      v-model="showUploadCardModal"
+      title="📥 匯入 進貨驗收與新品上架單據"
+      width="540px"
+      append-to-body
+      custom-class="dark-dialog upload-card-dialog"
+    >
+      <div
+        class="drop-card-box"
+        :class="{ 'drop-card-active': isCardHover }"
+        @dragenter.prevent="isCardHover = true"
+        @dragover.prevent="isCardHover = true"
+        @dragleave.prevent="isCardHover = false"
+        @drop.prevent="handleCardDrop"
+        @click="triggerSelectCsv"
+      >
+        <div class="drop-icon-wrapper">
+          <i class="el-icon-upload drop-cloud-icon"></i>
+        </div>
+        <div class="drop-text-primary">
+          將 <span class="highlight-text">.xls / .xlsx / .csv</span> 進貨檔案拖曳至此小卡
+        </div>
+        <div class="drop-text-secondary">
+          或點擊此區域從電腦選取檔案
+        </div>
+
+        <div class="security-badge">
+          🛡️ 系統自動相容合併欄位與 A/B 欄偏移，跳過標頭註記與總計筆數
+        </div>
+      </div>
+    </el-dialog>
+
+    <!-- 5. CSV / Excel 上傳進度條 Modal -->
     <el-dialog
       v-model="showUploadProgressModal"
       title="⚡ 正在寫入與覆蓋更新進貨明細資料..."
@@ -396,7 +426,7 @@
       </div>
     </el-dialog>
 
-    <!-- 🌟 5. 高對比寬版未上架彈窗 (支援全選當頁與按日期區間一鍵銷案) -->
+    <!-- 6. 高對比寬版未上架彈窗 (支援全選當頁與按日期區間一鍵銷案) -->
     <el-dialog 
       v-model="showPendingDialog" 
       title="⚠️ 尚未上架明細監控與更正處置" 
@@ -427,7 +457,6 @@
             <span class="detail-title">🔍 <strong>{{ selectedPendingDate }}</strong> 未上架明細 ({{ currentDetailsList.length }} 筆)</span>
             
             <div class="btn-group">
-              <!-- 🌟 方案一快捷按鈕：全選當頁 -->
               <el-button
                 type="info"
                 size="small"
@@ -446,7 +475,6 @@
                 🛠️ 勾選批次銷案 (已選 {{ selectedDetailRows.length }} 筆)
               </el-button>
 
-              <!-- 🌟 方案一快捷按鈕：依日期區間一鍵銷案 -->
               <el-button
                 type="warning"
                 size="small"
@@ -491,7 +519,7 @@
       </div>
     </el-dialog>
 
-    <!-- 6. 更正銷案 Modal (勾選) -->
+    <!-- 7. 更正銷案 Modal (勾選) -->
     <el-dialog v-model="showResolveModal" title="🛠️ 銷案/更正未上架記錄" width="420px" append-to-body custom-class="dark-dialog">
       <div class="resolve-form">
         <p>準備更正 <strong>{{ targetResolveItems.length }}</strong> 筆未上架項目：</p>
@@ -516,7 +544,7 @@
       </template>
     </el-dialog>
 
-    <!-- 🌟 7. 日期區間一鍵銷案 Modal -->
+    <!-- 8. 日期區間一鍵銷案 Modal -->
     <el-dialog v-model="showRangeResolveModal" title="🗓️ 依日期區間一鍵批次銷案" width="460px" append-to-body custom-class="dark-dialog">
       <div class="resolve-form">
         <p style="color: #fbbf24;">⚠️ 將會把指定日期範圍內**所有未上架項目**一次全數銷案！</p>
@@ -546,6 +574,7 @@
 <script>
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import * as XLSX from 'xlsx'
 
 export default {
   name: 'InboundFishList',
@@ -554,13 +583,13 @@ export default {
   },
   data() {
     return {
-      analysisMode: 'daily', // 'daily' | 'monthly' | 'yearly'
+      analysisMode: 'daily',
       loading: false,
       loadingMonthly: false,
       loadingYearly: false,
       targetDate: new Date().toISOString().split('T')[0],
-      targetMonth: new Date().toISOString().slice(0, 7), // YYYY-MM
-      targetYear: new Date().getFullYear().toString(), // YYYY
+      targetMonth: new Date().toISOString().slice(0, 7),
+      targetYear: new Date().getFullYear().toString(),
       warehouse: 'all',
       selectedRemarks: ['empty', '15', 'abnormal'],
       activeViewTab: 'po',
@@ -577,14 +606,15 @@ export default {
       selectedDetailRows: [],
       loadingDetails: false,
 
-      // 單筆/多筆銷案
+      showUploadCardModal: false,
+      isCardHover: false,
+
       showResolveModal: false,
       targetResolveItems: [],
       resolveReason: '同仁多驗/誤驗收 (無法上架)',
       customPutDate: '',
       resolving: false,
 
-      // 日期區間一鍵銷案
       showRangeResolveModal: false,
       rangeStartDate: '2026-01-01',
       rangeEndDate: '2026-08-31',
@@ -667,6 +697,13 @@ export default {
   mounted() {
     this.fetchFishData();
     this.fetchPendingSummary();
+
+    window.addEventListener('dragover', this.globalBlockDrop, false);
+    window.addEventListener('drop', this.globalBlockDrop, false);
+  },
+  beforeUnmount() {
+    window.removeEventListener('dragover', this.globalBlockDrop, false);
+    window.removeEventListener('drop', this.globalBlockDrop, false);
   },
   methods: {
     formatNumber(val) {
@@ -694,6 +731,23 @@ export default {
       if (wh === '80') return '80 庫';
       if (wh === '15') return '15 庫';
       return '雙庫合計';
+    },
+
+    globalBlockDrop(e) {
+      e.preventDefault();
+    },
+
+    handleCardDrop(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      this.isCardHover = false;
+
+      const dt = e.dataTransfer;
+      const files = dt ? dt.files : [];
+      if (files && files.length > 0) {
+        this.showUploadCardModal = false;
+        this.processImportFile(files[0]);
+      }
     },
 
     handleAnalysisModeChange(mode) {
@@ -728,19 +782,23 @@ export default {
     },
 
     triggerSelectCsv() {
-      if (this['$refs'] && this['$refs'].csvFileInput) {
-        this['\$refs'].csvFileInput.click();
+      if (this.$refs && this.$refs.csvFileInput) {
+        this.$refs.csvFileInput.click();
       }
     },
 
-    async handleCsvFileSelected(event) {
+    handleCsvFileSelected(event) {
       const file = event.target.files[0];
-      if (!file) return;
+      if (file) {
+        this.showUploadCardModal = false;
+        this.processImportFile(file);
+      }
+    },
 
-      if (!file.name.endsWith('.csv')) {
-        ElMessage.error('請選擇 .csv 格式的進貨明細檔案！');
-        event.target.value = '';
-        return;
+    async processImportFile(file) {
+      const fileName = file.name.toLowerCase();
+      if (!fileName.endsWith('.csv') && !fileName.endsWith('.xls') && !fileName.endsWith('.xlsx')) {
+        return ElMessage.error('請選擇 .csv 或 .xls/.xlsx 格式的進貨明細檔案！');
       }
 
       this.isUploading = true;
@@ -751,56 +809,60 @@ export default {
       this.totalRowsToUpload = 0;
 
       try {
-        const Papa = (await import('papaparse')).default;
+        let rawData = [];
 
-        Papa.parse(file, {
-          header: true,
-          skipEmptyLines: true,
-          complete: async (results) => {
-            const rawData = results.data || [];
-            if (rawData.length === 0) {
-              this.resetUploadState(event);
-              return ElMessage.error('CSV 檔案內無有效資料！');
-            }
+        if (fileName.endsWith('.xls') || fileName.endsWith('.xlsx')) {
+          const arrayBuffer = await file.arrayBuffer();
+          const workbook = XLSX.read(arrayBuffer, { type: 'array', raw: false });
+          const firstSheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheetName];
+          rawData = XLSX.utils.sheet_to_json(worksheet, { defval: '', raw: false });
+        } else {
+          const Papa = (await import('papaparse')).default;
+          const text = await file.text();
+          const results = Papa.parse(text, { header: true, skipEmptyLines: true });
+          rawData = results.data || [];
+        }
 
-            this.totalRowsToUpload = rawData.length;
-            const BATCH_SIZE = 10000;
-            let processed = 0;
+        if (rawData.length === 0) {
+          this.resetUploadState();
+          return ElMessage.error('檔案內無有效資料！');
+        }
 
-            for (let i = 0; i < rawData.length; i += BATCH_SIZE) {
-              const chunk = rawData.slice(i, i + BATCH_SIZE);
-              const isFirstChunk = (i === 0);
+        this.totalRowsToUpload = rawData.length;
+        const BATCH_SIZE = 10000;
+        let processed = 0;
 
-              await axios.post('/api/inbound/import-json', {
-                items: chunk,
-                fileName: file.name,
-                isFirstChunk: isFirstChunk
-              });
+        for (let i = 0; i < rawData.length; i += BATCH_SIZE) {
+          const chunk = rawData.slice(i, i + BATCH_SIZE);
+          const isFirstChunk = (i === 0);
 
-              processed += chunk.length;
-              this.uploadedRows = processed;
-              this.uploadPercent = Math.min(100, Math.round((processed / this.totalRowsToUpload) * 100));
-            }
+          await axios.post('/api/inbound/import-json', {
+            items: chunk,
+            fileName: file.name,
+            isFirstChunk: isFirstChunk
+          });
 
-            ElMessage.success(`🎉 成功寫入並更新 ${this.totalRowsToUpload.toLocaleString()} 筆進貨明細資料！`);
-            this.refreshAllData();
-            this.resetUploadState(event);
-          },
-          error: (err) => {
-            ElMessage.error('解析 CSV 失敗：' + err.message);
-            this.resetUploadState(event);
-          }
-        });
+          processed += chunk.length;
+          this.uploadedRows = processed;
+          this.uploadPercent = Math.min(100, Math.round((processed / this.totalRowsToUpload) * 100));
+        }
+
+        ElMessage.success(`🎉 成功寫入並更新 ${this.totalRowsToUpload.toLocaleString()} 筆進貨明細資料！`);
+        this.refreshAllData();
+        this.resetUploadState();
       } catch (e) {
         ElMessage.error('上傳處理失敗：' + e.message);
-        this.resetUploadState(event);
+        this.resetUploadState();
       }
     },
 
-    resetUploadState(event) {
+    resetUploadState() {
       this.isUploading = false;
       this.showUploadProgressModal = false;
-      if (event && event.target) event.target.value = '';
+      if (this.$refs && this.$refs.csvFileInput) {
+        this.$refs.csvFileInput.value = '';
+      }
     },
 
     async fetchFishData() {
@@ -928,15 +990,14 @@ export default {
       this.selectedDetailRows = val;
     },
 
-    // 🌟 方案一：一鍵全選當頁
     toggleSelectAllPage() {
-      if (!this['\$refs'].pendingTable) return;
+      if (!this.$refs.pendingTable) return;
       const isAllSelected = this.selectedDetailRows.length === this.currentDetailsList.length;
       if (isAllSelected) {
-        this['\$refs'].pendingTable.clearSelection();
+        this.$refs.pendingTable.clearSelection();
       } else {
         this.currentDetailsList.forEach(row => {
-          this['\$refs'].pendingTable.toggleRowSelection(row, true);
+          this.$refs.pendingTable.toggleRowSelection(row, true);
         });
       }
     },
@@ -981,7 +1042,6 @@ export default {
       }
     },
 
-    // 🌟 方案一：開啟按日期區間一鍵銷案 Modal
     openRangeResolveDialog() {
       this.rangeStartDate = '2026-01-01';
       this.rangeEndDate = '2026-08-31';
@@ -989,7 +1049,6 @@ export default {
       this.showRangeResolveModal = true;
     },
 
-    // 🌟 方案一：提交日期區間銷案
     async submitRangeResolve() {
       if (!this.rangeStartDate || !this.rangeEndDate) {
         return ElMessage.warning('請選擇開始與結束日期！');
@@ -1196,7 +1255,69 @@ export default {
   font-weight: bold;
 }
 
-/* 強制彈窗背景與文字對比高顯度 */
+/* 投放小卡風格 */
+.drop-card-box {
+  background: #0f172a;
+  border: 2px dashed #38bdf8;
+  border-radius: 12px;
+  padding: 35px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  user-select: none;
+}
+
+.drop-card-box:hover, .drop-card-active {
+  background: #1e293b;
+  border-color: #22c55e;
+  box-shadow: 0 0 20px rgba(34, 197, 94, 0.2);
+  transform: translateY(-2px);
+}
+
+.drop-icon-wrapper {
+  margin-bottom: 12px;
+}
+
+.drop-cloud-icon {
+  font-size: 56px;
+  color: #38bdf8;
+  pointer-events: none;
+}
+
+.drop-card-box:hover .drop-cloud-icon {
+  color: #22c55e;
+  transform: scale(1.08);
+}
+
+.drop-text-primary {
+  font-size: 15px;
+  font-weight: bold;
+  color: #f8fafc;
+  pointer-events: none;
+}
+
+.highlight-text {
+  color: #38bdf8;
+}
+
+.drop-text-secondary {
+  font-size: 13px;
+  color: #94a3b8;
+  margin-top: 6px;
+  pointer-events: none;
+}
+
+.security-badge {
+  display: inline-block;
+  margin-top: 18px;
+  padding: 4px 12px;
+  background: #1e3a8a;
+  color: #bfdbfe;
+  font-size: 11px;
+  border-radius: 20px;
+  pointer-events: none;
+}
+
 :deep(.el-dialog.dark-dialog.large-pending-dialog) {
   background-color: #1e293b !important;
   color: #f8fafc !important;
