@@ -384,10 +384,10 @@
       <div
         class="drop-card-box"
         :class="{ 'drop-card-active': isCardHover }"
-        @dragenter.prevent.stop="isCardHover = true"
-        @dragover.prevent.stop="isCardHover = true"
-        @dragleave.prevent.stop="isCardHover = false"
-        @drop.prevent.stop="handleCardDrop"
+        @dragenter.prevent="isCardHover = true"
+        @dragover.prevent="isCardHover = true"
+        @dragleave.prevent="isCardHover = false"
+        @drop.prevent="handleCardDrop"
         @click="triggerSelectCsv"
       >
         <div class="drop-icon-wrapper">
@@ -563,7 +563,6 @@ export default {
       yearlyMonthlyList: [],
       pendingList: [],
 
-      // 🌟 小卡與匯入彈窗狀態
       showUploadCardModal: false,
       isCardHover: false,
 
@@ -641,15 +640,13 @@ export default {
   mounted() {
     this.fetchFishData();
 
-    // 🌟 1. 最高優先級 Capture 階段防護：徹底鎖死瀏覽器全全域預設開啟/下載行為
-    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(evt => {
-      window.addEventListener(evt, this.globalBlockDrop, true);
-    });
+    // 🌟 全域只擋掉預設開檔/下載，不阻擋冒泡 (讓小卡事件能順利接收)
+    window.addEventListener('dragover', this.globalBlockDrop, false);
+    window.addEventListener('drop', this.globalBlockDrop, false);
   },
   beforeUnmount() {
-    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(evt => {
-      window.removeEventListener(evt, this.globalBlockDrop, true);
-    });
+    window.removeEventListener('dragover', this.globalBlockDrop, false);
+    window.removeEventListener('drop', this.globalBlockDrop, false);
   },
   methods: {
     formatNumber(val) {
@@ -672,12 +669,15 @@ export default {
 
     globalBlockDrop(e) {
       e.preventDefault();
-      e.stopPropagation();
     },
 
     handleCardDrop(e) {
+      e.preventDefault();
+      e.stopPropagation();
       this.isCardHover = false;
-      const files = e.dataTransfer ? e.dataTransfer.files : [];
+
+      const dt = e.dataTransfer;
+      const files = dt ? dt.files : [];
       if (files && files.length > 0) {
         this.showUploadCardModal = false;
         this.processImportFile(files[0]);
