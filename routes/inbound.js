@@ -63,7 +63,7 @@ module.exports = function(db) {
     });
   });
 
-  // 🌟 新增：依日期/日期區間與庫別刪除進貨明細 API
+  // 🌟 恢復為上上次邏輯：只依據【驗收日期 rec_date】進行準確刪除，保護非該驗收日之歷史紀錄！
   router.post('/delete-by-date', (req, res) => {
     const { startDate, endDate, warehouse } = req.body;
 
@@ -75,6 +75,7 @@ module.exports = function(db) {
     const params = [];
 
     const targetEnd = endDate || startDate;
+    // 只刪除 rec_date 在指定驗收區間內的資料
     sql += ` AND rec_date >= ? AND rec_date <= ?`;
     params.push(startDate, targetEnd);
 
@@ -89,7 +90,7 @@ module.exports = function(db) {
       res.json({ 
         success: true, 
         count: this.changes, 
-        message: `🗑️ 成功刪除 ${whLabel} 於 ${startDate} ${endDate ? '~ ' + endDate : ''} 區間共 ${this.changes} 筆進貨明細資料！` 
+        message: `🗑️ 成功刪除 ${whLabel} 於驗收日期 ${startDate} ${endDate ? '~ ' + endDate : ''} 共 ${this.changes} 筆進貨明細資料！` 
       });
     });
   });
