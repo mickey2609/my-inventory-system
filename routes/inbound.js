@@ -1,4 +1,4 @@
-// C:\my-inventory-server\routes\inbound.js
+// routes/inbound.js
 const express = require('express');
 
 module.exports = function(db) {
@@ -26,7 +26,7 @@ module.exports = function(db) {
     return str;
   }
 
-  // 自動化相容地端 SQLite 資料表結構
+  // 自動化相容地端 SQLite 資料表結構與補齊缺漏欄位
   db.serialize(() => {
     db.run(`
       CREATE TABLE IF NOT EXISTS inbound_details (
@@ -47,7 +47,6 @@ module.exports = function(db) {
       )
     `);
 
-    // 自動補齊舊版可能缺漏之欄位
     const addColumnSafely = (colName, colType) => {
       db.run(`ALTER TABLE inbound_details ADD COLUMN ${colName} ${colType}`, () => {});
     };
