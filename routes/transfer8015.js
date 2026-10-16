@@ -82,7 +82,7 @@ module.exports = function(db) {
     return sql;
   }
 
-  // 1. 匯入 API (🌟 先判斷商品 ID，再判斷單號與目的庫)
+  // 1. 匯入 API
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     const fileName = req.body.fileName || 'transfer_8015.csv';
@@ -92,23 +92,18 @@ module.exports = function(db) {
       return res.status(400).json({ success: false, message: '未收到有效的調撥單資料' });
     }
 
-    // 🌟 第一批驗證：優先判斷「有無商品 ID」，沒有者（如底端總計列）直接忽略！
     if (isFirstChunk) {
       const invalidRow = items.find(item => {
         const itemId = String(item['商品編號'] || item['item_id'] || '').trim();
-        
-        // 1. 先判斷有無商品 ID，若無商品 ID（如末列總計列），直接跳過！
         if (!itemId) return false;
 
         const orderNo = String(item['補貨/調撥單號'] || item['調撥單號'] || item['order_no'] || '').trim().toUpperCase();
         const destWh = String(item['目的庫'] || item['dest_warehouse'] || '').trim();
 
-        // 2. 有商品 ID 的真實明細：若單號為空，或為純數字/總計字眼，跳過
-        if (!orderNo || /^\d+\$/.test(orderNo) || orderNo.includes('筆數') || orderNo.includes('總計') || orderNo.includes('合計') || orderNo.includes('TOTAL')) {
+        if (!orderNo || /^\d+$/.test(orderNo) || orderNo.includes('筆數') || orderNo.includes('總計') || orderNo.includes('合計') || orderNo.includes('TOTAL')) {
           return false;
         }
 
-        // 3. 有商品 ID 且有單號：判斷是否非 TR/GD 開頭或目的庫為 80
         const isNotTRorGD = !orderNo.startsWith('TR') && !orderNo.startsWith('GD');
         const isDest80 = destWh === '80';
 
@@ -178,11 +173,10 @@ module.exports = function(db) {
           return v ? (parseFloat(v.replace(/,/g, '')) || 0) : 0;
         };
 
-        const item_id = getVal('商品編號', 'item_id');
         const order_no = getVal('補貨/調撥單號', '調撥單號', 'order_no');
+        const item_id = getVal('商品編號', 'item_id');
 
-        // 🌟 寫入前檢查：無商品 ID 者，直接跳過不處理！
-        if (!item_id || !order_no || /^\d+\$/.test(order_no) || order_no.includes('筆數') || order_no.includes('總計') || order_no.includes('合計') || order_no.includes('TOTAL')) {
+        if (!item_id || !order_no || /^\d+$/.test(order_no) || order_no.includes('筆數') || order_no.includes('總計') || order_no.includes('合計') || order_no.includes('TOTAL')) {
           continue;
         }
 
@@ -222,7 +216,7 @@ module.exports = function(db) {
     });
   });
 
-  // 2. 單日時段魚群分析 API
+  // 2. 時段魚群分析 API
   router.get('/fish-analysis', (req, res) => {
     const { targetDate, docTypes, reasons } = req.query;
 
@@ -455,19 +449,33 @@ module.exports = function(db) {
     });
   });
 
-  // 5. 未完成明細 API
+  // 🌟 5. 未完成明細日期選單（左側導航欄，統計每日筆數）
+  router.get('/pending-dates', (req, res) => {
+    const sql = `
+      SELECT gen_date, COUNT(*) as count 
+      FROM transfer_8015_details 
+      WHERE (finish_date IS NULL OR finish_date = '') 
+        AND (doc_status IS NULL OR (doc_status != '已刪單' AND doc_status != '已銷案'))
+        AND gen_date != ''
+      GROUP BY gen_date
+      ORDER BY gen_date DESC
+    `;
+    db.all(sql, [], (err, rows) => {
+      if (err) return res.status(500).json({ success: false, message: err.message });
+      res.json({ success: true, list: rows || [] });
+    });
+  });
+
+  // 6. 未完成明細 API
   router.get('/pending-details', (req, res) => {
-    const { startDate, endDate, docTypes, reasons } = req.query;
+    const { targetDate, docTypes, reasons } = req.query;
 
     let sql = `SELECT * FROM transfer_8015_details WHERE (finish_date IS NULL OR finish_date = '') AND (doc_status IS NULL OR (doc_status != '已刪單' AND doc_status != '已銷案'))`;
     const params = [];
 
-    if (startDate && endDate) {
-      sql += ` AND gen_date BETWEEN ? AND ?`;
-      params.push(startDate, endDate);
-    } else if (startDate) {
-      sql += ` AND gen_date >= ?`;
-      params.push(startDate);
+    if (targetDate) {
+      sql += ` AND gen_date = ?`;
+      params.push(targetDate);
     }
 
     sql = applyFilters(sql, params, docTypes, reasons);
@@ -495,45 +503,57 @@ module.exports = function(db) {
     });
   });
 
-  // 6. 手動銷案 API
+  // 7. 手動銷案 API（支援批次與區間）
   router.post('/close-order', (req, res) => {
-    const { orderNo, itemId, closeUser, closeRemark } = req.body;
-
-    if (!orderNo) {
-      return res.status(400).json({ success: false, message: '請提供銷案單號！' });
-    }
+    const { keys, startDate, endDate, closeUser, closeRemark } = req.body;
 
     const now = new Date();
     const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
 
-    let sql = `
-      UPDATE transfer_8015_details
-      SET finish_date = ?,
-          finish_time = ?,
-          finish_user = ?,
-          finish_remark = ?,
-          doc_status = '已銷案'
-      WHERE order_no = ?
-    `;
-    const params = [todayStr, timeStr, closeUser || '主管銷案', closeRemark || '主管手動強銷案', orderNo];
-
-    if (itemId) {
-      sql += ` AND item_id = ?`;
-      params.push(itemId);
+    // A. 依日期區間銷案
+    if (startDate && endDate) {
+      const sql = `
+        UPDATE transfer_8015_details
+        SET finish_date = ?, finish_time = ?, finish_user = ?, finish_remark = ?, doc_status = '已銷案'
+        WHERE (finish_date IS NULL OR finish_date = '')
+          AND (doc_status IS NULL OR (doc_status != '已刪單' AND doc_status != '已銷案'))
+          AND gen_date BETWEEN ? AND ?
+      `;
+      db.run(sql, [todayStr, timeStr, closeUser || '主管銷案', closeRemark || '依日期區間一鍵銷案', startDate, endDate], function(err) {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+        res.json({ success: true, message: `🎉 成功結案銷案 ${this.changes} 筆於 ${startDate} ~ ${endDate} 區間之未完成跨庫調撥單！`, count: this.changes });
+      });
+      return;
     }
 
-    db.run(sql, params, function(err) {
-      if (err) return res.status(500).json({ success: false, message: '銷案失敗：' + err.message });
-      res.json({
-        success: true,
-        message: `跨庫調撥單 [${orderNo}] 已成功銷案結案！`,
-        changes: this.changes
+    // B. 批次多筆勾選銷案
+    if (Array.isArray(keys) && keys.length > 0) {
+      db.serialize(() => {
+        db.run('BEGIN TRANSACTION');
+        const stmt = db.prepare(`
+          UPDATE transfer_8015_details
+          SET finish_date = ?, finish_time = ?, finish_user = ?, finish_remark = ?, doc_status = '已銷案'
+          WHERE order_no = ? AND item_id = ?
+        `);
+        let count = 0;
+        for (const k of keys) {
+          stmt.run(todayStr, timeStr, closeUser || '主管銷案', closeRemark || '批次勾選銷案', k.orderNo, k.itemId);
+          count++;
+        }
+        stmt.finalize();
+        db.run('COMMIT', (err) => {
+          if (err) return res.status(500).json({ success: false, message: err.message });
+          res.json({ success: true, message: `🎉 成功完成 ${count} 筆勾選單據之銷案！`, count });
+        });
       });
-    });
+      return;
+    }
+
+    res.status(400).json({ success: false, message: '請提供要銷案的單據或日期區間！' });
   });
 
-  // 7. 取得所有非 TR 及 GD 開頭且有商品編號的異常單據列表 API
+  // 8. 取得所有非 TR 及 GD 開頭且有商品編號的異常單據列表 API
   router.get('/invalid-orders', (req, res) => {
     const sql = `
       SELECT * FROM transfer_8015_details 
@@ -551,7 +571,7 @@ module.exports = function(db) {
     });
   });
 
-  // 8. 批次刪除 API
+  // 9. 批次刪除 API
   router.post('/delete-batch-invalid', (req, res) => {
     const { keys } = req.body;
     if (!Array.isArray(keys) || keys.length === 0) {
