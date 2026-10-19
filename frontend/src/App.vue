@@ -1,7 +1,5 @@
 <template>
   <div id="app" class="app-container dark-mode">
-    <input type="file" ref="inventoryFileInput" style="display: none;" accept=".csv,.xlsx,.xls" @change="handleInventoryUpload" />
-
     <!-- 1. 登入遮罩畫面 -->
     <LoginOverlay 
       v-if="!isLoggedIn" 
@@ -92,7 +90,7 @@
             :is-sys-admin="isSysAdmin"
           />
 
-          <!-- 🌟 全新正式掛載：跨庫調撥 (80 ➔ 15) 魚群模組 🌟 -->
+          <!-- 跨庫調撥 (80 ➔ 15) 魚群模組 -->
           <Transfer8015FishList 
             v-else-if="currentTab === 'transfer_80_15'" key="transfer_80_15"
             :is-sys-admin="isSysAdmin"
@@ -109,7 +107,7 @@
             @open-import-tip="showImportTipDialog = true" @export-users="exportUsersExcel"
             @refresh-users="fetchUsers" @open-add-dialog="showAddUserDialog = true"
             @open-role="openRoleDialog" @open-pwd="openPwdDialog" @open-perm="openPermDialog"
-            @delete-user="onDeleteUser" @batch-upload="handleBatchUsersUpload"
+            @delete-user="onDeleteUser"
           />
 
           <div class="coming-soon-container dark-bg" v-else key="coming_soon">
@@ -167,10 +165,14 @@
       :selected-columns="currentForm.selected_columns" :custom-col-widths="currentCustomColWidths" :custom-export-col-widths="currentCustomExportWidths"
     />
 
+    <!-- 🌟 精準接通批次與庫存選檔事件 -->
     <ImportTipModal 
-      v-model:show-inventory-import-tip="showInventoryImportTipDialog" v-model:show-import-tip="showImportTipDialog"
-      :is-uploading="isUploading" :upload-percent="uploadPercent"
-      @confirm-inventory-import="triggerSelectInventoryFile" @confirm-batch-import="triggerSelectBatchFile"
+      v-model:show-inventory-import-tip="showInventoryImportTipDialog" 
+      v-model:show-import-tip="showImportTipDialog"
+      :is-uploading="isUploading" 
+      :upload-percent="uploadPercent"
+      @batch-file-selected="handleBatchUsersUploadFile"
+      @inventory-file-selected="handleInventoryUploadFile"
     />
 
     <UserManagementModals 
@@ -211,7 +213,7 @@ import LocSummary from './views/LocSummary.vue'
 import TurnoverList from './views/TurnoverList.vue'
 import InboundFishList from './views/InboundFishList.vue'
 import ReplenishFishList from './views/ReplenishFishList.vue'
-import Transfer8015FishList from './views/Transfer8015FishList.vue' // 🌟 引入跨庫調撥組件
+import Transfer8015FishList from './views/Transfer8015FishList.vue'
 import SettingsPerm from './views/SettingsPerm.vue'
 import SettingsLog from './views/SettingsLog.vue'
 
@@ -227,7 +229,7 @@ export default {
     TopNavbar, SystemDrawer, ColConfigModal, ParamMenuModal, WidthConfigModal,
     ImportTipModal, UserManagementModals, InventorySearchModal, HomeDashboard,
     LoginOverlay, InvQuery80, InvSearch15, LocSummary, TurnoverList, InboundFishList,
-    ReplenishFishList, Transfer8015FishList, SettingsPerm, SettingsLog // 🌟 註冊組件
+    ReplenishFishList, Transfer8015FishList, SettingsPerm, SettingsLog
   },
   setup() {
     const { sendLog, getDeviceType, setupAxiosInterceptor } = useSystemLogs();
@@ -554,14 +556,30 @@ export default {
       this.handleSearch();
     },
 
-    triggerSelectInventoryFile() { 
-      if (this['$refs'] && this['$refs'].inventoryFileInput) {
-        this['\$refs'].inventoryFileInput.click();
+    // 🌟 接收 ImportTipModal 觸發的帳號選檔事件
+    async handleBatchUsersUploadFile(file) {
+      if (!file) return;
+      const formData = new FormData(); 
+      formData.append('file', file);
+      try {
+        const res = await axios.post('/api/batch-import-users', formData);
+        if (res.data?.status === 'success') { 
+          ElMessage.success(res.data.message); 
+          this.fetchUsers(); 
+        }
+      } catch (e) { 
+        ElMessage.error('批次匯入失敗：' + (e.response?.data?.detail || e.message)); 
       }
     },
 
+    // 🌟 接收 ImportTipModal 觸發的商品庫存選檔事件
+    async handleInventoryUploadFile(file) {
+      if (!file) return;
+      await this.handleInventoryUpload({ target: { files: [file], value: '' } });
+    },
+
     async handleInventoryUpload(event) {
-      const file = event.target.files[0];
+      const file = event.target.files ? event.target.files[0] : null;
       if (!file) return;
       this.isUploading = true;
       this.uploadPercent = 5;
@@ -578,7 +596,7 @@ export default {
               if (rawData.length === 0) {
                 this.isUploading = false;
                 this.uploadPercent = 0;
-                event.target.value = '';
+                if (event.target) event.target.value = '';
                 return ElMessage.error('CSV 檔案無有效資料！');
               }
 
@@ -607,20 +625,20 @@ export default {
               this.fetchDashboardMetrics();
               this.isUploading = false;
               this.uploadPercent = 0;
-              event.target.value = '';
+              if (event.target) event.target.value = '';
             },
             error: (err) => {
               this.isUploading = false;
               this.uploadPercent = 0;
               ElMessage.error('解析 CSV 失敗：' + err.message);
-              event.target.value = '';
+              if (event.target) event.target.value = '';
             }
           });
         } catch (e) {
           this.isUploading = false;
           this.uploadPercent = 0;
           ElMessage.error('匯入 15 庫連線失敗：' + e.message);
-          event.target.value = '';
+          if (event.target) event.target.value = '';
         }
       } else {
         try {
@@ -636,7 +654,7 @@ export default {
         } finally { 
           this.isUploading = false; 
           this.uploadPercent = 0;
-          event.target.value = ''; 
+          if (event.target) event.target.value = ''; 
         }
       }
     },
@@ -646,22 +664,7 @@ export default {
       const num = Number(String(val).replace(/,/g, ''));
       return isNaN(num) ? val : num.toLocaleString();
     },
-    triggerSelectBatchFile() { 
-      this.showImportTipDialog = false; 
-      if (this['$refs'] && this['$refs'].batchUserFileInput) {
-        this['\$refs'].batchUserFileInput.click();
-      }
-    },
-    async handleBatchUsersUpload(event) {
-      const file = event.target.files[0];
-      if (!file) return;
-      const formData = new FormData(); formData.append('file', file);
-      try {
-        const res = await axios.post('/api/batch-import-users', formData);
-        if (res.data?.status === 'success') { ElMessage.success(res.data.message); this.fetchUsers(); }
-      } catch (e) { ElMessage.error('批次匯入失敗：' + (e.response?.data?.detail || e.message)); }
-      finally { event.target.value = ''; }
-    },
+
     openRoleDialog(row) {
       this.targetUser = row.username;
       this.editRoleForm.target_name = row.name || row.username;

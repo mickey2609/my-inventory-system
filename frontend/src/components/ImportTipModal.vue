@@ -1,5 +1,23 @@
 <template>
   <div>
+    <!-- 隱藏的帳號批次選檔器 -->
+    <input
+      type="file"
+      ref="accountFileInput"
+      style="display: none;"
+      accept=".csv, .xls, .xlsx"
+      @change="onBatchFileSelected"
+    />
+
+    <!-- 隱藏的商品庫存選檔器 -->
+    <input
+      type="file"
+      ref="inventoryFileInput"
+      style="display: none;"
+      accept=".csv, .xls, .xlsx"
+      @change="onInventoryFileSelected"
+    />
+
     <!-- 1. 商品庫存 CSV 匯入說明彈窗 -->
     <el-dialog 
       title="📥 商品資料明細匯入說明" 
@@ -13,7 +31,7 @@
       <div style="font-size: 14px; line-height: 1.8; color: #cbd5e1;">
         <p style="margin-top: 0; color: #38bdf8; font-weight: bold;">請確認您準備上傳的商品明細檔案符合以下規範：</p>
         <ol style="padding-left: 20px; margin-bottom: 15px;">
-          <li><b>建議上傳檔案格式</b>：<code style="color: #4ade80;">.csv</code></li>
+          <li><b>建議上傳檔案格式</b>：<code style="color: #4ade80;">.csv</code> / <code style="color: #4ade80;">.xls</code> / <code style="color: #4ade80;">.xlsx</code></li>
           <li><b>更新效益</b>：上傳成功後，資料將直接寫入<b>地端 SQLite 高效能資料庫</b>，<b>即時同步全公司最新庫存</b>！</li>
         </ol>
 
@@ -40,7 +58,7 @@
             type="warning" 
             :loading="isUploading"
             style="font-weight: bold; color: #000;" 
-            @click="$emit('confirm-inventory-import')"
+            @click="triggerInventorySelect"
           >
             {{ isUploading ? '寫入中...' : '確定，選擇檔案並開始匯入' }}
           </el-button>
@@ -68,7 +86,7 @@
       <template #footer>
         <div class="dialog-footer">
           <el-button @click="$emit('update:showImportTip', false)">取消</el-button>
-          <el-button type="primary" @click="$emit('confirm-batch-import')">確定，選擇檔案並上傳</el-button>
+          <el-button type="primary" @click="triggerAccountSelect">確定，選擇檔案並上傳</el-button>
         </div>
       </template>
     </el-dialog>
@@ -88,8 +106,49 @@ export default {
     'update:showInventoryImportTip',
     'update:showImportTip',
     'confirm-inventory-import',
-    'confirm-batch-import'
-  ]
+    'confirm-batch-import',
+    'batch-file-selected',
+    'inventory-file-selected'
+  ],
+  methods: {
+    // 點擊「確定，選擇檔案並上傳 (帳號)」
+    triggerAccountSelect() {
+      this.$emit('update:showImportTip', false); // 關閉彈窗
+      this.$nextTick(() => {
+        if (this.$refs.accountFileInput) {
+          this.$refs.accountFileInput.click(); // 觸發隱藏的選檔視窗
+        }
+      });
+    },
+
+    // 點擊「確定，選擇檔案並開始匯入 (庫存)」
+    triggerInventorySelect() {
+      this.$emit('confirm-inventory-import');
+      this.$nextTick(() => {
+        if (this.$refs.inventoryFileInput) {
+          this.$refs.inventoryFileInput.click();
+        }
+      });
+    },
+
+    // 選擇帳號檔案後觸發
+    onBatchFileSelected(e) {
+      const file = e.target.files[0];
+      if (file) {
+        this.$emit('batch-file-selected', file);
+      }
+      e.target.value = ''; // 重設 input 防止重複選擇同一檔無效
+    },
+
+    // 選擇庫存檔案後觸發
+    onInventoryFileSelected(e) {
+      const file = e.target.files[0];
+      if (file) {
+        this.$emit('inventory-file-selected', file);
+      }
+      e.target.value = '';
+    }
+  }
 }
 </script>
 
