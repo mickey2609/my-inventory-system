@@ -55,7 +55,7 @@
         </el-radio-group>
       </div>
 
-      <!-- 右側操作按鈕區（已將未完成追蹤移至最前頭） -->
+      <!-- 右側操作按鈕區 -->
       <div class="action-group">
         <el-button
           type="danger"
@@ -70,6 +70,7 @@
           🔄 重新整理
         </el-button>
 
+        <!-- 🔒 僅限 SysAdmin 可查看與清除誤匯單據 -->
         <el-button
           v-if="checkSysAdmin"
           type="warning"
@@ -80,8 +81,9 @@
           🔍 查看與清除誤匯單據
         </el-button>
 
+        <!-- 🔓 開放 Admin & SysAdmin 均可進行小卡投放匯入 -->
         <el-button
-          v-if="checkSysAdmin"
+          v-if="checkAdmin"
           type="success"
           size="small"
           icon="el-icon-upload2"
@@ -316,7 +318,7 @@
       </div>
     </div>
 
-    <!-- 4. 進貨未上架同款「未完成追蹤」對話框彈窗 -->
+    <!-- 4. 未完成追蹤對話框彈窗 -->
     <el-dialog
       v-model="showPendingDialog"
       title="⚠️ 尚未調撥完成單據明細監控與更正處置"
@@ -326,7 +328,6 @@
       custom-class="dark-dialog full-monitor-dialog"
     >
       <div class="monitor-container" v-loading="loadingPending">
-        <!-- 左側：日期導航選單 -->
         <div class="side-date-nav">
           <div class="nav-title">📅 選擇產生日期：</div>
           <div class="nav-scroll-list">
@@ -346,7 +347,6 @@
           </div>
         </div>
 
-        <!-- 右側：未完成明細表格與批次工具列 -->
         <div class="main-monitor-content">
           <div class="monitor-top-toolbar">
             <span class="current-date-header">
@@ -579,7 +579,8 @@ import Papa from 'papaparse'
 export default {
   name: 'Transfer8015FishList',
   props: {
-    isSysAdmin: { type: Boolean, default: false }
+    isSysAdmin: { type: Boolean, default: false },
+    isAdmin: { type: Boolean, default: false }
   },
   data() {
     return {
@@ -603,7 +604,6 @@ export default {
       monthlyDailyList: [],
       yearlyMonthlyList: [],
 
-      // 未完成追蹤彈窗專用數據
       showPendingDialog: false,
       pendingDateList: [],
       activePendingDate: '',
@@ -634,6 +634,7 @@ export default {
     }
   },
   computed: {
+    // 🔒 僅限 SysAdmin 刪除與清理
     checkSysAdmin() {
       if (this.isSysAdmin) return true;
       try {
@@ -641,6 +642,19 @@ export default {
         if (authSessionStr) {
           const session = JSON.parse(authSessionStr);
           if (session.username === 'admin' || session.role === 'sys_admin') return true;
+        }
+      } catch (e) {}
+      const username = localStorage.getItem('currentUser') || localStorage.getItem('username') || '';
+      return username === 'admin' || username === '系統管理員';
+    },
+    // 🔓 開放 Admin 與 SysAdmin 均可匯入
+    checkAdmin() {
+      if (this.isSysAdmin || this.isAdmin) return true;
+      try {
+        const authSessionStr = localStorage.getItem('auth_session');
+        if (authSessionStr) {
+          const session = JSON.parse(authSessionStr);
+          if (session.username === 'admin' || session.role === 'sys_admin' || session.role === 'admin') return true;
         }
       } catch (e) {}
       const username = localStorage.getItem('currentUser') || localStorage.getItem('username') || '';
@@ -808,7 +822,7 @@ export default {
           confirmButtonText: '執行銷案',
           cancelButtonText: '取消',
           inputValue: '2026-01-01, 2026-08-31',
-          inputPattern: /^\d{4}-\d{2}-\d{2}\s*,\s*\d{4}-\d{2}-\d{2}\$/,
+          inputPattern: /^\d{4}-\d{2}-\d{2}\s*,\s*\d{4}-\d{2}-\d{2}$/,
           inputErrorMessage: '格式不正確，例：2026-01-01, 2026-08-31'
         });
 
@@ -1226,11 +1240,6 @@ export default {
   margin-bottom: 8px;
 }
 
-.alert-sheet-title {
-  background: #f87171 !important;
-  color: #ffffff !important;
-}
-
 .table-scroll-wrapper {
   overflow-x: auto;
 }
@@ -1270,7 +1279,6 @@ export default {
 
 .group-blue-header { background: #1e3a8a; color: #bfdbfe; }
 .group-green-header { background: #14532d; color: #bbf7d0; }
-.group-red-header th { background: #991b1b; color: #fecaca; }
 .col-ratio-header { background: #854d0e; color: #fef08a; }
 .col-pending-header { background: #991b1b; color: #fecaca; }
 
@@ -1300,7 +1308,6 @@ export default {
 .text-red { color: #f87171; }
 .font-bold { font-weight: bold; }
 
-/* 進貨未上架同款「監控與處置彈窗」樣式 */
 .monitor-container {
   display: flex;
   gap: 15px;
@@ -1404,7 +1411,6 @@ export default {
   font-weight: bold;
 }
 
-/* 投放小卡樣式 */
 .drop-card-box {
   background: #0f172a;
   border: 2px dashed #38bdf8;

@@ -55,7 +55,7 @@
         </el-radio-group>
       </div>
 
-      <!-- 右側操作按鈕區（已將未完成追蹤移至最前頭） -->
+      <!-- 右側操作按鈕區 -->
       <div class="action-group">
         <el-button
           type="danger"
@@ -70,6 +70,7 @@
           🔄 重新整理
         </el-button>
 
+        <!-- 🔒 僅系統管理員 (SysAdmin) 可查看與清除誤匯單據 -->
         <el-button
           v-if="checkSysAdmin"
           type="warning"
@@ -80,8 +81,9 @@
           🔍 查看與清除誤匯單據
         </el-button>
 
+        <!-- 🔓 開放一般管理員 (Admin) 與系統管理員 (SysAdmin) 均可匯入 -->
         <el-button
-          v-if="checkSysAdmin"
+          v-if="checkAdmin"
           type="success"
           size="small"
           icon="el-icon-upload2"
@@ -316,7 +318,7 @@
       </div>
     </div>
 
-    <!-- 4. 進貨未上架同款「未完成追蹤」對話框彈窗 -->
+    <!-- 4. 未完成追蹤對話框彈窗 -->
     <el-dialog
       v-model="showPendingDialog"
       title="⚠️ 尚未補貨完成單據明細監控與更正處置"
@@ -326,7 +328,6 @@
       custom-class="dark-dialog full-monitor-dialog"
     >
       <div class="monitor-container" v-loading="loadingPending">
-        <!-- 左側：日期導航選單 -->
         <div class="side-date-nav">
           <div class="nav-title">📅 選擇產生日期：</div>
           <div class="nav-scroll-list">
@@ -346,7 +347,6 @@
           </div>
         </div>
 
-        <!-- 右側：未完成明細表格與批次工具列 -->
         <div class="main-monitor-content">
           <div class="monitor-top-toolbar">
             <span class="current-date-header">
@@ -529,7 +529,7 @@
           <el-input
             type="textarea"
             v-model="closeRemark"
-            placeholder="請輸入手動銷案原因（例：現場手動補完 / 系統重複開單）"
+            placeholder="請輸入手動銷案原因（例：現場已手動補完 / 系統重複開單）"
             rows="3"
             style="margin-top: 6px;"
           />
@@ -575,7 +575,8 @@ import Papa from 'papaparse'
 export default {
   name: 'ReplenishFishList',
   props: {
-    isSysAdmin: { type: Boolean, default: false }
+    isSysAdmin: { type: Boolean, default: false },
+    isAdmin: { type: Boolean, default: false }
   },
   data() {
     return {
@@ -599,7 +600,6 @@ export default {
       monthlyDailyList: [],
       yearlyMonthlyList: [],
 
-      // 未完成追蹤彈窗專用數據
       showPendingDialog: false,
       pendingDateList: [],
       activePendingDate: '',
@@ -630,6 +630,7 @@ export default {
     }
   },
   computed: {
+    // 🔒 僅限 SysAdmin 刪除與清理
     checkSysAdmin() {
       if (this.isSysAdmin) return true;
       try {
@@ -637,6 +638,19 @@ export default {
         if (authSessionStr) {
           const session = JSON.parse(authSessionStr);
           if (session.username === 'admin' || session.role === 'sys_admin') return true;
+        }
+      } catch (e) {}
+      const username = localStorage.getItem('currentUser') || localStorage.getItem('username') || '';
+      return username === 'admin' || username === '系統管理員';
+    },
+    // 🔓 開放 Admin 與 SysAdmin 均可匯入
+    checkAdmin() {
+      if (this.isSysAdmin || this.isAdmin) return true;
+      try {
+        const authSessionStr = localStorage.getItem('auth_session');
+        if (authSessionStr) {
+          const session = JSON.parse(authSessionStr);
+          if (session.username === 'admin' || session.role === 'sys_admin' || session.role === 'admin') return true;
         }
       } catch (e) {}
       const username = localStorage.getItem('currentUser') || localStorage.getItem('username') || '';
@@ -1291,7 +1305,6 @@ export default {
 .text-red { color: #f87171; }
 .font-bold { font-weight: bold; }
 
-/* 進貨未上架同款「監控與處置彈窗」樣式 */
 .monitor-container {
   display: flex;
   gap: 15px;
@@ -1395,7 +1408,6 @@ export default {
   font-weight: bold;
 }
 
-/* 投放小卡樣式 */
 .drop-card-box {
   background: #0f172a;
   border: 2px dashed #38bdf8;

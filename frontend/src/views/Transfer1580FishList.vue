@@ -70,6 +70,7 @@
           🔄 重新整理
         </el-button>
 
+        <!-- 🔒 僅限 SysAdmin 可查看與清除誤匯單據 -->
         <el-button
           v-if="checkSysAdmin"
           type="warning"
@@ -80,8 +81,9 @@
           🔍 查看與清除誤匯單據
         </el-button>
 
+        <!-- 🔓 開放 Admin & SysAdmin 均可進行小卡投放匯入 -->
         <el-button
-          v-if="checkSysAdmin"
+          v-if="checkAdmin"
           type="success"
           size="small"
           icon="el-icon-upload2"
@@ -162,7 +164,7 @@
               <th class="col-pending-header" style="width: 90px;">未完成筆數</th>
               <th class="col-bar-title">完成圖形</th>
               <th style="width: 80px;">完成占比</th>
-              <style style="width: 80px;">完成筆數</style>
+              <th style="width: 80px;">完成筆數</th>
               <th style="width: 90px;">完成PCS</th>
             </tr>
           </thead>
@@ -326,7 +328,6 @@
       custom-class="dark-dialog full-monitor-dialog"
     >
       <div class="monitor-container" v-loading="loadingPending">
-        <!-- 左側：日期導航選單 -->
         <div class="side-date-nav">
           <div class="nav-title">📅 選擇產生日期：</div>
           <div class="nav-scroll-list">
@@ -346,7 +347,6 @@
           </div>
         </div>
 
-        <!-- 右側：未完成明細表格與批次工具列 -->
         <div class="main-monitor-content">
           <div class="monitor-top-toolbar">
             <span class="current-date-header">
@@ -579,7 +579,8 @@ import Papa from 'papaparse'
 export default {
   name: 'Transfer1580FishList',
   props: {
-    isSysAdmin: { type: Boolean, default: false }
+    isSysAdmin: { type: Boolean, default: false },
+    isAdmin: { type: Boolean, default: false }
   },
   data() {
     return {
@@ -633,6 +634,7 @@ export default {
     }
   },
   computed: {
+    // 🔒 僅限 SysAdmin 刪除與清理
     checkSysAdmin() {
       if (this.isSysAdmin) return true;
       try {
@@ -640,6 +642,19 @@ export default {
         if (authSessionStr) {
           const session = JSON.parse(authSessionStr);
           if (session.username === 'admin' || session.role === 'sys_admin') return true;
+        }
+      } catch (e) {}
+      const username = localStorage.getItem('currentUser') || localStorage.getItem('username') || '';
+      return username === 'admin' || username === '系統管理員';
+    },
+    // 🔓 開放 Admin 與 SysAdmin 均可匯入
+    checkAdmin() {
+      if (this.isSysAdmin || this.isAdmin) return true;
+      try {
+        const authSessionStr = localStorage.getItem('auth_session');
+        if (authSessionStr) {
+          const session = JSON.parse(authSessionStr);
+          if (session.username === 'admin' || session.role === 'sys_admin' || session.role === 'admin') return true;
         }
       } catch (e) {}
       const username = localStorage.getItem('currentUser') || localStorage.getItem('username') || '';
@@ -1293,7 +1308,6 @@ export default {
 .text-red { color: #f87171; }
 .font-bold { font-weight: bold; }
 
-/* 監控與處置彈窗樣式 */
 .monitor-container {
   display: flex;
   gap: 15px;
@@ -1397,7 +1411,6 @@ export default {
   font-weight: bold;
 }
 
-/* 投放小卡樣式 */
 .drop-card-box {
   background: #0f172a;
   border: 2px dashed #38bdf8;
