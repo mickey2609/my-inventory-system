@@ -9,7 +9,6 @@ module.exports = function(db) {
     return String(str).trim().toUpperCase().replace(/\s+/g, '');
   };
 
-  // 🌟 計算迴轉月數級距
   const getTurnoverLevel = (months) => {
     if (months >= 99999) return '🚨 99999 滯銷品';
     if (months > 120) return '10 年以上 (>120個月)';
@@ -19,7 +18,7 @@ module.exports = function(db) {
   };
 
   router.get('/list', (req, res) => {
-    const { startDate, endDate, warehouse, ruleType } = req.query;
+    const { startDate, endDate, warehouse, ruleType, turnoverLevel } = req.query;
 
     try {
       const inv80Sql = `SELECT * FROM inventory`;
@@ -135,7 +134,7 @@ module.exports = function(db) {
             const singleCubicFeet = (len > 0 && w > 0 && h > 0) ? ((len * w * h) / 28317) : 0;
             const importCubicFeet = parseFloat((singleCubicFeet * importQty).toFixed(2));
 
-            const turnoverLevel = getTurnoverLevel(turnMonths);
+            const turnoverLevelStr = getTurnoverLevel(turnMonths);
 
             const tags = [];
             if (sales90 === 0 && importQty > 0) tags.push({ text: '🚨 90日零銷量進貨', type: 'danger' });
@@ -144,20 +143,37 @@ module.exports = function(db) {
             if (turnMonths > 6) tags.push({ text: `⚠️ 迴轉月數過高 (${turnMonths}個月)`, type: 'warning' });
             if (sales90 > 0 && importQty >= (sales90 * 2)) tags.push({ text: `⚠️ 超量驗收 (進貨>90日銷量2倍)`, type: 'warning' });
 
+            // 1. 不合理判定條件
             let isMatchRule = false;
             if (!ruleType || ruleType === 'all') isMatchRule = tags.length > 0;
             else if (ruleType === 'zero_sales') isMatchRule = tags.some(t => t.text.includes('零銷量') || t.text.includes('滯銷'));
             else if (ruleType === 'high_turnover') isMatchRule = tags.some(t => t.text.includes('迴轉月數過高'));
             else if (ruleType === 'over_import') isMatchRule = tags.some(t => t.text.includes('超量驗收'));
 
-            if (isMatchRule) {
+            // 2. 🌟 迴轉級距條件過濾
+            let isMatchLevel = false;
+            if (!turnoverLevel || turnoverLevel === 'all') {
+              isMatchLevel = true;
+            } else if (turnoverLevel === 'le12') {
+              isMatchLevel = turnMonths <= 12;
+            } else if (turnoverLevel === 'm13_60') {
+              isMatchLevel = turnMonths >= 13 && turnMonths <= 60;
+            } else if (turnoverLevel === 'm61_120') {
+              isMatchLevel = turnMonths >= 61 && turnMonths <= 120;
+            } else if (turnoverLevel === 'gt120') {
+              isMatchLevel = turnMonths > 120 && turnMonths < 99999;
+            } else if (turnoverLevel === 'm99999') {
+              isMatchLevel = turnMonths >= 99999;
+            }
+
+            if (isMatchRule && isMatchLevel) {
               abnormalRows.push({
                 ...r,
                 current_stock_qty: inv.total_qty,
                 sales_90d: inv.sales_90d,
                 monthly_sales: inv.monthly_sales,
                 turn_days_total: inv.turn_days_total,
-                turnover_level: turnoverLevel, // 🌟 帶出迴轉月數級距
+                turnover_level: turnoverLevelStr,
                 age: inv.age,
                 supplier_name: inv.supplier_name,
                 pm: inv.pm,

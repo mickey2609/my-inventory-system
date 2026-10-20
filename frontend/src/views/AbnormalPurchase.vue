@@ -58,15 +58,31 @@
       </div>
     </div>
 
-    <!-- 3. 不合理類型過濾卡片 -->
-    <div class="filter-card">
-      <span class="filter-label">📌 不合理判定類型過濾：</span>
-      <el-radio-group v-model="ruleType" size="small" @change="fetchAbnormalData">
-        <el-radio-button label="all">🌐 全選 (所有不合理)</el-radio-button>
-        <el-radio-button label="zero_sales">🚨 零銷量/高庫齡進貨</el-radio-button>
-        <el-radio-button label="high_turnover">⚠️ 迴轉月數過高 (>6個月)</el-radio-button>
-        <el-radio-button label="over_import">⚠️ 爆量驗收 (進貨>90日銷量2倍)</el-radio-button>
-      </el-radio-group>
+    <!-- 3. 篩選條件卡片區塊 -->
+    <div class="filter-card-group">
+      <!-- 不合理判定類型 -->
+      <div class="filter-card">
+        <span class="filter-label">📌 不合理類型：</span>
+        <el-radio-group v-model="ruleType" size="small" @change="fetchAbnormalData">
+          <el-radio-button label="all">🌐 全選 (所有不合理)</el-radio-button>
+          <el-radio-button label="zero_sales">🚨 零銷量/高庫齡進貨</el-radio-button>
+          <el-radio-button label="high_turnover">⚠️ 迴轉月數過高 (>6個月)</el-radio-button>
+          <el-radio-button label="over_import">⚠️ 爆量驗收 (進貨>90日銷量2倍)</el-radio-button>
+        </el-radio-group>
+      </div>
+
+      <!-- 🌟 新增：迴轉級距篩選 -->
+      <div class="filter-card">
+        <span class="filter-label">📊 迴轉級距篩選：</span>
+        <el-radio-group v-model="turnoverLevelFilter" size="small" @change="fetchAbnormalData">
+          <el-radio-button label="all">🌐 全部級距</el-radio-button>
+          <el-radio-button label="le12">🟢 1年以下 (<=12個月)</el-radio-button>
+          <el-radio-button label="m13_60">🟡 1年~5年 (13~60個月)</el-radio-button>
+          <el-radio-button label="m61_120">🟠 5年~10年 (61~120個月)</el-radio-button>
+          <el-radio-button label="gt120">🔴 10年以上 (>120個月)</el-radio-button>
+          <el-radio-button label="m99999">🚨 99999 滯銷品</el-radio-button>
+        </el-radio-group>
+      </div>
     </div>
 
     <!-- 4. 不合理資料明細表格 + 全欄位排序 -->
@@ -76,7 +92,7 @@
         border
         stripe
         size="small"
-        height="calc(100vh - 300px)"
+        height="calc(100vh - 350px)"
         class="dark-table"
         :default-sort="{ prop: 'rec_date', order: 'descending' }"
       >
@@ -135,7 +151,6 @@
           </template>
         </el-table-column>
 
-        <!-- 🌟 新增欄位：迴轉級距 -->
         <el-table-column prop="turnover_level" label="迴轉級距" width="180" align="center" sortable>
           <template #default="scope">
             <span :class="scope.row.turnover_level.includes('99999') ? 'text-red font-bold' : 'text-purple'">
@@ -194,6 +209,7 @@ export default {
       dateRange: [past30, today],
       warehouse: 'all',
       ruleType: 'all',
+      turnoverLevelFilter: 'all', // 🌟 新增迴轉級距篩選綁定
       summary: {
         totalCount: 0,
         totalPcs: 0,
@@ -247,7 +263,8 @@ export default {
           startDate,
           endDate,
           warehouse: this.warehouse,
-          ruleType: this.ruleType
+          ruleType: this.ruleType,
+          turnoverLevel: this.turnoverLevelFilter // 🌟 傳遞級距參數
         };
 
         const res = await axios.get('/api/abnormal/list', { params, timeout: 20000 });
@@ -310,7 +327,7 @@ export default {
   overflow-y: auto;
 }
 
-.top-bar, .filter-card {
+.top-bar {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -320,8 +337,19 @@ export default {
   border: 1px solid #334155;
 }
 
+.filter-card-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .filter-card {
-  justify-content: flex-start;
+  display: flex;
+  align-items: center;
+  background: #1e293b;
+  padding: 6px 16px;
+  border-radius: 8px;
+  border: 1px solid #334155;
   gap: 12px;
 }
 
