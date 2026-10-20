@@ -481,12 +481,12 @@ module.exports = function(db) {
           const qty = r.qty || 0;
           daysInMonthMap[d].recPcs += qty;
 
-          // 計算該筆商品的單才數與進貨總才數: (長*寬*高 / 28317) * 數量
+          // 計算該筆商品的單才數與進貨總才數: (長*寬*高 / 27000) * 數量
           const length = r.length || 0;
           const width = r.width || 0;
           const height = r.height || 0;
           if (length > 0 && width > 0 && height > 0 && qty > 0) {
-            const singleCf = (length * width * height) / 28317;
+            const singleCf = (length * width * height) / 27000;
             daysInMonthMap[d].recCubicFeet += (singleCf * qty);
           }
 
@@ -615,7 +615,7 @@ module.exports = function(db) {
             const width = r.width || 0;
             const height = r.height || 0;
             if (length > 0 && width > 0 && height > 0 && qty > 0) {
-              const singleCf = (length * width * height) / 28317;
+              const singleCf = (length * width * height) / 27000;
               monthsMap[mStr].recCubicFeet += (singleCf * qty);
             }
 
