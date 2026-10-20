@@ -14,7 +14,7 @@ module.exports = function(db) {
     const { startDate, endDate, warehouse, ruleType } = req.query;
 
     try {
-      // 1. 讀取 80 庫（inventory）與 15 庫（相容 inventory_15 與 inventory15）
+      // 1. 讀取 80 庫與 15 庫的主檔
       const inv80Sql = `SELECT * FROM inventory`;
       const inv15Sql = `SELECT * FROM inventory_15`;
       const inv15AltSql = `SELECT * FROM inventory15`;
@@ -22,10 +22,8 @@ module.exports = function(db) {
       db.all(inv80Sql, [], (err80, rows80) => {
         if (err80) console.error('80庫主檔查詢警告：', err80.message);
 
-        // 優先查詢 inventory_15（帶底線）
         db.all(inv15Sql, [], (err15, rows15) => {
           if (err15) {
-            // 若 inventory_15 不存在，嘗試查詢 inventory15（不帶底線）
             db.all(inv15AltSql, [], (err15Alt, rows15Alt) => {
               const valid15Rows = err15Alt ? [] : (rows15Alt || []);
               processAllInventory(rows80 || [], valid15Rows);
@@ -39,7 +37,6 @@ module.exports = function(db) {
       function processAllInventory(validRows80, validRows15) {
         const invMap = new Map();
 
-        // 動態讀取列物件資料 (相容中文/英文欄位名)
         const processInvRow = (row) => {
           const rawKey = row.item_id || row['商品ID'] || row.itemId;
           const key = normalizeKey(rawKey);
@@ -51,7 +48,6 @@ module.exports = function(db) {
           const turnDays = Number(row.turn_days_total || row['總庫存_迴轉天數'] || row['迴轉天數']) || 0;
           const ageVal = Number(row.age || row['庫齡']) || 0;
           
-          // 相容所有 PM 與 供應商 欄位命名稱呼
           const pmVal = String(row.pm || row['所屬PM'] || row.PM || row['PM'] || '').trim();
           const suppVal = String(row.supplier_name || row['供應商名稱'] || row.supplierName || '').trim();
 
@@ -81,7 +77,7 @@ module.exports = function(db) {
         validRows80.forEach(processInvRow);
         validRows15.forEach(processInvRow);
 
-        // 2. 讀取進貨明細
+        // 2. 讀取進貨明細並比對
         let inSql = `
           SELECT 
             warehouse, rec_date, rec_time, po_no, batch_no, item_id, item_name, 
@@ -119,10 +115,13 @@ module.exports = function(db) {
 
           (inboundRows || []).forEach(r => {
             const key = normalizeKey(r.item_id);
-            const inv = invMap.get(key) || {
-              total_qty: 0, sales_90d: 0, monthly_sales: 0, turn_days_total: 0, age: 0, supplier_name: '未知供應商', pm: '未指定PM'
-            };
+            
+            // 🌟 關鍵過濾：在庫存主檔中完全不存在，說明是「全新品進貨」，直接過濾跳過！
+            if (!invMap.has(key)) {
+              return;
+            }
 
+            const inv = invMap.get(key);
             const importQty = Number(r.import_qty) || 0;
             const sales90 = Number(inv.sales_90d) || 0;
             const turnDays = Number(inv.turn_days_total) || 0;
