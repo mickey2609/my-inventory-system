@@ -4,7 +4,7 @@ const express = require('express');
 module.exports = function(db) {
   const router = express.Router();
 
-  // 字串標準化函式：轉大寫 + 剔除所有空白與不可見字元
+  // 字串標準化：轉大寫 + 剔除所有空白與換行符
   const normalizeKey = (str) => {
     if (!str) return '';
     return String(str).trim().toUpperCase().replace(/\s+/g, '');
@@ -14,57 +14,36 @@ module.exports = function(db) {
     const { startDate, endDate, warehouse, ruleType } = req.query;
 
     try {
-      // 1. 讀取 80 庫與 15 庫的主檔 (相容多種欄位命名)
-      const inv80Sql = `
-        SELECT 
-          item_id,
-          IFNULL(total_qty, 0) AS total_qty,
-          IFNULL(sales_90d, 0) AS sales_90d,
-          IFNULL(monthly_sales, 0) AS monthly_sales,
-          IFNULL(turn_days_total, 0) AS turn_days_total,
-          IFNULL(age, 0) AS age,
-          IFNULL(supplier_name, '') AS supplier_name,
-          COALESCE(pm, 所屬PM, '') AS pm
-        FROM inventory
-      `;
-
-      const inv15Sql = `
-        SELECT 
-          item_id,
-          IFNULL(total_qty, 0) AS total_qty,
-          IFNULL(sales_90d, 0) AS sales_90d,
-          IFNULL(monthly_sales, 0) AS monthly_sales,
-          IFNULL(turn_days_total, 0) AS turn_days_total,
-          IFNULL(age, 0) AS age,
-          IFNULL(supplier_name, '') AS supplier_name,
-          COALESCE(pm, 所屬PM, '') AS pm
-        FROM inventory15
-      `;
+      // 安全讀取庫存表，避免 SQL 欄位不存在拋出 no such column 錯誤
+      const inv80Sql = `SELECT * FROM inventory`;
+      const inv15Sql = `SELECT * FROM inventory15`;
 
       db.all(inv80Sql, [], (err80, rows80) => {
         if (err80) console.error('80庫主檔查詢警告：', err80.message);
 
         db.all(inv15Sql, [], (err15, rows15) => {
-          if (err15) console.warn('15庫主檔未建立或查詢失敗，跳過15庫：', err15.message);
+          if (err15) console.warn('15庫主檔未建立或查詢失敗：', err15.message);
 
           const validRows80 = rows80 || [];
           const validRows15 = rows15 || [];
 
-          // 建置標準化 Key 的 Map
           const invMap = new Map();
 
+          // 動態讀取列物件資料 (相容中文/英文欄位名)
           const processInvRow = (row) => {
-            const rawKey = row.item_id || row['商品ID'];
+            const rawKey = row.item_id || row['商品ID'] || row.itemId;
             const key = normalizeKey(rawKey);
             if (!key) return;
 
-            const qty = Number(row.total_qty) || 0;
-            const sales90 = Number(row.sales_90d) || 0;
-            const salesMonth = Number(row.monthly_sales) || 0;
-            const turnDays = Number(row.turn_days_total) || 0;
-            const ageVal = Number(row.age) || 0;
-            const pmVal = String(row.pm || '').trim();
-            const suppVal = String(row.supplier_name || '').trim();
+            const qty = Number(row.total_qty || row['總庫存數'] || row.qty) || 0;
+            const sales90 = Number(row.sales_90d || row['(近)90日銷量'] || row['90日銷量']) || 0;
+            const salesMonth = Number(row.monthly_sales || row['(近)月銷量'] || row['月銷量']) || 0;
+            const turnDays = Number(row.turn_days_total || row['總庫存_迴轉天數'] || row['迴轉天數']) || 0;
+            const ageVal = Number(row.age || row['庫齡']) || 0;
+            
+            // 相容所有 PM 與 供應商 欄位命名稱呼
+            const pmVal = String(row.pm || row['所屬PM'] || row.PM || row['PM'] || '').trim();
+            const suppVal = String(row.supplier_name || row['供應商名稱'] || row.supplierName || '').trim();
 
             if (invMap.has(key)) {
               const existing = invMap.get(key);
@@ -92,7 +71,7 @@ module.exports = function(db) {
           validRows80.forEach(processInvRow);
           validRows15.forEach(processInvRow);
 
-          // 2. 撈取進貨明細
+          // 2. 讀取進貨明細
           let inSql = `
             SELECT 
               warehouse, rec_date, rec_time, po_no, batch_no, item_id, item_name, 
