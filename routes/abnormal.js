@@ -4,71 +4,87 @@ const express = require('express');
 module.exports = function(db) {
   const router = express.Router();
 
+  // 字串標準化函式：轉大寫 + 剔除所有空白與不可見字元
+  const normalizeKey = (str) => {
+    if (!str) return '';
+    return String(str).trim().toUpperCase().replace(/\s+/g, '');
+  };
+
   router.get('/list', (req, res) => {
     const { startDate, endDate, warehouse, ruleType } = req.query;
 
     try {
-      // 1. 同時讀取 80 庫與 15 庫的庫存主檔
+      // 1. 讀取 80 庫與 15 庫的主檔 (相容多種欄位命名)
       const inv80Sql = `
         SELECT 
-          item_id, 
-          IFNULL(total_qty, 0) AS total_qty, 
-          IFNULL(sales_90d, 0) AS sales_90d, 
-          IFNULL(monthly_sales, 0) AS monthly_sales, 
-          IFNULL(turn_days_total, 0) AS turn_days_total, 
-          IFNULL(age, 0) AS age, 
-          IFNULL(supplier_name, '未知供應商') AS supplier_name, 
-          IFNULL(pm, '未指定PM') AS pm 
+          item_id,
+          IFNULL(total_qty, 0) AS total_qty,
+          IFNULL(sales_90d, 0) AS sales_90d,
+          IFNULL(monthly_sales, 0) AS monthly_sales,
+          IFNULL(turn_days_total, 0) AS turn_days_total,
+          IFNULL(age, 0) AS age,
+          IFNULL(supplier_name, '') AS supplier_name,
+          COALESCE(pm, 所屬PM, '') AS pm
         FROM inventory
       `;
 
       const inv15Sql = `
         SELECT 
-          item_id, 
-          IFNULL(total_qty, 0) AS total_qty, 
-          IFNULL(sales_90d, 0) AS sales_90d, 
-          IFNULL(monthly_sales, 0) AS monthly_sales, 
-          IFNULL(turn_days_total, 0) AS turn_days_total, 
-          IFNULL(age, 0) AS age, 
-          IFNULL(supplier_name, '未知供應商') AS supplier_name, 
-          IFNULL(pm, '未指定PM') AS pm 
+          item_id,
+          IFNULL(total_qty, 0) AS total_qty,
+          IFNULL(sales_90d, 0) AS sales_90d,
+          IFNULL(monthly_sales, 0) AS monthly_sales,
+          IFNULL(turn_days_total, 0) AS turn_days_total,
+          IFNULL(age, 0) AS age,
+          IFNULL(supplier_name, '') AS supplier_name,
+          COALESCE(pm, 所屬PM, '') AS pm
         FROM inventory15
       `;
 
       db.all(inv80Sql, [], (err80, rows80) => {
-        if (err80) return res.status(500).json({ success: false, message: '80庫存主檔讀取失敗：' + err80.message });
+        if (err80) console.error('80庫主檔查詢警告：', err80.message);
 
         db.all(inv15Sql, [], (err15, rows15) => {
-          // 即使 15 庫表尚未建立，也不會影響 80 庫的比對
-          const validRows15 = err15 ? [] : (rows15 || []);
-          const validRows80 = rows80 || [];
+          if (err15) console.warn('15庫主檔未建立或查詢失敗，跳過15庫：', err15.message);
 
-          // 2. 建置雙庫合併雜湊表 (Combined Inventory Map)
+          const validRows80 = rows80 || [];
+          const validRows15 = rows15 || [];
+
+          // 建置標準化 Key 的 Map
           const invMap = new Map();
 
           const processInvRow = (row) => {
-            if (!row.item_id) return;
-            const key = String(row.item_id).trim();
+            const rawKey = row.item_id || row['商品ID'];
+            const key = normalizeKey(rawKey);
+            if (!key) return;
+
+            const qty = Number(row.total_qty) || 0;
+            const sales90 = Number(row.sales_90d) || 0;
+            const salesMonth = Number(row.monthly_sales) || 0;
+            const turnDays = Number(row.turn_days_total) || 0;
+            const ageVal = Number(row.age) || 0;
+            const pmVal = String(row.pm || '').trim();
+            const suppVal = String(row.supplier_name || '').trim();
 
             if (invMap.has(key)) {
               const existing = invMap.get(key);
-              existing.total_qty += Number(row.total_qty) || 0;
-              existing.sales_90d = Math.max(existing.sales_90d, Number(row.sales_90d) || 0);
-              existing.monthly_sales = Math.max(existing.monthly_sales, Number(row.monthly_sales) || 0);
-              existing.age = Math.max(existing.age, Number(row.age) || 0);
-              existing.turn_days_total = Math.max(existing.turn_days_total, Number(row.turn_days_total) || 0);
-              if (existing.pm === '未指定PM' && row.pm) existing.pm = row.pm;
-              if (existing.supplier_name === '未知供應商' && row.supplier_name) existing.supplier_name = row.supplier_name;
+              existing.total_qty += qty;
+              existing.sales_90d = Math.max(existing.sales_90d, sales90);
+              existing.monthly_sales = Math.max(existing.monthly_sales, salesMonth);
+              existing.age = Math.max(existing.age, ageVal);
+              existing.turn_days_total = Math.max(existing.turn_days_total, turnDays);
+              if ((!existing.pm || existing.pm === '未指定PM') && pmVal) existing.pm = pmVal;
+              if ((!existing.supplier_name || existing.supplier_name === '未知供應商') && suppVal) existing.supplier_name = suppVal;
             } else {
               invMap.set(key, {
                 item_id: key,
-                total_qty: Number(row.total_qty) || 0,
-                sales_90d: Number(row.sales_90d) || 0,
-                monthly_sales: Number(row.monthly_sales) || 0,
-                turn_days_total: Number(row.turn_days_total) || 0,
-                age: Number(row.age) || 0,
-                supplier_name: row.supplier_name || '未知供應商',
-                pm: row.pm || '未指定PM'
+                total_qty: qty,
+                sales_90d: sales90,
+                monthly_sales: salesMonth,
+                turn_days_total: turnDays,
+                age: ageVal,
+                supplier_name: suppVal || '未知供應商',
+                pm: pmVal || '未指定PM'
               });
             }
           };
@@ -76,7 +92,7 @@ module.exports = function(db) {
           validRows80.forEach(processInvRow);
           validRows15.forEach(processInvRow);
 
-          // 3. 讀取進貨明細並進行雙庫比對
+          // 2. 撈取進貨明細
           let inSql = `
             SELECT 
               warehouse, rec_date, rec_time, po_no, batch_no, item_id, item_name, 
@@ -113,8 +129,8 @@ module.exports = function(db) {
             const pmSet = new Set();
 
             (inboundRows || []).forEach(r => {
-              const itemIdStr = String(r.item_id || '').trim();
-              const inv = invMap.get(itemIdStr) || {
+              const key = normalizeKey(r.item_id);
+              const inv = invMap.get(key) || {
                 total_qty: 0, sales_90d: 0, monthly_sales: 0, turn_days_total: 0, age: 0, supplier_name: '未知供應商', pm: '未指定PM'
               };
 
