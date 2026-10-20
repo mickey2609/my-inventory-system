@@ -556,21 +556,47 @@ export default {
       this.handleSearch();
     },
 
-    // 🌟 接收 ImportTipModal 觸發的帳號選檔事件
-    async handleBatchUsersUploadFile(file) {
-      if (!file) return;
-      const formData = new FormData(); 
-      formData.append('file', file);
-      try {
-        const res = await axios.post('/api/batch-import-users', formData);
-        if (res.data?.status === 'success') { 
-          ElMessage.success(res.data.message); 
-          this.fetchUsers(); 
-        }
-      } catch (e) { 
-        ElMessage.error('批次匯入失敗：' + (e.response?.data?.detail || e.message)); 
-      }
-    },
+    // 🌟 精準支援 .csv / .xls / .xlsx 的批次帳號匯入處理
+async handleBatchUsersUploadFile(file) {
+  if (!file) return;
+
+  const fileName = file.name.toLowerCase();
+  if (!fileName.endsWith('.csv') && !fileName.endsWith('.xls') && !fileName.endsWith('.xlsx')) {
+    return ElMessage.error('請選擇 .csv 或 .xls/.xlsx 格式的帳號清單檔案！');
+  }
+
+  try {
+    let parsedUsers = [];
+
+    if (fileName.endsWith('.xls') || fileName.endsWith('.xlsx')) {
+      const XLSX = (await import('xlsx')).default || await import('xlsx');
+      const arrayBuffer = await file.arrayBuffer();
+      const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+      parsedUsers = XLSX.utils.sheet_to_json(firstSheet, { defval: '' });
+    } else {
+      const Papa = (await import('papaparse')).default;
+      const text = await file.text();
+      const results = Papa.parse(text, { header: true, skipEmptyLines: true });
+      parsedUsers = results.data || [];
+    }
+
+    if (parsedUsers.length === 0) {
+      return ElMessage.error('檔案內無有效的帳號資料！');
+    }
+
+    const res = await axios.post('/api/batch-import-users', { users: parsedUsers });
+
+    if (res.data?.status === 'success' || res.data?.success) {
+      ElMessage.success(res.data.message || `🎉 成功批次匯入 ${parsedUsers.length} 筆帳號！`);
+      this.fetchUsers();
+    } else {
+      ElMessage.error(res.data?.detail || '匯入失敗！');
+    }
+  } catch (e) {
+    ElMessage.error('批次匯入處理失敗：' + (e.response?.data?.detail || e.message));
+  }
+},
 
     // 🌟 接收 ImportTipModal 觸發的商品庫存選檔事件
     async handleInventoryUploadFile(file) {

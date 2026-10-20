@@ -55,7 +55,7 @@ app.use('/api/inbound', inboundRouter);
 const replenishRouter = require('./routes/replenish')(db);
 app.use('/api/replenish', replenishRouter);
 
-// 🌟 3. 全新掛載：跨庫調撥 (80 ➔ 15) 魚群分析 API
+// 3. 跨庫調撥 (80 ➔ 15) 魚群分析 API
 const transfer8015Router = require('./routes/transfer8015')(db);
 app.use('/api/transfer8015', transfer8015Router);
 
@@ -113,7 +113,58 @@ app.get('/api/dashboard/stats', (req, res) => {
   });
 });
 
-// 6. 全域跑馬燈公告同步 API
+// 🌟 6. 全新修復：批次匯入/更新帳號 API (支援 CSV / XLS / XLSX 轉成 JSON 傳入)
+app.post('/api/batch-import-users', (req, res) => {
+  const users = req.body.users || req.body;
+
+  if (!Array.isArray(users) || users.length === 0) {
+    return res.status(400).json({ status: 'error', detail: '未收到有效的帳號資料！' });
+  }
+
+  db.serialize(() => {
+    db.run('BEGIN TRANSACTION');
+
+    const stmt = db.prepare(`
+      INSERT INTO users (username, name, password, role, permissions)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(username) DO UPDATE SET
+        name = EXCLUDED.name,
+        role = EXCLUDED.role
+    `);
+
+    let importedCount = 0;
+    for (const u of users) {
+      if (!u || typeof u !== 'object') continue;
+
+      const username = String(u['帳號'] || u['員編'] || u['username'] || u['User'] || '').trim();
+      const name = String(u['姓名'] || u['name'] || u['Name'] || username).trim();
+      let role = String(u['身份'] || u['角色'] || u['role'] || u['Role'] || 'user').trim().toLowerCase();
+
+      if (!username || username.length < 4) continue;
+      if (!['admin', 'sys_admin', 'user'].includes(role)) role = 'user';
+
+      // 預設密碼設為與「員編」相同
+      const password = String(u['密碼'] || u['password'] || username).trim();
+      const permissions = (role === 'admin' || role === 'sys_admin') ? 'all' : 'loc_summary,inv80,inv15';
+
+      stmt.run(username, name, password, role, permissions);
+      importedCount++;
+    }
+
+    stmt.finalize();
+    db.run('COMMIT', (err) => {
+      if (err) {
+        return res.status(500).json({ status: 'error', detail: '帳號寫入失敗：' + err.message });
+      }
+      res.json({
+        status: 'success',
+        message: `🎉 成功批次匯入 / 更新 ${importedCount} 個使用者帳號！`
+      });
+    });
+  });
+});
+
+// 7. 全域跑馬燈公告同步 API
 app.get('/api/announcement', (req, res) => {
   db.get(`SELECT config_value FROM system_config WHERE config_key = 'announcement'`, [], (err, row) => {
     if (err) return res.status(500).json({ success: false, message: err.message });
@@ -252,10 +303,10 @@ function getAdjustedType(floor, rType, storageCode, locCode5, shelfLevel, heavyR
 function parseCsvTextToObjects(csvText) {
   const lines = csvText.split(/\r?\n/).filter(l => l.trim());
   if (lines.length <= 1) return [];
-  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"\$/g, ''));
   const list = [];
   for (let i = 1; i < lines.length; i++) {
-    const rowVals = lines[i].split(',').map(v => v.trim().replace(/^"|"$/g, ''));
+    const rowVals = lines[i].split(',').map(v => v.trim().replace(/^"|"\$/g, ''));
     if (rowVals.length < headers.length) continue;
     const rowObj = {};
     headers.forEach((h, idx) => rowObj[h] = rowVals[idx]);
