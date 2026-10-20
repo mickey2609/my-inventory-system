@@ -170,7 +170,6 @@ module.exports = function(db) {
           continue;
         }
 
-        // 🌟 最關鍵修正：同時加入 JS XLSX 的 '__EMPTY' 與 '__EMPTY_1'，確保精準抓到 15 庫數值！
         let warehouse = getVal('warehouse', '__EMPTY', '__EMPTY_1', '庫別', 'Unnamed: 1') || '80';
         if (warehouse === '-') warehouse = '80';
 
@@ -309,7 +308,7 @@ module.exports = function(db) {
     });
   });
 
-  // 5. 魚群分析 API
+  // 🌟 5. 魚群分析 API (新增未上架單數與筆數統計)
   router.get('/fish-analysis', (req, res) => {
     const { targetDate, warehouse, remarks } = req.query;
 
@@ -349,6 +348,8 @@ module.exports = function(db) {
         hourStr: `${String(h).padStart(2, '0')}:00 ~ ${String(h + 1).padStart(2, '0')}:00`,
         recPoSet: new Set(),
         recPoPcs: 0,
+        unputPoSet: new Set(), // 🌟 該時段驗收未上架之進貨單號 Set
+        unputCount: 0,         // 🌟 未上架總明細筆數
         putPoSet: new Set(),
         putPoPcs: 0,
         recBatSet: new Set(),
@@ -367,6 +368,16 @@ module.exports = function(db) {
               hourlyData[h].recBatSet.add(r.batch_no.trim());
             }
             hourlyData[h].recPoPcs += (r.qty || 0);
+
+            // 🌟 統計未上架筆數與單數
+            const isPut = r.put_date && r.put_date.trim() !== '' && r.put_date.includes('-');
+            const isResolved = r.is_resolved === 1;
+            if (!isPut && !isResolved) {
+              if (r.po_no && r.po_no.trim() !== '') {
+                hourlyData[h].unputPoSet.add(r.po_no.trim());
+              }
+              hourlyData[h].unputCount += 1;
+            }
           }
         }
 
@@ -389,6 +400,8 @@ module.exports = function(db) {
         hourStr: d.hourStr,
         recPoCount: d.recPoSet.size,
         recPoPcs: d.recPoPcs,
+        unputPoCount: d.unputPoSet.size, // 🌟 傳回未上架單號數
+        unputCount: d.unputCount,         // 🌟 傳回未上架明細筆數
         putPoCount: d.putPoSet.size,
         putPoPcs: d.putPoPcs,
         recBatCount: d.recBatSet.size,

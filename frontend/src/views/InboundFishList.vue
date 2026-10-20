@@ -131,6 +131,7 @@
               <col style="width: 68px;" />
               <col style="width: 64px;" />
               <col style="width: 72px;" />
+              <col style="width: 76px;" /> <!-- 🌟 新增未上架筆數欄寬 -->
               <col class="col-bar-group" />
               <col style="width: 68px;" />
               <col style="width: 64px;" />
@@ -155,7 +156,7 @@
             <tr class="header-main">
               <th class="col-time" rowspan="2">時間<br>時段</th>
               <template v-if="activeViewTab === 'po' || activeViewTab === 'both'">
-                <th colspan="4" class="group-blue-header">進貨單號驗收統計</th>
+                <th colspan="5" class="group-blue-header">進貨單號驗收統計</th>
                 <th colspan="4" class="group-green-header">新品單號上架統計</th>
               </template>
               <th v-if="activeViewTab === 'both'" class="col-sep"></th>
@@ -173,6 +174,7 @@
                 <th>單號占比</th>
                 <th>單號筆數</th>
                 <th>驗收PCS</th>
+                <th style="color: #fca5a5;">未上架筆數</th> <!-- 🌟 新增未上架筆數欄位標頭 -->
                 <th class="col-bar-title">上架圖形</th>
                 <th>上架占比</th>
                 <th>上架筆數</th>
@@ -204,6 +206,11 @@
                 <td class="text-right">{{ formatPercent(h.recPoPct) }}</td>
                 <td class="text-right">{{ formatNumber(h.recPoCount) }}</td>
                 <td class="text-right font-bold text-blue">{{ formatNumber(h.recPoPcs) }}</td>
+                
+                <!-- 🌟 顯示未上架單數 (>0 時顯紅警示) -->
+                <td class="text-right font-bold" :class="{ 'text-red': h.unputPoCount > 0 }">
+                  {{ formatNumber(h.unputPoCount) }}
+                </td>
 
                 <td class="col-bar-cell"><div class="bar-fill green-bar" :style="{ width: getBarWidth(h.putPoPct) }"></div></td>
                 <td class="text-right">{{ formatPercent(h.putPoPct) }}</td>
@@ -237,6 +244,9 @@
                 <td class="text-right font-bold">100.00%</td>
                 <td class="text-right font-bold">{{ formatNumber(summaryTotal.recPoCount) }}</td>
                 <td class="text-right font-bold text-blue">{{ formatNumber(summaryTotal.recPoPcs) }}</td>
+                <!-- 🌟 未上架總計筆數 -->
+                <td class="text-right font-bold text-red">{{ formatNumber(summaryTotal.unputPoCount) }}</td>
+
                 <td></td>
                 <td class="text-right font-bold">100.00%</td>
                 <td class="text-right font-bold">{{ formatNumber(summaryTotal.putPoCount) }}</td>
@@ -412,7 +422,7 @@
       </div>
     </el-dialog>
 
-    <!-- 🌟 5. 逐日/區間 批次刪除進貨明細 Modal -->
+    <!-- 5. 逐日/區間 批次刪除進貨明細 Modal -->
     <el-dialog
       v-model="showDeleteModal"
       title="🗑️ 逐日 / 批次刪除地端進貨明細"
@@ -658,7 +668,6 @@ export default {
       showUploadCardModal: false,
       isCardHover: false,
 
-      // 🌟 逐日/批次刪除 Modal
       showDeleteModal: false,
       deleteWarehouse: 'all',
       deleteStartDate: new Date().toISOString().split('T')[0],
@@ -700,7 +709,7 @@ export default {
     },
     summaryTotal() {
       const tot = {
-        recPoCount: 0, recPoPcs: 0,
+        recPoCount: 0, recPoPcs: 0, unputPoCount: 0,
         putPoCount: 0, putPoPcs: 0,
         recBatCount: 0, recBatPcs: 0,
         putBatCount: 0, putBatPcs: 0
@@ -708,6 +717,7 @@ export default {
       this.hourlyStats.forEach(h => {
         tot.recPoCount += h.recPoCount || 0;
         tot.recPoPcs += h.recPoPcs || 0;
+        tot.unputPoCount += h.unputPoCount || 0;
         tot.putPoCount += h.putPoCount || 0;
         tot.putPoPcs += h.putPoPcs || 0;
         tot.recBatCount += h.recBatCount || 0;
@@ -1351,6 +1361,11 @@ export default {
 
 .row-summary td {
   background: #334155;
+  font-weight: bold;
+}
+
+.text-red {
+  color: #ef4444 !important;
   font-weight: bold;
 }
 
