@@ -160,7 +160,9 @@ export default {
     }
   },
   mounted() {
-    this.fetchAbnormalData();
+    this.\$nextTick(() => {
+      this.fetchAbnormalData();
+    });
   },
   methods: {
     formatNumber(val) {
@@ -171,24 +173,33 @@ export default {
     async fetchAbnormalData() {
       this.loading = true;
       try {
+        let startDate = '';
+        let endDate = '';
+
+        if (Array.isArray(this.dateRange) && this.dateRange.length === 2) {
+          startDate = this.dateRange[0] || '';
+          endDate = this.dateRange[1] || '';
+        }
+
         const params = {
-          startDate: this.dateRange && this.dateRange[0] ? this.dateRange[0] : '',
-          endDate: this.dateRange && this.dateRange[1] ? this.dateRange[1] : '',
+          startDate,
+          endDate,
           warehouse: this.warehouse,
           ruleType: this.ruleType
         };
 
-        const res = await axios.get('/api/abnormal/list', { params });
+        const res = await axios.get('/api/abnormal/list', { params, timeout: 15000 });
         if (res.data?.success) {
-          this.summary = res.data.summary || {};
+          this.summary = res.data.summary || { totalCount: 0, totalPcs: 0, totalCubicFeet: 0, pmCount: 0 };
           this.tableData = res.data.data || [];
         } else {
-          ElMessage.error(res.data?.message || '載入不合理進貨失敗');
+          ElMessage.error(res.data?.message || '讀取不合理進貨失敗');
         }
       } catch (e) {
-        ElMessage.error('載入不合理進貨資料失敗：' + (e.response?.data?.message || e.message));
+        console.error('Fetch abnormal data error:', e);
+        ElMessage.error('載入失敗：' + (e.response?.data?.message || e.message || '連線逾時'));
       } finally {
-        this.loading = false; // 強制關閉 loading 狀態，解開轉圈死鎖
+        this.loading = false; // 解開轉圈
       }
     },
 
@@ -211,7 +222,7 @@ export default {
         '庫齡': r.age,
         '所屬PM': r.pm,
         '供應商': r.supplier_name,
-        '不合理判定原因': r.tags.map(t => t.text).join(' | '),
+        '不合理判定原因': (r.tags || []).map(t => t.text).join(' | '),
         '收貨備註': r.remark
       }));
 
