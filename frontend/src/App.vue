@@ -96,6 +96,12 @@
             :is-sys-admin="isSysAdmin"
           />
 
+          <!-- 🌟 全新掛載：跨庫調撥 (15 ➔ 80) 魚群模組 🌟 -->
+          <Transfer1580FishList 
+            v-else-if="currentTab === 'transfer_15_80'" key="transfer_15_80"
+            :is-sys-admin="isSysAdmin"
+          />
+
           <SettingsLog 
             v-else-if="currentTab === 'settings_log'" key="settings_log"
             v-model:log-tab="logTab" :filtered-logs-list="logsList" @refresh-logs="fetchLogs"
@@ -214,6 +220,7 @@ import TurnoverList from './views/TurnoverList.vue'
 import InboundFishList from './views/InboundFishList.vue'
 import ReplenishFishList from './views/ReplenishFishList.vue'
 import Transfer8015FishList from './views/Transfer8015FishList.vue'
+import Transfer1580FishList from './views/Transfer1580FishList.vue' // 🌟 引入 15➔80 調撥組件
 import SettingsPerm from './views/SettingsPerm.vue'
 import SettingsLog from './views/SettingsLog.vue'
 
@@ -229,7 +236,7 @@ export default {
     TopNavbar, SystemDrawer, ColConfigModal, ParamMenuModal, WidthConfigModal,
     ImportTipModal, UserManagementModals, InventorySearchModal, HomeDashboard,
     LoginOverlay, InvQuery80, InvSearch15, LocSummary, TurnoverList, InboundFishList,
-    ReplenishFishList, Transfer8015FishList, SettingsPerm, SettingsLog
+    ReplenishFishList, Transfer8015FishList, Transfer1580FishList, SettingsPerm, SettingsLog // 🌟 註冊 15➔80 組件
   },
   setup() {
     const { sendLog, getDeviceType, setupAxiosInterceptor } = useSystemLogs();
@@ -556,49 +563,47 @@ export default {
       this.handleSearch();
     },
 
-    // 🌟 精準支援 .csv / .xls / .xlsx 的批次帳號匯入處理
-async handleBatchUsersUploadFile(file) {
-  if (!file) return;
+    async handleBatchUsersUploadFile(file) {
+      if (!file) return;
 
-  const fileName = file.name.toLowerCase();
-  if (!fileName.endsWith('.csv') && !fileName.endsWith('.xls') && !fileName.endsWith('.xlsx')) {
-    return ElMessage.error('請選擇 .csv 或 .xls/.xlsx 格式的帳號清單檔案！');
-  }
+      const fileName = file.name.toLowerCase();
+      if (!fileName.endsWith('.csv') && !fileName.endsWith('.xls') && !fileName.endsWith('.xlsx')) {
+        return ElMessage.error('請選擇 .csv 或 .xls/.xlsx 格式的帳號清單檔案！');
+      }
 
-  try {
-    let parsedUsers = [];
+      try {
+        let parsedUsers = [];
 
-    if (fileName.endsWith('.xls') || fileName.endsWith('.xlsx')) {
-      const XLSX = (await import('xlsx')).default || await import('xlsx');
-      const arrayBuffer = await file.arrayBuffer();
-      const workbook = XLSX.read(arrayBuffer, { type: 'array' });
-      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-      parsedUsers = XLSX.utils.sheet_to_json(firstSheet, { defval: '' });
-    } else {
-      const Papa = (await import('papaparse')).default;
-      const text = await file.text();
-      const results = Papa.parse(text, { header: true, skipEmptyLines: true });
-      parsedUsers = results.data || [];
-    }
+        if (fileName.endsWith('.xls') || fileName.endsWith('.xlsx')) {
+          const XLSX = (await import('xlsx')).default || await import('xlsx');
+          const arrayBuffer = await file.arrayBuffer();
+          const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+          const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+          parsedUsers = XLSX.utils.sheet_to_json(firstSheet, { defval: '' });
+        } else {
+          const Papa = (await import('papaparse')).default;
+          const text = await file.text();
+          const results = Papa.parse(text, { header: true, skipEmptyLines: true });
+          parsedUsers = results.data || [];
+        }
 
-    if (parsedUsers.length === 0) {
-      return ElMessage.error('檔案內無有效的帳號資料！');
-    }
+        if (parsedUsers.length === 0) {
+          return ElMessage.error('檔案內無有效的帳號資料！');
+        }
 
-    const res = await axios.post('/api/batch-import-users', { users: parsedUsers });
+        const res = await axios.post('/api/batch-import-users', { users: parsedUsers });
 
-    if (res.data?.status === 'success' || res.data?.success) {
-      ElMessage.success(res.data.message || `🎉 成功批次匯入 ${parsedUsers.length} 筆帳號！`);
-      this.fetchUsers();
-    } else {
-      ElMessage.error(res.data?.detail || '匯入失敗！');
-    }
-  } catch (e) {
-    ElMessage.error('批次匯入處理失敗：' + (e.response?.data?.detail || e.message));
-  }
-},
+        if (res.data?.status === 'success' || res.data?.success) {
+          ElMessage.success(res.data.message || `🎉 成功批次匯入 ${parsedUsers.length} 筆帳號！`);
+          this.fetchUsers();
+        } else {
+          ElMessage.error(res.data?.detail || '匯入失敗！');
+        }
+      } catch (e) {
+        ElMessage.error('批次匯入處理失敗：' + (e.response?.data?.detail || e.message));
+      }
+    },
 
-    // 🌟 接收 ImportTipModal 觸發的商品庫存選檔事件
     async handleInventoryUploadFile(file) {
       if (!file) return;
       await this.handleInventoryUpload({ target: { files: [file], value: '' } });

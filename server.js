@@ -59,7 +59,11 @@ app.use('/api/replenish', replenishRouter);
 const transfer8015Router = require('./routes/transfer8015')(db);
 app.use('/api/transfer8015', transfer8015Router);
 
-// 4. 庫存與儲位分析模組 API
+// 🌟 4. 全新掛載：跨庫調撥 (15 ➔ 80) 魚群分析 API
+const transfer1580Router = require('./routes/transfer1580')(db);
+app.use('/api/transfer1580', transfer1580Router);
+
+// 5. 庫存與儲位分析模組 API
 const inventory15Module = require('./routes/inventory15');
 const locationStatsModule = require('./routes/locationStats');
 const turnover15Module = require('./routes/turnover15');
@@ -70,7 +74,7 @@ app.use('/api/location-stats', locationStatsModule(db));
 app.use('/api/turnover15', turnover15Module(db));
 app.use('/api/turnover80', turnover80Module(db));
 
-// 5. 首頁 Dashboard 統計數據 API
+// 6. 首頁 Dashboard 統計數據 API
 app.get('/api/dashboard/stats', (req, res) => {
   const sql80 = `SELECT COUNT(*) as total_rows FROM inventory`;
   const sql15 = `SELECT COUNT(*) as total_rows FROM inventory_15`;
@@ -113,7 +117,7 @@ app.get('/api/dashboard/stats', (req, res) => {
   });
 });
 
-// 🌟 6. 全新修復：批次匯入/更新帳號 API (支援 CSV / XLS / XLSX 轉成 JSON 傳入)
+// 7. 批次匯入/更新帳號 API
 app.post('/api/batch-import-users', (req, res) => {
   const users = req.body.users || req.body;
 
@@ -143,7 +147,6 @@ app.post('/api/batch-import-users', (req, res) => {
       if (!username || username.length < 4) continue;
       if (!['admin', 'sys_admin', 'user'].includes(role)) role = 'user';
 
-      // 預設密碼設為與「員編」相同
       const password = String(u['密碼'] || u['password'] || username).trim();
       const permissions = (role === 'admin' || role === 'sys_admin') ? 'all' : 'loc_summary,inv80,inv15';
 
@@ -164,7 +167,7 @@ app.post('/api/batch-import-users', (req, res) => {
   });
 });
 
-// 7. 全域跑馬燈公告同步 API
+// 8. 全域跑馬燈公告同步 API
 app.get('/api/announcement', (req, res) => {
   db.get(`SELECT config_value FROM system_config WHERE config_key = 'announcement'`, [], (err, row) => {
     if (err) return res.status(500).json({ success: false, message: err.message });
@@ -303,10 +306,10 @@ function getAdjustedType(floor, rType, storageCode, locCode5, shelfLevel, heavyR
 function parseCsvTextToObjects(csvText) {
   const lines = csvText.split(/\r?\n/).filter(l => l.trim());
   if (lines.length <= 1) return [];
-  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"\$/g, ''));
+  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
   const list = [];
   for (let i = 1; i < lines.length; i++) {
-    const rowVals = lines[i].split(',').map(v => v.trim().replace(/^"|"\$/g, ''));
+    const rowVals = lines[i].split(',').map(v => v.trim().replace(/^"|"$/g, ''));
     if (rowVals.length < headers.length) continue;
     const rowObj = {};
     headers.forEach((h, idx) => rowObj[h] = rowVals[idx]);
