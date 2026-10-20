@@ -79,28 +79,35 @@
             :is-sys-admin="isSysAdmin"
           />
 
-          <!-- 🌟 1. 進貨上架魚群模組 (開放 Admin 權限) -->
+          <!-- 🌟 不合理進貨清單模組 -->
+          <AbnormalPurchase 
+            v-else-if="currentTab === 'abnormal_purchase'" key="abnormal_purchase"
+            :is-admin="isAdmin"
+            :is-sys-admin="isSysAdmin"
+          />
+
+          <!-- 🌟 進貨上架魚群模組 (開放 Admin 權限) -->
           <InboundFishList 
             v-else-if="currentTab === 'inbound_fish'" key="inbound_fish"
             :is-admin="isAdmin"
             :is-sys-admin="isSysAdmin"
           />
 
-          <!-- 🌟 2. 立即補貨單魚群模組 (開放 Admin 權限) -->
+          <!-- 🌟 立即補貨單魚群模組 (開放 Admin 權限) -->
           <ReplenishFishList 
             v-else-if="currentTab === 'replenish_fish'" key="replenish_fish"
             :is-admin="isAdmin"
             :is-sys-admin="isSysAdmin"
           />
 
-          <!-- 🌟 3. 跨庫調撥 (80 ➔ 15) 魚群模組 (開放 Admin 權限) -->
+          <!-- 🌟 跨庫調撥 (80 ➔ 15) 魚群模組 (開放 Admin 權限) -->
           <Transfer8015FishList 
             v-else-if="currentTab === 'transfer_80_15'" key="transfer_80_15"
             :is-admin="isAdmin"
             :is-sys-admin="isSysAdmin"
           />
 
-          <!-- 🌟 4. 跨庫調撥 (15 ➔ 80) 魚群模組 (開放 Admin 權限) -->
+          <!-- 🌟 跨庫調撥 (15 ➔ 80) 魚群模組 (開放 Admin 權限) -->
           <Transfer1580FishList 
             v-else-if="currentTab === 'transfer_15_80'" key="transfer_15_80"
             :is-admin="isAdmin"
@@ -221,6 +228,7 @@ import InvQuery80 from './views/InvQuery80.vue'
 import InvSearch15 from './views/InvSearch15.vue'
 import LocSummary from './views/LocSummary.vue'
 import TurnoverList from './views/TurnoverList.vue'
+import AbnormalPurchase from './views/AbnormalPurchase.vue' // 🌟 引入不合理進貨組件
 import InboundFishList from './views/InboundFishList.vue'
 import ReplenishFishList from './views/ReplenishFishList.vue'
 import Transfer8015FishList from './views/Transfer8015FishList.vue'
@@ -239,8 +247,9 @@ export default {
   components: {
     TopNavbar, SystemDrawer, ColConfigModal, ParamMenuModal, WidthConfigModal,
     ImportTipModal, UserManagementModals, InventorySearchModal, HomeDashboard,
-    LoginOverlay, InvQuery80, InvSearch15, LocSummary, TurnoverList, InboundFishList,
-    ReplenishFishList, Transfer8015FishList, Transfer1580FishList, SettingsPerm, SettingsLog
+    LoginOverlay, InvQuery80, InvSearch15, LocSummary, TurnoverList, AbnormalPurchase,
+    InboundFishList, ReplenishFishList, Transfer8015FishList, Transfer1580FishList, 
+    SettingsPerm, SettingsLog
   },
   setup() {
     const { sendLog, getDeviceType, setupAxiosInterceptor } = useSystemLogs();

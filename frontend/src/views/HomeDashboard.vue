@@ -114,19 +114,19 @@
         <div v-if="hasPermission('replenish_fish')" class="action-card" @click="openTab('replenish_fish')">
           <div class="action-icon">🐟</div>
           <div class="action-title">立即補貨單魚群</div>
-          <div class="action-desc">動態儲位補貨水位建議與補貨單產生</div>
+          <div class="action-desc">立即補貨單未完成追蹤</div>
         </div>
 
         <div v-if="hasPermission('transfer_80_15')" class="action-card" @click="openTab('transfer_80_15')">
           <div class="action-icon">🔄</div>
           <div class="action-title">跨庫調撥 80 ➔ 15</div>
-          <div class="action-desc">人工倉調撥至自動化倉高周轉品建議</div>
+          <div class="action-desc">橘單新品上架魚群及未上架追蹤</div>
         </div>
 
         <div v-if="hasPermission('transfer_15_80')" class="action-card" @click="openTab('transfer_15_80')">
           <div class="action-icon">🔄</div>
           <div class="action-title">跨庫調撥 15 ➔ 80</div>
-          <div class="action-desc">自動倉調撥至人工倉慢周轉與大批品建議</div>
+          <div class="action-desc">集貨調撥魚群及未完成追蹤</div>
         </div>
 
         <div v-if="isSysAdmin" class="action-card" @click="openTab('settings_perm')">

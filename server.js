@@ -191,6 +191,10 @@ app.post('/api/announcement', (req, res) => {
   );
 });
 
+// 不合理進貨分析 API
+const abnormalRouter = require('./routes/abnormal')(db);
+app.use('/api/abnormal', abnormalRouter);
+
 app.get('/api/get-global-config', (req, res) => {
   const currentUptimeSec = Math.floor((Date.now() - SERVER_START_TIME) / 1000);
   db.get("SELECT config_value FROM system_config WHERE config_key = 'latest_inventory15_filename'", [], (err, row) => {
