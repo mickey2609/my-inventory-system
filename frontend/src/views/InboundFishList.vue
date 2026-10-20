@@ -69,9 +69,9 @@
           🔄 重新整理
         </el-button>
 
-        <!-- 🌟 開放 Admin & SysAdmin 可執行刪除 -->
+        <!-- 🔒 嚴格限制：僅「系統管理員 (SysAdmin)」可看見與執行刪除 -->
         <el-button
-          v-if="checkAdmin"
+          v-if="checkSysAdmin"
           type="danger"
           size="small"
           icon="el-icon-delete"
@@ -80,7 +80,7 @@
           🗑️ 刪除進貨資料
         </el-button>
 
-        <!-- 🌟 開放 Admin & SysAdmin 可執行小卡投放匯入 -->
+        <!-- 🔓 開放：一般管理員 (Admin) 與 系統管理員 (SysAdmin) 均可進行小卡投放匯入 -->
         <el-button
           v-if="checkAdmin"
           type="success"
@@ -727,7 +727,20 @@ export default {
     }
   },
   computed: {
-    // 🌟 核心修改：開放管理員 (Admin) 與系統管理員 (SysAdmin) 均可匯入與刪除
+    // 🔒 僅系統管理員可以使用與看到刪除
+    checkSysAdmin() {
+      if (this.isSysAdmin) return true;
+      try {
+        const authSessionStr = localStorage.getItem('auth_session');
+        if (authSessionStr) {
+          const session = JSON.parse(authSessionStr);
+          if (session.username === 'admin' || session.role === 'sys_admin') return true;
+        }
+      } catch (e) {}
+      const username = localStorage.getItem('currentUser') || localStorage.getItem('username') || '';
+      return username === 'admin' || username === '系統管理員';
+    },
+    // 🔓 一般管理員與系統管理員均可匯入
     checkAdmin() {
       if (this.isSysAdmin || this.isAdmin) return true;
       try {
