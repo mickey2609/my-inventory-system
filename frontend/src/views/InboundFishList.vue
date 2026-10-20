@@ -131,7 +131,7 @@
               <col style="width: 68px;" />
               <col style="width: 64px;" />
               <col style="width: 72px;" />
-              <col style="width: 76px;" /> <!-- 單號未上架欄位 -->
+              <col style="width: 76px;" />
               <col class="col-bar-group" />
               <col style="width: 68px;" />
               <col style="width: 64px;" />
@@ -143,7 +143,7 @@
               <col style="width: 68px;" />
               <col style="width: 64px;" />
               <col style="width: 72px;" />
-              <col style="width: 76px;" /> <!-- 🌟 批號未上架欄位 -->
+              <col style="width: 76px;" />
               <col style="width: 76px;" />
               <col class="col-bar-group" />
               <col style="width: 68px;" />
@@ -189,7 +189,7 @@
                 <th>批號占比</th>
                 <th>批號筆數</th>
                 <th>批號PCS</th>
-                <th style="color: #fca5a5;">未上架筆數</th> <!-- 🌟 新增批號未上架標頭 -->
+                <th style="color: #fca5a5;">未上架筆數</th>
                 <th>驗收單/批比</th>
                 <th class="col-bar-title">批上圖形</th>
                 <th>批上占比</th>
@@ -225,12 +225,9 @@
                 <td class="text-right">{{ formatPercent(h.recBatPct) }}</td>
                 <td class="text-right">{{ formatNumber(h.recBatCount) }}</td>
                 <td class="text-right font-bold text-blue">{{ formatNumber(h.recBatPcs) }}</td>
-                
-                <!-- 🌟 顯示批號未上架數量 (>0 顯紅警示) -->
                 <td class="text-right font-bold" :class="{ 'text-red': h.unputBatCount > 0 }">
                   {{ formatNumber(h.unputBatCount) }}
                 </td>
-
                 <td class="text-right font-bold">{{ formatRatio(h.recBatCount, h.recPoCount) }}</td>
 
                 <td class="col-bar-cell"><div class="bar-fill green-bar" :style="{ width: getBarWidth(h.putBatPct) }"></div></td>
@@ -265,7 +262,6 @@
                 <td class="text-right font-bold">100.00%</td>
                 <td class="text-right font-bold">{{ formatNumber(summaryTotal.recBatCount) }}</td>
                 <td class="text-right font-bold text-blue">{{ formatNumber(summaryTotal.recBatPcs) }}</td>
-                <!-- 🌟 批號未上架總計 -->
                 <td class="text-right font-bold text-red">{{ formatNumber(summaryTotal.unputBatCount) }}</td>
                 <td class="text-right font-bold">{{ formatRatio(summaryTotal.recBatCount, summaryTotal.recPoCount) }}</td>
                 <td></td>
@@ -280,7 +276,7 @@
       </div>
     </div>
 
-    <!-- 3.2 每月每日總表區塊 -->
+    <!-- 3.2 每月每日總表區塊 (包含進貨單與驗收批之未上架數) -->
     <div class="table-container" v-loading="loadingMonthly" v-else-if="analysisMode === 'monthly'">
       <div class="sheet-title">
         🗓️ 倉庫 進貨驗收與新品上架 - {{ targetMonth }} 月份每日總表 ({{ getWarehouseLabel(warehouse) }})
@@ -291,13 +287,15 @@
           <thead>
             <tr class="header-main">
               <th style="width: 110px;" rowspan="2">驗收/上架日期</th>
-              <th colspan="3" class="group-blue-header">進貨驗收每日匯總</th>
+              <th colspan="5" class="group-blue-header">進貨驗收每日匯總</th>
               <th colspan="3" class="group-green-header">新品上架每日匯總</th>
               <th class="col-ratio-header" rowspan="2" style="width: 100px;">當日上架率 (%)</th>
             </tr>
             <tr class="header-sub">
               <th style="width: 110px;">進貨單數 (PO)</th>
+              <th style="width: 100px; color: #fca5a5;">未上架單數</th> <!-- 🌟 新增未上架單數 -->
               <th style="width: 110px;">驗收批數</th>
+              <th style="width: 100px; color: #fca5a5;">未上架批數</th> <!-- 🌟 新增未上架批數 -->
               <th style="width: 120px;">驗收 PCS</th>
               <th style="width: 110px;">上架單數 (PO)</th>
               <th style="width: 110px;">上架批數</th>
@@ -309,7 +307,13 @@
             <tr v-for="(day, idx) in monthlyDailyList" :key="idx" :class="{ 'row-zebra': idx % 2 === 1 }">
               <td class="text-center font-bold">{{ day.date }}</td>
               <td class="text-right">{{ formatNumber(day.recPoCount) }}</td>
+              <td class="text-right font-bold" :class="{ 'text-red': day.unputPoCount > 0 }">
+                {{ formatNumber(day.unputPoCount) }}
+              </td>
               <td class="text-right">{{ formatNumber(day.recBatCount) }}</td>
+              <td class="text-right font-bold" :class="{ 'text-red': day.unputBatCount > 0 }">
+                {{ formatNumber(day.unputBatCount) }}
+              </td>
               <td class="text-right font-bold text-blue">{{ formatNumber(day.recPcs) }}</td>
               
               <td class="text-right">{{ formatNumber(day.putPoCount) }}</td>
@@ -324,7 +328,9 @@
             <tr class="row-summary">
               <td class="text-center font-bold">全月總計</td>
               <td class="text-right font-bold">{{ formatNumber(monthlySummaryTotal.recPoCount) }}</td>
+              <td class="text-right font-bold text-red">{{ formatNumber(monthlySummaryTotal.unputPoCount) }}</td>
               <td class="text-right font-bold">{{ formatNumber(monthlySummaryTotal.recBatCount) }}</td>
+              <td class="text-right font-bold text-red">{{ formatNumber(monthlySummaryTotal.unputBatCount) }}</td>
               <td class="text-right font-bold text-blue">{{ formatNumber(monthlySummaryTotal.recPcs) }}</td>
               
               <td class="text-right font-bold">{{ formatNumber(monthlySummaryTotal.putPoCount) }}</td>
@@ -338,7 +344,7 @@
       </div>
     </div>
 
-    <!-- 3.3 年度每月總表區塊 -->
+    <!-- 3.3 年度每月總表區塊 (包含進貨單與驗收批之未上架數) -->
     <div class="table-container" v-loading="loadingYearly" v-else>
       <div class="sheet-title">
         📊 倉庫 進貨驗收與新品上架 - {{ targetYear }} 年度每月總表 ({{ getWarehouseLabel(warehouse) }})
@@ -349,13 +355,15 @@
           <thead>
             <tr class="header-main">
               <th style="width: 110px;" rowspan="2">驗收/上架月份</th>
-              <th colspan="3" class="group-blue-header">進貨驗收每月匯總</th>
+              <th colspan="5" class="group-blue-header">進貨驗收每月匯總</th>
               <th colspan="3" class="group-green-header">新品上架每月匯總</th>
               <th class="col-ratio-header" rowspan="2" style="width: 110px;">當月上架率 (%)</th>
             </tr>
             <tr class="header-sub">
               <th style="width: 110px;">進貨單數 (PO)</th>
+              <th style="width: 100px; color: #fca5a5;">未上架單數</th> <!-- 🌟 新增未上架單數 -->
               <th style="width: 110px;">驗收批數</th>
+              <th style="width: 100px; color: #fca5a5;">未上架批數</th> <!-- 🌟 新增未上架批數 -->
               <th style="width: 120px;">驗收 PCS</th>
               <th style="width: 110px;">上架單數 (PO)</th>
               <th style="width: 110px;">上架批數</th>
@@ -367,7 +375,13 @@
             <tr v-for="(m, idx) in yearlyMonthlyList" :key="idx" :class="{ 'row-zebra': idx % 2 === 1 }">
               <td class="text-center font-bold">{{ m.month }}</td>
               <td class="text-right">{{ formatNumber(m.recPoCount) }}</td>
+              <td class="text-right font-bold" :class="{ 'text-red': m.unputPoCount > 0 }">
+                {{ formatNumber(m.unputPoCount) }}
+              </td>
               <td class="text-right">{{ formatNumber(m.recBatCount) }}</td>
+              <td class="text-right font-bold" :class="{ 'text-red': m.unputBatCount > 0 }">
+                {{ formatNumber(m.unputBatCount) }}
+              </td>
               <td class="text-right font-bold text-blue">{{ formatNumber(m.recPcs) }}</td>
               
               <td class="text-right">{{ formatNumber(m.putPoCount) }}</td>
@@ -382,7 +396,9 @@
             <tr class="row-summary">
               <td class="text-center font-bold">全年度總計</td>
               <td class="text-right font-bold">{{ formatNumber(yearlySummaryTotal.recPoCount) }}</td>
+              <td class="text-right font-bold text-red">{{ formatNumber(yearlySummaryTotal.unputPoCount) }}</td>
               <td class="text-right font-bold">{{ formatNumber(yearlySummaryTotal.recBatCount) }}</td>
+              <td class="text-right font-bold text-red">{{ formatNumber(yearlySummaryTotal.unputBatCount) }}</td>
               <td class="text-right font-bold text-blue">{{ formatNumber(yearlySummaryTotal.recPcs) }}</td>
               
               <td class="text-right font-bold">{{ formatNumber(yearlySummaryTotal.putPoCount) }}</td>
@@ -737,12 +753,14 @@ export default {
     },
     monthlySummaryTotal() {
       const tot = {
-        recPoCount: 0, recBatCount: 0, recPcs: 0,
+        recPoCount: 0, unputPoCount: 0, recBatCount: 0, unputBatCount: 0, recPcs: 0,
         putPoCount: 0, putBatCount: 0, putPcs: 0
       };
       this.monthlyDailyList.forEach(d => {
         tot.recPoCount += d.recPoCount || 0;
+        tot.unputPoCount += d.unputPoCount || 0;
         tot.recBatCount += d.recBatCount || 0;
+        tot.unputBatCount += d.unputBatCount || 0;
         tot.recPcs += d.recPcs || 0;
         tot.putPoCount += d.putPoCount || 0;
         tot.putBatCount += d.putBatCount || 0;
@@ -753,12 +771,14 @@ export default {
     },
     yearlySummaryTotal() {
       const tot = {
-        recPoCount: 0, recBatCount: 0, recPcs: 0,
+        recPoCount: 0, unputPoCount: 0, recBatCount: 0, unputBatCount: 0, recPcs: 0,
         putPoCount: 0, putBatCount: 0, putPcs: 0
       };
       this.yearlyMonthlyList.forEach(m => {
         tot.recPoCount += m.recPoCount || 0;
+        tot.unputPoCount += m.unputPoCount || 0;
         tot.recBatCount += m.recBatCount || 0;
+        tot.unputBatCount += m.unputBatCount || 0;
         tot.recPcs += m.recPcs || 0;
         tot.putPoCount += m.putPoCount || 0;
         tot.putBatCount += m.putBatCount || 0;
