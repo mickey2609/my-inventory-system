@@ -79,26 +79,31 @@
             :is-sys-admin="isSysAdmin"
           />
 
-          <!-- 進貨上架魚群模組 -->
+          <!-- 🌟 1. 進貨上架魚群模組 (開放 Admin 權限) -->
           <InboundFishList 
             v-else-if="currentTab === 'inbound_fish'" key="inbound_fish"
+            :is-admin="isAdmin"
+            :is-sys-admin="isSysAdmin"
           />
 
-          <!-- 立即補貨單魚群模組 -->
+          <!-- 🌟 2. 立即補貨單魚群模組 (開放 Admin 權限) -->
           <ReplenishFishList 
             v-else-if="currentTab === 'replenish_fish'" key="replenish_fish"
+            :is-admin="isAdmin"
             :is-sys-admin="isSysAdmin"
           />
 
-          <!-- 跨庫調撥 (80 ➔ 15) 魚群模組 -->
+          <!-- 🌟 3. 跨庫調撥 (80 ➔ 15) 魚群模組 (開放 Admin 權限) -->
           <Transfer8015FishList 
             v-else-if="currentTab === 'transfer_80_15'" key="transfer_80_15"
+            :is-admin="isAdmin"
             :is-sys-admin="isSysAdmin"
           />
 
-          <!-- 🌟 精準開通：跨庫調撥 (15 ➔ 80) 魚群模組 🌟 -->
+          <!-- 🌟 4. 跨庫調撥 (15 ➔ 80) 魚群模組 (開放 Admin 權限) -->
           <Transfer1580FishList 
             v-else-if="currentTab === 'transfer_15_80'" key="transfer_15_80"
+            :is-admin="isAdmin"
             :is-sys-admin="isSysAdmin"
           />
 
@@ -219,7 +224,7 @@ import TurnoverList from './views/TurnoverList.vue'
 import InboundFishList from './views/InboundFishList.vue'
 import ReplenishFishList from './views/ReplenishFishList.vue'
 import Transfer8015FishList from './views/Transfer8015FishList.vue'
-import Transfer1580FishList from './views/Transfer1580FishList.vue' // 🌟 精準引入 15➔80 組件
+import Transfer1580FishList from './views/Transfer1580FishList.vue'
 import SettingsPerm from './views/SettingsPerm.vue'
 import SettingsLog from './views/SettingsLog.vue'
 
@@ -235,7 +240,7 @@ export default {
     TopNavbar, SystemDrawer, ColConfigModal, ParamMenuModal, WidthConfigModal,
     ImportTipModal, UserManagementModals, InventorySearchModal, HomeDashboard,
     LoginOverlay, InvQuery80, InvSearch15, LocSummary, TurnoverList, InboundFishList,
-    ReplenishFishList, Transfer8015FishList, Transfer1580FishList, SettingsPerm, SettingsLog // 🌟 註冊組件
+    ReplenishFishList, Transfer8015FishList, Transfer1580FishList, SettingsPerm, SettingsLog
   },
   setup() {
     const { sendLog, getDeviceType, setupAxiosInterceptor } = useSystemLogs();

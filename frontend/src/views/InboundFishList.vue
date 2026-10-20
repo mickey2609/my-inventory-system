@@ -69,8 +69,9 @@
           🔄 重新整理
         </el-button>
 
+        <!-- 🌟 開放 Admin & SysAdmin 可執行刪除 -->
         <el-button
-          v-if="checkSysAdmin"
+          v-if="checkAdmin"
           type="danger"
           size="small"
           icon="el-icon-delete"
@@ -79,8 +80,9 @@
           🗑️ 刪除進貨資料
         </el-button>
 
+        <!-- 🌟 開放 Admin & SysAdmin 可執行小卡投放匯入 -->
         <el-button
-          v-if="checkSysAdmin"
+          v-if="checkAdmin"
           type="success"
           size="small"
           icon="el-icon-upload2"
@@ -276,7 +278,7 @@
       </div>
     </div>
 
-    <!-- 3.2 每月每日總表區塊 (包含驗收才數) -->
+    <!-- 3.2 每月每日總表區塊 -->
     <div class="table-container" v-loading="loadingMonthly" v-else-if="analysisMode === 'monthly'">
       <div class="sheet-title">
         🗓️ 倉庫 進貨驗收與新品上架 - {{ targetMonth }} 月份每日總表 ({{ getWarehouseLabel(warehouse) }})
@@ -297,7 +299,7 @@
               <th style="width: 110px;">驗收批數</th>
               <th style="width: 100px; color: #fca5a5;">未上架批數</th>
               <th style="width: 120px;">驗收 PCS</th>
-              <th style="width: 120px; color: #fef08a;">驗收才數 (才)</th> <!-- 🌟 新增驗收才數欄位 -->
+              <th style="width: 120px; color: #fef08a;">驗收才數 (才)</th>
               <th style="width: 110px;">上架單數 (PO)</th>
               <th style="width: 110px;">上架批數</th>
               <th style="width: 120px;">上架 PCS</th>
@@ -316,8 +318,6 @@
                 {{ formatNumber(day.unputBatCount) }}
               </td>
               <td class="text-right font-bold text-blue">{{ formatNumber(day.recPcs) }}</td>
-              
-              <!-- 🌟 顯示每日進貨總才數 -->
               <td class="text-right font-bold text-yellow">{{ formatNumber(day.recCubicFeet) }}</td>
 
               <td class="text-right">{{ formatNumber(day.putPoCount) }}</td>
@@ -349,7 +349,7 @@
       </div>
     </div>
 
-    <!-- 3.3 年度每月總表區塊 (包含驗收才數) -->
+    <!-- 3.3 年度每月總表區塊 -->
     <div class="table-container" v-loading="loadingYearly" v-else>
       <div class="sheet-title">
         📊 倉庫 進貨驗收與新品上架 - {{ targetYear }} 年度每月總表 ({{ getWarehouseLabel(warehouse) }})
@@ -370,7 +370,7 @@
               <th style="width: 110px;">驗收批數</th>
               <th style="width: 100px; color: #fca5a5;">未上架批數</th>
               <th style="width: 120px;">驗收 PCS</th>
-              <th style="width: 120px; color: #fef08a;">驗收才數 (才)</th> <!-- 🌟 新增驗收才數欄位 -->
+              <th style="width: 120px; color: #fef08a;">驗收才數 (才)</th>
               <th style="width: 110px;">上架單數 (PO)</th>
               <th style="width: 110px;">上架批數</th>
               <th style="width: 120px;">上架 PCS</th>
@@ -516,7 +516,7 @@
       </div>
     </el-dialog>
 
-    <!-- 7. 高對比寬版未上架彈窗 (支援全選當頁與按日期區間一鍵銷案) -->
+    <!-- 7. 未上架彈窗 -->
     <el-dialog 
       v-model="showPendingDialog" 
       title="⚠️ 尚未上架明細監控與更正處置" 
@@ -609,7 +609,7 @@
       </div>
     </el-dialog>
 
-    <!-- 8. 更正銷案 Modal (勾選) -->
+    <!-- 8. 更正銷案 Modal -->
     <el-dialog v-model="showResolveModal" title="🛠️ 銷案/更正未上架記錄" width="420px" append-to-body custom-class="dark-dialog">
       <div class="resolve-form">
         <p>準備更正 <strong>{{ targetResolveItems.length }}</strong> 筆未上架項目：</p>
@@ -669,7 +669,8 @@ import * as XLSX from 'xlsx'
 export default {
   name: 'InboundFishList',
   props: {
-    isSysAdmin: { type: Boolean, default: false }
+    isSysAdmin: { type: Boolean, default: false },
+    isAdmin: { type: Boolean, default: false }
   },
   data() {
     return {
@@ -726,13 +727,14 @@ export default {
     }
   },
   computed: {
-    checkSysAdmin() {
-      if (this.isSysAdmin) return true;
+    // 🌟 核心修改：開放管理員 (Admin) 與系統管理員 (SysAdmin) 均可匯入與刪除
+    checkAdmin() {
+      if (this.isSysAdmin || this.isAdmin) return true;
       try {
         const authSessionStr = localStorage.getItem('auth_session');
         if (authSessionStr) {
           const session = JSON.parse(authSessionStr);
-          if (session.username === 'admin' || session.role === 'sys_admin') return true;
+          if (session.username === 'admin' || session.role === 'sys_admin' || session.role === 'admin') return true;
         }
       } catch (e) {}
       const username = localStorage.getItem('currentUser') || localStorage.getItem('username') || '';
@@ -770,7 +772,7 @@ export default {
         tot.recBatCount += d.recBatCount || 0;
         tot.unputBatCount += d.unputBatCount || 0;
         tot.recPcs += d.recPcs || 0;
-        tot.recCubicFeet += d.recCubicFeet || 0; // 🌟 累加每日進貨才數
+        tot.recCubicFeet += d.recCubicFeet || 0;
         tot.putPoCount += d.putPoCount || 0;
         tot.putBatCount += d.putBatCount || 0;
         tot.putPcs += d.putPcs || 0;
