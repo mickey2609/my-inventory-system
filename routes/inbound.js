@@ -63,7 +63,7 @@ module.exports = function(db) {
     });
   });
 
-  // 依驗收日期刪除 API (保護非該驗收日之歷史紀錄)
+  // 依驗收日期刪除 API
   router.post('/delete-by-date', (req, res) => {
     const { startDate, endDate, warehouse } = req.body;
 
@@ -94,7 +94,7 @@ module.exports = function(db) {
     });
   });
 
-  // 1. 匯入 API
+  // 1. 匯入 API (包含 M'N'O 欄位長寬高)
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     const fileName = req.body.fileName || 'latest_inbound.csv';
@@ -420,7 +420,7 @@ module.exports = function(db) {
     });
   });
 
-  // 🌟 6. 每月每日總表 API (新增未上架單數 unputPoCount 與未上架批數 unputBatCount)
+  // 🌟 6. 每月每日總表 API (計算每日驗收總才數)
   router.get('/monthly-summary', (req, res) => {
     const { month, warehouse, remarks } = req.query;
 
@@ -465,9 +465,10 @@ module.exports = function(db) {
               date: d,
               recPoSet: new Set(),
               recBatSet: new Set(),
-              unputPoSet: new Set(),  // 🌟 未上架 PO 單號 Set
-              unputBatSet: new Set(), // 🌟 未上架驗收批號 Set
+              unputPoSet: new Set(),
+              unputBatSet: new Set(),
               recPcs: 0,
+              recCubicFeet: 0, // 🌟 當日驗收才數
               putPoSet: new Set(),
               putBatSet: new Set(),
               putPcs: 0,
@@ -480,11 +481,19 @@ module.exports = function(db) {
           const qty = r.qty || 0;
           daysInMonthMap[d].recPcs += qty;
 
+          // 計算該筆商品的單才數與進貨總才數: (長*寬*高 / 28317) * 數量
+          const length = r.length || 0;
+          const width = r.width || 0;
+          const height = r.height || 0;
+          if (length > 0 && width > 0 && height > 0 && qty > 0) {
+            const singleCf = (length * width * height) / 28317;
+            daysInMonthMap[d].recCubicFeet += (singleCf * qty);
+          }
+
           const isPut = (r.put_date && r.put_date.trim() !== '' && r.put_date.includes('-')) || r.is_resolved === 1;
           if (isPut) {
             daysInMonthMap[d].recPutMatchedPcs += qty;
           } else {
-            // 🌟 收集未上架單號與批號
             if (r.po_no && r.po_no.trim() !== '') daysInMonthMap[d].unputPoSet.add(r.po_no.trim());
             if (r.batch_no && r.batch_no.trim() !== '') daysInMonthMap[d].unputBatSet.add(r.batch_no.trim());
           }
@@ -500,6 +509,7 @@ module.exports = function(db) {
               unputPoSet: new Set(),
               unputBatSet: new Set(),
               recPcs: 0,
+              recCubicFeet: 0,
               putPoSet: new Set(),
               putBatSet: new Set(),
               putPcs: 0,
@@ -519,10 +529,11 @@ module.exports = function(db) {
         return {
           date: item.date,
           recPoCount: item.recPoSet.size,
-          unputPoCount: item.unputPoSet.size,   // 🌟 當日未上架 PO 單數
+          unputPoCount: item.unputPoSet.size,
           recBatCount: item.recBatSet.size,
-          unputBatCount: item.unputBatSet.size, // 🌟 當日未上架驗收批數
+          unputBatCount: item.unputBatSet.size,
           recPcs: item.recPcs,
+          recCubicFeet: parseFloat(item.recCubicFeet.toFixed(2)), // 🌟 取小數兩位
           putPoCount: item.putPoSet.size,
           putBatCount: item.putBatSet.size,
           putPcs: item.putPcs,
@@ -538,7 +549,7 @@ module.exports = function(db) {
     });
   });
 
-  // 7. 年度每月總表 API
+  // 🌟 7. 年度每月總表 API (計算每月驗收總才數)
   router.get('/yearly-summary', (req, res) => {
     const { year, warehouse, remarks } = req.query;
 
@@ -583,6 +594,7 @@ module.exports = function(db) {
           unputPoSet: new Set(),
           unputBatSet: new Set(),
           recPcs: 0,
+          recCubicFeet: 0, // 🌟 當月驗收才數
           putPoSet: new Set(),
           putBatSet: new Set(),
           putPcs: 0,
@@ -598,6 +610,14 @@ module.exports = function(db) {
             if (r.batch_no) monthsMap[mStr].recBatSet.add(r.batch_no.trim());
             const qty = r.qty || 0;
             monthsMap[mStr].recPcs += qty;
+
+            const length = r.length || 0;
+            const width = r.width || 0;
+            const height = r.height || 0;
+            if (length > 0 && width > 0 && height > 0 && qty > 0) {
+              const singleCf = (length * width * height) / 28317;
+              monthsMap[mStr].recCubicFeet += (singleCf * qty);
+            }
 
             const isPut = (r.put_date && r.put_date.trim() !== '' && r.put_date.includes('-')) || r.is_resolved === 1;
             if (isPut) {
@@ -630,6 +650,7 @@ module.exports = function(db) {
           recBatCount: item.recBatSet.size,
           unputBatCount: item.unputBatSet.size,
           recPcs: item.recPcs,
+          recCubicFeet: parseFloat(item.recCubicFeet.toFixed(2)), // 🌟 取小數兩位
           putPoCount: item.putPoSet.size,
           putBatCount: item.putBatSet.size,
           putPcs: item.putPcs,
