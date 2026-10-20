@@ -4,7 +4,6 @@ const express = require('express');
 module.exports = function(db) {
   const router = express.Router();
 
-  // 字串標準化：轉大寫 + 剔除所有空白與換行符
   const normalizeKey = (str) => {
     if (!str) return '';
     return String(str).trim().toUpperCase().replace(/\s+/g, '');
@@ -14,7 +13,6 @@ module.exports = function(db) {
     const { startDate, endDate, warehouse, ruleType } = req.query;
 
     try {
-      // 1. 讀取 80 庫與 15 庫的主檔
       const inv80Sql = `SELECT * FROM inventory`;
       const inv15Sql = `SELECT * FROM inventory_15`;
       const inv15AltSql = `SELECT * FROM inventory15`;
@@ -45,7 +43,7 @@ module.exports = function(db) {
           const qty = Number(row.total_qty || row['總庫存數'] || row.qty) || 0;
           const sales90 = Number(row.sales_90d || row['(近)90日銷量'] || row['90日銷量']) || 0;
           const salesMonth = Number(row.monthly_sales || row['(近)月銷量'] || row['月銷量']) || 0;
-          const turnDays = Number(row.turn_days_total || row['總庫存_迴轉天數'] || row['迴轉天數']) || 0;
+          const turnMonths = Number(row.turn_days_total || row['總庫存_迴轉天數'] || row['迴轉天數'] || row['迴轉月數']) || 0;
           const ageVal = Number(row.age || row['庫齡']) || 0;
           
           const pmVal = String(row.pm || row['所屬PM'] || row.PM || row['PM'] || '').trim();
@@ -57,7 +55,7 @@ module.exports = function(db) {
             existing.sales_90d = Math.max(existing.sales_90d, sales90);
             existing.monthly_sales = Math.max(existing.monthly_sales, salesMonth);
             existing.age = Math.max(existing.age, ageVal);
-            existing.turn_days_total = Math.max(existing.turn_days_total, turnDays);
+            existing.turn_days_total = Math.max(existing.turn_days_total, turnMonths);
             if ((!existing.pm || existing.pm === '未指定PM') && pmVal) existing.pm = pmVal;
             if ((!existing.supplier_name || existing.supplier_name === '未知供應商') && suppVal) existing.supplier_name = suppVal;
           } else {
@@ -66,7 +64,7 @@ module.exports = function(db) {
               total_qty: qty,
               sales_90d: sales90,
               monthly_sales: salesMonth,
-              turn_days_total: turnDays,
+              turn_days_total: turnMonths,
               age: ageVal,
               supplier_name: suppVal || '未知供應商',
               pm: pmVal || '未指定PM'
@@ -77,7 +75,6 @@ module.exports = function(db) {
         validRows80.forEach(processInvRow);
         validRows15.forEach(processInvRow);
 
-        // 2. 讀取進貨明細並比對
         let inSql = `
           SELECT 
             warehouse, rec_date, rec_time, po_no, batch_no, item_id, item_name, 
@@ -116,15 +113,13 @@ module.exports = function(db) {
           (inboundRows || []).forEach(r => {
             const key = normalizeKey(r.item_id);
             
-            // 🌟 關鍵過濾：在庫存主檔中完全不存在，說明是「全新品進貨」，直接過濾跳過！
-            if (!invMap.has(key)) {
-              return;
-            }
+            // 在庫存主檔中完全不存在者（全新品），直接跳過
+            if (!invMap.has(key)) return;
 
             const inv = invMap.get(key);
             const importQty = Number(r.import_qty) || 0;
             const sales90 = Number(inv.sales_90d) || 0;
-            const turnDays = Number(inv.turn_days_total) || 0;
+            const turnMonths = Number(inv.turn_days_total) || 0;
             const age = Number(inv.age) || 0;
             const len = Number(r.length) || 0;
             const w = Number(r.width) || 0;
@@ -137,13 +132,14 @@ module.exports = function(db) {
             if (sales90 === 0 && importQty > 0) tags.push({ text: '🚨 90日零銷量進貨', type: 'danger' });
             else if (age >= 180) tags.push({ text: '🚨 高庫齡滯銷進貨', type: 'danger' });
 
-            if (turnDays > 180) tags.push({ text: `⚠️ 迴轉率天數過高 (${turnDays}天)`, type: 'warning' });
+            // 🌟 判定門檻：迴轉月數大於 6 個月
+            if (turnMonths > 6) tags.push({ text: `⚠️ 迴轉月數過高 (${turnMonths}個月)`, type: 'warning' });
             if (sales90 > 0 && importQty >= (sales90 * 2)) tags.push({ text: `⚠️ 超量驗收 (進貨>90日銷量2倍)`, type: 'warning' });
 
             let isMatchRule = false;
             if (!ruleType || ruleType === 'all') isMatchRule = tags.length > 0;
             else if (ruleType === 'zero_sales') isMatchRule = tags.some(t => t.text.includes('零銷量') || t.text.includes('滯銷'));
-            else if (ruleType === 'high_turnover') isMatchRule = tags.some(t => t.text.includes('迴轉率天數過高'));
+            else if (ruleType === 'high_turnover') isMatchRule = tags.some(t => t.text.includes('迴轉月數過高'));
             else if (ruleType === 'over_import') isMatchRule = tags.some(t => t.text.includes('超量驗收'));
 
             if (isMatchRule) {

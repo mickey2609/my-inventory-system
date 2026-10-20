@@ -64,7 +64,7 @@
       <el-radio-group v-model="ruleType" size="small" @change="fetchAbnormalData">
         <el-radio-button label="all">🌐 全選 (所有不合理)</el-radio-button>
         <el-radio-button label="zero_sales">🚨 零銷量/高庫齡進貨</el-radio-button>
-        <el-radio-button label="high_turnover">⚠️ 迴轉天數過高 (>180天)</el-radio-button>
+        <el-radio-button label="high_turnover">⚠️ 迴轉月數過高 (>6個月)</el-radio-button>
         <el-radio-button label="over_import">⚠️ 爆量驗收 (進貨>90日銷量2倍)</el-radio-button>
       </el-radio-group>
     </div>
@@ -97,7 +97,6 @@
           </template>
         </el-table-column>
         
-        <!-- 🌟 新增欄位 1：總庫存數 -->
         <el-table-column prop="current_stock_qty" label="總庫存數" width="95" align="right">
           <template #default="scope">
             <span class="font-bold text-green">{{ formatNumber(scope.row.current_stock_qty) }}</span>
@@ -110,14 +109,12 @@
           </template>
         </el-table-column>
 
-        <!-- 🌟 新增欄位 2：最長庫齡 -->
         <el-table-column prop="age" label="最長庫齡" width="90" align="right">
           <template #default="scope">
             <span :class="scope.row.age >= 180 ? 'text-red font-bold' : ''">{{ formatNumber(scope.row.age) }}天</span>
           </template>
         </el-table-column>
 
-        <!-- 🌟 新增欄位 3：近月銷量 -->
         <el-table-column prop="monthly_sales" label="近月銷量" width="90" align="right">
           <template #default="scope">
             <span>{{ formatNumber(scope.row.monthly_sales) }}</span>
@@ -129,11 +126,14 @@
             <span :class="scope.row.sales_90d === 0 ? 'text-red font-bold' : ''">{{ formatNumber(scope.row.sales_90d) }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="turn_days_total" label="迴轉天數" width="85" align="right">
+
+        <!-- 🌟 更正為「迴轉月數」，單位改為「個月」 -->
+        <el-table-column prop="turn_days_total" label="迴轉月數" width="95" align="right">
           <template #default="scope">
-            <span :class="scope.row.turn_days_total > 180 ? 'text-red font-bold' : ''">{{ formatNumber(scope.row.turn_days_total) }}天</span>
+            <span :class="scope.row.turn_days_total > 6 ? 'text-red font-bold' : ''">{{ formatNumber(scope.row.turn_days_total) }} 個月</span>
           </template>
         </el-table-column>
+
         <el-table-column prop="pm" label="所屬 PM" width="90" align="center" />
         <el-table-column label="不合理判定原因" min-width="220">
           <template #default="scope">
@@ -203,7 +203,7 @@ export default {
     }
   },
   mounted() {
-    this.$nextTick(() => {
+    this.\$nextTick(() => {
       this.fetchAbnormalData();
     });
   },
@@ -272,7 +272,7 @@ export default {
         '最長庫齡': r.age,
         '近月銷量': r.monthly_sales,
         '近90日銷量': r.sales_90d,
-        '預估迴轉天數': r.turn_days_total,
+        '預估迴轉月數': r.turn_days_total,
         '所屬PM': r.pm,
         '供應商': r.supplier_name,
         '不合理判定原因': (r.tags || []).map(t => t.text).join(' | ')
