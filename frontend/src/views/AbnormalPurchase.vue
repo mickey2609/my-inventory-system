@@ -182,11 +182,13 @@ export default {
         if (res.data?.success) {
           this.summary = res.data.summary || {};
           this.tableData = res.data.data || [];
+        } else {
+          ElMessage.error(res.data?.message || '載入不合理進貨失敗');
         }
       } catch (e) {
-        ElMessage.error('載入不合理進貨資料失敗：' + e.message);
+        ElMessage.error('載入不合理進貨資料失敗：' + (e.response?.data?.message || e.message));
       } finally {
-        this.loading = false;
+        this.loading = false; // 強制關閉 loading 狀態，解開轉圈死鎖
       }
     },
 
@@ -267,7 +269,6 @@ export default {
   font-weight: bold;
 }
 
-/* KPI 統計卡片風格 */
 .metrics-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
