@@ -69,7 +69,7 @@
       </el-radio-group>
     </div>
 
-    <!-- 4. 不合理資料明細表格 + 底部分頁區塊 -->
+    <!-- 4. 不合理資料明細表格 + 全欄位排序 -->
     <div class="table-container" v-loading="loading">
       <el-table
         :data="paginatedTableData"
@@ -78,64 +78,74 @@
         size="small"
         height="calc(100vh - 300px)"
         class="dark-table"
+        :default-sort="{ prop: 'rec_date', order: 'descending' }"
       >
-        <el-table-column prop="rec_date" label="驗收日期" width="105" align="center" />
-        <el-table-column prop="po_no" label="進貨單號 (PO)" width="150" align="center">
+        <el-table-column prop="rec_date" label="驗收日期" width="105" align="center" sortable />
+        <el-table-column prop="po_no" label="進貨單號 (PO)" width="150" align="center" sortable>
           <template #default="scope">
             <span class="font-bold text-orange">{{ scope.row.po_no }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="item_id" label="商品編號" width="150" align="center">
+        <el-table-column prop="item_id" label="商品編號" width="150" align="center" sortable>
           <template #default="scope">
             <span class="font-bold text-blue">{{ scope.row.item_id }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="item_name" label="商品名稱" min-width="220" show-overflow-tooltip />
-        <el-table-column prop="import_qty" label="驗收PCS" width="85" align="right">
+        <el-table-column prop="item_name" label="商品名稱" min-width="200" show-overflow-tooltip sortable />
+        
+        <el-table-column prop="import_qty" label="驗收PCS" width="95" align="right" sortable>
           <template #default="scope">
             <span class="font-bold text-blue">{{ formatNumber(scope.row.import_qty) }}</span>
           </template>
         </el-table-column>
         
-        <el-table-column prop="current_stock_qty" label="總庫存數" width="95" align="right">
+        <el-table-column prop="current_stock_qty" label="總庫存數" width="100" align="right" sortable>
           <template #default="scope">
             <span class="font-bold text-green">{{ formatNumber(scope.row.current_stock_qty) }}</span>
           </template>
         </el-table-column>
 
-        <el-table-column prop="import_cubic_feet" label="進貨才數" width="90" align="right">
+        <el-table-column prop="import_cubic_feet" label="進貨才數" width="95" align="right" sortable>
           <template #default="scope">
             <span class="font-bold text-yellow">{{ formatNumber(scope.row.import_cubic_feet) }}</span>
           </template>
         </el-table-column>
 
-        <el-table-column prop="age" label="最長庫齡" width="90" align="right">
+        <el-table-column prop="age" label="最長庫齡" width="100" align="right" sortable>
           <template #default="scope">
             <span :class="scope.row.age >= 180 ? 'text-red font-bold' : ''">{{ formatNumber(scope.row.age) }}天</span>
           </template>
         </el-table-column>
 
-        <el-table-column prop="monthly_sales" label="近月銷量" width="90" align="right">
+        <el-table-column prop="monthly_sales" label="近月銷量" width="95" align="right" sortable>
           <template #default="scope">
             <span>{{ formatNumber(scope.row.monthly_sales) }}</span>
           </template>
         </el-table-column>
 
-        <el-table-column prop="sales_90d" label="近90日銷量" width="95" align="right">
+        <el-table-column prop="sales_90d" label="近90日銷量" width="105" align="right" sortable>
           <template #default="scope">
             <span :class="scope.row.sales_90d === 0 ? 'text-red font-bold' : ''">{{ formatNumber(scope.row.sales_90d) }}</span>
           </template>
         </el-table-column>
 
-        <!-- 🌟 更正為「迴轉月數」，單位改為「個月」 -->
-        <el-table-column prop="turn_days_total" label="迴轉月數" width="95" align="right">
+        <el-table-column prop="turn_days_total" label="迴轉月數" width="110" align="right" sortable>
           <template #default="scope">
             <span :class="scope.row.turn_days_total > 6 ? 'text-red font-bold' : ''">{{ formatNumber(scope.row.turn_days_total) }} 個月</span>
           </template>
         </el-table-column>
 
-        <el-table-column prop="pm" label="所屬 PM" width="90" align="center" />
-        <el-table-column label="不合理判定原因" min-width="220">
+        <!-- 🌟 新增欄位：迴轉級距 -->
+        <el-table-column prop="turnover_level" label="迴轉級距" width="180" align="center" sortable>
+          <template #default="scope">
+            <span :class="scope.row.turnover_level.includes('99999') ? 'text-red font-bold' : 'text-purple'">
+              {{ scope.row.turnover_level }}
+            </span>
+          </template>
+        </el-table-column>
+
+        <el-table-column prop="pm" label="所屬 PM" width="95" align="center" sortable />
+        <el-table-column label="不合理判定原因" min-width="200">
           <template #default="scope">
             <div class="tag-group">
               <el-tag
@@ -209,7 +219,7 @@ export default {
   },
   methods: {
     formatNumber(val) {
-      if (!val) return '0';
+      if (!val && val !== 0) return '0';
       return Number(val).toLocaleString();
     },
 
@@ -273,6 +283,7 @@ export default {
         '近月銷量': r.monthly_sales,
         '近90日銷量': r.sales_90d,
         '預估迴轉月數': r.turn_days_total,
+        '迴轉級距': r.turnover_level,
         '所屬PM': r.pm,
         '供應商': r.supplier_name,
         '不合理判定原因': (r.tags || []).map(t => t.text).join(' | ')

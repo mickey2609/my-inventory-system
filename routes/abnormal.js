@@ -9,6 +9,15 @@ module.exports = function(db) {
     return String(str).trim().toUpperCase().replace(/\s+/g, '');
   };
 
+  // 🌟 計算迴轉月數級距
+  const getTurnoverLevel = (months) => {
+    if (months >= 99999) return '🚨 99999 滯銷品';
+    if (months > 120) return '10 年以上 (>120個月)';
+    if (months >= 61) return '5 年～10 年 (61~120個月)';
+    if (months >= 13) return '1 年～5 年 (13~60個月)';
+    return '1 年以下 (<=12個月)';
+  };
+
   router.get('/list', (req, res) => {
     const { startDate, endDate, warehouse, ruleType } = req.query;
 
@@ -112,8 +121,6 @@ module.exports = function(db) {
 
           (inboundRows || []).forEach(r => {
             const key = normalizeKey(r.item_id);
-            
-            // 在庫存主檔中完全不存在者（全新品），直接跳過
             if (!invMap.has(key)) return;
 
             const inv = invMap.get(key);
@@ -128,11 +135,12 @@ module.exports = function(db) {
             const singleCubicFeet = (len > 0 && w > 0 && h > 0) ? ((len * w * h) / 28317) : 0;
             const importCubicFeet = parseFloat((singleCubicFeet * importQty).toFixed(2));
 
+            const turnoverLevel = getTurnoverLevel(turnMonths);
+
             const tags = [];
             if (sales90 === 0 && importQty > 0) tags.push({ text: '🚨 90日零銷量進貨', type: 'danger' });
             else if (age >= 180) tags.push({ text: '🚨 高庫齡滯銷進貨', type: 'danger' });
 
-            // 🌟 判定門檻：迴轉月數大於 6 個月
             if (turnMonths > 6) tags.push({ text: `⚠️ 迴轉月數過高 (${turnMonths}個月)`, type: 'warning' });
             if (sales90 > 0 && importQty >= (sales90 * 2)) tags.push({ text: `⚠️ 超量驗收 (進貨>90日銷量2倍)`, type: 'warning' });
 
@@ -149,6 +157,7 @@ module.exports = function(db) {
                 sales_90d: inv.sales_90d,
                 monthly_sales: inv.monthly_sales,
                 turn_days_total: inv.turn_days_total,
+                turnover_level: turnoverLevel, // 🌟 帶出迴轉月數級距
                 age: inv.age,
                 supplier_name: inv.supplier_name,
                 pm: inv.pm,
