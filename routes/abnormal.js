@@ -8,7 +8,7 @@ module.exports = function(db) {
     const { startDate, endDate, warehouse, ruleType } = req.query;
 
     try {
-      // 1. 先撈庫存快照建置 Map
+      // 1. 撈取庫存快照建置 Map
       const invSql = `
         SELECT 
           item_id, 
@@ -37,8 +37,7 @@ module.exports = function(db) {
             IFNULL(qty, 0) AS import_qty, 
             IFNULL(length, 0) AS length, 
             IFNULL(width, 0) AS width, 
-            IFNULL(height, 0) AS height, 
-            IFNULL(remark, '') AS remark
+            IFNULL(height, 0) AS height
           FROM inbound_details
           WHERE 1=1
         `;
@@ -85,14 +84,10 @@ module.exports = function(db) {
             const importCubicFeet = parseFloat((singleCubicFeet * importQty).toFixed(2));
 
             const tags = [];
-            // 規則 1：滯銷品/零銷量進貨
             if (sales90 === 0 && importQty > 0) tags.push({ text: '🚨 90日零銷量進貨', type: 'danger' });
             else if (age >= 180) tags.push({ text: '🚨 高庫齡滯銷進貨', type: 'danger' });
 
-            // 規則 2：迴轉天數爆表 (> 180 天)
             if (turnDays > 180) tags.push({ text: `⚠️ 迴轉率天數過高 (${turnDays}天)`, type: 'warning' });
-
-            // 規則 3：單次驗收超過近 90 日銷量 2 倍以上
             if (sales90 > 0 && importQty >= (sales90 * 2)) tags.push({ text: `⚠️ 超量驗收 (進貨>90日銷量2倍)`, type: 'warning' });
 
             let isMatchRule = false;

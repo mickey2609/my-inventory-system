@@ -96,11 +96,34 @@
             <span class="font-bold text-blue">{{ formatNumber(scope.row.import_qty) }}</span>
           </template>
         </el-table-column>
+        
+        <!-- 🌟 新增欄位 1：總庫存數 -->
+        <el-table-column prop="current_stock_qty" label="總庫存數" width="95" align="right">
+          <template #default="scope">
+            <span class="font-bold text-green">{{ formatNumber(scope.row.current_stock_qty) }}</span>
+          </template>
+        </el-table-column>
+
         <el-table-column prop="import_cubic_feet" label="進貨才數" width="90" align="right">
           <template #default="scope">
             <span class="font-bold text-yellow">{{ formatNumber(scope.row.import_cubic_feet) }}</span>
           </template>
         </el-table-column>
+
+        <!-- 🌟 新增欄位 2：最長庫齡 -->
+        <el-table-column prop="age" label="最長庫齡" width="90" align="right">
+          <template #default="scope">
+            <span :class="scope.row.age >= 180 ? 'text-red font-bold' : ''">{{ formatNumber(scope.row.age) }}天</span>
+          </template>
+        </el-table-column>
+
+        <!-- 🌟 新增欄位 3：近月銷量 -->
+        <el-table-column prop="monthly_sales" label="近月銷量" width="90" align="right">
+          <template #default="scope">
+            <span>{{ formatNumber(scope.row.monthly_sales) }}</span>
+          </template>
+        </el-table-column>
+
         <el-table-column prop="sales_90d" label="近90日銷量" width="95" align="right">
           <template #default="scope">
             <span :class="scope.row.sales_90d === 0 ? 'text-red font-bold' : ''">{{ formatNumber(scope.row.sales_90d) }}</span>
@@ -127,7 +150,6 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="remark" label="收貨備註" min-width="140" show-overflow-tooltip />
       </el-table>
 
       <!-- 底部分頁控制列 -->
@@ -245,15 +267,15 @@ export default {
         '商品編號': r.item_id,
         '商品名稱': r.item_name,
         '驗收數量(PCS)': r.import_qty,
+        '總庫存數': r.current_stock_qty,
         '進貨才數': r.import_cubic_feet,
-        '現有庫存量': r.current_stock_qty,
+        '最長庫齡': r.age,
+        '近月銷量': r.monthly_sales,
         '近90日銷量': r.sales_90d,
         '預估迴轉天數': r.turn_days_total,
-        '庫齡': r.age,
         '所屬PM': r.pm,
         '供應商': r.supplier_name,
-        '不合理判定原因': (r.tags || []).map(t => t.text).join(' | '),
-        '收貨備註': r.remark
+        '不合理判定原因': (r.tags || []).map(t => t.text).join(' | ')
       }));
 
       const worksheet = XLSX.utils.json_to_sheet(exportRows);
@@ -389,6 +411,7 @@ export default {
 
 .text-red { color: #f87171 !important; }
 .text-blue { color: #38bdf8 !important; }
+.text-green { color: #4ade80 !important; }
 .text-yellow { color: #fef08a !important; }
 .text-orange { color: #fbbf24 !important; }
 .text-purple { color: #c084fc !important; }
