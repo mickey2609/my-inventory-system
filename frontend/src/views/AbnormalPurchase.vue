@@ -38,7 +38,7 @@
     <!-- 2. 統計 KPI 卡片區塊 -->
     <div class="metrics-grid">
       <div class="metric-card border-red">
-        <div class="m-label">不合理進貨總筆數</div>
+        <div class="m-label">不合理進貨總筆數 (最多產出10,000筆)</div>
         <div class="m-value text-red">{{ formatNumber(summary.totalCount) }} <span class="m-unit">筆</span></div>
       </div>
 
@@ -70,14 +70,14 @@
       </el-radio-group>
     </div>
 
-    <!-- 4. 不合理資料明細表格 -->
+    <!-- 4. 不合理資料明細表格 + 底部分頁區塊 -->
     <div class="table-container" v-loading="loading">
       <el-table
-        :data="tableData"
+        :data="paginatedTableData"
         border
         stripe
         size="small"
-        height="calc(100vh - 250px)"
+        height="calc(100vh - 300px)"
         class="dark-table"
       >
         <el-table-column prop="rec_date" label="驗收日期" width="105" align="center" />
@@ -130,6 +130,19 @@
         </el-table-column>
         <el-table-column prop="remark" label="收貨備註" min-width="140" show-overflow-tooltip />
       </el-table>
+
+      <!-- 🌟 底部分頁控制列 (預設一頁 500 筆) -->
+      <div class="pagination-bar">
+        <el-pagination
+          v-model:current-page="currentPage"
+          v-model:page-size="pageSize"
+          :page-sizes="[100, 200, 500, 1000]"
+          layout="total, sizes, prev, pager, next, jumper"
+          :total="rawTableData.length"
+          @size-change="handleSizeChange"
+          @current-change="handleCurrentChange"
+        />
+      </div>
     </div>
   </div>
 </template>
@@ -156,11 +169,21 @@ export default {
         totalCubicFeet: 0,
         pmCount: 0
       },
-      tableData: []
+      rawTableData: [],
+      currentPage: 1,
+      pageSize: 500
+    }
+  },
+  computed: {
+    // 🌟 計算當前頁面呈現的 500 筆資料
+    paginatedTableData() {
+      const start = (this.currentPage - 1) * this.pageSize;
+      const end = start + this.pageSize;
+      return this.rawTableData.slice(start, end);
     }
   },
   mounted() {
-    this.$nextTick(() => {
+    this.\$nextTick(() => {
       this.fetchAbnormalData();
     });
   },
@@ -168,6 +191,15 @@ export default {
     formatNumber(val) {
       if (!val) return '0';
       return Number(val).toLocaleString();
+    },
+
+    handleSizeChange(val) {
+      this.pageSize = val;
+      this.currentPage = 1;
+    },
+
+    handleCurrentChange(val) {
+      this.currentPage = val;
     },
 
     async fetchAbnormalData() {
@@ -188,27 +220,27 @@ export default {
           ruleType: this.ruleType
         };
 
-        const res = await axios.get('/api/abnormal/list', { params, timeout: 15000 });
+        const res = await axios.get('/api/abnormal/list', { params, timeout: 20000 });
         if (res.data?.success) {
           this.summary = res.data.summary || { totalCount: 0, totalPcs: 0, totalCubicFeet: 0, pmCount: 0 };
-          this.tableData = res.data.data || [];
+          this.rawTableData = res.data.data || [];
+          this.currentPage = 1; // 重新查詢重置回第一頁
         } else {
           ElMessage.error(res.data?.message || '讀取不合理進貨失敗');
         }
       } catch (e) {
-        console.error('Fetch abnormal data error:', e);
-        ElMessage.error('載入失敗：' + (e.response?.data?.message || e.message || '連線逾時'));
+        ElMessage.error('載入失敗：' + (e.response?.data?.message || e.message));
       } finally {
         this.loading = false; // 解開轉圈
       }
     },
 
     exportExcel() {
-      if (!this.tableData.length) {
+      if (!this.rawTableData.length) {
         return ElMessage.warning('無可匯出的不合理資料！');
       }
 
-      const exportRows = this.tableData.map(r => ({
+      const exportRows = this.rawTableData.map(r => ({
         '驗收日期': r.rec_date,
         '進貨單號(PO)': r.po_no,
         '驗收批號': r.batch_no,
@@ -230,7 +262,7 @@ export default {
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, "不合理進貨清單");
       XLSX.writeFile(workbook, `不合理進貨分析_${new Date().getTime()}.xlsx`);
-      ElMessage.success('🎉 已成功匯出不合理進貨分析 Excel 報表！');
+      ElMessage.success('🎉 已成功匯出全量不合理進貨分析 Excel 報表！');
     }
   }
 }
@@ -323,6 +355,15 @@ export default {
   border-radius: 8px;
   padding: 10px;
   flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.pagination-bar {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 10px;
+  background: #1e293b;
 }
 
 :deep(.dark-table) {

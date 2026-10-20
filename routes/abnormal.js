@@ -4,12 +4,11 @@ const express = require('express');
 module.exports = function(db) {
   const router = express.Router();
 
-  // [GET] 不合理進貨清單查詢 API (記憶體極速 Map 比對版)
   router.get('/list', (req, res) => {
     const { startDate, endDate, warehouse, ruleType } = req.query;
 
     try {
-      // 1. 抓取庫存表的關鍵迴轉數據（轉成記憶體 Map 比對，避免資料庫交叉比對卡死）
+      // 1. 先撈庫存快照建置 Map
       const invSql = `
         SELECT 
           item_id, 
@@ -24,19 +23,14 @@ module.exports = function(db) {
       `;
 
       db.all(invSql, [], (err, invRows) => {
-        if (err) {
-          return res.status(500).json({ success: false, message: '庫存主檔讀取失敗：' + err.message });
-        }
+        if (err) return res.status(500).json({ success: false, message: '庫存主檔讀取失敗：' + err.message });
 
-        // 建置 item_id 快速雜湊表
         const invMap = new Map();
         (invRows || []).forEach(row => {
-          if (row.item_id) {
-            invMap.set(String(row.item_id).trim(), row);
-          }
+          if (row.item_id) invMap.set(String(row.item_id).trim(), row);
         });
 
-        // 2. 抓取進貨明細表
+        // 2. 撈取進貨明細，加上 LIMIT 10000 防爆機制
         let inSql = `
           SELECT 
             warehouse, rec_date, rec_time, po_no, batch_no, item_id, item_name, 
@@ -63,29 +57,20 @@ module.exports = function(db) {
           params.push(warehouse);
         }
 
-        inSql += ` ORDER BY rec_date DESC, rec_time DESC`;
+        inSql += ` ORDER BY rec_date DESC, rec_time DESC LIMIT 10000`; // 🌟 限制產生上限 10,000 筆
 
         db.all(inSql, params, (err2, inboundRows) => {
-          if (err2) {
-            return res.status(500).json({ success: false, message: '進貨明細讀取失敗：' + err2.message });
-          }
+          if (err2) return res.status(500).json({ success: false, message: '進貨明細讀取失敗：' + err2.message });
 
-          inboundRows = inboundRows || [];
           const abnormalRows = [];
           let totalAbnormalPcs = 0;
           let totalAbnormalCubicFeet = 0;
           const pmSet = new Set();
 
-          inboundRows.forEach(r => {
+          (inboundRows || []).forEach(r => {
             const itemIdStr = String(r.item_id || '').trim();
             const inv = invMap.get(itemIdStr) || {
-              total_qty: 0,
-              sales_90d: 0,
-              monthly_sales: 0,
-              turn_days_total: 0,
-              age: 0,
-              supplier_name: '未知供應商',
-              pm: '未指定PM'
+              total_qty: 0, sales_90d: 0, monthly_sales: 0, turn_days_total: 0, age: 0, supplier_name: '未知供應商', pm: '未指定PM'
             };
 
             const importQty = Number(r.import_qty) || 0;
@@ -96,47 +81,23 @@ module.exports = function(db) {
             const w = Number(r.width) || 0;
             const h = Number(r.height) || 0;
 
-            // 計算該筆驗收總才數: (長*寬*高 / 28317) * 數量
             const singleCubicFeet = (len > 0 && w > 0 && h > 0) ? ((len * w * h) / 28317) : 0;
             const importCubicFeet = parseFloat((singleCubicFeet * importQty).toFixed(2));
 
             const tags = [];
+            if (sales90 === 0 && importQty > 0) tags.push({ text: '🚨 90日零銷量進貨', type: 'danger' });
+            else if (age >= 180) tags.push({ text: '🚨 高庫齡滯銷進貨', type: 'danger' });
 
-            // 規則 1：滯銷品/零銷量進貨
-            if (sales90 === 0 && importQty > 0) {
-              tags.push({ text: '🚨 90日零銷量進貨', type: 'danger' });
-            } else if (age >= 180) {
-              tags.push({ text: '🚨 高庫齡滯銷進貨', type: 'danger' });
-            }
+            if (turnDays > 180) tags.push({ text: `⚠️ 迴轉率天數過高 (${turnDays}天)`, type: 'warning' });
+            if (sales90 > 0 && importQty >= (sales90 * 2)) tags.push({ text: `⚠️ 超量驗收 (進貨>90日銷量2倍)`, type: 'warning' });
+            if (len === 0 || w === 0 || h === 0) tags.push({ text: 'ℹ️ 材積長寬高未填', type: 'info' });
 
-            // 規則 2：迴轉天數爆表 (> 180 天)
-            if (turnDays > 180) {
-              tags.push({ text: `⚠️ 迴轉率天數過高 (${turnDays}天)`, type: 'warning' });
-            }
-
-            // 規則 3：單次驗收超過近 90 日銷量 2 倍以上
-            if (sales90 > 0 && importQty >= (sales90 * 2)) {
-              tags.push({ text: `⚠️ 超量驗收 (進貨>90日銷量2倍)`, type: 'warning' });
-            }
-
-            // 規則 4：才數/規格資料缺失
-            if (len === 0 || w === 0 || h === 0) {
-              tags.push({ text: 'ℹ️ 材積長寬高未填', type: 'info' });
-            }
-
-            // 規則過濾判斷
             let isMatchRule = false;
-            if (!ruleType || ruleType === 'all') {
-              isMatchRule = tags.length > 0;
-            } else if (ruleType === 'zero_sales') {
-              isMatchRule = tags.some(t => t.text.includes('零銷量') || t.text.includes('滯銷'));
-            } else if (ruleType === 'high_turnover') {
-              isMatchRule = tags.some(t => t.text.includes('迴轉率天數過高'));
-            } else if (ruleType === 'over_import') {
-              isMatchRule = tags.some(t => t.text.includes('超量驗收'));
-            } else if (ruleType === 'no_dim') {
-              isMatchRule = tags.some(t => t.text.includes('材積長寬高未填'));
-            }
+            if (!ruleType || ruleType === 'all') isMatchRule = tags.length > 0;
+            else if (ruleType === 'zero_sales') isMatchRule = tags.some(t => t.text.includes('零銷量') || t.text.includes('滯銷'));
+            else if (ruleType === 'high_turnover') isMatchRule = tags.some(t => t.text.includes('迴轉率天數過高'));
+            else if (ruleType === 'over_import') isMatchRule = tags.some(t => t.text.includes('超量驗收'));
+            else if (ruleType === 'no_dim') isMatchRule = tags.some(t => t.text.includes('材積長寬高未填'));
 
             if (isMatchRule) {
               abnormalRows.push({
