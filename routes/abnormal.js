@@ -57,7 +57,7 @@ module.exports = function(db) {
           params.push(warehouse);
         }
 
-        inSql += ` ORDER BY rec_date DESC, rec_time DESC LIMIT 10000`; // 🌟 限制產生上限 10,000 筆
+        inSql += ` ORDER BY rec_date DESC, rec_time DESC LIMIT 10000`;
 
         db.all(inSql, params, (err2, inboundRows) => {
           if (err2) return res.status(500).json({ success: false, message: '進貨明細讀取失敗：' + err2.message });
@@ -85,19 +85,21 @@ module.exports = function(db) {
             const importCubicFeet = parseFloat((singleCubicFeet * importQty).toFixed(2));
 
             const tags = [];
+            // 規則 1：滯銷品/零銷量進貨
             if (sales90 === 0 && importQty > 0) tags.push({ text: '🚨 90日零銷量進貨', type: 'danger' });
             else if (age >= 180) tags.push({ text: '🚨 高庫齡滯銷進貨', type: 'danger' });
 
+            // 規則 2：迴轉天數爆表 (> 180 天)
             if (turnDays > 180) tags.push({ text: `⚠️ 迴轉率天數過高 (${turnDays}天)`, type: 'warning' });
+
+            // 規則 3：單次驗收超過近 90 日銷量 2 倍以上
             if (sales90 > 0 && importQty >= (sales90 * 2)) tags.push({ text: `⚠️ 超量驗收 (進貨>90日銷量2倍)`, type: 'warning' });
-            if (len === 0 || w === 0 || h === 0) tags.push({ text: 'ℹ️ 材積長寬高未填', type: 'info' });
 
             let isMatchRule = false;
             if (!ruleType || ruleType === 'all') isMatchRule = tags.length > 0;
             else if (ruleType === 'zero_sales') isMatchRule = tags.some(t => t.text.includes('零銷量') || t.text.includes('滯銷'));
             else if (ruleType === 'high_turnover') isMatchRule = tags.some(t => t.text.includes('迴轉率天數過高'));
             else if (ruleType === 'over_import') isMatchRule = tags.some(t => t.text.includes('超量驗收'));
-            else if (ruleType === 'no_dim') isMatchRule = tags.some(t => t.text.includes('材積長寬高未填'));
 
             if (isMatchRule) {
               abnormalRows.push({

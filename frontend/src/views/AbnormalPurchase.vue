@@ -66,7 +66,6 @@
         <el-radio-button label="zero_sales">🚨 零銷量/高庫齡進貨</el-radio-button>
         <el-radio-button label="high_turnover">⚠️ 迴轉天數過高 (>180天)</el-radio-button>
         <el-radio-button label="over_import">⚠️ 爆量驗收 (進貨>90日銷量2倍)</el-radio-button>
-        <el-radio-button label="no_dim">ℹ️ 材積長寬高未填</el-radio-button>
       </el-radio-group>
     </div>
 
@@ -131,7 +130,7 @@
         <el-table-column prop="remark" label="收貨備註" min-width="140" show-overflow-tooltip />
       </el-table>
 
-      <!-- 🌟 底部分頁控制列 (預設一頁 500 筆) -->
+      <!-- 底部分頁控制列 -->
       <div class="pagination-bar">
         <el-pagination
           v-model:current-page="currentPage"
@@ -175,7 +174,6 @@ export default {
     }
   },
   computed: {
-    // 🌟 計算當前頁面呈現的 500 筆資料
     paginatedTableData() {
       const start = (this.currentPage - 1) * this.pageSize;
       const end = start + this.pageSize;
@@ -183,7 +181,7 @@ export default {
     }
   },
   mounted() {
-    this.$nextTick(() => {
+    this.\$nextTick(() => {
       this.fetchAbnormalData();
     });
   },
@@ -224,14 +222,14 @@ export default {
         if (res.data?.success) {
           this.summary = res.data.summary || { totalCount: 0, totalPcs: 0, totalCubicFeet: 0, pmCount: 0 };
           this.rawTableData = res.data.data || [];
-          this.currentPage = 1; // 重新查詢重置回第一頁
+          this.currentPage = 1;
         } else {
           ElMessage.error(res.data?.message || '讀取不合理進貨失敗');
         }
       } catch (e) {
         ElMessage.error('載入失敗：' + (e.response?.data?.message || e.message));
       } finally {
-        this.loading = false; // 解開轉圈
+        this.loading = false;
       }
     },
 
