@@ -131,7 +131,7 @@
               <col style="width: 68px;" />
               <col style="width: 64px;" />
               <col style="width: 72px;" />
-              <col style="width: 76px;" /> <!-- 🌟 新增未上架筆數欄寬 -->
+              <col style="width: 76px;" /> <!-- 單號未上架欄位 -->
               <col class="col-bar-group" />
               <col style="width: 68px;" />
               <col style="width: 64px;" />
@@ -143,6 +143,7 @@
               <col style="width: 68px;" />
               <col style="width: 64px;" />
               <col style="width: 72px;" />
+              <col style="width: 76px;" /> <!-- 🌟 批號未上架欄位 -->
               <col style="width: 76px;" />
               <col class="col-bar-group" />
               <col style="width: 68px;" />
@@ -161,7 +162,7 @@
               </template>
               <th v-if="activeViewTab === 'both'" class="col-sep"></th>
               <template v-if="activeViewTab === 'batch' || activeViewTab === 'both'">
-                <th colspan="4" class="group-blue-header">驗收批號驗收統計</th>
+                <th colspan="5" class="group-blue-header">驗收批號驗收統計</th>
                 <th class="col-ratio-header">比例</th>
                 <th colspan="4" class="group-green-header">驗收批號上架統計</th>
                 <th class="col-ratio-header">比例</th>
@@ -174,7 +175,7 @@
                 <th>單號占比</th>
                 <th>單號筆數</th>
                 <th>驗收PCS</th>
-                <th style="color: #fca5a5;">未上架筆數</th> <!-- 🌟 新增未上架筆數欄位標頭 -->
+                <th style="color: #fca5a5;">未上架筆數</th>
                 <th class="col-bar-title">上架圖形</th>
                 <th>上架占比</th>
                 <th>上架筆數</th>
@@ -188,6 +189,7 @@
                 <th>批號占比</th>
                 <th>批號筆數</th>
                 <th>批號PCS</th>
+                <th style="color: #fca5a5;">未上架筆數</th> <!-- 🌟 新增批號未上架標頭 -->
                 <th>驗收單/批比</th>
                 <th class="col-bar-title">批上圖形</th>
                 <th>批上占比</th>
@@ -206,8 +208,6 @@
                 <td class="text-right">{{ formatPercent(h.recPoPct) }}</td>
                 <td class="text-right">{{ formatNumber(h.recPoCount) }}</td>
                 <td class="text-right font-bold text-blue">{{ formatNumber(h.recPoPcs) }}</td>
-                
-                <!-- 🌟 顯示未上架單數 (>0 時顯紅警示) -->
                 <td class="text-right font-bold" :class="{ 'text-red': h.unputPoCount > 0 }">
                   {{ formatNumber(h.unputPoCount) }}
                 </td>
@@ -225,6 +225,12 @@
                 <td class="text-right">{{ formatPercent(h.recBatPct) }}</td>
                 <td class="text-right">{{ formatNumber(h.recBatCount) }}</td>
                 <td class="text-right font-bold text-blue">{{ formatNumber(h.recBatPcs) }}</td>
+                
+                <!-- 🌟 顯示批號未上架數量 (>0 顯紅警示) -->
+                <td class="text-right font-bold" :class="{ 'text-red': h.unputBatCount > 0 }">
+                  {{ formatNumber(h.unputBatCount) }}
+                </td>
+
                 <td class="text-right font-bold">{{ formatRatio(h.recBatCount, h.recPoCount) }}</td>
 
                 <td class="col-bar-cell"><div class="bar-fill green-bar" :style="{ width: getBarWidth(h.putBatPct) }"></div></td>
@@ -244,7 +250,6 @@
                 <td class="text-right font-bold">100.00%</td>
                 <td class="text-right font-bold">{{ formatNumber(summaryTotal.recPoCount) }}</td>
                 <td class="text-right font-bold text-blue">{{ formatNumber(summaryTotal.recPoPcs) }}</td>
-                <!-- 🌟 未上架總計筆數 -->
                 <td class="text-right font-bold text-red">{{ formatNumber(summaryTotal.unputPoCount) }}</td>
 
                 <td></td>
@@ -260,6 +265,8 @@
                 <td class="text-right font-bold">100.00%</td>
                 <td class="text-right font-bold">{{ formatNumber(summaryTotal.recBatCount) }}</td>
                 <td class="text-right font-bold text-blue">{{ formatNumber(summaryTotal.recBatPcs) }}</td>
+                <!-- 🌟 批號未上架總計 -->
+                <td class="text-right font-bold text-red">{{ formatNumber(summaryTotal.unputBatCount) }}</td>
                 <td class="text-right font-bold">{{ formatRatio(summaryTotal.recBatCount, summaryTotal.recPoCount) }}</td>
                 <td></td>
                 <td class="text-right font-bold">100.00%</td>
@@ -711,7 +718,7 @@ export default {
       const tot = {
         recPoCount: 0, recPoPcs: 0, unputPoCount: 0,
         putPoCount: 0, putPoPcs: 0,
-        recBatCount: 0, recBatPcs: 0,
+        recBatCount: 0, recBatPcs: 0, unputBatCount: 0,
         putBatCount: 0, putBatPcs: 0
       };
       this.hourlyStats.forEach(h => {
@@ -722,6 +729,7 @@ export default {
         tot.putPoPcs += h.putPoPcs || 0;
         tot.recBatCount += h.recBatCount || 0;
         tot.recBatPcs += h.recBatPcs || 0;
+        tot.unputBatCount += h.unputBatCount || 0;
         tot.putBatCount += h.putBatCount || 0;
         tot.putBatPcs += h.putBatPcs || 0;
       });
