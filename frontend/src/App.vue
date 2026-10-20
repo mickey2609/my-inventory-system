@@ -96,7 +96,7 @@
             :is-sys-admin="isSysAdmin"
           />
 
-          <!-- 🌟 全新掛載：跨庫調撥 (15 ➔ 80) 魚群模組 🌟 -->
+          <!-- 🌟 精準開通：跨庫調撥 (15 ➔ 80) 魚群模組 🌟 -->
           <Transfer1580FishList 
             v-else-if="currentTab === 'transfer_15_80'" key="transfer_15_80"
             :is-sys-admin="isSysAdmin"
@@ -171,7 +171,6 @@
       :selected-columns="currentForm.selected_columns" :custom-col-widths="currentCustomColWidths" :custom-export-col-widths="currentCustomExportWidths"
     />
 
-    <!-- 🌟 精準接通批次與庫存選檔事件 -->
     <ImportTipModal 
       v-model:show-inventory-import-tip="showInventoryImportTipDialog" 
       v-model:show-import-tip="showImportTipDialog"
@@ -220,7 +219,7 @@ import TurnoverList from './views/TurnoverList.vue'
 import InboundFishList from './views/InboundFishList.vue'
 import ReplenishFishList from './views/ReplenishFishList.vue'
 import Transfer8015FishList from './views/Transfer8015FishList.vue'
-import Transfer1580FishList from './views/Transfer1580FishList.vue' // 🌟 引入 15➔80 調撥組件
+import Transfer1580FishList from './views/Transfer1580FishList.vue' // 🌟 精準引入 15➔80 組件
 import SettingsPerm from './views/SettingsPerm.vue'
 import SettingsLog from './views/SettingsLog.vue'
 
@@ -236,7 +235,7 @@ export default {
     TopNavbar, SystemDrawer, ColConfigModal, ParamMenuModal, WidthConfigModal,
     ImportTipModal, UserManagementModals, InventorySearchModal, HomeDashboard,
     LoginOverlay, InvQuery80, InvSearch15, LocSummary, TurnoverList, InboundFishList,
-    ReplenishFishList, Transfer8015FishList, Transfer1580FishList, SettingsPerm, SettingsLog // 🌟 註冊 15➔80 組件
+    ReplenishFishList, Transfer8015FishList, Transfer1580FishList, SettingsPerm, SettingsLog // 🌟 註冊組件
   },
   setup() {
     const { sendLog, getDeviceType, setupAxiosInterceptor } = useSystemLogs();
