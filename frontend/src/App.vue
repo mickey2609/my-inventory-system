@@ -79,35 +79,35 @@
             :is-sys-admin="isSysAdmin"
           />
 
-          <!-- 🌟 不合理進貨清單模組 -->
+          <!-- 🌟 正式上線：不合理進貨清單模組 🌟 -->
           <AbnormalPurchase 
             v-else-if="currentTab === 'abnormal_purchase'" key="abnormal_purchase"
             :is-admin="isAdmin"
             :is-sys-admin="isSysAdmin"
           />
 
-          <!-- 🌟 進貨上架魚群模組 (開放 Admin 權限) -->
+          <!-- 進貨上架魚群模組 -->
           <InboundFishList 
             v-else-if="currentTab === 'inbound_fish'" key="inbound_fish"
             :is-admin="isAdmin"
             :is-sys-admin="isSysAdmin"
           />
 
-          <!-- 🌟 立即補貨單魚群模組 (開放 Admin 權限) -->
+          <!-- 立即補貨單魚群模組 -->
           <ReplenishFishList 
             v-else-if="currentTab === 'replenish_fish'" key="replenish_fish"
             :is-admin="isAdmin"
             :is-sys-admin="isSysAdmin"
           />
 
-          <!-- 🌟 跨庫調撥 (80 ➔ 15) 魚群模組 (開放 Admin 權限) -->
+          <!-- 跨庫調撥 (80 ➔ 15) 魚群模組 -->
           <Transfer8015FishList 
             v-else-if="currentTab === 'transfer_80_15'" key="transfer_80_15"
             :is-admin="isAdmin"
             :is-sys-admin="isSysAdmin"
           />
 
-          <!-- 🌟 跨庫調撥 (15 ➔ 80) 魚群模組 (開放 Admin 權限) -->
+          <!-- 跨庫調撥 (15 ➔ 80) 魚群模組 -->
           <Transfer1580FishList 
             v-else-if="currentTab === 'transfer_15_80'" key="transfer_15_80"
             :is-admin="isAdmin"
