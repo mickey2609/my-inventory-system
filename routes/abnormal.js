@@ -9,7 +9,6 @@ module.exports = function(db) {
     return String(str).trim().toUpperCase().replace(/\s+/g, '');
   };
 
-  // 🌟 統一級距判斷核心函式
   const getTurnoverLevelInfo = (monthsVal) => {
     const months = Number(monthsVal) || 0;
     if (months >= 99999) {
@@ -56,7 +55,10 @@ module.exports = function(db) {
           const key = normalizeKey(rawKey);
           if (!key) return;
 
-          const qty = Number(row.total_qty || row['總庫存數'] || row.qty) || 0;
+          // 🌟 qty 為單一儲位庫存數；totalQtyVal 為原檔帶的總庫存
+          const locQty = Number(row.qty || row['儲位庫存數'] || row.loc_qty) || 0;
+          const rawTotalQty = Number(row.total_qty || row['總庫存數']) || 0;
+
           const sales90 = Number(row.sales_90d || row['(近)90日銷量'] || row['90日銷量']) || 0;
           const salesMonth = Number(row.monthly_sales || row['(近)月銷量'] || row['月銷量']) || 0;
           const turnMonths = Number(row.turn_days_total || row['總庫存_迴轉天數'] || row['迴轉天數'] || row['迴轉月數']) || 0;
@@ -67,7 +69,10 @@ module.exports = function(db) {
 
           if (invMap.has(key)) {
             const existing = invMap.get(key);
-            existing.total_qty += qty;
+            // 🚨 修復重點：加總儲位數量，並取原檔 total_qty 與儲位加總的最大值，避免翻倍！
+            existing.calc_loc_sum += locQty;
+            existing.total_qty = Math.max(existing.total_qty, rawTotalQty, existing.calc_loc_sum);
+
             existing.sales_90d = Math.max(existing.sales_90d, sales90);
             existing.monthly_sales = Math.max(existing.monthly_sales, salesMonth);
             existing.age = Math.max(existing.age, ageVal);
@@ -77,7 +82,8 @@ module.exports = function(db) {
           } else {
             invMap.set(key, {
               item_id: key,
-              total_qty: qty,
+              calc_loc_sum: locQty,
+              total_qty: Math.max(rawTotalQty, locQty), // 🌟 確保初次載入即正確
               sales_90d: sales90,
               monthly_sales: salesMonth,
               turn_days_total: turnMonths,
@@ -128,7 +134,7 @@ module.exports = function(db) {
 
           (inboundRows || []).forEach(r => {
             const key = normalizeKey(r.item_id);
-            if (!invMap.has(key)) return; // 全新品自動過濾
+            if (!invMap.has(key)) return; // 全新品不列入分析
 
             const inv = invMap.get(key);
             const importQty = Number(r.import_qty) || 0;
@@ -142,7 +148,6 @@ module.exports = function(db) {
             const singleCubicFeet = (len > 0 && w > 0 && h > 0) ? ((len * w * h) / 28317) : 0;
             const importCubicFeet = parseFloat((singleCubicFeet * importQty).toFixed(2));
 
-            // 計算級距代碼與標籤
             const levelInfo = getTurnoverLevelInfo(turnMonths);
 
             const tags = [];
@@ -157,9 +162,9 @@ module.exports = function(db) {
             if (!ruleType || ruleType === 'all') isMatchRule = tags.length > 0;
             else if (ruleType === 'zero_sales') isMatchRule = tags.some(t => t.text.includes('零銷量') || t.text.includes('滯銷'));
             else if (ruleType === 'high_turnover') isMatchRule = tags.some(t => t.text.includes('迴轉月數過高'));
-            else if (ruleType === 'over_import') isMatchRule = tags.some(t => t.text.includes('超量驗收'));
+            else if (ruleType === 'over_import') isMatchRule = tags.some(t => t.text.includes('over_import') || t.text.includes('超量驗收'));
 
-            // 2. 🌟 迴轉級距精準比對 (用 code 比對，100% 不會漏抓或混入)
+            // 2. 迴轉級距條件過濾
             let isMatchLevel = false;
             if (!turnoverLevel || turnoverLevel === 'all') {
               isMatchLevel = true;
@@ -170,11 +175,11 @@ module.exports = function(db) {
             if (isMatchRule && isMatchLevel) {
               abnormalRows.push({
                 ...r,
-                current_stock_qty: inv.total_qty,
+                current_stock_qty: inv.total_qty, // 🌟 帶出準確的總庫存數
                 sales_90d: inv.sales_90d,
                 monthly_sales: inv.monthly_sales,
                 turn_days_total: inv.turn_days_total,
-                turnover_level: levelInfo.label, // 畫面上呈現對應級距標籤
+                turnover_level: levelInfo.label,
                 age: inv.age,
                 supplier_name: inv.supplier_name,
                 pm: inv.pm,
@@ -199,7 +204,7 @@ module.exports = function(db) {
             data: abnormalRows
           });
         });
-      };
+      });
     } catch (e) {
       res.status(500).json({ success: false, message: '伺服器內部異常：' + e.message });
     }
