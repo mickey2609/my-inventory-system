@@ -258,6 +258,10 @@ app.post('/api/login', (req, res) => {
   });
 });
 
+// 🌟 全商品歷史銷量與驗收總表 API
+const itemSalesHistoryRouter = require('./routes/itemSalesHistory')(db);
+app.use('/api/item-sales-history', itemSalesHistoryRouter);
+
 app.get('/api/get-global-config', (req, res) => {
   const currentUptimeSec = Math.floor((Date.now() - SERVER_START_TIME) / 1000);
   db.get("SELECT config_value FROM system_config WHERE config_key = 'latest_inventory15_filename'", [], (err, row) => {

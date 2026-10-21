@@ -71,6 +71,11 @@
             @refresh-metrics="fetchDashboardMetrics"
           />
 
+          <!-- 🌟 全商品歷史銷量與進貨履歷模組 -->
+          <ItemSalesHistory 
+            v-else-if="currentTab === 'item_sales_history'" key="item_sales_history"
+          />
+
           <TurnoverList 
             v-else-if="currentTab === 'turnover'" key="turnover" 
             :is-sys-admin="isSysAdmin"
@@ -219,6 +224,7 @@ import LoginOverlay from './views/LoginOverlay.vue'
 import InvQuery80 from './views/InvQuery80.vue'
 import InvSearch15 from './views/InvSearch15.vue'
 import LocSummary from './views/LocSummary.vue'
+import ItemSalesHistory from './views/ItemSalesHistory.vue'
 import TurnoverList from './views/TurnoverList.vue'
 import AbnormalPurchase from './views/AbnormalPurchase.vue'
 import InboundFishList from './views/InboundFishList.vue'
@@ -239,7 +245,7 @@ export default {
   components: {
     TopNavbar, SystemDrawer, ColConfigModal, ParamMenuModal, WidthConfigModal,
     ImportTipModal, UserManagementModals, InventorySearchModal, HomeDashboard,
-    LoginOverlay, InvQuery80, InvSearch15, LocSummary, TurnoverList, AbnormalPurchase,
+    LoginOverlay, InvQuery80, InvSearch15, LocSummary, ItemSalesHistory, TurnoverList, AbnormalPurchase,
     InboundFishList, ReplenishFishList, Transfer8015FishList, Transfer1580FishList, 
     SettingsPerm, SettingsLog
   },
@@ -316,10 +322,11 @@ export default {
         { key: 'loc_summary', name: '📊 儲位數才數統整' },
         { key: 'inv80', name: '🔍 庫存查詢80' },
         { key: 'inv15', name: '📦 庫存查詢15' },
+        { key: 'item_sales_history', name: '📈 全商品歷史銷量與進貨履歷' },
         { key: 'turnover', name: '📈 迴轉率清單' },
         { key: 'abnormal_purchase', name: '⚠️ 不合理進貨清單' },
         { key: 'inbound_fish', name: '🐟 進貨上架魚群' },
-        { key: 'replenish_fish', name: '🐟 立即補貨單魚群' },
+        { key: 'replenish_fish', name: '🐟 餐廳補貨單魚群' },
         { key: 'transfer_80_15', name: '🔄 跨庫調撥 80 ➔ 15' },
         { key: 'transfer_15_80', name: '🔄 跨庫調撥 15 ➔ 80' }
       ],
@@ -439,7 +446,6 @@ export default {
       } catch (e) {}
     },
 
-    // 🚨 嚴格權限邏輯，未設定權限一律回傳 false
     hasModulePermission(tabKey) {
       if (this.isSysAdmin || tabKey === 'home' || tabKey === 'settings_perm' || tabKey === 'settings_log') return true;
       const perms = this.currentUserPermissions;
@@ -793,7 +799,6 @@ export default {
       try {
         const res = await axios.post('/api/login', { username: this.loginForm.username, password: this.loginForm.password, device: this.getDeviceType() });
         
-        // 嚴格比對成功標記
         if (res.data && (res.data.status === 'success' || res.data.success === true)) {
           const userData = res.data.user || res.data.data || {};
           this.isLoggedIn = true; 
@@ -851,10 +856,11 @@ export default {
         'inv80': '🔍 庫存查詢80',
         'inv15': '📦 庫存查詢15',
         'loc_summary': '📊 儲位數才數統整',
+        'item_sales_history': '📈 全商品歷史銷量與進貨履歷',
         'turnover': '📈 迴轉率清單',
         'abnormal_purchase': '⚠️ 不合理進貨清單',
         'inbound_fish': '🐟 進貨上架魚群',
-        'replenish_fish': '🐟 立即補貨單魚群',
+        'replenish_fish': '🐟 餐廳補貨單魚群',
         'transfer_80_15': '🔄 跨庫調撥 80 ➔ 15',
         'transfer_15_80': '🔄 跨庫調撥 15 ➔ 80',
         'settings_perm': '⚙️ 權限管理',
