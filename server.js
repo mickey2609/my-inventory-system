@@ -78,7 +78,11 @@ app.use('/api/turnover80', turnover80Module(db));
 const abnormalRouter = require('./routes/abnormal')(db);
 app.use('/api/abnormal', abnormalRouter);
 
-// 7. 首頁 Dashboard 統計數據 API
+// 🌟 7. 全商品歷史銷量與驗收總表 API
+const itemSalesHistoryRouter = require('./routes/itemSalesHistory')(db);
+app.use('/api/item-sales-history', itemSalesHistoryRouter);
+
+// 8. 首頁 Dashboard 統計數據 API
 app.get('/api/dashboard/stats', (req, res) => {
   const sql80 = `SELECT COUNT(*) as total_rows FROM inventory`;
   const sql15 = `SELECT COUNT(*) as total_rows FROM inventory_15`;
@@ -121,7 +125,7 @@ app.get('/api/dashboard/stats', (req, res) => {
   });
 });
 
-// 8. 批次匯入/更新帳號 API
+// 9. 批次匯入/更新帳號 API
 app.post('/api/batch-import-users', (req, res) => {
   const users = req.body.users || req.body;
 
@@ -173,7 +177,7 @@ app.post('/api/batch-import-users', (req, res) => {
   });
 });
 
-// 9. 全域跑馬燈公告同步 API
+// 10. 全域跑馬燈公告同步 API
 app.get('/api/announcement', (req, res) => {
   db.get(`SELECT config_value FROM system_config WHERE config_key = 'announcement'`, [], (err, row) => {
     if (err) return res.status(500).json({ success: false, message: err.message });
@@ -197,10 +201,10 @@ app.post('/api/announcement', (req, res) => {
   );
 });
 
-// 🌟 10. 登入 API（重寫：嚴格帳密比對與權限安全隔離）
+// 11. 登入 API
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
-  
+
   if (!username || !password) {
     return res.status(400).json({ success: false, status: 'error', message: '請輸入帳號與密碼！' });
   }
@@ -213,54 +217,47 @@ app.post('/api/login', (req, res) => {
       return res.status(500).json({ success: false, status: 'error', message: '資料庫查詢失敗：' + err.message });
     }
 
-    // 🚨 漏洞修復 1：查無帳號，立即回傳 401 攔截！
     if (!row) {
       return res.status(401).json({ success: false, status: 'error', message: '帳號不存在或密碼錯誤！' });
     }
 
-    // 🚨 漏洞修復 2：密碼不符，立即回傳 401 攔截！
     if (String(row.password || '').trim() !== cleanPwd) {
       return res.status(401).json({ success: false, status: 'error', message: '帳號不存在或密碼錯誤！' });
     }
 
-    // 權限解析：只有管理員能擁有 'all'，其餘無設定者給予空陣列 []
     let userPermissions = [];
     if (row.username === 'admin' || row.role === 'sys_admin') {
       userPermissions = 'all';
     } else if (row.permissions) {
-      userPermissions = typeof row.permissions === 'string' 
+      userPermissions = typeof row.permissions === 'string'
         ? row.permissions.split(',').map(s => s.trim()).filter(Boolean)
         : row.permissions;
     }
 
     const realName = row.name || row.username;
     const userRole = row.role || 'user';
-    const userPayload = { 
-      username: row.username, 
-      name: realName, 
-      role: userRole, 
-      permissions: userPermissions, 
-      token: 'fake-jwt-token' 
+    const userPayload = {
+      username: row.username,
+      name: realName,
+      role: userRole,
+      permissions: userPermissions,
+      token: 'fake-jwt-token'
     };
 
     db.run('UPDATE users SET last_active = ? WHERE username = ?', [Math.floor(Date.now() / 1000), row.username]);
-    
-    res.json({ 
-      success: true, 
-      status: 'success', 
-      username: row.username, 
-      name: realName, 
-      role: userRole, 
-      permissions: userPermissions, 
-      user: userPayload, 
-      data: userPayload 
+
+    res.json({
+      success: true,
+      status: 'success',
+      username: row.username,
+      name: realName,
+      role: userRole,
+      permissions: userPermissions,
+      user: userPayload,
+      data: userPayload
     });
   });
 });
-
-// 🌟 全商品歷史銷量與驗收總表 API
-const itemSalesHistoryRouter = require('./routes/itemSalesHistory')(db);
-app.use('/api/item-sales-history', itemSalesHistoryRouter);
 
 app.get('/api/get-global-config', (req, res) => {
   const currentUptimeSec = Math.floor((Date.now() - SERVER_START_TIME) / 1000);
@@ -456,7 +453,7 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         }
         const gCnt = parseInt(r.grid_count || 0, 10);
         const singleCf = parseFloat(r.single_cubic_feet || 0);
-        
+
         let vCnt = parseFloat(r.cubic_feet || 0);
         if (vCnt === 0) vCnt = singleCf * gCnt;
 
@@ -496,7 +493,7 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
 
         const matchKey = Object.keys(matrixMap).find(k => {
           const m = matrixMap[k];
-          
+
           let floorMatch = false;
           if (m.floor === invFloor) floorMatch = true;
           else if (m.floor.length > invFloor.length && m.floor.includes(invFloor)) floorMatch = true;
@@ -510,7 +507,7 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
         if (matchKey) {
           const item = matrixMap[matchKey];
           const zKey = zones.includes(invZone) ? invZone : (item.plan_grid[invZone] !== undefined ? invZone : 'A區');
-          
+
           const curVol = parseFloat(r.total_cubic_feet) > 0 
             ? parseFloat(r.total_cubic_feet) 
             : (parseFloat(r.cubic_feet || 0) * parseFloat(r.qty || 0));
@@ -572,10 +569,10 @@ app.get(['/api/calc-location-summary', '/api/stats/location-capacity'], (req, re
 
           const pv = row.plan_vol[z] || 0;
           const uv = row.used_vol[z] || 0;
-          
+
           let singleCf = row.single_cf_map[z] || 0;
           if (singleCf === 0 && pg > 0) singleCf = pv / pg;
-          
+
           const rvReal = singleCf > 0 ? (rg * singleCf) : Math.max(0, pv - uv);
 
           volRow[`plan_${z}`] = pv > 0 ? parseFloat(pv.toFixed(1)) : '';
@@ -1001,11 +998,21 @@ app.get('/api/get-logs', (req, res) => {
   });
 });
 
-// [POST] 極速匯入 API
+// [POST] 極速匯入 API (含自動同步至全商品歷史銷量總表)
 app.post('/api/upload', (req, res) => {
   try {
     const { items, isFirstChunk, fileName } = req.body;
     if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ success: false, message: '上傳資料格式無效' });
+
+    // 從檔名解析上傳日期 (例如 inventory_20261021.csv 轉為 2026-10-21)
+    let recordDateStr = new Date().toISOString().split('T')[0];
+    if (fileName) {
+      const matchDate = fileName.match(/\d{8}/);
+      if (matchDate) {
+        const d = matchDate[0];
+        recordDateStr = `${d.substring(0, 4)}-${d.substring(4, 6)}-${d.substring(6, 8)}`;
+      }
+    }
 
     db.serialize(() => {
       db.run('PRAGMA synchronous = OFF');
@@ -1033,6 +1040,24 @@ app.post('/api/upload', (req, res) => {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
+      // 🌟 自動同步至全商品歷史銷量總表 (item_sales_history)
+      const stmtHistory = db.prepare(`
+        INSERT INTO item_sales_history (
+          item_id, item_name, pm, supplier_name, stock_qty_80, 
+          monthly_sales, sales_90d, last_record_date, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now'))
+        ON CONFLICT(item_id) DO UPDATE SET
+          item_name = EXCLUDED.item_name,
+          pm = EXCLUDED.pm,
+          supplier_name = EXCLUDED.supplier_name,
+          stock_qty_80 = EXCLUDED.stock_qty_80,
+          total_stock_qty = EXCLUDED.stock_qty_80 + stock_qty_15,
+          monthly_sales = EXCLUDED.monthly_sales,
+          sales_90d = EXCLUDED.sales_90d,
+          last_record_date = EXCLUDED.last_record_date,
+          updated_at = DATETIME('now')
+      `);
+
       for (const item of items) {
         const getField = (...keys) => {
           if (!item || typeof item !== 'object') return '';
@@ -1046,22 +1071,36 @@ app.post('/api/upload', (req, res) => {
           return val ? (parseFloat(String(val).replace(/,/g, '')) || 0) : 0;
         };
 
+        const itemId = getField('item_id', '商品ID');
+        const itemName = getField('item_name', '商品名稱');
+        const pmVal = getField('pm', '所屬PM');
+        const suppName = getField('supplier_name', '供應商名稱');
+        const stockQty = getNum('qty', '儲位庫存數');
+        const mSales = getNum('monthly_sales', '(近)月銷量');
+        const s90 = getNum('sales_90d', '(近)90日銷量');
+
         stmt.run(
-          getField('item_id', '商品ID'), getField('item_name', '商品名稱'), getField('borrow_proc', '借/採'), getField('location', '儲位'), getNum('qty', '儲位庫存數'), parseInt(getField('age', '庫齡') || 0, 10),
+          itemId, itemName, getField('borrow_proc', '借/採'), getField('location', '儲位'), stockQty, parseInt(getField('age', '庫齡') || 0, 10),
           getField('zone_id', '區編'), getField('zone_name', '區名'), getField('hall_id', '館編'), getField('hall_name', '館名'), getNum('length', '長(cm)'), getNum('width', '寬(cm)'),
-          getNum('height', '高(cm)'), getNum('weight', '重量(kg)'), getNum('monthly_sales', '(近)月銷量'), getNum('pick_days_m', '(近)月-有揀貨單天數'), getNum('sales_90d', '(近)90日銷量'), getNum('pick_days_90d', '(近)90日-有揀貨單天數'),
-          getField('supplier_id', '供應商ID'), getField('supplier_name', '供應商名稱'), getField('pm', '所屬PM'), getNum('total_qty', '總庫存數'), getNum('turn_days_total', '總庫存_迴轉天數'), getNum('cubic_feet', '才數'),
+          getNum('height', '高(cm)'), getNum('weight', '重量(kg)'), mSales, getNum('pick_days_m', '(近)月-有揀貨單天數'), s90, getNum('pick_days_90d', '(近)90日-有揀貨單天數'),
+          getField('supplier_id', '供應商ID'), suppName, pmVal, getNum('total_qty', '總庫存數'), getNum('turn_days_total', '總庫存_迴轉天數'), getNum('cubic_feet', '才數'),
           getField('vol_type', '材積別'), getField('loc_code_3', '儲位編碼-3'), getField('loc_code_full', '儲位編碼'), getField('loc_code_5', '儲位編碼5'), getField('floor', '樓層'), getField('floor_zone', '樓層區域'),
           getField('loc_type', '儲位型態'), getField('big_zone_id', '大區編'), getField('big_zone', '大區名'), getNum('dim_sum', '三邊長'), getNum('max_dim', '最長邊'), getNum('min_dim', '最短邊'),
           getNum('loc_cubic_feet', '儲位才數'), getField('loc_health', '儲位健康度'), getField('non_compliant', '不符合'), getField('vol_check', '材積判斷'), getNum('total_cubic_feet', '總才數'), getField('auto_type', '人工/自動'),
           getField('shelf_level', '儲位層標示'), getField('age_bracket', '庫齡級距'), getField('floor_config', '樓層設定'), getField('heavy_rack_check', '重型架判斷'), getField('assigned_floor', 'ID指定樓層'), getField('remark', '備註')
         );
+
+        if (itemId) {
+          stmtHistory.run(itemId, itemName, pmVal, suppName, stockQty, mSales, s90, recordDateStr);
+        }
       }
       stmt.finalize();
+      stmtHistory.finalize();
+
       db.run('COMMIT', (err) => {
         db.run('PRAGMA synchronous = NORMAL');
         if (err) return res.status(500).json({ success: false, error: err.message });
-        res.json({ success: true, count: items.length, message: '48 欄位極速寫入成功！' });
+        res.json({ success: true, count: items.length, message: '48 欄位與歷史銷量總表同步寫入成功！' });
       });
     });
   } catch (err) {

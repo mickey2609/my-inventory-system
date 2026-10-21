@@ -129,7 +129,7 @@
           <div class="action-desc">集貨調撥魚群及未完成追蹤</div>
         </div>
 
-         <!-- 🌟 新增：全商品歷史銷量與進貨履歷小卡 -->
+        <!-- 🌟 新增：全商品歷史銷量與進貨履歷小卡 -->
         <div v-if="hasPermission('item_sales_history')" class="action-card" @click="openTab('item_sales_history')">
           <div class="action-icon">📈</div>
           <div class="action-title">全商品歷史銷量履歷</div>
@@ -143,8 +143,6 @@
         </div>
       </div>
     </div>
-
-   
 
     <!-- 🌟 編輯公告彈窗 Modal -->
     <el-dialog v-model="showAnnounceModal" title="✏️ 編輯系統跑馬燈公告" width="480px" append-to-body custom-class="dark-dialog">
@@ -225,7 +223,7 @@ export default {
     this.localUptimeSec = this.dbMetrics.serverUptimeSec || 0;
     this.startUptimeTimer();
     this.fetchStats();
-    this.fetchAnnouncement(); // 🌟 載入時拉取資料庫最新公告
+    this.fetchAnnouncement();
   },
   beforeUnmount() {
     if (this.uptimeTimer) clearInterval(this.uptimeTimer);
@@ -264,7 +262,6 @@ export default {
         console.error('抓取首頁統計失敗:', e.message);
       }
     },
-    // 🌟 從伺服器拉取最新公告
     async fetchAnnouncement() {
       try {
         const res = await axios.get('/api/announcement');
@@ -276,10 +273,9 @@ export default {
       }
     },
     openAnnounceDialog() {
-      this.tempAnnouncement = this.announcementText;
+      this.tempAnnouncement = this.announcementText || '🎉 歡迎使用庫存儲位管理系統！請確實核對進貨驗收與新品上架資料。';
       this.showAnnounceModal = true;
     },
-    // 🌟 儲存公告至後端資料庫
     async saveAnnouncement() {
       if (!this.tempAnnouncement.trim()) {
         return ElMessage.warning('公告內容不可為空！');
@@ -340,7 +336,6 @@ export default {
   color: #94a3b8;
 }
 
-/* 🌟 跑馬燈樣式 */
 .marquee-wrapper {
   flex: 1;
   display: flex;
@@ -391,12 +386,8 @@ export default {
 }
 
 @keyframes marqueeAnimation {
-  0% {
-    transform: translate3d(0, 0, 0);
-  }
-  100% {
-    transform: translate3d(-100%, 0, 0);
-  }
+  0% { transform: translate3d(0, 0, 0); }
+  100% { transform: translate3d(-100%, 0, 0); }
 }
 
 .edit-announce-btn {
