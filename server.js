@@ -197,7 +197,7 @@ app.post('/api/announcement', (req, res) => {
   );
 });
 
-// server.js 中的 /api/login 路由
+// C:\my-inventory-server\server.js 中的 /api/login 路由
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
   
@@ -213,17 +213,17 @@ app.post('/api/login', (req, res) => {
       return res.status(500).json({ success: false, status: 'error', message: '資料庫查詢失敗：' + err.message });
     }
 
-    // 🚨 嚴格拒絕 1：帳號不在 users 資料表中，直接回傳 HTTP 401 拒絕！
+    // 🚨 提示 1：帳號不在 users 資料表中
     if (!row) {
-      return res.status(401).json({ success: false, status: 'error', message: '帳號不存在或密碼錯誤！' });
+      return res.status(401).json({ success: false, status: 'error', message: '⚠️ 帳號不存在，請重新確認！' });
     }
 
-    // 🚨 嚴格拒絕 2：密碼不吻合，直接回傳 HTTP 401 拒絕！
+    // 🚨 提示 2：帳號存在，但密碼輸入錯誤
     if (String(row.password || '').trim() !== cleanPwd) {
-      return res.status(401).json({ success: false, status: 'error', message: '帳號不存在或密碼錯誤！' });
+      return res.status(401).json({ success: false, status: 'error', message: '🔑 密碼錯誤，請重新確認！' });
     }
 
-    // 權限解析：一般帳號若沒設定權限，給予空陣列 []，絕不預設全開
+    // 權限解析：一般帳號若沒設定權限，給予空陣列 []
     let userPermissions = [];
     if (row.username === 'admin' || row.role === 'sys_admin') {
       userPermissions = 'all';

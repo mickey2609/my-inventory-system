@@ -807,51 +807,49 @@ async reloadCurrentUserPermissions() {
     },
     async fetchLogs() { try { const res = await axios.get('/api/get-logs'); if (res.data?.logs) this.logsList = res.data.logs; } catch (e) {} },
     
-    // 🌟 登入防禦邏輯：狀態校驗與錯誤處理
-    async handleLogin() {
-      if (!this.loginForm.username || !this.loginForm.password) return ElMessage.warning('請輸入帳密！');
-      this.loginLoading = true;
-      try {
-        const res = await axios.post('/api/login', { username: this.loginForm.username, password: this.loginForm.password, device: this.getDeviceType() });
-        
-        // 嚴格比對成功標記
-        if (res.data && (res.data.status === 'success' || res.data.success === true)) {
-          const userData = res.data.user || res.data.data || {};
-          this.isLoggedIn = true; 
-          this.currentUsername = res.data.username || userData.username || this.loginForm.username; 
-          this.currentUser = res.data.name || userData.name || this.currentUsername;
-          this.currentUserRole = res.data.role || userData.role || 'user';
-          this.currentUserPermissions = res.data.permissions || userData.permissions || [];
-          this.loginTimestamp = Date.now();
-          this.timeoutMessage = '';
+    // App.vue 中的 handleLogin 方法
+async handleLogin() {
+  if (!this.loginForm.username || !this.loginForm.password) {
+    return ElMessage.warning('請輸入帳號與密碼！');
+  }
 
-          if (typeof this.saveOrClearCredentials === 'function') this.saveOrClearCredentials(this.loginForm);
-          if (typeof this.saveSession === 'function') this.saveSession(this.currentUsername, this.currentUser, this.currentUserRole, this.currentUserPermissions);
+  this.loginLoading = true;
+  try {
+    const res = await axios.post('/api/login', { 
+      username: this.loginForm.username, 
+      password: this.loginForm.password, 
+      device: this.getDeviceType() 
+    });
 
-          this.currentTab = 'home'; 
-          this.openedTabs = ['home'];
-          localStorage.setItem('current_tab', 'home');
-          localStorage.setItem('opened_tabs', JSON.stringify(['home']));
+    if (res.data && (res.data.status === 'success' || res.data.success === true)) {
+      const userData = res.data.user || res.data || {};
+      
+      this.isLoggedIn = true; 
+      this.currentUsername = res.data.username || userData.username; 
+      this.currentUser = res.data.name || userData.name || this.currentUsername;
+      this.currentUserRole = res.data.role || userData.role || 'user';
+      this.currentUserPermissions = res.data.permissions || userData.permissions || [];
+      
+      this.openedTabs = ['home'];
+      this.currentTab = 'home';
+      localStorage.setItem('current_tab', 'home');
+      localStorage.setItem('opened_tabs', JSON.stringify(['home']));
 
-          this.formatLoginTimeStr();
-          this.startTimers();
-          this.startHeartbeat();
-          this.fetchGlobalConfig();
-          this.fetchDashboardMetrics(); 
-          this.fetchLogs(); 
-          ElMessage.success('歡迎回來，' + this.currentUser + '！');
-        } else { 
-          this.isLoggedIn = false;
-          ElMessage.error(res.data?.message || '帳號不存在或密碼錯誤！'); 
-        }
-      } catch (e) {
-        this.isLoggedIn = false;
-        const errorMsg = e.response?.data?.message || '帳號不存在或密碼錯誤，請重新確認！';
-        ElMessage.error('⚠️ ' + errorMsg);
-      } finally { 
-        this.loginLoading = false; 
-      }
-    },
+      ElMessage.success('歡迎回來，' + this.currentUser + '！');
+    } else { 
+      this.isLoggedIn = false;
+      // 🌟 顯示後端回傳的精準提示（例：帳號不存在 / 密碼錯誤）
+      ElMessage.error(res.data?.message || '登入驗證失敗！'); 
+    }
+  } catch (e) {
+    this.isLoggedIn = false;
+    // 🌟 抓取 HTTP 401 狀態碼帶出的回應提示
+    const errorMsg = e.response?.data?.message || '帳號不存在或密碼錯誤，請重新確認！';
+    ElMessage.error(errorMsg);
+  } finally { 
+    this.loginLoading = false; 
+  }
+},
 
     async handleLogout() {
       try { if (this.currentUsername) await axios.post('/api/logout', { username: this.currentUsername }); } catch (e) {}
