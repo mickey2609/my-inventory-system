@@ -209,7 +209,7 @@ module.exports = function(db) {
             data: abnormalRows
           });
         });
-      });
+      };
     } catch (e) {
       res.status(500).json({ success: false, message: '伺服器內部異常：' + e.message });
     }

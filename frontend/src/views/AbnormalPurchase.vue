@@ -294,7 +294,7 @@ export default {
     const savedSortOrder = localStorage.getItem('abnormal_sort_order');
     if (savedSortOrder) this.configSortOrder = savedSortOrder;
 
-    this.\$nextTick(() => { this.fetchAbnormalData(); });
+    this.$nextTick(() => { this.fetchAbnormalData(); });
   },
   methods: {
     formatNumber(val) {
