@@ -59,7 +59,7 @@ app.use('/api/replenish', replenishRouter);
 const transfer8015Router = require('./routes/transfer8015')(db);
 app.use('/api/transfer8015', transfer8015Router);
 
-// 🌟 4. 全新掛載：跨庫調撥 (15 ➔ 80) 魚群分析 API
+// 4. 跨庫調撥 (15 ➔ 80) 魚群分析 API
 const transfer1580Router = require('./routes/transfer1580')(db);
 app.use('/api/transfer1580', transfer1580Router);
 
@@ -74,7 +74,11 @@ app.use('/api/location-stats', locationStatsModule(db));
 app.use('/api/turnover15', turnover15Module(db));
 app.use('/api/turnover80', turnover80Module(db));
 
-// 6. 首頁 Dashboard 統計數據 API
+// 6. 不合理進貨分析 API
+const abnormalRouter = require('./routes/abnormal')(db);
+app.use('/api/abnormal', abnormalRouter);
+
+// 7. 首頁 Dashboard 統計數據 API
 app.get('/api/dashboard/stats', (req, res) => {
   const sql80 = `SELECT COUNT(*) as total_rows FROM inventory`;
   const sql15 = `SELECT COUNT(*) as total_rows FROM inventory_15`;
@@ -117,7 +121,7 @@ app.get('/api/dashboard/stats', (req, res) => {
   });
 });
 
-// 7. 批次匯入/更新帳號 API
+// 8. 批次匯入/更新帳號 API
 app.post('/api/batch-import-users', (req, res) => {
   const users = req.body.users || req.body;
 
@@ -133,7 +137,9 @@ app.post('/api/batch-import-users', (req, res) => {
       VALUES (?, ?, ?, ?, ?)
       ON CONFLICT(username) DO UPDATE SET
         name = EXCLUDED.name,
-        role = EXCLUDED.role
+        role = EXCLUDED.role,
+        password = EXCLUDED.password,
+        permissions = EXCLUDED.permissions
     `);
 
     let importedCount = 0;
@@ -148,7 +154,7 @@ app.post('/api/batch-import-users', (req, res) => {
       if (!['admin', 'sys_admin', 'user'].includes(role)) role = 'user';
 
       const password = String(u['密碼'] || u['password'] || username).trim();
-      const permissions = (role === 'admin' || role === 'sys_admin') ? 'all' : 'loc_summary,inv80,inv15';
+      const permissions = (role === 'admin' || role === 'sys_admin') ? 'all' : (u['權限'] || u['permissions'] || '');
 
       stmt.run(username, name, password, role, permissions);
       importedCount++;
@@ -167,7 +173,7 @@ app.post('/api/batch-import-users', (req, res) => {
   });
 });
 
-// 8. 全域跑馬燈公告同步 API
+// 9. 全域跑馬燈公告同步 API
 app.get('/api/announcement', (req, res) => {
   db.get(`SELECT config_value FROM system_config WHERE config_key = 'announcement'`, [], (err, row) => {
     if (err) return res.status(500).json({ success: false, message: err.message });
@@ -191,9 +197,66 @@ app.post('/api/announcement', (req, res) => {
   );
 });
 
-// 不合理進貨分析 API
-const abnormalRouter = require('./routes/abnormal')(db);
-app.use('/api/abnormal', abnormalRouter);
+// 🌟 10. 登入 API（重寫：嚴格帳密比對與權限安全隔離）
+app.post('/api/login', (req, res) => {
+  const { username, password } = req.body;
+  
+  if (!username || !password) {
+    return res.status(400).json({ success: false, status: 'error', message: '請輸入帳號與密碼！' });
+  }
+
+  const cleanUser = String(username).trim();
+  const cleanPwd = String(password).trim();
+
+  db.get('SELECT * FROM users WHERE username = ?', [cleanUser], (err, row) => {
+    if (err) {
+      return res.status(500).json({ success: false, status: 'error', message: '資料庫查詢失敗：' + err.message });
+    }
+
+    // 🚨 漏洞修復 1：查無帳號，立即回傳 401 攔截！
+    if (!row) {
+      return res.status(401).json({ success: false, status: 'error', message: '帳號不存在或密碼錯誤！' });
+    }
+
+    // 🚨 漏洞修復 2：密碼不符，立即回傳 401 攔截！
+    if (String(row.password || '').trim() !== cleanPwd) {
+      return res.status(401).json({ success: false, status: 'error', message: '帳號不存在或密碼錯誤！' });
+    }
+
+    // 權限解析：只有管理員能擁有 'all'，其餘無設定者給予空陣列 []
+    let userPermissions = [];
+    if (row.username === 'admin' || row.role === 'sys_admin') {
+      userPermissions = 'all';
+    } else if (row.permissions) {
+      userPermissions = typeof row.permissions === 'string' 
+        ? row.permissions.split(',').map(s => s.trim()).filter(Boolean)
+        : row.permissions;
+    }
+
+    const realName = row.name || row.username;
+    const userRole = row.role || 'user';
+    const userPayload = { 
+      username: row.username, 
+      name: realName, 
+      role: userRole, 
+      permissions: userPermissions, 
+      token: 'fake-jwt-token' 
+    };
+
+    db.run('UPDATE users SET last_active = ? WHERE username = ?', [Math.floor(Date.now() / 1000), row.username]);
+    
+    res.json({ 
+      success: true, 
+      status: 'success', 
+      username: row.username, 
+      name: realName, 
+      role: userRole, 
+      permissions: userPermissions, 
+      user: userPayload, 
+      data: userPayload 
+    });
+  });
+});
 
 app.get('/api/get-global-config', (req, res) => {
   const currentUptimeSec = Math.floor((Date.now() - SERVER_START_TIME) / 1000);
@@ -203,7 +266,7 @@ app.get('/api/get-global-config', (req, res) => {
       success: true,
       data: {
         system_name: "庫存儲位管理系統",
-        version: "v2026.10.13",
+        version: "v2026.10.21",
         server_uptime_seconds: currentUptimeSec,
         latest_inventory15_filename: fn15
       }
@@ -226,36 +289,6 @@ app.post('/api/system/update-server-code', (req, res) => {
   proxyReq.on('error', (err) => res.status(500).json({ success: false, message: '無法連線至 Port 3001: ' + err.message }));
   proxyReq.write(payload);
   proxyReq.end();
-});
-
-// 初始化資料庫 Schema
-db.serialize(() => {
-  db.all("PRAGMA table_info(inventory)", [], (err, columns) => {
-    const hasLocCode3 = columns && columns.some(c => c.name === 'loc_code_3');
-    if (!hasLocCode3 && columns && columns.length > 0) {
-      console.log('⚠️ 自動升級重建為完整 48 欄位 Schema...');
-      db.run(`DROP TABLE IF EXISTS inventory`);
-    }
-    db.run(`
-      CREATE TABLE IF NOT EXISTS inventory (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, item_id TEXT, item_name TEXT, borrow_proc TEXT, location TEXT, qty REAL, age INTEGER,
-        zone_id TEXT, zone_name TEXT, hall_id TEXT, hall_name TEXT, length REAL, width REAL, height REAL, weight REAL,
-        monthly_sales REAL, pick_days_m REAL, sales_90d REAL, pick_days_90d REAL, supplier_id TEXT, supplier_name TEXT, pm TEXT,
-        total_qty REAL, turn_days_total REAL, cubic_feet REAL, vol_type TEXT, loc_code_3 TEXT, loc_code_full TEXT, loc_code_5 TEXT,
-        floor TEXT, floor_zone TEXT, loc_type TEXT, big_zone_id TEXT, big_zone TEXT, dim_sum REAL, max_dim REAL, min_dim REAL,
-        loc_cubic_feet REAL, loc_health TEXT, non_compliant TEXT, vol_check TEXT, total_cubic_feet REAL, auto_type TEXT,
-        shelf_level TEXT, age_bracket TEXT, floor_config TEXT, heavy_rack_check TEXT, assigned_floor TEXT, remark TEXT
-      );
-    `);
-  });
-  db.run(`CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, name TEXT, role TEXT, password TEXT, permissions TEXT, last_active INTEGER);`);
-  db.run(`CREATE TABLE IF NOT EXISTS system_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, name TEXT, role TEXT, device TEXT, feature TEXT, action TEXT, created_at TEXT);`);
-  db.run(`CREATE TABLE IF NOT EXISTS column_config (key TEXT PRIMARY KEY, config_json TEXT, updated_at TEXT);`);
-  db.run(`CREATE TABLE IF NOT EXISTS system_config (config_key TEXT PRIMARY KEY, config_value TEXT);`);
-  db.run(`CREATE TABLE IF NOT EXISTS locations_master (id INTEGER PRIMARY KEY AUTOINCREMENT, floor TEXT, zone TEXT, loc_type TEXT, cubic_feet REAL, grid_count INTEGER, single_cubic_feet REAL);`);
-  db.run(`CREATE TABLE IF NOT EXISTS import_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, module_type TEXT, file_name TEXT, row_count INTEGER, imported_at TEXT);`);
-  db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions) VALUES ('admin', '系統管理員', 'sys_admin', 'admin', 'all');`);
-  db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions) VALUES ('801854', '黃勝鴻', 'sys_admin', '801854', 'all');`);
 });
 
 // 精準校正儲位型態
@@ -310,10 +343,10 @@ function getAdjustedType(floor, rType, storageCode, locCode5, shelfLevel, heavyR
 function parseCsvTextToObjects(csvText) {
   const lines = csvText.split(/\r?\n/).filter(l => l.trim());
   if (lines.length <= 1) return [];
-  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"\$/g, ''));
   const list = [];
   for (let i = 1; i < lines.length; i++) {
-    const rowVals = lines[i].split(',').map(v => v.trim().replace(/^"|"$/g, ''));
+    const rowVals = lines[i].split(',').map(v => v.trim().replace(/^"|"\$/g, ''));
     if (rowVals.length < headers.length) continue;
     const rowObj = {};
     headers.forEach((h, idx) => rowObj[h] = rowVals[idx]);
@@ -751,7 +784,7 @@ app.get('/api/get-users', (req, res) => {
 app.post('/api/add-user', (req, res) => {
   const { username, name, role, password } = req.body;
   if (!username) return res.status(400).json({ success: false, message: '帳號名稱不可為空！' });
-  const stmt = db.prepare(`INSERT INTO users (username, name, role, password, permissions, last_active) VALUES (?, ?, ?, ?, 'all', ?) ON CONFLICT(username) DO UPDATE SET name = excluded.name, role = excluded.role, password = excluded.password`);
+  const stmt = db.prepare(`INSERT INTO users (username, name, role, password, permissions, last_active) VALUES (?, ?, ?, ?, '', ?) ON CONFLICT(username) DO UPDATE SET name = excluded.name, role = excluded.role, password = excluded.password`);
   stmt.run(username, name || username, role || 'user', password || '123456', Math.floor(Date.now() / 1000), (err) => {
     if (err) return res.status(500).json({ success: false, error: err.message });
     res.json({ success: true, message: '新增帳號成功！' });
@@ -788,7 +821,7 @@ app.post('/api/delete-user', (req, res) => {
   });
 });
 
-// [GET] 庫存查詢 API
+// [GET] 庫存查詢 API (完整 48 欄位處理邏輯)
 app.get('/api/search', (req, res) => {
   const page = parseInt(req.query.page || '1', 10);
   const pageSize = parseInt(req.query.pageSize || '500', 10);
@@ -948,19 +981,6 @@ app.get('/api/get-column-config', (req, res) => {
   });
 });
 
-app.post('/api/login', (req, res) => {
-  const { username } = req.body;
-  if (!username) return res.status(400).json({ success: false, message: '請輸入帳號' });
-  db.get('SELECT * FROM users WHERE username = ?', [username], (err, row) => {
-    if (err) return res.status(500).json({ success: false, error: err.message });
-    let realName = row ? row.name : (username === 'admin' ? '系統管理員' : username);
-    const userRole = row ? (row.role || 'user') : (username === 'admin' ? 'sys_admin' : 'user');
-    const userPayload = { username, name: realName, role: userRole, permissions: row ? (row.permissions || 'all') : 'all', token: 'fake-jwt-token' };
-    db.run('UPDATE users SET last_active = ? WHERE username = ?', [Math.floor(Date.now() / 1000), username]);
-    res.json({ success: true, status: 'success', username, name: realName, role: userRole, permissions: userPayload.permissions, user: userPayload, data: userPayload, token: userPayload.token });
-  });
-});
-
 app.post('/api/record-log', (req, res) => {
   db.run(`INSERT INTO system_logs (username, name, role, device, feature, action, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [req.body.username || 'admin', req.body.name || '系統管理員', req.body.role || 'sys_admin', req.body.device || 'Desktop', req.body.feature, req.action, new Date().toISOString()],
@@ -1044,6 +1064,36 @@ app.post('/api/upload', (req, res) => {
     db.run('ROLLBACK');
     res.status(500).json({ success: false, error: err.message });
   }
+});
+
+// 初始化資料庫 Schema
+db.serialize(() => {
+  db.all("PRAGMA table_info(inventory)", [], (err, columns) => {
+    const hasLocCode3 = columns && columns.some(c => c.name === 'loc_code_3');
+    if (!hasLocCode3 && columns && columns.length > 0) {
+      console.log('⚠️ 自動升級重建為完整 48 欄位 Schema...');
+      db.run(`DROP TABLE IF EXISTS inventory`);
+    }
+    db.run(`
+      CREATE TABLE IF NOT EXISTS inventory (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, item_id TEXT, item_name TEXT, borrow_proc TEXT, location TEXT, qty REAL, age INTEGER,
+        zone_id TEXT, zone_name TEXT, hall_id TEXT, hall_name TEXT, length REAL, width REAL, height REAL, weight REAL,
+        monthly_sales REAL, pick_days_m REAL, sales_90d REAL, pick_days_90d REAL, supplier_id TEXT, supplier_name TEXT, pm TEXT,
+        total_qty REAL, turn_days_total REAL, cubic_feet REAL, vol_type TEXT, loc_code_3 TEXT, loc_code_full TEXT, loc_code_5 TEXT,
+        floor TEXT, floor_zone TEXT, loc_type TEXT, big_zone_id TEXT, big_zone TEXT, dim_sum REAL, max_dim REAL, min_dim REAL,
+        loc_cubic_feet REAL, loc_health TEXT, non_compliant TEXT, vol_check TEXT, total_cubic_feet REAL, auto_type TEXT,
+        shelf_level TEXT, age_bracket TEXT, floor_config TEXT, heavy_rack_check TEXT, assigned_floor TEXT, remark TEXT
+      );
+    `);
+  });
+  db.run(`CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, name TEXT, role TEXT, password TEXT, permissions TEXT, last_active INTEGER);`);
+  db.run(`CREATE TABLE IF NOT EXISTS system_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, name TEXT, role TEXT, device TEXT, feature TEXT, action TEXT, created_at TEXT);`);
+  db.run(`CREATE TABLE IF NOT EXISTS column_config (key TEXT PRIMARY KEY, config_json TEXT, updated_at TEXT);`);
+  db.run(`CREATE TABLE IF NOT EXISTS system_config (config_key TEXT PRIMARY KEY, config_value TEXT);`);
+  db.run(`CREATE TABLE IF NOT EXISTS locations_master (id INTEGER PRIMARY KEY AUTOINCREMENT, floor TEXT, zone TEXT, loc_type TEXT, cubic_feet REAL, grid_count INTEGER, single_cubic_feet REAL);`);
+  db.run(`CREATE TABLE IF NOT EXISTS import_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, module_type TEXT, file_name TEXT, row_count INTEGER, imported_at TEXT);`);
+  db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions) VALUES ('admin', '系統管理員', 'sys_admin', 'admin', 'all');`);
+  db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions) VALUES ('801854', '黃勝鴻', 'sys_admin', '801854', 'all');`);
 });
 
 app.listen(PORT, '0.0.0.0', () => {

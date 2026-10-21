@@ -44,7 +44,6 @@
             @refresh-summary="handleSummaryCalc"
           />
 
-          <!-- 80 庫專屬隔離數據 -->
           <InvQuery80 
             v-else-if="currentTab === 'inv80'" key="inv80"
             :has-searched="hasSearched80" :summary="summary80" :search-time="searchTime80"
@@ -58,7 +57,6 @@
             @size-change="s => handlePageSizeChange(s, 'inv80')"
           />
 
-          <!-- 15 庫專屬隔離數據 -->
           <InvSearch15 
             v-else-if="currentTab === 'inv15'" key="inv15"
             :has-searched="hasSearched15" :summary="summary15" :search-time="searchTime15"
@@ -73,41 +71,35 @@
             @refresh-metrics="fetchDashboardMetrics"
           />
 
-          <!-- 迴轉率清單專屬視圖 -->
           <TurnoverList 
             v-else-if="currentTab === 'turnover'" key="turnover" 
             :is-sys-admin="isSysAdmin"
           />
 
-          <!-- 🌟 正式上線：不合理進貨清單模組 🌟 -->
           <AbnormalPurchase 
             v-else-if="currentTab === 'abnormal_purchase'" key="abnormal_purchase"
             :is-admin="isAdmin"
             :is-sys-admin="isSysAdmin"
           />
 
-          <!-- 進貨上架魚群模組 -->
           <InboundFishList 
             v-else-if="currentTab === 'inbound_fish'" key="inbound_fish"
             :is-admin="isAdmin"
             :is-sys-admin="isSysAdmin"
           />
 
-          <!-- 立即補貨單魚群模組 -->
           <ReplenishFishList 
             v-else-if="currentTab === 'replenish_fish'" key="replenish_fish"
             :is-admin="isAdmin"
             :is-sys-admin="isSysAdmin"
           />
 
-          <!-- 跨庫調撥 (80 ➔ 15) 魚群模組 -->
           <Transfer8015FishList 
             v-else-if="currentTab === 'transfer_80_15'" key="transfer_80_15"
             :is-admin="isAdmin"
             :is-sys-admin="isSysAdmin"
           />
 
-          <!-- 跨庫調撥 (15 ➔ 80) 魚群模組 -->
           <Transfer1580FishList 
             v-else-if="currentTab === 'transfer_15_80'" key="transfer_15_80"
             :is-admin="isAdmin"
@@ -228,7 +220,7 @@ import InvQuery80 from './views/InvQuery80.vue'
 import InvSearch15 from './views/InvSearch15.vue'
 import LocSummary from './views/LocSummary.vue'
 import TurnoverList from './views/TurnoverList.vue'
-import AbnormalPurchase from './views/AbnormalPurchase.vue' // 🌟 引入不合理進貨組件
+import AbnormalPurchase from './views/AbnormalPurchase.vue'
 import InboundFishList from './views/InboundFishList.vue'
 import ReplenishFishList from './views/ReplenishFishList.vue'
 import Transfer8015FishList from './views/Transfer8015FishList.vue'
@@ -285,7 +277,7 @@ export default {
     ];
 
     return {
-      appVersion: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'v2026.10.13',
+      appVersion: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'v2026.10.21',
       isLoggedIn: false, currentUser: '', currentUsername: '', currentUserRole: 'user', loginLoading: false, savingConfig: false,
       savingExportConfig: false, currentUserPermissions: [],
       showUnifiedDrawer: false, showSearchModal: false, showParamMenuDialog: false, showWidthConfigDialog: false,
@@ -369,7 +361,7 @@ export default {
           this.currentUsername = session.username || 'admin';
           this.currentUser = session.name || localStorage.getItem('currentUser') || this.currentUsername;
           this.currentUserRole = session.role || (this.currentUsername === 'admin' ? 'sys_admin' : 'user');
-          this.currentUserPermissions = session.permissions || 'all';
+          this.currentUserPermissions = session.permissions || [];
           this.loginTimestamp = session.loginTimestamp || now;
           this.lastActiveTimestamp = now;
 
@@ -447,10 +439,12 @@ export default {
       } catch (e) {}
     },
 
+    // 🚨 嚴格權限邏輯，未設定權限一律回傳 false
     hasModulePermission(tabKey) {
       if (this.isSysAdmin || tabKey === 'home' || tabKey === 'settings_perm' || tabKey === 'settings_log') return true;
       const perms = this.currentUserPermissions;
-      if (!perms || perms === 'all' || perms === 'all,') return true;
+      if (!perms || perms.length === 0) return false;
+      if (perms === 'all' || perms === 'all,') return true;
       if (Array.isArray(perms)) return perms.includes(tabKey);
       if (typeof perms === 'string') return perms.split(',').map(s => s.trim()).includes(tabKey);
       return false;
@@ -792,18 +786,21 @@ export default {
     },
     async fetchLogs() { try { const res = await axios.get('/api/get-logs'); if (res.data?.logs) this.logsList = res.data.logs; } catch (e) {} },
     
+    // 🌟 登入防禦邏輯：狀態校驗與錯誤處理
     async handleLogin() {
       if (!this.loginForm.username || !this.loginForm.password) return ElMessage.warning('請輸入帳密！');
       this.loginLoading = true;
       try {
         const res = await axios.post('/api/login', { username: this.loginForm.username, password: this.loginForm.password, device: this.getDeviceType() });
-        if (res.data?.status === 'success' || res.data?.success) {
+        
+        // 嚴格比對成功標記
+        if (res.data && (res.data.status === 'success' || res.data.success === true)) {
           const userData = res.data.user || res.data.data || {};
           this.isLoggedIn = true; 
           this.currentUsername = res.data.username || userData.username || this.loginForm.username; 
           this.currentUser = res.data.name || userData.name || this.currentUsername;
-          this.currentUserRole = res.data.role || userData.role || (this.currentUsername === 'admin' ? 'sys_admin' : 'user');
-          this.currentUserPermissions = res.data.permissions || userData.permissions || 'all';
+          this.currentUserRole = res.data.role || userData.role || 'user';
+          this.currentUserPermissions = res.data.permissions || userData.permissions || [];
           this.loginTimestamp = Date.now();
           this.timeoutMessage = '';
 
@@ -823,11 +820,13 @@ export default {
           this.fetchLogs(); 
           ElMessage.success('歡迎回來，' + this.currentUser + '！');
         } else { 
-          ElMessage.error(res.data?.detail || res.data?.message || '登入失敗'); 
+          this.isLoggedIn = false;
+          ElMessage.error(res.data?.message || '帳號不存在或密碼錯誤！'); 
         }
       } catch (e) {
         this.isLoggedIn = false;
-        ElMessage.error('⚠️ 伺服器未連線，請確認地端桌機 start_tunnel.bat 是否已啟動！');
+        const errorMsg = e.response?.data?.message || '帳號不存在或密碼錯誤，請重新確認！';
+        ElMessage.error('⚠️ ' + errorMsg);
       } finally { 
         this.loginLoading = false; 
       }
