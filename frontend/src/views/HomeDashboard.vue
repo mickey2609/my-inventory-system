@@ -129,6 +129,13 @@
           <div class="action-desc">集貨調撥魚群及未完成追蹤</div>
         </div>
 
+         <!-- 🌟 新增：全商品歷史銷量與進貨履歷小卡 -->
+    <div v-if="hasPermission('item_sales_history')" class="action-card" @click="openTab('item_sales_history')">
+      <div class="action-icon">📈</div>
+      <div class="action-title">全商品歷史銷量履歷</div>
+      <div class="action-desc">包含售罄商品、雙庫獨立庫存與最後驗收日期</div>
+    </div>
+
         <div v-if="isSysAdmin" class="action-card" @click="openTab('settings_perm')">
           <div class="action-icon">⚙️</div>
           <div class="action-title">權限管理</div>
@@ -137,12 +144,7 @@
       </div>
     </div>
 
-    <!-- 🌟 新增：全商品歷史銷量與進貨履歷小卡 -->
-    <div v-if="hasPermission('item_sales_history')" class="action-card" @click="openTab('item_sales_history')">
-      <div class="action-icon">📈</div>
-      <div class="action-title">全商品歷史銷量履歷</div>
-      <div class="action-desc">包含售罄商品、雙庫獨立庫存與最後驗收日期</div>
-    </div>
+   
 
     <!-- 🌟 編輯公告彈窗 Modal -->
     <el-dialog v-model="showAnnounceModal" title="✏️ 編輯系統跑馬燈公告" width="480px" append-to-body custom-class="dark-dialog">
