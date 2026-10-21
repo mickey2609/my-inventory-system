@@ -130,11 +130,11 @@
         </div>
 
          <!-- 🌟 新增：全商品歷史銷量與進貨履歷小卡 -->
-    <div v-if="hasPermission('item_sales_history')" class="action-card" @click="openTab('item_sales_history')">
-      <div class="action-icon">📈</div>
-      <div class="action-title">全商品歷史銷量履歷</div>
-      <div class="action-desc">包含售罄商品、雙庫獨立庫存與最後驗收日期</div>
-    </div>
+        <div v-if="hasPermission('item_sales_history')" class="action-card" @click="openTab('item_sales_history')">
+          <div class="action-icon">📈</div>
+          <div class="action-title">全商品歷史銷量履歷</div>
+          <div class="action-desc">包含售罄商品、雙庫獨立庫存與最後驗收日期</div>
+        </div>
 
         <div v-if="isSysAdmin" class="action-card" @click="openTab('settings_perm')">
           <div class="action-icon">⚙️</div>
