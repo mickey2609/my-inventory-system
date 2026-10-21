@@ -835,17 +835,28 @@ async handleLogin() {
       localStorage.setItem('current_tab', 'home');
       localStorage.setItem('opened_tabs', JSON.stringify(['home']));
 
-      ElMessage.success('歡迎回來，' + this.currentUser + '！');
+      ElMessage.success({
+        message: '歡迎回來，' + this.currentUser + '！',
+        duration: 3000,
+        showClose: true
+      });
     } else { 
       this.isLoggedIn = false;
-      // 🌟 顯示後端回傳的精準提示（例：帳號不存在 / 密碼錯誤）
-      ElMessage.error(res.data?.message || '登入驗證失敗！'); 
+      ElMessage.error({
+        message: res.data?.message || '⚠️ 帳號或密碼錯誤！',
+        duration: 5000,
+        showClose: true
+      }); 
     }
   } catch (e) {
     this.isLoggedIn = false;
     // 🌟 抓取 HTTP 401 狀態碼帶出的回應提示
-    const errorMsg = e.response?.data?.message || '帳號不存在或密碼錯誤，請重新確認！';
-    ElMessage.error(errorMsg);
+    const errorMsg = e.response?.data?.message || '⚠️ 帳號不存在或密碼錯誤，請重新確認！';
+    ElMessage.error({
+      message: errorMsg,
+      duration: 5000,
+      showClose: true
+    });
   } finally { 
     this.loginLoading = false; 
   }

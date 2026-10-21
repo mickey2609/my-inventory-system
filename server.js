@@ -258,22 +258,6 @@ app.post('/api/login', (req, res) => {
   });
 });
 
-app.get('/api/get-global-config', (req, res) => {
-  const currentUptimeSec = Math.floor((Date.now() - SERVER_START_TIME) / 1000);
-  db.get("SELECT config_value FROM system_config WHERE config_key = 'latest_inventory15_filename'", [], (err, row) => {
-    const fn15 = (row && row.config_value) ? row.config_value : 'latest_inventory15.csv';
-    res.json({
-      success: true,
-      data: {
-        system_name: "庫存儲位管理系統",
-        version: "v2026.10.21",
-        server_uptime_seconds: currentUptimeSec,
-        latest_inventory15_filename: fn15
-      }
-    });
-  });
-});
-
 app.post('/api/system/update-server-code', (req, res) => {
   const http = require('http');
   const payload = JSON.stringify(req.body);
