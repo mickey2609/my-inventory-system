@@ -197,7 +197,7 @@ app.post('/api/announcement', (req, res) => {
   );
 });
 
-// 🌟 10. 登入 API（重寫：嚴格帳密比對與權限安全隔離）
+// server.js 中的 /api/login 路由
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
   
@@ -213,17 +213,17 @@ app.post('/api/login', (req, res) => {
       return res.status(500).json({ success: false, status: 'error', message: '資料庫查詢失敗：' + err.message });
     }
 
-    // 🚨 漏洞修復 1：查無帳號，立即回傳 401 攔截！
+    // 🚨 嚴格拒絕 1：帳號不在 users 資料表中，直接回傳 HTTP 401 拒絕！
     if (!row) {
       return res.status(401).json({ success: false, status: 'error', message: '帳號不存在或密碼錯誤！' });
     }
 
-    // 🚨 漏洞修復 2：密碼不符，立即回傳 401 攔截！
+    // 🚨 嚴格拒絕 2：密碼不吻合，直接回傳 HTTP 401 拒絕！
     if (String(row.password || '').trim() !== cleanPwd) {
       return res.status(401).json({ success: false, status: 'error', message: '帳號不存在或密碼錯誤！' });
     }
 
-    // 權限解析：只有管理員能擁有 'all'，其餘無設定者給予空陣列 []
+    // 權限解析：一般帳號若沒設定權限，給予空陣列 []，絕不預設全開
     let userPermissions = [];
     if (row.username === 'admin' || row.role === 'sys_admin') {
       userPermissions = 'all';

@@ -412,32 +412,53 @@ export default {
       }
     },
 
-    async reloadCurrentUserPermissions() {
-      if (!this.isLoggedIn || !this.currentUsername || this.isSysAdmin) return;
-      try {
-        const res = await axios.get('/api/get-users');
-        if (res.data?.status === 'success' && res.data?.users) {
-          const me = res.data.users.find(u => u.username === this.currentUsername);
-          if (me) {
-            if (me.name) this.currentUser = me.name;
-            if (me.permissions !== undefined) {
-              this.currentUserPermissions = me.permissions;
+    // App.vue 中的 reloadCurrentUserPermissions 函式全選覆蓋：
+async reloadCurrentUserPermissions() {
+  if (!this.isLoggedIn || !this.currentUsername) return;
+  
+  try {
+    const res = await axios.get('/api/get-users');
+    if (res.data?.status === 'success' || res.data?.success) {
+      const usersList = res.data.users || [];
+      const me = usersList.find(u => String(u.username).trim() === String(this.currentUsername).trim());
 
-              this.openedTabs = this.openedTabs.filter(tab => this.hasModulePermission(tab));
-              if (!this.openedTabs.includes('home')) this.openedTabs.unshift('home');
+      // 🚨 核心防禦：如果資料庫使用者清單裡「找不到這個帳號」，說明是被刪除或非合法帳號，直接踢出！
+      if (!me && !this.isSysAdmin) {
+        ElMessage.error('⚠️ 您的帳號已被系統刪除或無效，已強制登出！');
+        this.handleLogout();
+        return;
+      }
 
-              if (!this.hasModulePermission(this.currentTab)) {
-                this.currentTab = 'home';
-                ElMessage.warning('⚠️ 您的帳號權限已異動，系統已自動為您切換至首頁');
-              }
-
-              localStorage.setItem('current_tab', this.currentTab);
-              localStorage.setItem('opened_tabs', JSON.stringify(this.openedTabs));
-            }
-          }
+      // 如果帳號存在，重新同步最新姓名與模組權限
+      if (me) {
+        if (me.name) this.currentUser = me.name;
+        
+        let newPerms = [];
+        if (me.permissions) {
+          newPerms = typeof me.permissions === 'string'
+            ? me.permissions.split(',').map(s => s.trim()).filter(Boolean)
+            : me.permissions;
         }
-      } catch (e) {}
-    },
+
+        this.currentUserPermissions = newPerms;
+
+        // 踢掉沒有權限的 Opened Tabs
+        this.openedTabs = this.openedTabs.filter(tab => this.hasModulePermission(tab));
+        if (!this.openedTabs.includes('home')) this.openedTabs.unshift('home');
+
+        if (!this.hasModulePermission(this.currentTab)) {
+          this.currentTab = 'home';
+          ElMessage.warning('⚠️ 您的帳號權限已變更，已為您切換至首頁');
+        }
+
+        localStorage.setItem('current_tab', this.currentTab);
+        localStorage.setItem('opened_tabs', JSON.stringify(this.openedTabs));
+      }
+    }
+  } catch (e) {
+    console.error('重新載入使用者權限失敗：', e.message);
+  }
+},
 
     // 🚨 嚴格權限邏輯，未設定權限一律回傳 false
     hasModulePermission(tabKey) {
