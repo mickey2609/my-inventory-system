@@ -9,12 +9,20 @@ module.exports = function(db) {
     return String(str).trim().toUpperCase().replace(/\s+/g, '');
   };
 
-  const getTurnoverLevel = (months) => {
-    if (months >= 99999) return '🚨 99999 滯銷品';
-    if (months > 120) return '10 年以上 (>120個月)';
-    if (months >= 61) return '5 年～10 年 (61~120個月)';
-    if (months >= 13) return '1 年～5 年 (13~60個月)';
-    return '1 年以下 (<=12個月)';
+  // 🌟 統一級距判斷核心函式
+  const getTurnoverLevelInfo = (monthsVal) => {
+    const months = Number(monthsVal) || 0;
+    if (months >= 99999) {
+      return { code: 'm99999', label: '🚨 99999 滯銷品' };
+    } else if (months > 120) {
+      return { code: 'gt120', label: '10 年以上 (>120個月)' };
+    } else if (months >= 61) {
+      return { code: 'm61_120', label: '5 年～10 年 (61~120個月)' };
+    } else if (months >= 13) {
+      return { code: 'm13_60', label: '1 年～5 年 (13~60個月)' };
+    } else {
+      return { code: 'le12', label: '1 年以下 (<=12個月)' };
+    }
   };
 
   router.get('/list', (req, res) => {
@@ -120,7 +128,7 @@ module.exports = function(db) {
 
           (inboundRows || []).forEach(r => {
             const key = normalizeKey(r.item_id);
-            if (!invMap.has(key)) return;
+            if (!invMap.has(key)) return; // 全新品自動過濾
 
             const inv = invMap.get(key);
             const importQty = Number(r.import_qty) || 0;
@@ -134,7 +142,8 @@ module.exports = function(db) {
             const singleCubicFeet = (len > 0 && w > 0 && h > 0) ? ((len * w * h) / 28317) : 0;
             const importCubicFeet = parseFloat((singleCubicFeet * importQty).toFixed(2));
 
-            const turnoverLevelStr = getTurnoverLevel(turnMonths);
+            // 計算級距代碼與標籤
+            const levelInfo = getTurnoverLevelInfo(turnMonths);
 
             const tags = [];
             if (sales90 === 0 && importQty > 0) tags.push({ text: '🚨 90日零銷量進貨', type: 'danger' });
@@ -143,27 +152,19 @@ module.exports = function(db) {
             if (turnMonths > 6) tags.push({ text: `⚠️ 迴轉月數過高 (${turnMonths}個月)`, type: 'warning' });
             if (sales90 > 0 && importQty >= (sales90 * 2)) tags.push({ text: `⚠️ 超量驗收 (進貨>90日銷量2倍)`, type: 'warning' });
 
-            // 1. 不合理判定條件
+            // 1. 不合理類型條件過濾
             let isMatchRule = false;
             if (!ruleType || ruleType === 'all') isMatchRule = tags.length > 0;
             else if (ruleType === 'zero_sales') isMatchRule = tags.some(t => t.text.includes('零銷量') || t.text.includes('滯銷'));
             else if (ruleType === 'high_turnover') isMatchRule = tags.some(t => t.text.includes('迴轉月數過高'));
             else if (ruleType === 'over_import') isMatchRule = tags.some(t => t.text.includes('超量驗收'));
 
-            // 2. 🌟 迴轉級距條件過濾
+            // 2. 🌟 迴轉級距精準比對 (用 code 比對，100% 不會漏抓或混入)
             let isMatchLevel = false;
             if (!turnoverLevel || turnoverLevel === 'all') {
               isMatchLevel = true;
-            } else if (turnoverLevel === 'le12') {
-              isMatchLevel = turnMonths <= 12;
-            } else if (turnoverLevel === 'm13_60') {
-              isMatchLevel = turnMonths >= 13 && turnMonths <= 60;
-            } else if (turnoverLevel === 'm61_120') {
-              isMatchLevel = turnMonths >= 61 && turnMonths <= 120;
-            } else if (turnoverLevel === 'gt120') {
-              isMatchLevel = turnMonths > 120 && turnMonths < 99999;
-            } else if (turnoverLevel === 'm99999') {
-              isMatchLevel = turnMonths >= 99999;
+            } else {
+              isMatchLevel = (levelInfo.code === turnoverLevel);
             }
 
             if (isMatchRule && isMatchLevel) {
@@ -173,7 +174,7 @@ module.exports = function(db) {
                 sales_90d: inv.sales_90d,
                 monthly_sales: inv.monthly_sales,
                 turn_days_total: inv.turn_days_total,
-                turnover_level: turnoverLevelStr,
+                turnover_level: levelInfo.label, // 畫面上呈現對應級距標籤
                 age: inv.age,
                 supplier_name: inv.supplier_name,
                 pm: inv.pm,
@@ -198,7 +199,7 @@ module.exports = function(db) {
             data: abnormalRows
           });
         });
-      }
+      };
     } catch (e) {
       res.status(500).json({ success: false, message: '伺服器內部異常：' + e.message });
     }
