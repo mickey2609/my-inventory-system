@@ -807,7 +807,7 @@ async reloadCurrentUserPermissions() {
     },
     async fetchLogs() { try { const res = await axios.get('/api/get-logs'); if (res.data?.logs) this.logsList = res.data.logs; } catch (e) {} },
     
-    // App.vue 中的 handleLogin 方法
+    // App.vue 中的 handleLogin 修正
 async handleLogin() {
   if (!this.loginForm.username || !this.loginForm.password) {
     return ElMessage.warning('請輸入帳號與密碼！');
@@ -835,28 +835,20 @@ async handleLogin() {
       localStorage.setItem('current_tab', 'home');
       localStorage.setItem('opened_tabs', JSON.stringify(['home']));
 
-      ElMessage.success({
-        message: '歡迎回來，' + this.currentUser + '！',
-        duration: 3000,
-        showClose: true
-      });
+      ElMessage.success('歡迎回來，' + this.currentUser + '！');
     } else { 
       this.isLoggedIn = false;
-      ElMessage.error({
-        message: res.data?.message || '⚠️ 帳號或密碼錯誤！',
-        duration: 5000,
-        showClose: true
-      }); 
+      ElMessage.error(res.data?.message || '登入失敗！'); 
     }
   } catch (e) {
     this.isLoggedIn = false;
-    // 🌟 抓取 HTTP 401 狀態碼帶出的回應提示
-    const errorMsg = e.response?.data?.message || '⚠️ 帳號不存在或密碼錯誤，請重新確認！';
-    ElMessage.error({
-      message: errorMsg,
-      duration: 5000,
-      showClose: true
-    });
+    // 🌟 精準判斷：如果是 HTTP 401，代表是帳號不存在或密碼錯誤！
+    if (e.response && e.response.status === 401) {
+      ElMessage.error(e.response.data?.message || '⚠️ 帳號不存在或密碼錯誤！');
+    } else {
+      // 只有連線失敗才顯示伺服器未連線
+      ElMessage.error('⚠️ 伺服器未連線，請確認地端桌機 start_tunnel.bat 是否已啟動！');
+    }
   } finally { 
     this.loginLoading = false; 
   }

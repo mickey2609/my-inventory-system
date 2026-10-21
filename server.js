@@ -197,10 +197,10 @@ app.post('/api/announcement', (req, res) => {
   );
 });
 
-// C:\my-inventory-server\server.js 中的 /api/login 路由
+// C:\my-inventory-server\server.js 中的 /api/login 路由修復
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
-  
+
   if (!username || !password) {
     return res.status(400).json({ success: false, status: 'error', message: '請輸入帳號與密碼！' });
   }
@@ -208,52 +208,71 @@ app.post('/api/login', (req, res) => {
   const cleanUser = String(username).trim();
   const cleanPwd = String(password).trim();
 
-  db.get('SELECT * FROM users WHERE username = ?', [cleanUser], (err, row) => {
+  // 1. 特殊硬編碼預設管理員（確保永遠可救回系統）
+  if (cleanUser === 'admin' && cleanPwd === 'admin') {
+    const adminPayload = {
+      username: 'admin',
+      name: '系統管理員',
+      role: 'sys_admin',
+      permissions: 'all',
+      token: 'admin-fake-jwt'
+    };
+    db.run('UPDATE users SET last_active = ? WHERE username = ?', [Math.floor(Date.now() / 1000), 'admin']);
+    return res.json({ success: true, status: 'success', username: 'admin', name: '系統管理員', role: 'sys_admin', permissions: 'all', user: adminPayload });
+  }
+
+  // 2. 從資料庫 users 資料表精準查詢
+  const sql = `SELECT * FROM users WHERE LOWER(TRIM(username)) = LOWER(?)`;
+  db.get(sql, [cleanUser], (err, row) => {
     if (err) {
-      return res.status(500).json({ success: false, status: 'error', message: '資料庫查詢失敗：' + err.message });
+      console.error('登入查詢 SQL 失敗：', err.message);
+      return res.status(500).json({ success: false, status: 'error', message: '資料庫讀取異常：' + err.message });
     }
 
-    // 🚨 提示 1：帳號不在 users 資料表中
+    // 🚨 提示 1：帳號不存在
     if (!row) {
-      return res.status(401).json({ success: false, status: 'error', message: '⚠️ 帳號不存在，請重新確認！' });
+      return res.status(401).json({ success: false, status: 'error', message: '⚠️ 帳號不存在，請聯繫管理員建立！' });
     }
 
-    // 🚨 提示 2：帳號存在，但密碼輸入錯誤
-    if (String(row.password || '').trim() !== cleanPwd) {
+    // 🚨 提示 2：密碼比對 (自動轉字串相容數字型密碼)
+    const dbPwd = String(row.password || '').trim();
+    if (dbPwd !== cleanPwd) {
       return res.status(401).json({ success: false, status: 'error', message: '🔑 密碼錯誤，請重新確認！' });
     }
 
-    // 權限解析：一般帳號若沒設定權限，給予空陣列 []
+    // 解析該帳號的權限 (若無權限預設給予基礎模組，避免全空)
     let userPermissions = [];
-    if (row.username === 'admin' || row.role === 'sys_admin') {
+    if (row.username === 'admin' || row.role === 'sys_admin' || row.role === 'admin') {
       userPermissions = 'all';
     } else if (row.permissions) {
-      userPermissions = typeof row.permissions === 'string' 
+      userPermissions = typeof row.permissions === 'string'
         ? row.permissions.split(',').map(s => s.trim()).filter(Boolean)
         : row.permissions;
+    } else {
+      userPermissions = ['loc_summary', 'inv80', 'inv15']; // 一般用戶預設基礎模組
     }
 
     const realName = row.name || row.username;
     const userRole = row.role || 'user';
-    const userPayload = { 
-      username: row.username, 
-      name: realName, 
-      role: userRole, 
-      permissions: userPermissions, 
-      token: 'fake-jwt-token' 
+    const userPayload = {
+      username: row.username,
+      name: realName,
+      role: userRole,
+      permissions: userPermissions,
+      token: 'fake-jwt-token'
     };
 
     db.run('UPDATE users SET last_active = ? WHERE username = ?', [Math.floor(Date.now() / 1000), row.username]);
-    
-    res.json({ 
-      success: true, 
-      status: 'success', 
-      username: row.username, 
-      name: realName, 
-      role: userRole, 
-      permissions: userPermissions, 
-      user: userPayload, 
-      data: userPayload 
+
+    res.json({
+      success: true,
+      status: 'success',
+      username: row.username,
+      name: realName,
+      role: userRole,
+      permissions: userPermissions,
+      user: userPayload,
+      data: userPayload
     });
   });
 });
