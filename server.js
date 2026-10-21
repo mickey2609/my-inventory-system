@@ -197,10 +197,10 @@ app.post('/api/announcement', (req, res) => {
   );
 });
 
-// 🌟 10. 登入 API（重寫：嚴格帳密比對、數字密碼相容與詳細提示）
+// 🌟 10. 登入 API（重寫：嚴格帳密比對與權限安全隔離）
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
-
+  
   if (!username || !password) {
     return res.status(400).json({ success: false, status: 'error', message: '請輸入帳號與密碼！' });
   }
@@ -208,71 +208,68 @@ app.post('/api/login', (req, res) => {
   const cleanUser = String(username).trim();
   const cleanPwd = String(password).trim();
 
-  // 1. 特殊硬編碼預設管理員（確保系統救援）
-  if (cleanUser === 'admin' && cleanPwd === 'admin') {
-    const adminPayload = {
-      username: 'admin',
-      name: '系統管理員',
-      role: 'sys_admin',
-      permissions: 'all',
-      token: 'admin-fake-jwt'
-    };
-    db.run('UPDATE users SET last_active = ? WHERE username = ?', [Math.floor(Date.now() / 1000), 'admin']);
-    return res.json({ success: true, status: 'success', username: 'admin', name: '系統管理員', role: 'sys_admin', permissions: 'all', user: adminPayload });
-  }
-
-  // 2. 從資料庫 users 資料表精準查詢
-  const sql = `SELECT * FROM users WHERE LOWER(TRIM(username)) = LOWER(?)`;
-  db.get(sql, [cleanUser], (err, row) => {
+  db.get('SELECT * FROM users WHERE username = ?', [cleanUser], (err, row) => {
     if (err) {
-      console.error('登入查詢 SQL 失敗：', err.message);
-      return res.status(500).json({ success: false, status: 'error', message: '資料庫讀取異常：' + err.message });
+      return res.status(500).json({ success: false, status: 'error', message: '資料庫查詢失敗：' + err.message });
     }
 
-    // 🚨 提示 1：帳號不存在
+    // 🚨 漏洞修復 1：查無帳號，立即回傳 401 攔截！
     if (!row) {
-      return res.status(401).json({ success: false, status: 'error', message: '⚠️ 帳號不存在，請聯繫管理員建立！' });
+      return res.status(401).json({ success: false, status: 'error', message: '帳號不存在或密碼錯誤！' });
     }
 
-    // 🚨 提示 2：密碼不符 (相容數字型密碼)
-    const dbPwd = String(row.password || '').trim();
-    if (dbPwd !== cleanPwd) {
-      return res.status(401).json({ success: false, status: 'error', message: '🔑 密碼錯誤，請重新確認！' });
+    // 🚨 漏洞修復 2：密碼不符，立即回傳 401 攔截！
+    if (String(row.password || '').trim() !== cleanPwd) {
+      return res.status(401).json({ success: false, status: 'error', message: '帳號不存在或密碼錯誤！' });
     }
 
-    // 解析該帳號的權限
+    // 權限解析：只有管理員能擁有 'all'，其餘無設定者給予空陣列 []
     let userPermissions = [];
-    if (row.username === 'admin' || row.role === 'sys_admin' || row.role === 'admin') {
+    if (row.username === 'admin' || row.role === 'sys_admin') {
       userPermissions = 'all';
     } else if (row.permissions) {
-      userPermissions = typeof row.permissions === 'string'
+      userPermissions = typeof row.permissions === 'string' 
         ? row.permissions.split(',').map(s => s.trim()).filter(Boolean)
         : row.permissions;
-    } else {
-      userPermissions = ['loc_summary', 'inv80', 'inv15'];
     }
 
     const realName = row.name || row.username;
     const userRole = row.role || 'user';
-    const userPayload = {
-      username: row.username,
-      name: realName,
-      role: userRole,
-      permissions: userPermissions,
-      token: 'fake-jwt-token'
+    const userPayload = { 
+      username: row.username, 
+      name: realName, 
+      role: userRole, 
+      permissions: userPermissions, 
+      token: 'fake-jwt-token' 
     };
 
     db.run('UPDATE users SET last_active = ? WHERE username = ?', [Math.floor(Date.now() / 1000), row.username]);
+    
+    res.json({ 
+      success: true, 
+      status: 'success', 
+      username: row.username, 
+      name: realName, 
+      role: userRole, 
+      permissions: userPermissions, 
+      user: userPayload, 
+      data: userPayload 
+    });
+  });
+});
 
+app.get('/api/get-global-config', (req, res) => {
+  const currentUptimeSec = Math.floor((Date.now() - SERVER_START_TIME) / 1000);
+  db.get("SELECT config_value FROM system_config WHERE config_key = 'latest_inventory15_filename'", [], (err, row) => {
+    const fn15 = (row && row.config_value) ? row.config_value : 'latest_inventory15.csv';
     res.json({
       success: true,
-      status: 'success',
-      username: row.username,
-      name: realName,
-      role: userRole,
-      permissions: userPermissions,
-      user: userPayload,
-      data: userPayload
+      data: {
+        system_name: "庫存儲位管理系統",
+        version: "v2026.10.21",
+        server_uptime_seconds: currentUptimeSec,
+        latest_inventory15_filename: fn15
+      }
     });
   });
 });
@@ -346,10 +343,10 @@ function getAdjustedType(floor, rType, storageCode, locCode5, shelfLevel, heavyR
 function parseCsvTextToObjects(csvText) {
   const lines = csvText.split(/\r?\n/).filter(l => l.trim());
   if (lines.length <= 1) return [];
-  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"\$/g, ''));
   const list = [];
   for (let i = 1; i < lines.length; i++) {
-    const rowVals = lines[i].split(',').map(v => v.trim().replace(/^"|"$/g, ''));
+    const rowVals = lines[i].split(',').map(v => v.trim().replace(/^"|"\$/g, ''));
     if (rowVals.length < headers.length) continue;
     const rowObj = {};
     headers.forEach((h, idx) => rowObj[h] = rowVals[idx]);
