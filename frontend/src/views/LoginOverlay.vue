@@ -48,7 +48,12 @@
           <el-checkbox v-model="loginForm.rememberMe">記住帳號與密碼</el-checkbox>
         </div>
 
-        <!-- 4. 登入按鈕 (斷線時禁用) -->
+        <!-- 🌟 4. 登入失敗 / 逾時 / 錯誤訊息醒目提示區塊 -->
+        <div v-if="timeoutMessage" class="error-msg-box">
+          {{ timeoutMessage }}
+        </div>
+
+        <!-- 5. 登入按鈕 (斷線時禁用) -->
         <el-button 
           type="primary" 
           class="login-btn" 
@@ -59,11 +64,6 @@
           {{ isServerOnline ? '🔐 登入系統' : '🚫 伺服器斷線中，無法登入' }}
         </el-button>
       </el-form>
-
-      <!-- 5. 超時提示 -->
-      <div v-if="timeoutMessage" class="timeout-msg">
-        ⚠️ {{ timeoutMessage }}
-      </div>
 
       <!-- 6. 置中版本號資訊 -->
       <div class="version-info">
@@ -93,13 +93,13 @@ export default {
     },
     appVersion: {
       type: String,
-      default: 'v2026.09.01'
+      default: 'v2026.10.21'
     }
   },
   emits: ['login'],
   data() {
     return {
-      isServerOnline: true, // 🌟 預設先給 true，避免畫面載入當下閃爍禁用
+      isServerOnline: true, // 預設先給 true，避免畫面載入當下閃爍禁用
       checkTimer: null
     }
   },
@@ -115,7 +115,6 @@ export default {
     async checkServerStatus() {
       try {
         const res = await axios.get('/api/get-global-config', { timeout: 3000 });
-        // 🌟 放寬判斷：只要 HTTP 狀態碼是 200 且 response 不為空就認定為正常連線
         if (res && res.status === 200 && res.data) {
           this.isServerOnline = true;
         } else {
@@ -223,11 +222,31 @@ export default {
 .form-options {
   display: flex;
   justify-content: center;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 
 .form-options :deep(.el-checkbox__label) {
   color: #94a3b8 !important;
+}
+
+/* 🌟 錯誤提示文字框樣式 */
+.error-msg-box {
+  background-color: rgba(239, 68, 68, 0.15);
+  border: 1px solid #ef4444;
+  color: #f87171;
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: bold;
+  text-align: center;
+  margin-bottom: 16px;
+  animation: shake 0.3s ease-in-out;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  75% { transform: translateX(5px); }
 }
 
 .login-btn {
@@ -250,13 +269,6 @@ export default {
   border-color: #475569 !important;
   color: #94a3b8 !important;
   cursor: not-allowed;
-}
-
-.timeout-msg {
-  margin-top: 14px;
-  text-align: center;
-  color: #ef4444;
-  font-size: 13px;
 }
 
 .version-info {
