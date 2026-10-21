@@ -9,6 +9,7 @@ module.exports = function(db) {
     return String(str).trim().toUpperCase().replace(/\s+/g, '');
   };
 
+  // 🌟 核心：細分 3個月、3~6個月、6~9個月、9~12個月
   const getTurnoverLevelInfo = (monthsVal) => {
     const months = Number(monthsVal) || 0;
     if (months >= 99999) {
@@ -19,13 +20,20 @@ module.exports = function(db) {
       return { code: 'm61_120', label: '5 年～10 年 (61~120個月)' };
     } else if (months >= 13) {
       return { code: 'm13_60', label: '1 年～5 年 (13~60個月)' };
+    } else if (months >= 9) {
+      return { code: 'm9_12', label: '9~12個月' };
+    } else if (months >= 6) {
+      return { code: 'm6_9', label: '6~9個月' };
+    } else if (months >= 3) {
+      return { code: 'm3_6', label: '3~6個月' };
     } else {
-      return { code: 'le12', label: '1 年以下 (<=12個月)' };
+      return { code: 'le3', label: '<=3個月' };
     }
   };
 
   router.get('/list', (req, res) => {
-    const { startDate, endDate, warehouse, ruleType, turnoverLevel } = req.query;
+    const { startDate, endDate, warehouse, ruleType, turnoverLevel, limit } = req.query;
+    const maxLimit = Number(limit) || 10000; // 預設 10,000 筆
 
     try {
       const inv80Sql = `SELECT * FROM inventory`;
@@ -55,7 +63,6 @@ module.exports = function(db) {
           const key = normalizeKey(rawKey);
           if (!key) return;
 
-          // 🌟 qty 為單一儲位庫存數；totalQtyVal 為原檔帶的總庫存
           const locQty = Number(row.qty || row['儲位庫存數'] || row.loc_qty) || 0;
           const rawTotalQty = Number(row.total_qty || row['總庫存數']) || 0;
 
@@ -69,7 +76,6 @@ module.exports = function(db) {
 
           if (invMap.has(key)) {
             const existing = invMap.get(key);
-            // 🚨 修復重點：加總儲位數量，並取原檔 total_qty 與儲位加總的最大值，避免翻倍！
             existing.calc_loc_sum += locQty;
             existing.total_qty = Math.max(existing.total_qty, rawTotalQty, existing.calc_loc_sum);
 
@@ -83,7 +89,7 @@ module.exports = function(db) {
             invMap.set(key, {
               item_id: key,
               calc_loc_sum: locQty,
-              total_qty: Math.max(rawTotalQty, locQty), // 🌟 確保初次載入即正確
+              total_qty: Math.max(rawTotalQty, locQty),
               sales_90d: sales90,
               monthly_sales: salesMonth,
               turn_days_total: turnMonths,
@@ -122,7 +128,8 @@ module.exports = function(db) {
           params.push(warehouse);
         }
 
-        inSql += ` ORDER BY rec_date DESC, rec_time DESC LIMIT 10000`;
+        inSql += ` ORDER BY rec_date DESC, rec_time DESC LIMIT ?`;
+        params.push(maxLimit);
 
         db.all(inSql, params, (errIn, inboundRows) => {
           if (errIn) return res.status(500).json({ success: false, message: '進貨明細讀取失敗：' + errIn.message });
@@ -134,7 +141,7 @@ module.exports = function(db) {
 
           (inboundRows || []).forEach(r => {
             const key = normalizeKey(r.item_id);
-            if (!invMap.has(key)) return; // 全新品不列入分析
+            if (!invMap.has(key)) return;
 
             const inv = invMap.get(key);
             const importQty = Number(r.import_qty) || 0;
@@ -157,14 +164,12 @@ module.exports = function(db) {
             if (turnMonths > 6) tags.push({ text: `⚠️ 迴轉月數過高 (${turnMonths}個月)`, type: 'warning' });
             if (sales90 > 0 && importQty >= (sales90 * 2)) tags.push({ text: `⚠️ 超量驗收 (進貨>90日銷量2倍)`, type: 'warning' });
 
-            // 1. 不合理類型條件過濾
             let isMatchRule = false;
             if (!ruleType || ruleType === 'all') isMatchRule = tags.length > 0;
             else if (ruleType === 'zero_sales') isMatchRule = tags.some(t => t.text.includes('零銷量') || t.text.includes('滯銷'));
             else if (ruleType === 'high_turnover') isMatchRule = tags.some(t => t.text.includes('迴轉月數過高'));
-            else if (ruleType === 'over_import') isMatchRule = tags.some(t => t.text.includes('over_import') || t.text.includes('超量驗收'));
+            else if (ruleType === 'over_import') isMatchRule = tags.some(t => t.text.includes('超量驗收'));
 
-            // 2. 迴轉級距條件過濾
             let isMatchLevel = false;
             if (!turnoverLevel || turnoverLevel === 'all') {
               isMatchLevel = true;
@@ -175,7 +180,7 @@ module.exports = function(db) {
             if (isMatchRule && isMatchLevel) {
               abnormalRows.push({
                 ...r,
-                current_stock_qty: inv.total_qty, // 🌟 帶出準確的總庫存數
+                current_stock_qty: inv.total_qty,
                 sales_90d: inv.sales_90d,
                 monthly_sales: inv.monthly_sales,
                 turn_days_total: inv.turn_days_total,
@@ -204,7 +209,7 @@ module.exports = function(db) {
             data: abnormalRows
           });
         });
-      };
+      });
     } catch (e) {
       res.status(500).json({ success: false, message: '伺服器內部異常：' + e.message });
     }
