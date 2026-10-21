@@ -197,7 +197,7 @@ app.post('/api/announcement', (req, res) => {
   );
 });
 
-// C:\my-inventory-server\server.js 中的 /api/login 路由修復
+// 🌟 10. 登入 API（重寫：嚴格帳密比對、數字密碼相容與詳細提示）
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
 
@@ -208,7 +208,7 @@ app.post('/api/login', (req, res) => {
   const cleanUser = String(username).trim();
   const cleanPwd = String(password).trim();
 
-  // 1. 特殊硬編碼預設管理員（確保永遠可救回系統）
+  // 1. 特殊硬編碼預設管理員（確保系統救援）
   if (cleanUser === 'admin' && cleanPwd === 'admin') {
     const adminPayload = {
       username: 'admin',
@@ -234,13 +234,13 @@ app.post('/api/login', (req, res) => {
       return res.status(401).json({ success: false, status: 'error', message: '⚠️ 帳號不存在，請聯繫管理員建立！' });
     }
 
-    // 🚨 提示 2：密碼比對 (自動轉字串相容數字型密碼)
+    // 🚨 提示 2：密碼不符 (相容數字型密碼)
     const dbPwd = String(row.password || '').trim();
     if (dbPwd !== cleanPwd) {
       return res.status(401).json({ success: false, status: 'error', message: '🔑 密碼錯誤，請重新確認！' });
     }
 
-    // 解析該帳號的權限 (若無權限預設給予基礎模組，避免全空)
+    // 解析該帳號的權限
     let userPermissions = [];
     if (row.username === 'admin' || row.role === 'sys_admin' || row.role === 'admin') {
       userPermissions = 'all';
@@ -249,7 +249,7 @@ app.post('/api/login', (req, res) => {
         ? row.permissions.split(',').map(s => s.trim()).filter(Boolean)
         : row.permissions;
     } else {
-      userPermissions = ['loc_summary', 'inv80', 'inv15']; // 一般用戶預設基礎模組
+      userPermissions = ['loc_summary', 'inv80', 'inv15'];
     }
 
     const realName = row.name || row.username;
@@ -346,10 +346,10 @@ function getAdjustedType(floor, rType, storageCode, locCode5, shelfLevel, heavyR
 function parseCsvTextToObjects(csvText) {
   const lines = csvText.split(/\r?\n/).filter(l => l.trim());
   if (lines.length <= 1) return [];
-  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"\$/g, ''));
+  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
   const list = [];
   for (let i = 1; i < lines.length; i++) {
-    const rowVals = lines[i].split(',').map(v => v.trim().replace(/^"|"\$/g, ''));
+    const rowVals = lines[i].split(',').map(v => v.trim().replace(/^"|"$/g, ''));
     if (rowVals.length < headers.length) continue;
     const rowObj = {};
     headers.forEach((h, idx) => rowObj[h] = rowVals[idx]);

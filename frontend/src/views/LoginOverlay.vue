@@ -48,7 +48,7 @@
           <el-checkbox v-model="loginForm.rememberMe">記住帳號與密碼</el-checkbox>
         </div>
 
-        <!-- 🌟 4. 登入失敗 / 逾時 / 錯誤訊息醒目提示區塊 -->
+        <!-- 🌟 4. 登入失敗 / 帳密錯誤 / 逾時提示區塊 -->
         <div v-if="timeoutMessage" class="error-msg-box">
           {{ timeoutMessage }}
         </div>
@@ -99,13 +99,12 @@ export default {
   emits: ['login'],
   data() {
     return {
-      isServerOnline: true, // 預設先給 true，避免畫面載入當下閃爍禁用
+      isServerOnline: true,
       checkTimer: null
     }
   },
   mounted() {
     this.checkServerStatus();
-    // 每 4 秒自動檢查一次地端 API 連線狀態
     this.checkTimer = setInterval(this.checkServerStatus, 4000);
   },
   beforeUnmount() {
@@ -229,7 +228,7 @@ export default {
   color: #94a3b8 !important;
 }
 
-/* 🌟 錯誤提示文字框樣式 */
+/* 🌟 錯誤提示紅框 */
 .error-msg-box {
   background-color: rgba(239, 68, 68, 0.15);
   border: 1px solid #ef4444;

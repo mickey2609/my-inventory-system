@@ -412,55 +412,52 @@ export default {
       }
     },
 
-    // App.vue 中的 reloadCurrentUserPermissions 函式全選覆蓋：
-async reloadCurrentUserPermissions() {
-  if (!this.isLoggedIn || !this.currentUsername) return;
-  
-  try {
-    const res = await axios.get('/api/get-users');
-    if (res.data?.status === 'success' || res.data?.success) {
-      const usersList = res.data.users || [];
-      const me = usersList.find(u => String(u.username).trim() === String(this.currentUsername).trim());
+    // 🌟 自動比對與未授權帳號立即踢出機制
+    async reloadCurrentUserPermissions() {
+      if (!this.isLoggedIn || !this.currentUsername) return;
+      
+      try {
+        const res = await axios.get('/api/get-users');
+        if (res.data?.status === 'success' || res.data?.success) {
+          const usersList = res.data.users || [];
+          const me = usersList.find(u => String(u.username).trim().toLowerCase() === String(this.currentUsername).trim().toLowerCase());
 
-      // 🚨 核心防禦：如果資料庫使用者清單裡「找不到這個帳號」，說明是被刪除或非合法帳號，直接踢出！
-      if (!me && !this.isSysAdmin) {
-        ElMessage.error('⚠️ 您的帳號已被系統刪除或無效，已強制登出！');
-        this.handleLogout();
-        return;
-      }
+          // 🚨 核心防禦：若資料庫無此帳號（已被刪除或非合法帳號），直接登出剔除！
+          if (!me && !this.isSysAdmin) {
+            ElMessage.error('⚠️ 您的帳號已被系統刪除或無效，已強制登出！');
+            this.handleLogout();
+            return;
+          }
 
-      // 如果帳號存在，重新同步最新姓名與模組權限
-      if (me) {
-        if (me.name) this.currentUser = me.name;
-        
-        let newPerms = [];
-        if (me.permissions) {
-          newPerms = typeof me.permissions === 'string'
-            ? me.permissions.split(',').map(s => s.trim()).filter(Boolean)
-            : me.permissions;
+          if (me) {
+            if (me.name) this.currentUser = me.name;
+            
+            let newPerms = [];
+            if (me.permissions) {
+              newPerms = typeof me.permissions === 'string'
+                ? me.permissions.split(',').map(s => s.trim()).filter(Boolean)
+                : me.permissions;
+            }
+
+            this.currentUserPermissions = newPerms;
+
+            this.openedTabs = this.openedTabs.filter(tab => this.hasModulePermission(tab));
+            if (!this.openedTabs.includes('home')) this.openedTabs.unshift('home');
+
+            if (!this.hasModulePermission(this.currentTab)) {
+              this.currentTab = 'home';
+              ElMessage.warning('⚠️ 您的帳號權限已變更，已為您切換至首頁');
+            }
+
+            localStorage.setItem('current_tab', this.currentTab);
+            localStorage.setItem('opened_tabs', JSON.stringify(this.openedTabs));
+          }
         }
-
-        this.currentUserPermissions = newPerms;
-
-        // 踢掉沒有權限的 Opened Tabs
-        this.openedTabs = this.openedTabs.filter(tab => this.hasModulePermission(tab));
-        if (!this.openedTabs.includes('home')) this.openedTabs.unshift('home');
-
-        if (!this.hasModulePermission(this.currentTab)) {
-          this.currentTab = 'home';
-          ElMessage.warning('⚠️ 您的帳號權限已變更，已為您切換至首頁');
-        }
-
-        localStorage.setItem('current_tab', this.currentTab);
-        localStorage.setItem('opened_tabs', JSON.stringify(this.openedTabs));
+      } catch (e) {
+        console.error('重新載入使用者權限失敗：', e.message);
       }
-    }
-  } catch (e) {
-    console.error('重新載入使用者權限失敗：', e.message);
-  }
-},
+    },
 
-    // 🚨 嚴格權限邏輯，未設定權限一律回傳 false
     hasModulePermission(tabKey) {
       if (this.isSysAdmin || tabKey === 'home' || tabKey === 'settings_perm' || tabKey === 'settings_log') return true;
       const perms = this.currentUserPermissions;
@@ -807,52 +804,58 @@ async reloadCurrentUserPermissions() {
     },
     async fetchLogs() { try { const res = await axios.get('/api/get-logs'); if (res.data?.logs) this.logsList = res.data.logs; } catch (e) {} },
     
-    // App.vue 中的 handleLogin 修正
-async handleLogin() {
-  if (!this.loginForm.username || !this.loginForm.password) {
-    return ElMessage.warning('請輸入帳號與密碼！');
-  }
+    // 🌟 精準提示與驗證
+    async handleLogin() {
+      if (!this.loginForm.username || !this.loginForm.password) {
+        return ElMessage.warning('請輸入帳號與密碼！');
+      }
 
-  this.loginLoading = true;
-  try {
-    const res = await axios.post('/api/login', { 
-      username: this.loginForm.username, 
-      password: this.loginForm.password, 
-      device: this.getDeviceType() 
-    });
+      this.loginLoading = true;
+      this.timeoutMessage = '';
 
-    if (res.data && (res.data.status === 'success' || res.data.success === true)) {
-      const userData = res.data.user || res.data || {};
-      
-      this.isLoggedIn = true; 
-      this.currentUsername = res.data.username || userData.username; 
-      this.currentUser = res.data.name || userData.name || this.currentUsername;
-      this.currentUserRole = res.data.role || userData.role || 'user';
-      this.currentUserPermissions = res.data.permissions || userData.permissions || [];
-      
-      this.openedTabs = ['home'];
-      this.currentTab = 'home';
-      localStorage.setItem('current_tab', 'home');
-      localStorage.setItem('opened_tabs', JSON.stringify(['home']));
+      try {
+        const res = await axios.post('/api/login', { 
+          username: this.loginForm.username, 
+          password: this.loginForm.password, 
+          device: this.getDeviceType() 
+        });
 
-      ElMessage.success('歡迎回來，' + this.currentUser + '！');
-    } else { 
-      this.isLoggedIn = false;
-      ElMessage.error(res.data?.message || '登入失敗！'); 
-    }
-  } catch (e) {
-    this.isLoggedIn = false;
-    // 🌟 精準判斷：如果是 HTTP 401，代表是帳號不存在或密碼錯誤！
-    if (e.response && e.response.status === 401) {
-      ElMessage.error(e.response.data?.message || '⚠️ 帳號不存在或密碼錯誤！');
-    } else {
-      // 只有連線失敗才顯示伺服器未連線
-      ElMessage.error('⚠️ 伺服器未連線，請確認地端桌機 start_tunnel.bat 是否已啟動！');
-    }
-  } finally { 
-    this.loginLoading = false; 
-  }
-},
+        if (res.data && (res.data.status === 'success' || res.data.success === true)) {
+          const userData = res.data.user || res.data || {};
+          
+          this.isLoggedIn = true; 
+          this.currentUsername = res.data.username || userData.username; 
+          this.currentUser = res.data.name || userData.name || this.currentUsername;
+          this.currentUserRole = res.data.role || userData.role || 'user';
+          this.currentUserPermissions = res.data.permissions || userData.permissions || [];
+          
+          this.openedTabs = ['home'];
+          this.currentTab = 'home';
+          localStorage.setItem('current_tab', 'home');
+          localStorage.setItem('opened_tabs', JSON.stringify(['home']));
+
+          ElMessage.success('歡迎回來，' + this.currentUser + '！');
+        } else { 
+          this.isLoggedIn = false;
+          const msg = res.data?.message || '登入失敗！';
+          this.timeoutMessage = msg;
+          ElMessage.error(msg); 
+        }
+      } catch (e) {
+        this.isLoggedIn = false;
+        if (e.response && e.response.status === 401) {
+          const msg = e.response.data?.message || '⚠️ 帳號不存在或密碼錯誤！';
+          this.timeoutMessage = msg;
+          ElMessage.error(msg);
+        } else {
+          const msg = '⚠️ 伺服器未連線，請確認地端桌機 start_tunnel.bat 是否已啟動！';
+          this.timeoutMessage = msg;
+          ElMessage.error(msg);
+        }
+      } finally { 
+        this.loginLoading = false; 
+      }
+    },
 
     async handleLogout() {
       try { if (this.currentUsername) await axios.post('/api/logout', { username: this.currentUsername }); } catch (e) {}
@@ -876,7 +879,7 @@ async handleLogin() {
         'turnover': '📈 迴轉率清單',
         'abnormal_purchase': '⚠️ 不合理進貨清單',
         'inbound_fish': '🐟 進貨上架魚群',
-        'replenish_fish': '🐟 立即補貨單魚群',
+        'replenish_fish': '🐟 餐廳補貨單魚群',
         'transfer_80_15': '🔄 跨庫調撥 80 ➔ 15',
         'transfer_15_80': '🔄 跨庫調撥 15 ➔ 80',
         'settings_perm': '⚙️ 權限管理',
