@@ -136,14 +136,51 @@ module.exports = function(db) {
     });
   });
 
-  // 🌟【依據真實 Schema 升級】/api/item-sales-history/sync-inbound-history
-  // 橫跨 inbound_details 的 rec_date, recv_date, put_date, putaway_date 抓取最新日期
+  // [POST] /api/item-sales-history/sync-inbound - 進貨驗收時更新最後驗收日期
+  router.post('/sync-inbound', (req, res) => {
+    const { items } = req.body;
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ success: false, message: '未傳入有效的驗收資料' });
+    }
+
+    db.serialize(() => {
+      db.run('BEGIN TRANSACTION');
+      const stmt = db.prepare(`
+        INSERT INTO item_sales_history (item_id, last_inbound_date, updated_at)
+        VALUES (?, ?, DATETIME('now'))
+        ON CONFLICT(item_id) DO UPDATE SET
+          last_inbound_date = CASE 
+            WHEN EXCLUDED.last_inbound_date > IFNULL(item_sales_history.last_inbound_date, '') 
+            THEN EXCLUDED.last_inbound_date 
+            ELSE item_sales_history.last_inbound_date 
+          END,
+          updated_at = DATETIME('now')
+      `);
+
+      for (const item of items) {
+        if (item.item_id && item.rec_date) {
+          stmt.run(String(item.item_id).trim().toUpperCase(), String(item.rec_date).trim());
+        }
+      }
+
+      stmt.finalize();
+      db.run('COMMIT', (err) => {
+        if (err) return res.status(500).json({ success: false, message: '同步最後進貨日期失敗：' + err.message });
+        res.json({ success: true, message: '最後驗收日期已成功同步至歷史總表！' });
+      });
+    });
+  });
+
+  // 🌟【強效升級】/api/item-sales-history/sync-inbound-history
+  // 橫跨 inbound_details 的 rec_date, recv_date, put_date, putaway_date, imported_at 抓取最新日期
   router.all('/sync-inbound-history', (req, res) => {
     const syncSql = `
       UPDATE item_sales_history
       SET last_inbound_date = (
         SELECT MAX(d) FROM (
-          SELECT COALESCE(NULLIF(rec_date,''), NULLIF(recv_date,''), NULLIF(put_date,''), NULLIF(putaway_date,''), '') as d
+          SELECT COALESCE(
+            NULLIF(rec_date,''), NULLIF(recv_date,''), NULLIF(put_date,''), NULLIF(putaway_date,''), NULLIF(imported_at,''), ''
+          ) as d
           FROM inbound_details
           WHERE item_id IS NOT NULL AND item_id != ''
             AND (
@@ -151,6 +188,7 @@ module.exports = function(db) {
               OR REPLACE(UPPER(TRIM(item_id)), '-', '') = REPLACE(UPPER(TRIM(item_sales_history.item_id)), '-', '')
               OR UPPER(TRIM(item_sales_history.item_id)) LIKE (UPPER(TRIM(item_id)) || '%')
               OR UPPER(TRIM(item_id)) LIKE (UPPER(TRIM(item_sales_history.item_id)) || '%')
+              OR SUBSTR(UPPER(TRIM(item_id)), 1, 12) = SUBSTR(UPPER(TRIM(item_sales_history.item_id)), 1, 12)
             )
         )
       ),
@@ -163,6 +201,7 @@ module.exports = function(db) {
             OR REPLACE(UPPER(TRIM(item_id)), '-', '') = REPLACE(UPPER(TRIM(item_sales_history.item_id)), '-', '')
             OR UPPER(TRIM(item_sales_history.item_id)) LIKE (UPPER(TRIM(item_id)) || '%')
             OR UPPER(TRIM(item_id)) LIKE (UPPER(TRIM(item_sales_history.item_id)) || '%')
+            OR SUBSTR(UPPER(TRIM(item_id)), 1, 12) = SUBSTR(UPPER(TRIM(item_sales_history.item_id)), 1, 12)
           )
       )
     `;
@@ -172,6 +211,29 @@ module.exports = function(db) {
       res.json({
         success: true,
         message: `🎉 成功完成進貨驗收日期對齊！共更新 ${this.changes} 筆商品。`
+      });
+    });
+  });
+
+  // 🔍 [GET] /api/item-sales-history/debug-inbound?item_id=DMAGV0-A900GHNYH-000
+  router.get('/debug-inbound', (req, res) => {
+    const rawItemId = (req.query.item_id || 'DMAGV0-A900GHNYH-000').trim();
+    const cleanItemId = rawItemId.split('-')[0]; // 取前段 (如 DMAGV0)
+
+    const checkSql = `
+      SELECT * FROM inbound_details 
+      WHERE item_id LIKE ? OR item_id LIKE ? OR item_id = ?
+      LIMIT 20
+    `;
+
+    db.all(checkSql, [`%${cleanItemId}%`, `%${rawItemId}%`, rawItemId], (err, rows) => {
+      if (err) return res.status(500).json({ success: false, error: err.message });
+      
+      res.json({
+        success: true,
+        queried_item_id: rawItemId,
+        match_count: rows ? rows.length : 0,
+        matched_records: rows || []
       });
     });
   });
