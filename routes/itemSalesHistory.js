@@ -171,15 +171,19 @@ module.exports = function(db) {
     });
   });
 
-  // 🌟【強效升級】/api/item-sales-history/sync-inbound-history
-  // 橫跨 inbound_details 的 rec_date, recv_date, put_date, putaway_date, imported_at 抓取最新日期
+  // 🌟【精準解析包含 imported_at 欄位】/api/item-sales-history/sync-inbound-history
   router.all('/sync-inbound-history', (req, res) => {
     const syncSql = `
       UPDATE item_sales_history
       SET last_inbound_date = (
         SELECT MAX(d) FROM (
           SELECT COALESCE(
-            NULLIF(rec_date,''), NULLIF(recv_date,''), NULLIF(put_date,''), NULLIF(putaway_date,''), NULLIF(imported_at,''), ''
+            NULLIF(rec_date,''), 
+            NULLIF(recv_date,''), 
+            NULLIF(put_date,''), 
+            NULLIF(putaway_date,''), 
+            NULLIF(SUBSTR(imported_at, 1, 10),''), 
+            ''
           ) as d
           FROM inbound_details
           WHERE item_id IS NOT NULL AND item_id != ''
@@ -188,7 +192,6 @@ module.exports = function(db) {
               OR REPLACE(UPPER(TRIM(item_id)), '-', '') = REPLACE(UPPER(TRIM(item_sales_history.item_id)), '-', '')
               OR UPPER(TRIM(item_sales_history.item_id)) LIKE (UPPER(TRIM(item_id)) || '%')
               OR UPPER(TRIM(item_id)) LIKE (UPPER(TRIM(item_sales_history.item_id)) || '%')
-              OR SUBSTR(UPPER(TRIM(item_id)), 1, 12) = SUBSTR(UPPER(TRIM(item_sales_history.item_id)), 1, 12)
             )
         )
       ),
@@ -201,7 +204,6 @@ module.exports = function(db) {
             OR REPLACE(UPPER(TRIM(item_id)), '-', '') = REPLACE(UPPER(TRIM(item_sales_history.item_id)), '-', '')
             OR UPPER(TRIM(item_sales_history.item_id)) LIKE (UPPER(TRIM(item_id)) || '%')
             OR UPPER(TRIM(item_id)) LIKE (UPPER(TRIM(item_sales_history.item_id)) || '%')
-            OR SUBSTR(UPPER(TRIM(item_id)), 1, 12) = SUBSTR(UPPER(TRIM(item_sales_history.item_id)), 1, 12)
           )
       )
     `;
@@ -215,10 +217,10 @@ module.exports = function(db) {
     });
   });
 
-  // 🔍 [GET] /api/item-sales-history/debug-inbound?item_id=DMAGV0-A900GHNYH-000
+  // 🔍 [GET] /api/item-sales-history/debug-inbound
   router.get('/debug-inbound', (req, res) => {
     const rawItemId = (req.query.item_id || 'DMAGV0-A900GHNYH-000').trim();
-    const cleanItemId = rawItemId.split('-')[0]; // 取前段 (如 DMAGV0)
+    const cleanItemId = rawItemId.split('-')[0];
 
     const checkSql = `
       SELECT * FROM inbound_details 
