@@ -866,7 +866,7 @@ export default {
         'settings_perm': '⚙️ 權限管理',
         'settings_log': '📜 日誌歷程查詢'
       };
-      return names[k] || '系統模組';
+      return names[k] || '📈 全商品歷史銷量與進貨履歷';
     },
     async fetchInitData() { try { const res = await axios.get('/api/categories/large'); if (res.data?.success) this.options.big_zones = res.data.data; } catch (e) {} },
     async onBigZoneChange(val) {

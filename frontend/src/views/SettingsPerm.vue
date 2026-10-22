@@ -177,27 +177,30 @@ export default {
              (rowUser && rowUser === curUser) || 
              (rowName && rowName === curUser);
     },
+    // 在 SettingsPerm.vue 或權限列表中轉換名稱的邏輯
     formatPermissions(perms) {
-      if (!perms || perms === 'all' || perms === 'all,') return '全模組開放';
-      if (Array.isArray(perms)) {
-        return perms.length > 0 ? perms.join(', ') : '全模組開放';
-      }
-      
-      // 🌟 補齊 4 個全新魚群與調撥模組名稱映射
-      const namesMap = {
-        'loc_summary': '儲位數才數統整',
-        'inv80': '庫存查詢80',
-        'inv15': '庫存查詢15',
-        'turnover': '迴轉率清單',
-        'abnormal_purchase': '不合理進貨清單',
-        'inbound_fish': '進貨上架魚群',
-        'replenish_fish': '立即補貨單魚群',
-        'transfer_80_15': '跨庫調撥 80>15',
-        'transfer_15_80': '跨庫調撥 15>80'
-      };
-      const arr = String(perms).split(',').map(s => s.trim()).filter(Boolean);
-      return arr.map(k => namesMap[k] || k).join(', ');
-    }
+    if (!perms) return '無權限';
+    if (perms === 'all' || perms === 'all,') return '全模組權限';
+
+    const moduleMap = {
+      'loc_summary': '儲位數才數統整',
+      'inv80': '庫存查詢80',
+      'inv15': '庫存查詢15',
+      'item_sales_history': '全商品歷史銷量與進貨履歷',
+      'turnover': '迴轉率清單',
+      'abnormal_purchase': '不合理進貨清單',
+      'inbound_fish': '進貨上架魚群',
+      'replenish_fish': '立即補貨單魚群',
+      'transfer_80_15': '跨庫調撥 80>15',
+      'transfer_15_80': '跨庫調撥 15>80'
+    };
+
+    const list = Array.isArray(perms) 
+      ? perms 
+      : String(perms).split(',').map(s => s.trim()).filter(Boolean);
+
+    return list.map(key => moduleMap[key] || key).join(', ');
+   }
   }
 }
 </script>
