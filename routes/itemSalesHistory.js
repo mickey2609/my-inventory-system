@@ -136,53 +136,42 @@ module.exports = function(db) {
     });
   });
 
-  // 🌟【萬能全表對齊】/api/item-sales-history/sync-inbound-history
-  // 自動動態掃描資料庫中所有的進貨相關資料表，一次性撈出最新日期！
+  // 🌟【依據真實 Schema 升級】/api/item-sales-history/sync-inbound-history
+  // 橫跨 inbound_details 的 rec_date, recv_date, put_date, putaway_date 抓取最新日期
   router.all('/sync-inbound-history', (req, res) => {
-    // 找出所有名稱包含 inbound 的資料表
-    db.all("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '%inbound%'", [], (err, tables) => {
-      if (err || !tables || tables.length === 0) {
-        return res.status(500).json({ success: false, message: '未能在資料庫中找到任何進貨資料表！' });
-      }
-
-      const unionQueries = tables.map(t => {
-        const tableName = t.name;
-        return `
-          SELECT 
-            item_id, 
-            COALESCE(rec_date, inbound_date, instore_date, record_date, created_at, '') as inbound_date 
-          FROM ${tableName} 
+    const syncSql = `
+      UPDATE item_sales_history
+      SET last_inbound_date = (
+        SELECT MAX(d) FROM (
+          SELECT COALESCE(NULLIF(rec_date,''), NULLIF(recv_date,''), NULLIF(put_date,''), NULLIF(putaway_date,''), '') as d
+          FROM inbound_details
           WHERE item_id IS NOT NULL AND item_id != ''
-        `;
-      }).join(' UNION ALL ');
-
-      const syncSql = `
-        UPDATE item_sales_history
-        SET last_inbound_date = (
-          SELECT MAX(inbound_date) 
-          FROM (${unionQueries}) as all_inbound
-          WHERE UPPER(TRIM(all_inbound.item_id)) = UPPER(TRIM(item_sales_history.item_id))
-             OR REPLACE(UPPER(TRIM(all_inbound.item_id)), '-', '') = REPLACE(UPPER(TRIM(item_sales_history.item_id)), '-', '')
-             OR UPPER(TRIM(item_sales_history.item_id)) LIKE (UPPER(TRIM(all_inbound.item_id)) || '%')
-        ),
-        updated_at = DATETIME('now')
-        WHERE EXISTS (
-          SELECT 1 
-          FROM (${unionQueries}) as all_inbound
-          WHERE UPPER(TRIM(all_inbound.item_id)) = UPPER(TRIM(item_sales_history.item_id))
-             OR REPLACE(UPPER(TRIM(all_inbound.item_id)), '-', '') = REPLACE(UPPER(TRIM(item_sales_history.item_id)), '-', '')
-             OR UPPER(TRIM(item_sales_history.item_id)) LIKE (UPPER(TRIM(all_inbound.item_id)) || '%')
+            AND (
+              UPPER(TRIM(item_id)) = UPPER(TRIM(item_sales_history.item_id))
+              OR REPLACE(UPPER(TRIM(item_id)), '-', '') = REPLACE(UPPER(TRIM(item_sales_history.item_id)), '-', '')
+              OR UPPER(TRIM(item_sales_history.item_id)) LIKE (UPPER(TRIM(item_id)) || '%')
+              OR UPPER(TRIM(item_id)) LIKE (UPPER(TRIM(item_sales_history.item_id)) || '%')
+            )
         )
-      `;
+      ),
+      updated_at = DATETIME('now')
+      WHERE EXISTS (
+        SELECT 1 FROM inbound_details
+        WHERE item_id IS NOT NULL AND item_id != ''
+          AND (
+            UPPER(TRIM(item_id)) = UPPER(TRIM(item_sales_history.item_id))
+            OR REPLACE(UPPER(TRIM(item_id)), '-', '') = REPLACE(UPPER(TRIM(item_sales_history.item_id)), '-', '')
+            OR UPPER(TRIM(item_sales_history.item_id)) LIKE (UPPER(TRIM(item_id)) || '%')
+            OR UPPER(TRIM(item_id)) LIKE (UPPER(TRIM(item_sales_history.item_id)) || '%')
+          )
+      )
+    `;
 
-      db.run(syncSql, [], function(updateErr) {
-        if (updateErr) {
-          return res.status(500).json({ success: false, message: '全表進貨日期對齊失敗：' + updateErr.message });
-        }
-        res.json({
-          success: true,
-          message: `🎉 成功掃描 ${tables.length} 個進貨資料表並完成全量驗收日期對齊！共更新 ${this.changes} 筆商品。`
-        });
+    db.run(syncSql, [], function(err) {
+      if (err) return res.status(500).json({ success: false, message: '進貨驗收日期對齊失敗：' + err.message });
+      res.json({
+        success: true,
+        message: `🎉 成功完成進貨驗收日期對齊！共更新 ${this.changes} 筆商品。`
       });
     });
   });
