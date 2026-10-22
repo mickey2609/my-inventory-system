@@ -136,70 +136,36 @@ module.exports = function(db) {
     });
   });
 
-  // [POST] /api/item-sales-history/sync-inbound - 進貨驗收時更新最後驗收日期
-  router.post('/sync-inbound', (req, res) => {
-    const { items } = req.body;
-    if (!Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ success: false, message: '未傳入有效的驗收資料' });
-    }
-
-    db.serialize(() => {
-      db.run('BEGIN TRANSACTION');
-      const stmt = db.prepare(`
-        INSERT INTO item_sales_history (item_id, last_inbound_date, updated_at)
-        VALUES (?, ?, DATETIME('now'))
-        ON CONFLICT(item_id) DO UPDATE SET
-          last_inbound_date = CASE 
-            WHEN EXCLUDED.last_inbound_date > IFNULL(item_sales_history.last_inbound_date, '') 
-            THEN EXCLUDED.last_inbound_date 
-            ELSE item_sales_history.last_inbound_date 
-          END,
-          updated_at = DATETIME('now')
-      `);
-
-      for (const item of items) {
-        if (item.item_id && item.rec_date) {
-          stmt.run(String(item.item_id).trim().toUpperCase(), String(item.rec_date).trim());
-        }
-      }
-
-      stmt.finalize();
-      db.run('COMMIT', (err) => {
-        if (err) return res.status(500).json({ success: false, message: '同步最後進貨日期失敗：' + err.message });
-        res.json({ success: true, message: '最後驗收日期已成功同步至歷史總表！' });
-      });
-    });
-  });
-
-  // 🌟【強效升級】/api/item-sales-history/sync-inbound-history
-  // 自動比對包含精準匹配與去掉連字號 (Hyphen) 後的模糊匹配
+  // 🌟【終極跨表對齊】/api/item-sales-history/sync-inbound-history
+  // 同時跨 inbound_records 與 inbound_details 表抓取最新驗收日期
   router.all('/sync-inbound-history', (req, res) => {
     const syncSql = `
       UPDATE item_sales_history
       SET last_inbound_date = (
-        SELECT MAX(COALESCE(rec_date, inbound_date, instore_date, '')) 
-        FROM inbound_details 
-        WHERE 
-          UPPER(TRIM(inbound_details.item_id)) = UPPER(TRIM(item_sales_history.item_id))
-          OR REPLACE(UPPER(TRIM(inbound_details.item_id)), '-', '') = REPLACE(UPPER(TRIM(item_sales_history.item_id)), '-', '')
-          OR UPPER(TRIM(item_sales_history.item_id)) LIKE (UPPER(TRIM(inbound_details.item_id)) || '%')
+        SELECT MAX(d) FROM (
+          SELECT COALESCE(rec_date, inbound_date, instore_date, record_date, '') as d
+          FROM inbound_records
+          WHERE UPPER(TRIM(item_id)) = UPPER(TRIM(item_sales_history.item_id))
+             OR REPLACE(UPPER(TRIM(item_id)), '-', '') = REPLACE(UPPER(TRIM(item_sales_history.item_id)), '-', '')
+             OR UPPER(TRIM(item_sales_history.item_id)) LIKE (UPPER(TRIM(item_id)) || '%')
+
+          UNION ALL
+
+          SELECT COALESCE(rec_date, inbound_date, instore_date, record_date, '') as d
+          FROM inbound_details
+          WHERE UPPER(TRIM(item_id)) = UPPER(TRIM(item_sales_history.item_id))
+             OR REPLACE(UPPER(TRIM(item_id)), '-', '') = REPLACE(UPPER(TRIM(item_sales_history.item_id)), '-', '')
+             OR UPPER(TRIM(item_sales_history.item_id)) LIKE (UPPER(TRIM(item_id)) || '%')
+        )
       ),
-      updated_at = DATETIME('now')
-      WHERE EXISTS (
-        SELECT 1 
-        FROM inbound_details 
-        WHERE 
-          UPPER(TRIM(inbound_details.item_id)) = UPPER(TRIM(item_sales_history.item_id))
-          OR REPLACE(UPPER(TRIM(inbound_details.item_id)), '-', '') = REPLACE(UPPER(TRIM(item_sales_history.item_id)), '-', '')
-          OR UPPER(TRIM(item_sales_history.item_id)) LIKE (UPPER(TRIM(inbound_details.item_id)) || '%')
-      )
+      updated_at = DATETIME('now');
     `;
 
     db.run(syncSql, [], function(err) {
       if (err) return res.status(500).json({ success: false, message: '歷史進貨日期對齊失敗：' + err.message });
       res.json({
         success: true,
-        message: `🎉 成功完成強效歷史驗收日期對齊！共更新 ${this.changes} 筆商品的最後驗收日期。`
+        message: `🎉 成功同步歷史進貨驗收日期！`
       });
     });
   });
