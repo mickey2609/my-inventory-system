@@ -44,6 +44,32 @@ module.exports = function(db) {
     });
   });
 
+  // 🌟 [ALL] /api/item-sales-history/sync-15-stock - 一鍵將現有 15 庫存同步回歷史總表
+  router.all('/sync-15-stock', (req, res) => {
+    const syncSql = `
+      UPDATE item_sales_history
+      SET stock_qty_15 = IFNULL((
+        SELECT SUM(qty) 
+        FROM inventory_15 
+        WHERE UPPER(TRIM(inventory_15.item_id)) = UPPER(TRIM(item_sales_history.item_id))
+      ), 0),
+      total_stock_qty = IFNULL(stock_qty_80, 0) + IFNULL((
+        SELECT SUM(qty) 
+        FROM inventory_15 
+        WHERE UPPER(TRIM(inventory_15.item_id)) = UPPER(TRIM(item_sales_history.item_id))
+      ), 0),
+      updated_at = DATETIME('now')
+    `;
+
+    db.run(syncSql, [], function(err) {
+      if (err) return res.status(500).json({ success: false, message: '同步 15 庫存失敗：' + err.message });
+      res.json({
+        success: true,
+        message: `🎉 成功完成 15 庫存數據同步！共更新 ${this.changes} 筆商品的 15 庫存數。`
+      });
+    });
+  });
+
   // [GET] /api/item-sales-history/list - 後端分頁查詢 API
   router.get('/list', (req, res) => {
     const page = parseInt(req.query.page || '1', 10);

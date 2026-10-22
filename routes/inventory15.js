@@ -30,7 +30,7 @@ function initInventory15Table(db) {
 module.exports = function(db) {
   initInventory15Table(db);
 
-  // [POST] /api/inventory15/upload — 前端分塊 (Batch Chunk) 批次寫入端點 (含真實檔名儲存)
+  // [POST] /api/inventory15/upload — 前端分塊 (Batch Chunk) 批次寫入端點 (含 15 庫歷史銷量同步)
   router.post('/upload', (req, res) => {
     try {
       const { items, isFirstChunk, fileName } = req.body;
@@ -38,12 +38,26 @@ module.exports = function(db) {
         return res.status(400).json({ success: false, message: '上傳資料格式無效' });
       }
 
+      // 解析檔名日期 (例如 inventory15_20261021.csv 轉為 2026-10-21)
+      let recordDateStr = new Date().toISOString().split('T')[0];
+      if (fileName) {
+        const matchDate = fileName.match(/\d{8}/);
+        if (matchDate) {
+          const d = matchDate[0];
+          recordDateStr = `${d.substring(0, 4)}-${d.substring(4, 6)}-${d.substring(6, 8)}`;
+        }
+      }
+
+      // 記憶體中按商品 ID 歸納 15 庫總數量 (因為同一商品可能散落在多個儲位)
+      const itemStock15Map = {};
+
       db.serialize(() => {
         db.run('BEGIN TRANSACTION');
         if (isFirstChunk) {
           db.run('DELETE FROM inventory_15');
+          // 🌟 15 庫全量上傳第一包：預先將舊有 stock_qty_15 設為 0
+          db.run(`UPDATE item_sales_history SET stock_qty_15 = 0, total_stock_qty = IFNULL(stock_qty_80, 0)`);
 
-          // 🌟 第一包寫入時，同步將最新上傳檔名記錄至 system_config
           if (fileName) {
             db.run(`
               INSERT OR REPLACE INTO system_config (config_key, config_value)
@@ -74,7 +88,7 @@ module.exports = function(db) {
             return '';
           };
 
-          const itemId = getField('item_id', '商品ID', '商品Id', 'itemId', 'ITEM_ID');
+          const itemId = getField('item_id', '商品ID', '商品Id', 'itemId', 'ITEM_ID').toUpperCase();
           if (!itemId || itemId === '-' || itemId === '0') continue;
 
           const getNum = (...keys) => {
@@ -85,65 +99,74 @@ module.exports = function(db) {
           const qtyVal = getNum('qty', '儲位庫存數', '儲位庫存', '庫存數');
           const cubicFeetVal = getNum('cubic_feet', '才數', '單才數', '單件才數');
           const correctTotalCubic = cubicFeetVal * qtyVal;
+          const itemNameVal = getField('item_name', '商品名稱', '品名');
+          const pmVal = getField('pm', '所屬PM', 'PM');
+          const suppNameVal = getField('supplier_name', '供應商名稱', '廠商名稱');
+          const mSalesVal = getNum('monthly_sales', '(近)月銷量', '月銷量');
+          const s90Val = getNum('sales_90d', '(近)90日銷量', '90日銷量');
+
+          // 累加 15 庫商品數
+          if (!itemStock15Map[itemId]) {
+            itemStock15Map[itemId] = {
+              itemId, itemName: itemNameVal, pm: pmVal, supplierName: suppNameVal,
+              monthlySales: mSalesVal, sales90d: s90Val, totalQty15: 0
+            };
+          }
+          itemStock15Map[itemId].totalQty15 += qtyVal;
 
           stmt.run([
-            itemId,
-            getField('item_name', '商品名稱', '品名'),
-            getField('borrow_proc', '借/採', '借採'),
-            getField('location', '儲位', '儲位編號'),
-            qtyVal,
-            parseInt(getField('age', '庫齡') || 0, 10),
-            getField('zone_id', '區編', '區編號', '區域編號'),
-            getField('zone_name', '區名', '區域名稱'),
-            getField('hall_id', '館編', '館編號'),
-            getField('hall_name', '館名', '館別'),
-            getNum('length', '長(cm)', '長'),
-            getNum('width', '寬(cm)', '寬'),
-            getNum('height', '高(cm)', '高'),
-            getNum('weight', '重量(kg)', '重量'),
-            getNum('monthly_sales', '(近)月銷量', '月銷量'),
-            getNum('pick_days_m', '(近)月-有揀貨單天數', '月揀貨單天數'),
-            getNum('sales_90d', '(近)90日銷量', '90日銷量'),
-            getNum('pick_days_90d', '(近)90日-有揀貨單天數', '90日揀貨單天數'),
-            getField('supplier_id', '供應商ID', '廠商ID'),
-            getField('supplier_name', '供應商名稱', '廠商名稱'),
-            getField('pm', '所屬PM', 'PM'),
-            getNum('total_qty', '總庫存數', '總庫存'),
-            getNum('turn_days_total', '總庫存_迴轉天數', '迴轉天數'),
-            cubicFeetVal,
-            getField('vol_type', '材積別', '材積'),
-            getField('loc_code_3', '儲位編碼-3', '儲位3'),
-            getField('loc_code_full', '儲位編碼', '完整儲位編碼'),
-            getField('loc_code_5', '儲位編碼5', '儲位5'),
-            getField('floor', '樓層'),
-            getField('floor_zone', '樓層區域', '樓層區'),
-            getField('loc_type', '儲位型態', '儲位類型'),
-            getField('big_zone_id', '大區編', '大區ID', '大區編號'),
-            getField('big_zone', '大區名', '大區', '大區名稱'),
-            getNum('dim_sum', '三邊長', '三邊長(cm)'),
-            getNum('max_dim', '最長邊', '最長邊(cm)'),
-            getNum('min_dim', '最短邊', '最短邊(cm)'),
-            getNum('loc_cubic_feet', '儲位才數'),
-            getField('loc_health', '儲位健康度'),
-            getField('non_compliant', '不符合'),
-            getField('vol_check', '材積判斷'),
-            correctTotalCubic,
-            getField('auto_type', '人工/自動'),
-            getField('shelf_level', '儲位層標示', '層標示'),
-            getField('age_bracket', '庫齡級距', '庫齡段'),
-            getField('floor_config', '樓層設定'),
-            getField('heavy_rack_check', '重型架判斷'),
-            getField('assigned_floor', 'ID指定樓層'),
+            itemId, itemNameVal, getField('borrow_proc', '借/採', '借採'), getField('location', '儲位', '儲位編號'),
+            qtyVal, parseInt(getField('age', '庫齡') || 0, 10), getField('zone_id', '區編', '區編號', '區域編號'),
+            getField('zone_name', '區名', '區域名稱'), getField('hall_id', '館編', '館編號'), getField('hall_name', '館名', '館別'),
+            getNum('length', '長(cm)', '長'), getNum('width', '寬(cm)', '寬'), getNum('height', '高(cm)', '高'),
+            getNum('weight', '重量(kg)', '重量'), mSalesVal, getNum('pick_days_m', '(近)月-有揀貨單天數', '月揀貨單天數'),
+            s90Val, getNum('pick_days_90d', '(近)90日-有揀貨單天數', '90日揀貨單天數'), getField('supplier_id', '供應商ID', '廠商ID'),
+            suppNameVal, pmVal, getNum('total_qty', '總庫存數', '總庫存'), getNum('turn_days_total', '總庫存_迴轉天數', '迴轉天數'),
+            cubicFeetVal, getField('vol_type', '材積別', '材積'), getField('loc_code_3', '儲位編碼-3', '儲位3'),
+            getField('loc_code_full', '儲位編碼', '完整儲位編碼'), getField('loc_code_5', '儲位編碼5', '儲位5'),
+            getField('floor', '樓層'), getField('floor_zone', '樓層區域', '樓層區'), getField('loc_type', '儲位型態', '儲位類型'),
+            getField('big_zone_id', '大區編', '大區ID', '大區編號'), getField('big_zone', '大區名', '大區', '大區名稱'),
+            getNum('dim_sum', '三邊長', '三邊長(cm)'), getNum('max_dim', '最長邊', '最長邊(cm)'), getNum('min_dim', '最短邊', '最短邊(cm)'),
+            getNum('loc_cubic_feet', '儲位才數'), getField('loc_health', '儲位健康度'), getField('non_compliant', '不符合'),
+            getField('vol_check', '材積判斷'), correctTotalCubic, getField('auto_type', '人工/自動'),
+            getField('shelf_level', '儲位層標示', '層標示'), getField('age_bracket', '庫齡級距', '庫齡段'),
+            getField('floor_config', '樓層設定'), getField('heavy_rack_check', '重型架判斷'), getField('assigned_floor', 'ID指定樓層'),
             getField('remark', '備註', '說明')
           ], (err) => {
             if (err) console.error('⚠ 單筆寫入失敗：', err.message);
           });
         }
-
         stmt.finalize();
+
+        // 🌟 2. 寫入/更新至 item_sales_history 歷史總表
+        const stmtHistory = db.prepare(`
+          INSERT INTO item_sales_history (
+            item_id, item_name, pm, supplier_name, stock_qty_15, total_stock_qty,
+            monthly_sales, sales_90d, last_record_date, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now'))
+          ON CONFLICT(item_id) DO UPDATE SET
+            item_name = EXCLUDED.item_name,
+            pm = EXCLUDED.pm,
+            supplier_name = EXCLUDED.supplier_name,
+            stock_qty_15 = EXCLUDED.stock_qty_15,
+            total_stock_qty = IFNULL(item_sales_history.stock_qty_80, 0) + EXCLUDED.stock_qty_15,
+            monthly_sales = CASE WHEN EXCLUDED.stock_qty_15 > 0 THEN EXCLUDED.monthly_sales ELSE item_sales_history.monthly_sales END,
+            sales_90d = CASE WHEN EXCLUDED.stock_qty_15 > 0 THEN EXCLUDED.sales_90d ELSE item_sales_history.sales_90d END,
+            last_record_date = CASE WHEN EXCLUDED.stock_qty_15 > 0 THEN EXCLUDED.last_record_date ELSE item_sales_history.last_record_date END,
+            updated_at = DATETIME('now')
+        `);
+
+        for (const obj of Object.values(itemStock15Map)) {
+          stmtHistory.run(
+            obj.itemId, obj.itemName, obj.pm, obj.supplierName,
+            obj.totalQty15, obj.totalQty15, obj.monthlySales, obj.sales90d, recordDateStr
+          );
+        }
+        stmtHistory.finalize();
+
         db.run('COMMIT', (err) => {
           if (err) return res.status(500).json({ success: false, error: err.message });
-          res.json({ success: true, count: items.length, message: '15 庫資料批次寫入成功！' });
+          res.json({ success: true, count: items.length, message: '15 庫資料與歷史銷量總表寫入成功！' });
         });
       });
     } catch (err) {
