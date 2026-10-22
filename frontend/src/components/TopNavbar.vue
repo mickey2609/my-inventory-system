@@ -79,7 +79,7 @@ export default {
     'settings_perm': '⚙️ 權限管理',
     'settings_log': '📜 日誌歷程查詢'
   };
-  return namesMap[tabKey] || '系統模組';
+  return names[k] || '📈 全商品歷史銷量與進貨履歷';
 }
   }
 }
