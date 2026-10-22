@@ -1040,18 +1040,18 @@ app.post('/api/upload', (req, res) => {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
-      // 🌟 自動同步至全商品歷史銷量總表 (item_sales_history)
+      // 🌟 修正：寫入/更新時同步計算 total_stock_qty
       const stmtHistory = db.prepare(`
         INSERT INTO item_sales_history (
-          item_id, item_name, pm, supplier_name, stock_qty_80, 
+          item_id, item_name, pm, supplier_name, stock_qty_80, total_stock_qty,
           monthly_sales, sales_90d, last_record_date, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now'))
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now'))
         ON CONFLICT(item_id) DO UPDATE SET
           item_name = EXCLUDED.item_name,
           pm = EXCLUDED.pm,
           supplier_name = EXCLUDED.supplier_name,
           stock_qty_80 = EXCLUDED.stock_qty_80,
-          total_stock_qty = EXCLUDED.stock_qty_80 + stock_qty_15,
+          total_stock_qty = EXCLUDED.stock_qty_80 + IFNULL(item_sales_history.stock_qty_15, 0),
           monthly_sales = EXCLUDED.monthly_sales,
           sales_90d = EXCLUDED.sales_90d,
           last_record_date = EXCLUDED.last_record_date,
