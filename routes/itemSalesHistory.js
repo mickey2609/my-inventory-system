@@ -28,7 +28,7 @@ module.exports = function(db) {
     db.run(`CREATE INDEX IF NOT EXISTS idx_ish_last_date ON item_sales_history(last_record_date);`);
   });
 
-  // 🌟 [ALL] /api/item-sales-history/fix-totals - 修正資料庫中現有總庫存數被誤設為 0 的 Bug
+  // [ALL] /api/item-sales-history/fix-totals - 修正資料庫中現有總庫存數被誤設為 0 的工具
   router.all('/fix-totals', (req, res) => {
     const fixSql = `
       UPDATE item_sales_history
@@ -83,7 +83,7 @@ module.exports = function(db) {
 
       const totalCount = countRow ? countRow.total : 0;
 
-      // 🌟 核心：查詢時動態計算 total_stock_qty，確保總庫存絕不會為 0！
+      // 🌟 查詢時動態計算 total_stock_qty
       const listSql = `
         SELECT 
           item_id, item_name, pm, supplier_name,
@@ -146,7 +146,7 @@ module.exports = function(db) {
     });
   });
 
-  // 🌟 [ALL] /api/item-sales-history/sync-inbound-history - 自動補對歷史進貨驗收日期
+  // [ALL] /api/item-sales-history/sync-inbound-history - 自動對齊資料庫中既有的歷史進貨驗收日期
   router.all('/sync-inbound-history', (req, res) => {
     const syncSql = `
       UPDATE item_sales_history

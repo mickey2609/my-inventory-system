@@ -998,7 +998,7 @@ app.get('/api/get-logs', (req, res) => {
   });
 });
 
-// [POST] 極速匯入 API (含自動同步至全商品歷史銷量總表)
+// [POST] 極速匯入 API (包含自動備份與更新歷史銷量總表)
 app.post('/api/upload', (req, res) => {
   try {
     const { items, isFirstChunk, fileName } = req.body;
@@ -1022,6 +1022,8 @@ app.post('/api/upload', (req, res) => {
       db.run('BEGIN TRANSACTION');
       if (isFirstChunk) {
         db.run('DELETE FROM inventory');
+        // 🌟 上傳全新 80 庫全量檔時，先預設將原本 80 庫存清空歸零（避免已售罄下架商品殘留舊庫存數）
+        db.run(`UPDATE item_sales_history SET stock_qty_80 = 0, total_stock_qty = IFNULL(stock_qty_15, 0)`);
       }
 
       if (fileName) {
@@ -1040,7 +1042,7 @@ app.post('/api/upload', (req, res) => {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
-      // 🌟 修正：寫入/更新時同步計算 total_stock_qty
+      // 🌟 核心升級 Upsert 邏輯：只有當本次庫存 > 0 時，才更新「銷量」與「最後在庫日期」！
       const stmtHistory = db.prepare(`
         INSERT INTO item_sales_history (
           item_id, item_name, pm, supplier_name, stock_qty_80, total_stock_qty,
@@ -1052,9 +1054,9 @@ app.post('/api/upload', (req, res) => {
           supplier_name = EXCLUDED.supplier_name,
           stock_qty_80 = EXCLUDED.stock_qty_80,
           total_stock_qty = EXCLUDED.stock_qty_80 + IFNULL(item_sales_history.stock_qty_15, 0),
-          monthly_sales = EXCLUDED.monthly_sales,
-          sales_90d = EXCLUDED.sales_90d,
-          last_record_date = EXCLUDED.last_record_date,
+          monthly_sales = CASE WHEN EXCLUDED.stock_qty_80 > 0 THEN EXCLUDED.monthly_sales ELSE item_sales_history.monthly_sales END,
+          sales_90d = CASE WHEN EXCLUDED.stock_qty_80 > 0 THEN EXCLUDED.sales_90d ELSE item_sales_history.sales_90d END,
+          last_record_date = CASE WHEN EXCLUDED.stock_qty_80 > 0 THEN EXCLUDED.last_record_date ELSE item_sales_history.last_record_date END,
           updated_at = DATETIME('now')
       `);
 
@@ -1091,7 +1093,7 @@ app.post('/api/upload', (req, res) => {
         );
 
         if (itemId) {
-          stmtHistory.run(itemId, itemName, pmVal, suppName, stockQty, mSales, s90, recordDateStr);
+          stmtHistory.run(itemId, itemName, pmVal, suppName, stockQty, stockQty, mSales, s90, recordDateStr);
         }
       }
       stmt.finalize();
