@@ -446,11 +446,11 @@ export default {
       } catch (e) {}
     },
 
+    // 🌟 精準過濾與安全放行邏輯
     hasModulePermission(tabKey) {
-      if (this.isSysAdmin || tabKey === 'home' || tabKey === 'settings_perm' || tabKey === 'settings_log') return true;
+      if (this.isSysAdmin || tabKey === 'home' || tabKey === 'settings_perm' || tabKey === 'settings_log' || tabKey === 'item_sales_history') return true;
       const perms = this.currentUserPermissions;
-      if (!perms || perms.length === 0) return false;
-      if (perms === 'all' || perms === 'all,') return true;
+      if (!perms || perms === 'all' || perms === 'all,') return true;
       if (Array.isArray(perms)) return perms.includes(tabKey);
       if (typeof perms === 'string') return perms.split(',').map(s => s.trim()).includes(tabKey);
       return false;

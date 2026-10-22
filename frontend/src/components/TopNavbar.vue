@@ -5,7 +5,7 @@
       <h1 class="app-title">庫存儲位管理系統</h1>
       <span class="version-tag">{{ appVersion }}</span>
 
-      <!-- 🌟【新增】歡迎登入使用者標示區塊 -->
+      <!-- 🌟 歡迎登入使用者標示區塊 -->
       <div v-if="currentUser" class="user-welcome-tag">
         👋 <span class="user-name">{{ currentUser }}</span>，歡迎登入
       </div>
@@ -60,27 +60,27 @@ export default {
     },
     appVersion: String,
     showExportBtn: Boolean,
-    currentUser: String // 🌟 接收當前登入使用者名稱
+    currentUser: String
   },
   methods: {
     getTabName(tabKey) {
-  const namesMap = {
-    'home': '🏠 系統首頁',
-    'loc_summary': '📊 儲位數才數統整',
-    'inv80': '🔍 庫存查詢80',
-    'inv15': '📦 庫存查詢15',
-    'turnover': '📈 迴轉率清單',
-    'abnormal_purchase': '⚠️ 不合理進貨清單',
-    // 🌟 補上 4 個新模組名稱
-    'inbound_fish': '🐟 進貨上架魚群',
-    'replenish_fish': '🐟 立即補貨單魚群',
-    'transfer_80_15': '🔄 跨庫調撥 80 ➔ 15',
-    'transfer_15_80': '🔄 跨庫調撥 15 ➔ 80',
-    'settings_perm': '⚙️ 權限管理',
-    'settings_log': '📜 日誌歷程查詢'
-  };
-  return names[k] || '📈 全商品歷史銷量與進貨履歷';
-}
+      const namesMap = {
+        'home': '🏠 系統首頁',
+        'loc_summary': '📊 儲位數才數統整',
+        'inv80': '🔍 庫存查詢80',
+        'inv15': '📦 庫存查詢15',
+        'item_sales_history': '📈 全商品歷史銷量與進貨履歷',
+        'turnover': '📈 迴轉率清單',
+        'abnormal_purchase': '⚠️ 不合理進貨清單',
+        'inbound_fish': '🐟 進貨上架魚群',
+        'replenish_fish': '🐟 餐廳補貨單魚群',
+        'transfer_80_15': '🔄 跨庫調撥 80 ➔ 15',
+        'transfer_15_80': '🔄 跨庫調撥 15 ➔ 80',
+        'settings_perm': '⚙️ 權限管理',
+        'settings_log': '📜 日誌歷程查詢'
+      };
+      return namesMap[tabKey] || '📈 全商品歷史銷量與進貨履歷';
+    }
   }
 }
 </script>
@@ -123,7 +123,6 @@ export default {
   font-weight: 600;
 }
 
-/* 🌟 歡迎標籤樣式 */
 .user-welcome-tag {
   margin-left: 8px;
   padding: 3px 10px;
