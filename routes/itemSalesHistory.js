@@ -28,7 +28,7 @@ module.exports = function(db) {
     db.run(`CREATE INDEX IF NOT EXISTS idx_ish_last_date ON item_sales_history(last_record_date);`);
   });
 
-  // [ALL] /api/item-sales-history/fix-totals - 修正資料庫中現有總庫存數被誤設為 0 的工具
+  // [ALL] /api/item-sales-history/fix-totals - 修正資料庫中現有總庫存數工具
   router.all('/fix-totals', (req, res) => {
     const fixSql = `
       UPDATE item_sales_history
@@ -44,7 +44,7 @@ module.exports = function(db) {
     });
   });
 
-  // 🌟 [ALL] /api/item-sales-history/sync-15-stock - 一鍵將現有 15 庫存同步回歷史總表
+  // [ALL] /api/item-sales-history/sync-15-stock - 一鍵將現有 15 庫存同步回歷史總表
   router.all('/sync-15-stock', (req, res) => {
     const syncSql = `
       UPDATE item_sales_history
@@ -109,7 +109,6 @@ module.exports = function(db) {
 
       const totalCount = countRow ? countRow.total : 0;
 
-      // 🌟 查詢時動態計算 total_stock_qty
       const listSql = `
         SELECT 
           item_id, item_name, pm, supplier_name,
@@ -172,20 +171,27 @@ module.exports = function(db) {
     });
   });
 
-  // [ALL] /api/item-sales-history/sync-inbound-history - 自動對齊資料庫中既有的歷史進貨驗收日期
+  // 🌟【強效升級】/api/item-sales-history/sync-inbound-history
+  // 自動比對包含精準匹配與去掉連字號 (Hyphen) 後的模糊匹配
   router.all('/sync-inbound-history', (req, res) => {
     const syncSql = `
       UPDATE item_sales_history
       SET last_inbound_date = (
-        SELECT MAX(rec_date) 
+        SELECT MAX(COALESCE(rec_date, inbound_date, instore_date, '')) 
         FROM inbound_details 
-        WHERE UPPER(TRIM(inbound_details.item_id)) = UPPER(TRIM(item_sales_history.item_id))
+        WHERE 
+          UPPER(TRIM(inbound_details.item_id)) = UPPER(TRIM(item_sales_history.item_id))
+          OR REPLACE(UPPER(TRIM(inbound_details.item_id)), '-', '') = REPLACE(UPPER(TRIM(item_sales_history.item_id)), '-', '')
+          OR UPPER(TRIM(item_sales_history.item_id)) LIKE (UPPER(TRIM(inbound_details.item_id)) || '%')
       ),
       updated_at = DATETIME('now')
       WHERE EXISTS (
         SELECT 1 
         FROM inbound_details 
-        WHERE UPPER(TRIM(inbound_details.item_id)) = UPPER(TRIM(item_sales_history.item_id))
+        WHERE 
+          UPPER(TRIM(inbound_details.item_id)) = UPPER(TRIM(item_sales_history.item_id))
+          OR REPLACE(UPPER(TRIM(inbound_details.item_id)), '-', '') = REPLACE(UPPER(TRIM(item_sales_history.item_id)), '-', '')
+          OR UPPER(TRIM(item_sales_history.item_id)) LIKE (UPPER(TRIM(inbound_details.item_id)) || '%')
       )
     `;
 
@@ -193,7 +199,7 @@ module.exports = function(db) {
       if (err) return res.status(500).json({ success: false, message: '歷史進貨日期對齊失敗：' + err.message });
       res.json({
         success: true,
-        message: `🎉 成功完成歷史驗收日期對齊！共更新 ${this.changes} 筆商品的最後驗收日期。`
+        message: `🎉 成功完成強效歷史驗收日期對齊！共更新 ${this.changes} 筆商品的最後驗收日期。`
       });
     });
   });
