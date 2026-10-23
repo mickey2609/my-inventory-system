@@ -326,7 +326,7 @@ export default {
         { key: 'turnover', name: '📈 迴轉率清單' },
         { key: 'abnormal_purchase', name: '⚠️ 不合理進貨清單' },
         { key: 'inbound_fish', name: '🐟 進貨上架魚群' },
-        { key: 'replenish_fish', name: '🐟 餐廳補貨單魚群' },
+        { key: 'replenish_fish', name: '🐟 立即補貨單魚群' },
         { key: 'transfer_80_15', name: '🔄 跨庫調撥 80 ➔ 15' },
         { key: 'transfer_15_80', name: '🔄 跨庫調撥 15 ➔ 80' }
       ],
@@ -860,7 +860,7 @@ export default {
         'turnover': '📈 迴轉率清單',
         'abnormal_purchase': '⚠️ 不合理進貨清單',
         'inbound_fish': '🐟 進貨上架魚群',
-        'replenish_fish': '🐟 餐廳補貨單魚群',
+        'replenish_fish': '🐟 立即補貨單魚群',
         'transfer_80_15': '🔄 跨庫調撥 80 ➔ 15',
         'transfer_15_80': '🔄 跨庫調撥 15 ➔ 80',
         'settings_perm': '⚙️ 權限管理',

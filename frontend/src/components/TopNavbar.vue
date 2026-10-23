@@ -73,7 +73,7 @@ export default {
         'turnover': '📈 迴轉率清單',
         'abnormal_purchase': '⚠️ 不合理進貨清單',
         'inbound_fish': '🐟 進貨上架魚群',
-        'replenish_fish': '🐟 餐廳補貨單魚群',
+        'replenish_fish': '🐟 立即補貨單魚群',
         'transfer_80_15': '🔄 跨庫調撥 80 ➔ 15',
         'transfer_15_80': '🔄 跨庫調撥 15 ➔ 80',
         'settings_perm': '⚙️ 權限管理',
