@@ -4,7 +4,38 @@ const express = require('express');
 module.exports = function(db) {
   const router = express.Router();
 
-  // 初始化建立 item_sales_history 資料表與索引
+  // 自動執行最後進貨驗收日期同步函式
+  function autoSyncInbound() {
+    const updateSql = `
+      UPDATE item_sales_history
+      SET last_inbound_date = (
+        SELECT MAX(COALESCE(
+          NULLIF(rec_date, ''),
+          NULLIF(recv_date, ''),
+          NULLIF(put_date, ''),
+          NULLIF(putaway_date, ''),
+          NULLIF(SUBSTR(imported_at, 1, 10), '')
+        ))
+        FROM inbound_details
+        WHERE UPPER(TRIM(inbound_details.item_id)) = UPPER(TRIM(item_sales_history.item_id))
+      ),
+      updated_at = DATETIME('now')
+      WHERE EXISTS (
+        SELECT 1 FROM inbound_details
+        WHERE UPPER(TRIM(inbound_details.item_id)) = UPPER(TRIM(item_sales_history.item_id))
+      );
+    `;
+
+    db.run(updateSql, [], function(err) {
+      if (err) {
+        console.error('⚠️ [自動同步進貨日期失敗]:', err.message);
+      } else {
+        console.log(`✅ [自動同步進貨日期成功]: 共更新 ${this.changes} 筆商品驗收日期！`);
+      }
+    });
+  }
+
+  // 初始化建立 item_sales_history 資料表、索引與觸發自動同步
   db.serialize(() => {
     db.run(`PRAGMA busy_timeout = 15000;`);
 
@@ -29,6 +60,9 @@ module.exports = function(db) {
     db.run(`CREATE INDEX IF NOT EXISTS idx_ish_pm ON item_sales_history(pm);`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_ish_last_date ON item_sales_history(last_record_date);`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_inbound_details_item_id ON inbound_details(item_id);`);
+
+    // 啟動完成後自動於背景執行一次對齊更新
+    autoSyncInbound();
   });
 
   // [ALL] /api/item-sales-history/fix-totals
@@ -139,68 +173,33 @@ module.exports = function(db) {
     });
   });
 
-  // 🌟【極速暫存表同步，1 秒完成不卡死】/api/item-sales-history/sync-inbound-history
+  // [ALL] 手動同步 API 端點
   router.all('/sync-inbound-history', (req, res) => {
-    db.serialize(() => {
-      // 1. 建立記憶體暫存表並抓取每筆 item_id 最新進貨日期
-      db.run(`DROP TABLE IF EXISTS _temp_latest_inbound;`);
-      
-      db.run(`
-        CREATE TEMP TABLE _temp_latest_inbound AS
-        SELECT 
-          UPPER(TRIM(item_id)) as clean_item_id,
-          MAX(COALESCE(
-            NULLIF(rec_date, ''),
-            NULLIF(recv_date, ''),
-            NULLIF(put_date, ''),
-            NULLIF(putaway_date, ''),
-            NULLIF(SUBSTR(imported_at, 1, 10), '')
-          )) as latest_date
+    const updateSql = `
+      UPDATE item_sales_history
+      SET last_inbound_date = (
+        SELECT MAX(COALESCE(
+          NULLIF(rec_date, ''),
+          NULLIF(recv_date, ''),
+          NULLIF(put_date, ''),
+          NULLIF(putaway_date, ''),
+          NULLIF(SUBSTR(imported_at, 1, 10), '')
+        ))
         FROM inbound_details
-        WHERE item_id IS NOT NULL AND TRIM(item_id) != ''
-        GROUP BY UPPER(TRIM(item_id));
-      `);
+        WHERE UPPER(TRIM(inbound_details.item_id)) = UPPER(TRIM(item_sales_history.item_id))
+      ),
+      updated_at = DATETIME('now')
+      WHERE EXISTS (
+        SELECT 1 FROM inbound_details
+        WHERE UPPER(TRIM(inbound_details.item_id)) = UPPER(TRIM(item_sales_history.item_id))
+      );
+    `;
 
-      db.run(`CREATE INDEX IF NOT EXISTS _idx_tmp_inbound_id ON _temp_latest_inbound(clean_item_id);`);
-
-      // 2. 利用暫存表直接一次批次更新
-      const updateSql = `
-        UPDATE item_sales_history
-        SET last_inbound_date = (
-          SELECT _temp_latest_inbound.latest_date
-          FROM _temp_latest_inbound
-          WHERE _temp_latest_inbound.clean_item_id = UPPER(TRIM(item_sales_history.item_id))
-          LIMIT 1
-        ),
-        updated_at = DATETIME('now')
-        WHERE EXISTS (
-          SELECT 1 FROM _temp_latest_inbound
-          WHERE _temp_latest_inbound.clean_item_id = UPPER(TRIM(item_sales_history.item_id))
-        );
-      `;
-
-      db.run(updateSql, [], function(err) {
-        // 清理暫存表
-        db.run(`DROP TABLE IF EXISTS _temp_latest_inbound;`);
-
-        if (err) return res.status(500).json({ success: false, message: '同步失敗：' + err.message });
-        
-        res.json({
-          success: true,
-          message: `🎉 成功完成進貨驗收日期同步！共更新 ${this.changes} 筆商品。`
-        });
-      });
-    });
-  });
-
-  // 🔍 [GET] /api/item-sales-history/find-tables
-  router.get('/find-tables', (req, res) => {
-    db.all("SELECT name, sql FROM sqlite_master WHERE type='table' ORDER BY name ASC", [], (err, tables) => {
-      if (err) return res.status(500).json({ success: false, error: err.message });
+    db.run(updateSql, [], function(err) {
+      if (err) return res.status(500).json({ success: false, message: '同步失敗：' + err.message });
       res.json({
         success: true,
-        table_count: tables ? tables.length : 0,
-        tables: (tables || []).map(t => ({ name: t.name, schema: t.sql }))
+        message: `🎉 成功完成進貨驗收日期同步！共更新 ${this.changes} 筆商品。`
       });
     });
   });
@@ -220,17 +219,14 @@ module.exports = function(db) {
   // 🔍 [GET] /api/item-sales-history/debug-inbound
   router.get('/debug-inbound', (req, res) => {
     const rawItemId = (req.query.item_id || 'DFAT48-A900KHS7S-001').trim();
-    const cleanItemId = rawItemId.split('-')[0];
-
     const checkSql = `
       SELECT * FROM inbound_details 
-      WHERE item_id LIKE ? OR item_id LIKE ? OR item_id = ?
+      WHERE item_id LIKE ? OR item_id = ?
       LIMIT 20
     `;
 
-    db.all(checkSql, [`%${cleanItemId}%`, `%${rawItemId}%`, rawItemId], (err, rows) => {
+    db.all(checkSql, [`%${rawItemId}%`, rawItemId], (err, rows) => {
       if (err) return res.status(500).json({ success: false, error: err.message });
-      
       res.json({
         success: true,
         queried_item_id: rawItemId,
