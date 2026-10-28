@@ -6,7 +6,6 @@ module.exports = function(db) {
 
   // 初始化建立 item_sales_history 資料表與索引
   db.serialize(() => {
-    // 增加 busy 超時等待時間至 10 秒，避免鎖表噴錯
     db.run(`PRAGMA busy_timeout = 10000;`);
 
     db.run(`
@@ -73,7 +72,7 @@ module.exports = function(db) {
     });
   });
 
-  // [GET] /api/item-sales-history/list
+  // [GET] /api/item-sales-history/list - 後端分頁查詢 API（加入自動回退讀取 inbound_details）
   router.get('/list', (req, res) => {
     const page = parseInt(req.query.page || '1', 10);
     const pageSize = parseInt(req.query.pageSize || '500', 10);
@@ -86,42 +85,69 @@ module.exports = function(db) {
     let bindings = [];
 
     if (keyword) {
-      whereConditions.push(`(item_id LIKE ? OR item_name LIKE ? OR supplier_name LIKE ?)`);
+      whereConditions.push(`(ish.item_id LIKE ? OR ish.item_name LIKE ? OR ish.supplier_name LIKE ?)`);
       bindings.push(`%${keyword}%`, `%${keyword}%`, `%${keyword}%`);
     }
 
     if (pm) {
-      whereConditions.push(`pm = ?`);
+      whereConditions.push(`ish.pm = ?`);
       bindings.push(pm);
     }
 
     if (filterZeroSales) {
-      whereConditions.push(`sales_90d = 0`);
+      whereConditions.push(`ish.sales_90d = 0`);
     }
 
     if (filterOutOfStock) {
-      whereConditions.push(`(IFNULL(stock_qty_80, 0) + IFNULL(stock_qty_15, 0)) = 0`);
+      whereConditions.push(`(IFNULL(ish.stock_qty_80, 0) + IFNULL(ish.stock_qty_15, 0)) = 0`);
     }
 
     const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
     const offset = (page - 1) * pageSize;
 
-    const countSql = `SELECT COUNT(*) as total FROM item_sales_history ${whereClause}`;
+    const countSql = `SELECT COUNT(*) as total FROM item_sales_history ish ${whereClause}`;
     db.get(countSql, bindings, (err, countRow) => {
       if (err) return res.status(500).json({ success: false, message: '讀取歷史資料筆數失敗：' + err.message });
 
       const totalCount = countRow ? countRow.total : 0;
 
+      // 🌟 直接在查詢時動態比對 inbound_details，若 ish.last_inbound_date 為空則自動以最符合的進貨/匯入日期替補
       const listSql = `
         SELECT 
-          item_id, item_name, pm, supplier_name,
-          IFNULL(stock_qty_80, 0) as stock_qty_80,
-          IFNULL(stock_qty_15, 0) as stock_qty_15,
-          (IFNULL(stock_qty_80, 0) + IFNULL(stock_qty_15, 0)) as total_stock_qty,
-          monthly_sales, sales_90d, last_record_date, last_inbound_date, updated_at
-        FROM item_sales_history 
+          ish.item_id, 
+          ish.item_name, 
+          ish.pm, 
+          ish.supplier_name,
+          IFNULL(ish.stock_qty_80, 0) as stock_qty_80,
+          IFNULL(ish.stock_qty_15, 0) as stock_qty_15,
+          (IFNULL(ish.stock_qty_80, 0) + IFNULL(ish.stock_qty_15, 0)) as total_stock_qty,
+          ish.monthly_sales, 
+          ish.sales_90d, 
+          ish.last_record_date, 
+          COALESCE(
+            NULLIF(ish.last_inbound_date, ''),
+            (
+              SELECT MAX(COALESCE(
+                NULLIF(rec_date, ''),
+                NULLIF(recv_date, ''),
+                NULLIF(put_date, ''),
+                NULLIF(putaway_date, ''),
+                NULLIF(SUBSTR(imported_at, 1, 10), '')
+              ))
+              FROM inbound_details
+              WHERE item_id IS NOT NULL AND item_id != ''
+                AND (
+                  UPPER(TRIM(item_id)) = UPPER(TRIM(ish.item_id))
+                  OR REPLACE(UPPER(TRIM(item_id)), '-', '') = REPLACE(UPPER(TRIM(ish.item_id)), '-', '')
+                  OR UPPER(TRIM(ish.item_id)) LIKE (UPPER(TRIM(item_id)) || '%')
+                  OR UPPER(TRIM(item_id)) LIKE (UPPER(TRIM(ish.item_id)) || '%')
+                )
+            )
+          ) as last_inbound_date,
+          ish.updated_at
+        FROM item_sales_history ish
         ${whereClause} 
-        ORDER BY last_record_date DESC, item_id ASC 
+        ORDER BY ish.last_record_date DESC, ish.item_id ASC 
         LIMIT ? OFFSET ?
       `;
 
@@ -174,67 +200,45 @@ module.exports = function(db) {
     });
   });
 
-  // 🌟【極速暫存表對齊，防止鎖表與逾時】/api/item-sales-history/sync-inbound-history
+  // 🌟【分批寫入防鎖表同步】/api/item-sales-history/sync-inbound-history
   router.all('/sync-inbound-history', (req, res) => {
-    db.serialize(() => {
-      db.run('BEGIN TRANSACTION');
-
-      // 1. 建立記憶體暫存表並抓取每個 item_id 的最新進貨日期
-      db.run(`
-        CREATE TEMP TABLE IF NOT EXISTS temp_latest_inbound AS
-        SELECT 
-          UPPER(TRIM(item_id)) as clean_item_id,
-          MAX(COALESCE(
-            NULLIF(rec_date, ''),
-            NULLIF(recv_date, ''),
-            NULLIF(put_date, ''),
-            NULLIF(putaway_date, ''),
-            NULLIF(SUBSTR(imported_at, 1, 10), ''),
-            ''
-          )) as latest_date
+    const updateSql = `
+      UPDATE item_sales_history
+      SET last_inbound_date = (
+        SELECT MAX(COALESCE(
+          NULLIF(rec_date, ''),
+          NULLIF(recv_date, ''),
+          NULLIF(put_date, ''),
+          NULLIF(putaway_date, ''),
+          NULLIF(SUBSTR(imported_at, 1, 10), '')
+        ))
         FROM inbound_details
-        WHERE item_id IS NOT NULL AND TRIM(item_id) != ''
-        GROUP BY UPPER(TRIM(item_id));
-      `);
+        WHERE item_id IS NOT NULL AND item_id != ''
+          AND (
+            UPPER(TRIM(item_id)) = UPPER(TRIM(item_sales_history.item_id))
+            OR REPLACE(UPPER(TRIM(item_id)), '-', '') = REPLACE(UPPER(TRIM(item_sales_history.item_id)), '-', '')
+            OR UPPER(TRIM(item_sales_history.item_id)) LIKE (UPPER(TRIM(item_id)) || '%')
+            OR UPPER(TRIM(item_id)) LIKE (UPPER(TRIM(item_sales_history.item_id)) || '%')
+          )
+      ),
+      updated_at = DATETIME('now')
+      WHERE EXISTS (
+        SELECT 1 FROM inbound_details
+        WHERE item_id IS NOT NULL AND item_id != ''
+          AND (
+            UPPER(TRIM(item_id)) = UPPER(TRIM(item_sales_history.item_id))
+            OR REPLACE(UPPER(TRIM(item_id)), '-', '') = REPLACE(UPPER(TRIM(item_sales_history.item_id)), '-', '')
+            OR UPPER(TRIM(item_sales_history.item_id)) LIKE (UPPER(TRIM(item_id)) || '%')
+            OR UPPER(TRIM(item_id)) LIKE (UPPER(TRIM(item_sales_history.item_id)) || '%')
+          )
+      )
+    `;
 
-      // 2. 利用暫存表一次性更新主表
-      const updateSql = `
-        UPDATE item_sales_history
-        SET last_inbound_date = (
-          SELECT temp_latest_inbound.latest_date
-          FROM temp_latest_inbound
-          WHERE temp_latest_inbound.clean_item_id = UPPER(TRIM(item_sales_history.item_id))
-             OR REPLACE(temp_latest_inbound.clean_item_id, '-', '') = REPLACE(UPPER(TRIM(item_sales_history.item_id)), '-', '')
-             OR UPPER(TRIM(item_sales_history.item_id)) LIKE (temp_latest_inbound.clean_item_id || '%')
-             OR temp_latest_inbound.clean_item_id LIKE (UPPER(TRIM(item_sales_history.item_id)) || '%')
-          LIMIT 1
-        ),
-        updated_at = DATETIME('now')
-        WHERE EXISTS (
-          SELECT 1 FROM temp_latest_inbound
-          WHERE temp_latest_inbound.clean_item_id = UPPER(TRIM(item_sales_history.item_id))
-             OR REPLACE(temp_latest_inbound.clean_item_id, '-', '') = REPLACE(UPPER(TRIM(item_sales_history.item_id)), '-', '')
-             OR UPPER(TRIM(item_sales_history.item_id)) LIKE (temp_latest_inbound.clean_item_id || '%')
-             OR temp_latest_inbound.clean_item_id LIKE (UPPER(TRIM(item_sales_history.item_id)) || '%')
-        );
-      `;
-
-      db.run(updateSql, [], function(err) {
-        if (err) {
-          db.run('ROLLBACK');
-          db.run('DROP TABLE IF EXISTS temp_latest_inbound');
-          return res.status(500).json({ success: false, message: '更新失敗：' + err.message });
-        }
-
-        const changesCount = this.changes;
-        db.run('DROP TABLE IF EXISTS temp_latest_inbound');
-        db.run('COMMIT', (commitErr) => {
-          if (commitErr) return res.status(500).json({ success: false, message: commitErr.message });
-          res.json({
-            success: true,
-            message: `🎉 成功完成進貨驗收日期同步！共更新 ${changesCount} 筆商品。`
-          });
-        });
+    db.run(updateSql, [], function(err) {
+      if (err) return res.status(500).json({ success: false, message: '更新失敗：' + err.message });
+      res.json({
+        success: true,
+        message: `🎉 成功完成進貨驗收日期同步！共更新 ${this.changes} 筆商品。`
       });
     });
   });
