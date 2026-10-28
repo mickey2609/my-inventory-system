@@ -28,7 +28,6 @@ module.exports = function(db) {
     db.run(`CREATE INDEX IF NOT EXISTS idx_ish_sales_90d ON item_sales_history(sales_90d);`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_ish_pm ON item_sales_history(pm);`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_ish_last_date ON item_sales_history(last_record_date);`);
-    // 確保 inbound_details 也有索引加速比對
     db.run(`CREATE INDEX IF NOT EXISTS idx_inbound_details_item_id ON inbound_details(item_id);`);
   });
 
@@ -74,7 +73,7 @@ module.exports = function(db) {
     });
   });
 
-  // ⚡【極速查詢】/api/item-sales-history/list - 拿掉子查詢，零延遲輸出
+  // ⚡【極速查詢】/api/item-sales-history/list
   router.get('/list', (req, res) => {
     const page = parseInt(req.query.page || '1', 10);
     const pageSize = parseInt(req.query.pageSize || '500', 10);
@@ -141,7 +140,6 @@ module.exports = function(db) {
   });
 
   // 🌟【高效率索引批次同步】/api/item-sales-history/sync-inbound-history
-  // 先提取 inbound_details 內有效日期，利用精準 UPPER(TRIM(item_id)) 快速填入
   router.all('/sync-inbound-history', (req, res) => {
     const updateSql = `
       UPDATE item_sales_history
@@ -155,11 +153,17 @@ module.exports = function(db) {
         ))
         FROM inbound_details
         WHERE UPPER(TRIM(inbound_details.item_id)) = UPPER(TRIM(item_sales_history.item_id))
+           OR REPLACE(UPPER(TRIM(inbound_details.item_id)), '-', '') = REPLACE(UPPER(TRIM(item_sales_history.item_id)), '-', '')
+           OR UPPER(TRIM(item_sales_history.item_id)) LIKE (UPPER(TRIM(inbound_details.item_id)) || '%')
+           OR UPPER(TRIM(inbound_details.item_id)) LIKE (UPPER(TRIM(item_sales_history.item_id)) || '%')
       ),
       updated_at = DATETIME('now')
       WHERE EXISTS (
         SELECT 1 FROM inbound_details
         WHERE UPPER(TRIM(inbound_details.item_id)) = UPPER(TRIM(item_sales_history.item_id))
+           OR REPLACE(UPPER(TRIM(inbound_details.item_id)), '-', '') = REPLACE(UPPER(TRIM(item_sales_history.item_id)), '-', '')
+           OR UPPER(TRIM(item_sales_history.item_id)) LIKE (UPPER(TRIM(inbound_details.item_id)) || '%')
+           OR UPPER(TRIM(inbound_details.item_id)) LIKE (UPPER(TRIM(item_sales_history.item_id)) || '%')
       )
     `;
 
@@ -168,6 +172,30 @@ module.exports = function(db) {
       res.json({
         success: true,
         message: `🎉 成功完成進貨驗收日期同步！共更新 ${this.changes} 筆商品。`
+      });
+    });
+  });
+
+  // 🔍 [GET] /api/item-sales-history/find-tables - 查詢資料庫所有表名與結構
+  router.get('/find-tables', (req, res) => {
+    db.all("SELECT name, sql FROM sqlite_master WHERE type='table' ORDER BY name ASC", [], (err, tables) => {
+      if (err) return res.status(500).json({ success: false, error: err.message });
+      res.json({
+        success: true,
+        table_count: tables ? tables.length : 0,
+        tables: (tables || []).map(t => ({ name: t.name, schema: t.sql }))
+      });
+    });
+  });
+
+  // 🔍 [GET] /api/item-sales-history/peek-inbound - 查看進貨明細表最新 5 筆內容
+  router.get('/peek-inbound', (req, res) => {
+    db.all("SELECT * FROM inbound_details ORDER BY rowid DESC LIMIT 5", [], (err, rows) => {
+      if (err) return res.status(500).json({ success: false, error: err.message });
+      res.json({
+        success: true,
+        count: rows ? rows.length : 0,
+        sample_rows: rows || []
       });
     });
   });
