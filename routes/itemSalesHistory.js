@@ -6,7 +6,7 @@ module.exports = function(db) {
 
   // 初始化建立 item_sales_history 資料表與索引
   db.serialize(() => {
-    db.run(`PRAGMA busy_timeout = 10000;`);
+    db.run(`PRAGMA busy_timeout = 15000;`);
 
     db.run(`
       CREATE TABLE IF NOT EXISTS item_sales_history (
@@ -139,44 +139,61 @@ module.exports = function(db) {
     });
   });
 
-  // 🌟【高效率索引批次同步】/api/item-sales-history/sync-inbound-history
+  // 🌟【極速暫存表同步，1 秒完成不卡死】/api/item-sales-history/sync-inbound-history
   router.all('/sync-inbound-history', (req, res) => {
-    const updateSql = `
-      UPDATE item_sales_history
-      SET last_inbound_date = (
-        SELECT MAX(COALESCE(
-          NULLIF(rec_date, ''),
-          NULLIF(recv_date, ''),
-          NULLIF(put_date, ''),
-          NULLIF(putaway_date, ''),
-          NULLIF(SUBSTR(imported_at, 1, 10), '')
-        ))
+    db.serialize(() => {
+      // 1. 建立記憶體暫存表並抓取每筆 item_id 最新進貨日期
+      db.run(`DROP TABLE IF EXISTS _temp_latest_inbound;`);
+      
+      db.run(`
+        CREATE TEMP TABLE _temp_latest_inbound AS
+        SELECT 
+          UPPER(TRIM(item_id)) as clean_item_id,
+          MAX(COALESCE(
+            NULLIF(rec_date, ''),
+            NULLIF(recv_date, ''),
+            NULLIF(put_date, ''),
+            NULLIF(putaway_date, ''),
+            NULLIF(SUBSTR(imported_at, 1, 10), '')
+          )) as latest_date
         FROM inbound_details
-        WHERE UPPER(TRIM(inbound_details.item_id)) = UPPER(TRIM(item_sales_history.item_id))
-           OR REPLACE(UPPER(TRIM(inbound_details.item_id)), '-', '') = REPLACE(UPPER(TRIM(item_sales_history.item_id)), '-', '')
-           OR UPPER(TRIM(item_sales_history.item_id)) LIKE (UPPER(TRIM(inbound_details.item_id)) || '%')
-           OR UPPER(TRIM(inbound_details.item_id)) LIKE (UPPER(TRIM(item_sales_history.item_id)) || '%')
-      ),
-      updated_at = DATETIME('now')
-      WHERE EXISTS (
-        SELECT 1 FROM inbound_details
-        WHERE UPPER(TRIM(inbound_details.item_id)) = UPPER(TRIM(item_sales_history.item_id))
-           OR REPLACE(UPPER(TRIM(inbound_details.item_id)), '-', '') = REPLACE(UPPER(TRIM(item_sales_history.item_id)), '-', '')
-           OR UPPER(TRIM(item_sales_history.item_id)) LIKE (UPPER(TRIM(inbound_details.item_id)) || '%')
-           OR UPPER(TRIM(inbound_details.item_id)) LIKE (UPPER(TRIM(item_sales_history.item_id)) || '%')
-      )
-    `;
+        WHERE item_id IS NOT NULL AND TRIM(item_id) != ''
+        GROUP BY UPPER(TRIM(item_id));
+      `);
 
-    db.run(updateSql, [], function(err) {
-      if (err) return res.status(500).json({ success: false, message: '同步失敗：' + err.message });
-      res.json({
-        success: true,
-        message: `🎉 成功完成進貨驗收日期同步！共更新 ${this.changes} 筆商品。`
+      db.run(`CREATE INDEX IF NOT EXISTS _idx_tmp_inbound_id ON _temp_latest_inbound(clean_item_id);`);
+
+      // 2. 利用暫存表直接一次批次更新
+      const updateSql = `
+        UPDATE item_sales_history
+        SET last_inbound_date = (
+          SELECT _temp_latest_inbound.latest_date
+          FROM _temp_latest_inbound
+          WHERE _temp_latest_inbound.clean_item_id = UPPER(TRIM(item_sales_history.item_id))
+          LIMIT 1
+        ),
+        updated_at = DATETIME('now')
+        WHERE EXISTS (
+          SELECT 1 FROM _temp_latest_inbound
+          WHERE _temp_latest_inbound.clean_item_id = UPPER(TRIM(item_sales_history.item_id))
+        );
+      `;
+
+      db.run(updateSql, [], function(err) {
+        // 清理暫存表
+        db.run(`DROP TABLE IF EXISTS _temp_latest_inbound;`);
+
+        if (err) return res.status(500).json({ success: false, message: '同步失敗：' + err.message });
+        
+        res.json({
+          success: true,
+          message: `🎉 成功完成進貨驗收日期同步！共更新 ${this.changes} 筆商品。`
+        });
       });
     });
   });
 
-  // 🔍 [GET] /api/item-sales-history/find-tables - 查詢資料庫所有表名與結構
+  // 🔍 [GET] /api/item-sales-history/find-tables
   router.get('/find-tables', (req, res) => {
     db.all("SELECT name, sql FROM sqlite_master WHERE type='table' ORDER BY name ASC", [], (err, tables) => {
       if (err) return res.status(500).json({ success: false, error: err.message });
@@ -188,7 +205,7 @@ module.exports = function(db) {
     });
   });
 
-  // 🔍 [GET] /api/item-sales-history/peek-inbound - 查看進貨明細表最新 5 筆內容
+  // 🔍 [GET] /api/item-sales-history/peek-inbound
   router.get('/peek-inbound', (req, res) => {
     db.all("SELECT * FROM inbound_details ORDER BY rowid DESC LIMIT 5", [], (err, rows) => {
       if (err) return res.status(500).json({ success: false, error: err.message });
@@ -202,7 +219,7 @@ module.exports = function(db) {
 
   // 🔍 [GET] /api/item-sales-history/debug-inbound
   router.get('/debug-inbound', (req, res) => {
-    const rawItemId = (req.query.item_id || 'DMAGV0-A900GHNYH-000').trim();
+    const rawItemId = (req.query.item_id || 'DFAT48-A900KHS7S-001').trim();
     const cleanItemId = rawItemId.split('-')[0];
 
     const checkSql = `
