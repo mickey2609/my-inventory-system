@@ -28,6 +28,8 @@ module.exports = function(db) {
     db.run(`CREATE INDEX IF NOT EXISTS idx_ish_sales_90d ON item_sales_history(sales_90d);`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_ish_pm ON item_sales_history(pm);`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_ish_last_date ON item_sales_history(last_record_date);`);
+    // 確保 inbound_details 也有索引加速比對
+    db.run(`CREATE INDEX IF NOT EXISTS idx_inbound_details_item_id ON inbound_details(item_id);`);
   });
 
   // [ALL] /api/item-sales-history/fix-totals
@@ -72,7 +74,7 @@ module.exports = function(db) {
     });
   });
 
-  // [GET] /api/item-sales-history/list - 後端分頁查詢 API（加入自動回退讀取 inbound_details）
+  // ⚡【極速查詢】/api/item-sales-history/list - 拿掉子查詢，零延遲輸出
   router.get('/list', (req, res) => {
     const page = parseInt(req.query.page || '1', 10);
     const pageSize = parseInt(req.query.pageSize || '500', 10);
@@ -85,69 +87,42 @@ module.exports = function(db) {
     let bindings = [];
 
     if (keyword) {
-      whereConditions.push(`(ish.item_id LIKE ? OR ish.item_name LIKE ? OR ish.supplier_name LIKE ?)`);
+      whereConditions.push(`(item_id LIKE ? OR item_name LIKE ? OR supplier_name LIKE ?)`);
       bindings.push(`%${keyword}%`, `%${keyword}%`, `%${keyword}%`);
     }
 
     if (pm) {
-      whereConditions.push(`ish.pm = ?`);
+      whereConditions.push(`pm = ?`);
       bindings.push(pm);
     }
 
     if (filterZeroSales) {
-      whereConditions.push(`ish.sales_90d = 0`);
+      whereConditions.push(`sales_90d = 0`);
     }
 
     if (filterOutOfStock) {
-      whereConditions.push(`(IFNULL(ish.stock_qty_80, 0) + IFNULL(ish.stock_qty_15, 0)) = 0`);
+      whereConditions.push(`(IFNULL(stock_qty_80, 0) + IFNULL(stock_qty_15, 0)) = 0`);
     }
 
     const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
     const offset = (page - 1) * pageSize;
 
-    const countSql = `SELECT COUNT(*) as total FROM item_sales_history ish ${whereClause}`;
+    const countSql = `SELECT COUNT(*) as total FROM item_sales_history ${whereClause}`;
     db.get(countSql, bindings, (err, countRow) => {
       if (err) return res.status(500).json({ success: false, message: '讀取歷史資料筆數失敗：' + err.message });
 
       const totalCount = countRow ? countRow.total : 0;
 
-      // 🌟 直接在查詢時動態比對 inbound_details，若 ish.last_inbound_date 為空則自動以最符合的進貨/匯入日期替補
       const listSql = `
         SELECT 
-          ish.item_id, 
-          ish.item_name, 
-          ish.pm, 
-          ish.supplier_name,
-          IFNULL(ish.stock_qty_80, 0) as stock_qty_80,
-          IFNULL(ish.stock_qty_15, 0) as stock_qty_15,
-          (IFNULL(ish.stock_qty_80, 0) + IFNULL(ish.stock_qty_15, 0)) as total_stock_qty,
-          ish.monthly_sales, 
-          ish.sales_90d, 
-          ish.last_record_date, 
-          COALESCE(
-            NULLIF(ish.last_inbound_date, ''),
-            (
-              SELECT MAX(COALESCE(
-                NULLIF(rec_date, ''),
-                NULLIF(recv_date, ''),
-                NULLIF(put_date, ''),
-                NULLIF(putaway_date, ''),
-                NULLIF(SUBSTR(imported_at, 1, 10), '')
-              ))
-              FROM inbound_details
-              WHERE item_id IS NOT NULL AND item_id != ''
-                AND (
-                  UPPER(TRIM(item_id)) = UPPER(TRIM(ish.item_id))
-                  OR REPLACE(UPPER(TRIM(item_id)), '-', '') = REPLACE(UPPER(TRIM(ish.item_id)), '-', '')
-                  OR UPPER(TRIM(ish.item_id)) LIKE (UPPER(TRIM(item_id)) || '%')
-                  OR UPPER(TRIM(item_id)) LIKE (UPPER(TRIM(ish.item_id)) || '%')
-                )
-            )
-          ) as last_inbound_date,
-          ish.updated_at
-        FROM item_sales_history ish
+          item_id, item_name, pm, supplier_name,
+          IFNULL(stock_qty_80, 0) as stock_qty_80,
+          IFNULL(stock_qty_15, 0) as stock_qty_15,
+          (IFNULL(stock_qty_80, 0) + IFNULL(stock_qty_15, 0)) as total_stock_qty,
+          monthly_sales, sales_90d, last_record_date, last_inbound_date, updated_at
+        FROM item_sales_history 
         ${whereClause} 
-        ORDER BY ish.last_record_date DESC, ish.item_id ASC 
+        ORDER BY last_record_date DESC, item_id ASC 
         LIMIT ? OFFSET ?
       `;
 
@@ -165,42 +140,8 @@ module.exports = function(db) {
     });
   });
 
-  // [POST] /api/item-sales-history/sync-inbound
-  router.post('/sync-inbound', (req, res) => {
-    const { items } = req.body;
-    if (!Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ success: false, message: '未傳入有效的驗收資料' });
-    }
-
-    db.serialize(() => {
-      db.run('BEGIN TRANSACTION');
-      const stmt = db.prepare(`
-        INSERT INTO item_sales_history (item_id, last_inbound_date, updated_at)
-        VALUES (?, ?, DATETIME('now'))
-        ON CONFLICT(item_id) DO UPDATE SET
-          last_inbound_date = CASE 
-            WHEN EXCLUDED.last_inbound_date > IFNULL(item_sales_history.last_inbound_date, '') 
-            THEN EXCLUDED.last_inbound_date 
-            ELSE item_sales_history.last_inbound_date 
-          END,
-          updated_at = DATETIME('now')
-      `);
-
-      for (const item of items) {
-        if (item.item_id && item.rec_date) {
-          stmt.run([String(item.item_id).trim().toUpperCase(), String(item.rec_date).trim()]);
-        }
-      }
-
-      stmt.finalize();
-      db.run('COMMIT', (err) => {
-        if (err) return res.status(500).json({ success: false, message: '同步最後進貨日期失敗：' + err.message });
-        res.json({ success: true, message: '最後驗收日期已成功同步至歷史總表！' });
-      });
-    });
-  });
-
-  // 🌟【分批寫入防鎖表同步】/api/item-sales-history/sync-inbound-history
+  // 🌟【高效率索引批次同步】/api/item-sales-history/sync-inbound-history
+  // 先提取 inbound_details 內有效日期，利用精準 UPPER(TRIM(item_id)) 快速填入
   router.all('/sync-inbound-history', (req, res) => {
     const updateSql = `
       UPDATE item_sales_history
@@ -213,29 +154,17 @@ module.exports = function(db) {
           NULLIF(SUBSTR(imported_at, 1, 10), '')
         ))
         FROM inbound_details
-        WHERE item_id IS NOT NULL AND item_id != ''
-          AND (
-            UPPER(TRIM(item_id)) = UPPER(TRIM(item_sales_history.item_id))
-            OR REPLACE(UPPER(TRIM(item_id)), '-', '') = REPLACE(UPPER(TRIM(item_sales_history.item_id)), '-', '')
-            OR UPPER(TRIM(item_sales_history.item_id)) LIKE (UPPER(TRIM(item_id)) || '%')
-            OR UPPER(TRIM(item_id)) LIKE (UPPER(TRIM(item_sales_history.item_id)) || '%')
-          )
+        WHERE UPPER(TRIM(inbound_details.item_id)) = UPPER(TRIM(item_sales_history.item_id))
       ),
       updated_at = DATETIME('now')
       WHERE EXISTS (
         SELECT 1 FROM inbound_details
-        WHERE item_id IS NOT NULL AND item_id != ''
-          AND (
-            UPPER(TRIM(item_id)) = UPPER(TRIM(item_sales_history.item_id))
-            OR REPLACE(UPPER(TRIM(item_id)), '-', '') = REPLACE(UPPER(TRIM(item_sales_history.item_id)), '-', '')
-            OR UPPER(TRIM(item_sales_history.item_id)) LIKE (UPPER(TRIM(item_id)) || '%')
-            OR UPPER(TRIM(item_id)) LIKE (UPPER(TRIM(item_sales_history.item_id)) || '%')
-          )
+        WHERE UPPER(TRIM(inbound_details.item_id)) = UPPER(TRIM(item_sales_history.item_id))
       )
     `;
 
     db.run(updateSql, [], function(err) {
-      if (err) return res.status(500).json({ success: false, message: '更新失敗：' + err.message });
+      if (err) return res.status(500).json({ success: false, message: '同步失敗：' + err.message });
       res.json({
         success: true,
         message: `🎉 成功完成進貨驗收日期同步！共更新 ${this.changes} 筆商品。`
@@ -243,7 +172,7 @@ module.exports = function(db) {
     });
   });
 
-  // [GET] /api/item-sales-history/debug-inbound
+  // 🔍 [GET] /api/item-sales-history/debug-inbound
   router.get('/debug-inbound', (req, res) => {
     const rawItemId = (req.query.item_id || 'DMAGV0-A900GHNYH-000').trim();
     const cleanItemId = rawItemId.split('-')[0];
