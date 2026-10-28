@@ -4,40 +4,9 @@ const express = require('express');
 module.exports = function(db) {
   const router = express.Router();
 
-  // 自動執行最後進貨驗收日期同步函式
-  function autoSyncInbound() {
-    const updateSql = `
-      UPDATE item_sales_history
-      SET last_inbound_date = (
-        SELECT MAX(COALESCE(
-          NULLIF(rec_date, ''),
-          NULLIF(recv_date, ''),
-          NULLIF(put_date, ''),
-          NULLIF(putaway_date, ''),
-          NULLIF(SUBSTR(imported_at, 1, 10), '')
-        ))
-        FROM inbound_details
-        WHERE UPPER(TRIM(inbound_details.item_id)) = UPPER(TRIM(item_sales_history.item_id))
-      ),
-      updated_at = DATETIME('now')
-      WHERE EXISTS (
-        SELECT 1 FROM inbound_details
-        WHERE UPPER(TRIM(inbound_details.item_id)) = UPPER(TRIM(item_sales_history.item_id))
-      );
-    `;
-
-    db.run(updateSql, [], function(err) {
-      if (err) {
-        console.error('⚠️ [自動同步進貨日期失敗]:', err.message);
-      } else {
-        console.log(`✅ [自動同步進貨日期成功]: 共更新 ${this.changes} 筆商品驗收日期！`);
-      }
-    });
-  }
-
-  // 初始化建立 item_sales_history 資料表、索引與觸發自動同步
+  // 初始化建立 item_sales_history 資料表與索引
   db.serialize(() => {
-    db.run(`PRAGMA busy_timeout = 15000;`);
+    db.run(`PRAGMA busy_timeout = 10000;`);
 
     db.run(`
       CREATE TABLE IF NOT EXISTS item_sales_history (
@@ -59,10 +28,8 @@ module.exports = function(db) {
     db.run(`CREATE INDEX IF NOT EXISTS idx_ish_sales_90d ON item_sales_history(sales_90d);`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_ish_pm ON item_sales_history(pm);`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_ish_last_date ON item_sales_history(last_record_date);`);
+    // 確保 inbound_details 也有索引加速比對
     db.run(`CREATE INDEX IF NOT EXISTS idx_inbound_details_item_id ON inbound_details(item_id);`);
-
-    // 啟動完成後自動於背景執行一次對齊更新
-    autoSyncInbound();
   });
 
   // [ALL] /api/item-sales-history/fix-totals
@@ -107,7 +74,7 @@ module.exports = function(db) {
     });
   });
 
-  // ⚡【極速查詢】/api/item-sales-history/list
+  // ⚡【極速查詢】/api/item-sales-history/list - 拿掉子查詢，零延遲輸出
   router.get('/list', (req, res) => {
     const page = parseInt(req.query.page || '1', 10);
     const pageSize = parseInt(req.query.pageSize || '500', 10);
@@ -173,7 +140,8 @@ module.exports = function(db) {
     });
   });
 
-  // [ALL] 手動同步 API 端點
+  // 🌟【高效率索引批次同步】/api/item-sales-history/sync-inbound-history
+  // 先提取 inbound_details 內有效日期，利用精準 UPPER(TRIM(item_id)) 快速填入
   router.all('/sync-inbound-history', (req, res) => {
     const updateSql = `
       UPDATE item_sales_history
@@ -192,7 +160,7 @@ module.exports = function(db) {
       WHERE EXISTS (
         SELECT 1 FROM inbound_details
         WHERE UPPER(TRIM(inbound_details.item_id)) = UPPER(TRIM(item_sales_history.item_id))
-      );
+      )
     `;
 
     db.run(updateSql, [], function(err) {
@@ -204,29 +172,20 @@ module.exports = function(db) {
     });
   });
 
-  // 🔍 [GET] /api/item-sales-history/peek-inbound
-  router.get('/peek-inbound', (req, res) => {
-    db.all("SELECT * FROM inbound_details ORDER BY rowid DESC LIMIT 5", [], (err, rows) => {
-      if (err) return res.status(500).json({ success: false, error: err.message });
-      res.json({
-        success: true,
-        count: rows ? rows.length : 0,
-        sample_rows: rows || []
-      });
-    });
-  });
-
   // 🔍 [GET] /api/item-sales-history/debug-inbound
   router.get('/debug-inbound', (req, res) => {
-    const rawItemId = (req.query.item_id || 'DFAT48-A900KHS7S-001').trim();
+    const rawItemId = (req.query.item_id || 'DMAGV0-A900GHNYH-000').trim();
+    const cleanItemId = rawItemId.split('-')[0];
+
     const checkSql = `
       SELECT * FROM inbound_details 
-      WHERE item_id LIKE ? OR item_id = ?
+      WHERE item_id LIKE ? OR item_id LIKE ? OR item_id = ?
       LIMIT 20
     `;
 
-    db.all(checkSql, [`%${rawItemId}%`, rawItemId], (err, rows) => {
+    db.all(checkSql, [`%${cleanItemId}%`, `%${rawItemId}%`, rawItemId], (err, rows) => {
       if (err) return res.status(500).json({ success: false, error: err.message });
+      
       res.json({
         success: true,
         queried_item_id: rawItemId,
