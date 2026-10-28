@@ -6,6 +6,9 @@ module.exports = function(db) {
 
   // 初始化建立 item_sales_history 資料表與索引
   db.serialize(() => {
+    // 增加 busy 超時等待時間至 10 秒，避免鎖表噴錯
+    db.run(`PRAGMA busy_timeout = 10000;`);
+
     db.run(`
       CREATE TABLE IF NOT EXISTS item_sales_history (
         item_id TEXT PRIMARY KEY,
@@ -28,7 +31,7 @@ module.exports = function(db) {
     db.run(`CREATE INDEX IF NOT EXISTS idx_ish_last_date ON item_sales_history(last_record_date);`);
   });
 
-  // [ALL] /api/item-sales-history/fix-totals - 修正資料庫中現有總庫存數工具
+  // [ALL] /api/item-sales-history/fix-totals
   router.all('/fix-totals', (req, res) => {
     const fixSql = `
       UPDATE item_sales_history
@@ -44,7 +47,7 @@ module.exports = function(db) {
     });
   });
 
-  // [ALL] /api/item-sales-history/sync-15-stock - 一鍵將現有 15 庫存同步回歷史總表
+  // [ALL] /api/item-sales-history/sync-15-stock
   router.all('/sync-15-stock', (req, res) => {
     const syncSql = `
       UPDATE item_sales_history
@@ -70,7 +73,7 @@ module.exports = function(db) {
     });
   });
 
-  // [GET] /api/item-sales-history/list - 後端分頁查詢 API
+  // [GET] /api/item-sales-history/list
   router.get('/list', (req, res) => {
     const page = parseInt(req.query.page || '1', 10);
     const pageSize = parseInt(req.query.pageSize || '500', 10);
@@ -136,7 +139,7 @@ module.exports = function(db) {
     });
   });
 
-  // [POST] /api/item-sales-history/sync-inbound - 進貨驗收時更新最後驗收日期
+  // [POST] /api/item-sales-history/sync-inbound
   router.post('/sync-inbound', (req, res) => {
     const { items } = req.body;
     if (!Array.isArray(items) || items.length === 0) {
@@ -159,7 +162,7 @@ module.exports = function(db) {
 
       for (const item of items) {
         if (item.item_id && item.rec_date) {
-          stmt.run(String(item.item_id).trim().toUpperCase(), String(item.rec_date).trim());
+          stmt.run([String(item.item_id).trim().toUpperCase(), String(item.rec_date).trim()]);
         }
       }
 
@@ -171,53 +174,72 @@ module.exports = function(db) {
     });
   });
 
-  // 🌟【精準解析包含 imported_at 欄位】/api/item-sales-history/sync-inbound-history
+  // 🌟【極速暫存表對齊，防止鎖表與逾時】/api/item-sales-history/sync-inbound-history
   router.all('/sync-inbound-history', (req, res) => {
-    const syncSql = `
-      UPDATE item_sales_history
-      SET last_inbound_date = (
-        SELECT MAX(d) FROM (
-          SELECT COALESCE(
-            NULLIF(rec_date,''), 
-            NULLIF(recv_date,''), 
-            NULLIF(put_date,''), 
-            NULLIF(putaway_date,''), 
-            NULLIF(SUBSTR(imported_at, 1, 10),''), 
-            ''
-          ) as d
-          FROM inbound_details
-          WHERE item_id IS NOT NULL AND item_id != ''
-            AND (
-              UPPER(TRIM(item_id)) = UPPER(TRIM(item_sales_history.item_id))
-              OR REPLACE(UPPER(TRIM(item_id)), '-', '') = REPLACE(UPPER(TRIM(item_sales_history.item_id)), '-', '')
-              OR UPPER(TRIM(item_sales_history.item_id)) LIKE (UPPER(TRIM(item_id)) || '%')
-              OR UPPER(TRIM(item_id)) LIKE (UPPER(TRIM(item_sales_history.item_id)) || '%')
-            )
-        )
-      ),
-      updated_at = DATETIME('now')
-      WHERE EXISTS (
-        SELECT 1 FROM inbound_details
-        WHERE item_id IS NOT NULL AND item_id != ''
-          AND (
-            UPPER(TRIM(item_id)) = UPPER(TRIM(item_sales_history.item_id))
-            OR REPLACE(UPPER(TRIM(item_id)), '-', '') = REPLACE(UPPER(TRIM(item_sales_history.item_id)), '-', '')
-            OR UPPER(TRIM(item_sales_history.item_id)) LIKE (UPPER(TRIM(item_id)) || '%')
-            OR UPPER(TRIM(item_id)) LIKE (UPPER(TRIM(item_sales_history.item_id)) || '%')
-          )
-      )
-    `;
+    db.serialize(() => {
+      db.run('BEGIN TRANSACTION');
 
-    db.run(syncSql, [], function(err) {
-      if (err) return res.status(500).json({ success: false, message: '進貨驗收日期對齊失敗：' + err.message });
-      res.json({
-        success: true,
-        message: `🎉 成功完成進貨驗收日期對齊！共更新 ${this.changes} 筆商品。`
+      // 1. 建立記憶體暫存表並抓取每個 item_id 的最新進貨日期
+      db.run(`
+        CREATE TEMP TABLE IF NOT EXISTS temp_latest_inbound AS
+        SELECT 
+          UPPER(TRIM(item_id)) as clean_item_id,
+          MAX(COALESCE(
+            NULLIF(rec_date, ''),
+            NULLIF(recv_date, ''),
+            NULLIF(put_date, ''),
+            NULLIF(putaway_date, ''),
+            NULLIF(SUBSTR(imported_at, 1, 10), ''),
+            ''
+          )) as latest_date
+        FROM inbound_details
+        WHERE item_id IS NOT NULL AND TRIM(item_id) != ''
+        GROUP BY UPPER(TRIM(item_id));
+      `);
+
+      // 2. 利用暫存表一次性更新主表
+      const updateSql = `
+        UPDATE item_sales_history
+        SET last_inbound_date = (
+          SELECT temp_latest_inbound.latest_date
+          FROM temp_latest_inbound
+          WHERE temp_latest_inbound.clean_item_id = UPPER(TRIM(item_sales_history.item_id))
+             OR REPLACE(temp_latest_inbound.clean_item_id, '-', '') = REPLACE(UPPER(TRIM(item_sales_history.item_id)), '-', '')
+             OR UPPER(TRIM(item_sales_history.item_id)) LIKE (temp_latest_inbound.clean_item_id || '%')
+             OR temp_latest_inbound.clean_item_id LIKE (UPPER(TRIM(item_sales_history.item_id)) || '%')
+          LIMIT 1
+        ),
+        updated_at = DATETIME('now')
+        WHERE EXISTS (
+          SELECT 1 FROM temp_latest_inbound
+          WHERE temp_latest_inbound.clean_item_id = UPPER(TRIM(item_sales_history.item_id))
+             OR REPLACE(temp_latest_inbound.clean_item_id, '-', '') = REPLACE(UPPER(TRIM(item_sales_history.item_id)), '-', '')
+             OR UPPER(TRIM(item_sales_history.item_id)) LIKE (temp_latest_inbound.clean_item_id || '%')
+             OR temp_latest_inbound.clean_item_id LIKE (UPPER(TRIM(item_sales_history.item_id)) || '%')
+        );
+      `;
+
+      db.run(updateSql, [], function(err) {
+        if (err) {
+          db.run('ROLLBACK');
+          db.run('DROP TABLE IF EXISTS temp_latest_inbound');
+          return res.status(500).json({ success: false, message: '更新失敗：' + err.message });
+        }
+
+        const changesCount = this.changes;
+        db.run('DROP TABLE IF EXISTS temp_latest_inbound');
+        db.run('COMMIT', (commitErr) => {
+          if (commitErr) return res.status(500).json({ success: false, message: commitErr.message });
+          res.json({
+            success: true,
+            message: `🎉 成功完成進貨驗收日期同步！共更新 ${changesCount} 筆商品。`
+          });
+        });
       });
     });
   });
 
-  // 🔍 [GET] /api/item-sales-history/debug-inbound
+  // [GET] /api/item-sales-history/debug-inbound
   router.get('/debug-inbound', (req, res) => {
     const rawItemId = (req.query.item_id || 'DMAGV0-A900GHNYH-000').trim();
     const cleanItemId = rawItemId.split('-')[0];
