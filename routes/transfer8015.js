@@ -203,7 +203,18 @@ module.exports = function(db) {
         const remark = getVal('備註說明', 'remark', '備註');
         const actual_pcs = getNum('實際上架PCS', 'actual_pcs');
         // AD 欄位：海外訂單編號
-        const overseas_order_no = getVal('海外訂單編號', '海外單號', '進貨單號', '訂單單號', 'overseas_order_no');
+        // 嚴格支援多種 AD 欄位命名與去除隱藏空格
+        const overseas_order_no = getVal(
+          '海外訂單編號',
+          '海外訂單編號 ',
+          ' 海外訂單編號',
+          '海外訂單',
+          '海外單號',
+          '進貨單號',
+          '訂單單號',
+          '__EMPTY_29', // Excel 無標題時的第 30 欄 (AD欄)
+          'overseas_order_no'
+        );
 
         stmt.run(
           warehouse, order_no, doc_type, dest_warehouse, doc_status,
