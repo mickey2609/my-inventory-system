@@ -1,10 +1,10 @@
+// frontend/src/main.js
 import { createApp } from 'vue';
 import ElementPlus from 'element-plus';
 import 'element-plus/dist/index.css';
 import * as ElementPlusIconsVue from '@element-plus/icons-vue';
 import axios from 'axios';
 import App from './App.vue';
-import router from './router'; // 🌟 引入路由設定
 
 const BIN_ID = '6aad2ed2ac6210605adc4575';
 const JSONBIN_KEY = '$2a$10$GBayhoY0k2Exom4NkRzydu3CEcLJj1vior2Yld0PPsPDHsjDJG0wm';
@@ -35,7 +35,6 @@ for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
 }
 
 app.use(ElementPlus);
-app.use(router); // 🌟 掛載 Vue Router
 app.mount('#app');
 
 const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
