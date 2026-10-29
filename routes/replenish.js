@@ -240,7 +240,7 @@ module.exports = function(db) {
       rows.forEach(r => {
         const orderNo = (r.order_no || '').trim();
         const status = (r.doc_status || '').trim();
-        const hasFinishDate = !!(r.finish_date && r.finish_date.trim() !== '');
+        const hasFinish = !!(r.finish_date && r.finish_date.trim() !== '');
 
         if (r.gen_date === targetDate && r.gen_time) {
           const h = parseInt(r.gen_time.split(':')[0], 10);
@@ -248,7 +248,7 @@ module.exports = function(db) {
             if (orderNo) hourlyData[h].genOrderSet.add(orderNo);
             hourlyData[h].genPcs += (r.suggest_qty || 0);
 
-            if (!hasFinishDate && status !== '已刪單' && status !== '已銷案') {
+            if (!hasFinish && status !== '已刪單' && status !== '已銷案') {
               if (orderNo) hourlyData[h].pendingOrderSet.add(orderNo);
               hourlyData[h].pendingPcs += (r.suggest_qty || 0);
             }
@@ -280,7 +280,7 @@ module.exports = function(db) {
     });
   });
 
-  // 3. 每月總表 API（🌟 支援統計未完成筆數 pendingOrderCount）
+  // 🌟 3. 每月總表 API（與未完成名單使用完全相同的對齊判定）
   router.get('/monthly-summary', (req, res) => {
     const { month, docTypes, reasons } = req.query;
     if (!month) return res.status(400).json({ success: false, message: '請提供查詢月份 (YYYY-MM)' });
@@ -302,7 +302,8 @@ module.exports = function(db) {
         const status = (r.doc_status || '').trim();
         const gDate = r.gen_date;
         const fDate = r.finish_date;
-        const hasFinish = !!(fDate && fDate.trim() !== '') || !!(r.finish_time && r.finish_time.trim() !== '');
+        // 是否有完成日期的標準判定
+        const hasFinish = !!(fDate && fDate.trim() !== '');
         const isFinished = hasFinish && status !== '已刪單';
 
         if (gDate && gDate.startsWith(month)) {
@@ -323,7 +324,7 @@ module.exports = function(db) {
             daysMap[gDate].cohortFinOrderSet.add(orderNo);
           }
 
-          // 🌟 統計未完成單據：當日產生但未完成且非已刪單/銷案
+          // 核心判定：產生日期在當天，且完成日期為空，且狀態非已刪單/已銷案
           if (!hasFinish && status !== '已刪單' && status !== '已銷案') {
             if (orderNo) daysMap[gDate].pendingOrderSet.add(orderNo);
           }
@@ -404,7 +405,7 @@ module.exports = function(db) {
         const status = (r.doc_status || '').trim();
         const gDate = r.gen_date;
         const fDate = r.finish_date;
-        const isFinished = !!(fDate || r.finish_time) && status !== '已刪單';
+        const isFinished = !!(fDate && fDate.trim() !== '') && status !== '已刪單';
 
         if (gDate && gDate.startsWith(year)) {
           const mKey = gDate.substring(0, 7);
