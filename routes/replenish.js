@@ -240,7 +240,7 @@ module.exports = function(db) {
       rows.forEach(r => {
         const orderNo = (r.order_no || '').trim();
         const status = (r.doc_status || '').trim();
-        const hasFinishDate = !!(r.finish_date && r.finish_date.trim() !== '');
+        const hasFinishDate = !!(r.finish_date && String(r.finish_date).trim() !== '');
 
         if (r.gen_date === targetDate && r.gen_time) {
           const h = parseInt(r.gen_time.split(':')[0], 10);
@@ -280,7 +280,7 @@ module.exports = function(db) {
     });
   });
 
-  // 🌟 3. 每月總表 API（100% 絕對與魚群分析對齊的未完成單據統計）
+  // 🌟 3. 每月總表 API（未完成計算與時段魚群 100% 精準對齊）
   router.get('/monthly-summary', (req, res) => {
     const { month, docTypes, reasons } = req.query;
     if (!month) return res.status(400).json({ success: false, message: '請提供查詢月份 (YYYY-MM)' });
@@ -297,7 +297,6 @@ module.exports = function(db) {
       rows = rows || [];
       const daysMap = {};
 
-      // 輔助函式：確保日期物件存在
       const getDayObj = (d) => {
         if (!daysMap[d]) {
           daysMap[d] = {
@@ -305,6 +304,7 @@ module.exports = function(db) {
             genOrderSet: new Set(),
             genPcs: 0,
             pendingOrderSet: new Set(),
+            pendingItemCount: 0,
             cohortFinOrderSet: new Set(),
             finOrderSet: new Set(),
             finPcs: 0,
@@ -319,25 +319,26 @@ module.exports = function(db) {
         const status = (r.doc_status || '').trim();
         const gDate = (r.gen_date || '').trim();
         const fDate = (r.finish_date || '').trim();
-        const hasFinishDate = !!(fDate && fDate !== '');
+        const hasFinish = !!(fDate && fDate !== '');
 
-        // 1. 產生補貨單邏輯（依產生日期 gen_date 歸類）
+        // 1. 產生補貨單邏輯（依產生日期歸類）
         if (gDate && gDate.startsWith(month)) {
           const day = getDayObj(gDate);
           if (orderNo) day.genOrderSet.add(orderNo);
           day.genPcs += (r.suggest_qty || 0);
 
-          if (hasFinishDate && status !== '已刪單') {
+          if (hasFinish && status !== '已刪單') {
             if (orderNo) day.cohortFinOrderSet.add(orderNo);
           }
 
-          // 🌟 核心修正：只要該明細無完成日期，且不是已刪單與已銷案，便將單號加入當日未完成單據中
-          if (!hasFinishDate && status !== '已刪單' && status !== '已銷案') {
+          // 🌟 與魚群分析邏輯完全一致：無完成日期且未結案
+          if (!hasFinish && status !== '已刪單' && status !== '已銷案') {
             if (orderNo) day.pendingOrderSet.add(orderNo);
+            day.pendingItemCount++;
           }
         }
 
-        // 2. 完成補貨單邏輯（依完成日期 finish_date 歸類）
+        // 2. 完成補貨單邏輯（依完成日期歸類）
         if (fDate && fDate.startsWith(month)) {
           const day = getDayObj(fDate);
           if (status !== '已刪單') {
@@ -359,7 +360,9 @@ module.exports = function(db) {
           date: item.date,
           genOrderCount: genCount,
           genPcs: item.genPcs,
-          pendingOrderCount: item.pendingOrderSet.size, // 🌟 正確提取 Set.size
+          // 🌟 同時提供單數與筆數（魚群總計為 pendingOrderSet.size，即 135 單）
+          pendingOrderCount: item.pendingOrderSet.size,
+          pendingItemCount: item.pendingItemCount,
           finOrderCount: item.finOrderSet.size,
           finPcs: item.finPcs,
           delOrderCount: item.delOrderSet.size,

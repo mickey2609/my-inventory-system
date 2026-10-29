@@ -161,7 +161,7 @@
               <th style="width: 80px;">產生占比</th>
               <th style="width: 80px;">產生筆數</th>
               <th style="width: 90px;">產生PCS</th>
-              <th class="col-pending-header" style="width: 90px;">未完成筆數</th>
+              <th class="col-pending-header" style="width: 100px;">未完成筆數</th>
               <th class="col-bar-title">完成圖形</th>
               <th style="width: 80px;">完成占比</th>
               <th style="width: 80px;">完成筆數</th>
