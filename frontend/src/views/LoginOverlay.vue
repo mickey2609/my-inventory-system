@@ -21,7 +21,7 @@
         <el-form-item label="帳號">
           <el-input 
             v-model="loginForm.username" 
-            placeholder="請輸入帳號 (例如: admin)" 
+            placeholder="請輸入員工編號" 
             prefix-icon="User"
             clearable 
           />
@@ -48,7 +48,7 @@
           <el-checkbox v-model="loginForm.rememberMe">記住帳號與密碼</el-checkbox>
         </div>
 
-        <!-- 🌟 4. 登入失敗 / 帳密錯誤 / 逾時提示區塊 -->
+        <!-- 4. 登入失敗 / 帳密錯誤 / 逾時提示區塊 -->
         <div v-if="timeoutMessage" class="error-msg-box">
           {{ timeoutMessage }}
         </div>
@@ -228,7 +228,6 @@ export default {
   color: #94a3b8 !important;
 }
 
-/* 🌟 錯誤提示紅框 */
 .error-msg-box {
   background-color: rgba(239, 68, 68, 0.15);
   border: 1px solid #ef4444;

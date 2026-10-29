@@ -1,6 +1,6 @@
 <template>
   <div id="app" class="app-container dark-mode">
-    <!-- 1. 登入遮罩畫面 -->
+    <!-- 1. 登入遮罩畫面 (僅在未登入且非公開模組直達時顯示) -->
     <LoginOverlay 
       v-if="!isLoggedIn" 
       :login-form="loginForm" 
@@ -10,7 +10,7 @@
       @login="handleLogin" 
     />
 
-    <!-- 2. 登入後主頁面 -->
+    <!-- 2. 主頁面內容 -->
     <div v-else class="app-main-content">
       <TopNavbar 
         :current-tab="currentTab"
@@ -71,7 +71,7 @@
             @refresh-metrics="fetchDashboardMetrics"
           />
 
-          <!-- 🌟 全商品歷史銷量與進貨履歷模組 -->
+          <!-- 全商品歷史銷量與進貨履歷模組 -->
           <ItemSalesHistory 
             v-else-if="currentTab === 'item_sales_history'" key="item_sales_history"
           />
@@ -240,7 +240,7 @@ import { useUserManagement } from './composables/useUserManagement.js'
 import { useLocSummary } from './composables/useLocSummary.js'
 import { processCsvUpload, processExportData, triggerSaveLocationHistory } from './utils/exportImportHelpers.js'
 
-// 🌟 模組 Key 與 URL 路徑雙向映射表
+// 模組 Key 與 URL 路徑雙向映射表[cite: 18]
 const TAB_PATH_MAP = {
   'home': '/',
   'inv80': '/inv-query-80',
@@ -305,7 +305,7 @@ export default {
 
     return {
       appVersion: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'v2026.10.21',
-      isLoggedIn: false, currentUser: '', currentUsername: '', currentUserRole: 'user', loginLoading: false, savingConfig: false,
+      isLoggedIn: false, isGuestMode: false, currentUser: '', currentUsername: '', currentUserRole: 'user', loginLoading: false, savingConfig: false,
       savingExportConfig: false, currentUserPermissions: [],
       showUnifiedDrawer: false, showSearchModal: false, showParamMenuDialog: false, showWidthConfigDialog: false,
       showExportWidthConfigDialog: false, showImportTipDialog: false, showInventoryImportTipDialog: false,
@@ -377,7 +377,13 @@ export default {
 
     await this.fetchGlobalConfig();
 
+    // 方案 A 檢查：網址是否直接指定某個特定模組[cite: 18]
+    const hashClean = window.location.hash.replace(/^#\/?/, '').split('?')[0];
+    const initialMatchedTab = PATH_TAB_MAP['/' + hashClean] || PATH_TAB_MAP[hashClean];
+
     const savedSessionStr = localStorage.getItem('auth_session');
+    let hasValidSession = false;
+
     if (savedSessionStr) {
       try {
         const session = JSON.parse(savedSessionStr);
@@ -392,17 +398,14 @@ export default {
           this.currentUserPermissions = session.permissions || [];
           this.loginTimestamp = session.loginTimestamp || now;
           this.lastActiveTimestamp = now;
+          hasValidSession = true;
 
           await this.reloadCurrentUserPermissions();
-
           this.formatLoginTimeStr();
           this.startTimers();
           this.startHeartbeat();
           this.fetchDashboardMetrics();
           this.fetchLogs();
-          
-          // 🌟 登入狀態下檢查網址直達
-          this.syncTabFromUrl();
         } else {
           this.clearSession();
           this.timeoutMessage = '系統閒置已超過 1 小時，請重新登入！';
@@ -412,7 +415,26 @@ export default {
       }
     }
 
-    // 🌟 監聽瀏覽器上一頁 / 下一頁切換網址
+    // 方案 A 判斷：若無登入 Session，但開著非首頁的特定模組網址，自動以訪客身分直達[cite: 18]
+    if (!hasValidSession) {
+      if (initialMatchedTab && initialMatchedTab !== 'home') {
+        this.isLoggedIn = true;
+        this.isGuestMode = true;
+        this.currentUsername = 'guest';
+        this.currentUser = '訪客 (免登直達)';
+        this.currentUserRole = 'guest';
+        this.currentUserPermissions = 'all';
+        this.openedTabs = [initialMatchedTab];
+        this.switchTab(initialMatchedTab);
+      } else {
+        this.isLoggedIn = false;
+      }
+    } else {
+      if (initialMatchedTab && initialMatchedTab !== 'home') {
+        this.openNewTab(initialMatchedTab);
+      }
+    }
+
     window.addEventListener('hashchange', this.handleHashChange);
     window.addEventListener('focus', this.reloadCurrentUserPermissions);
     window.addEventListener('inventory-updated', this.fetchDashboardMetrics);
@@ -425,20 +447,23 @@ export default {
     window.removeEventListener('inventory-updated', this.fetchDashboardMetrics);
   },
   methods: {
-    // 🌟 根據當前網址 Hash 同步分頁標籤（支援書籤直達）
-    syncTabFromUrl() {
-      const hashClean = window.location.hash.replace(/^#\/?/, '').split('?')[0];
-      const fullPath = '/' + hashClean;
-      const targetTab = PATH_TAB_MAP[fullPath] || PATH_TAB_MAP[hashClean];
-      if (targetTab && targetTab !== 'home') {
-        this.openNewTab(targetTab);
-      }
-    },
     handleHashChange() {
-      if (!this.isLoggedIn) return;
-      const currentHash = window.location.hash.replace(/^#/, '') || '/';
-      const targetTab = PATH_TAB_MAP[currentHash];
-      if (targetTab && targetTab !== this.currentTab) {
+      const hashClean = window.location.hash.replace(/^#\/?/, '').split('?')[0];
+      const targetTab = PATH_TAB_MAP['/' + hashClean] || PATH_TAB_MAP[hashClean];
+
+      if (!this.isLoggedIn && targetTab && targetTab !== 'home') {
+        this.isLoggedIn = true;
+        this.isGuestMode = true;
+        this.currentUsername = 'guest';
+        this.currentUser = '訪客 (免登直達)';
+        this.currentUserRole = 'guest';
+        this.currentUserPermissions = 'all';
+        this.openedTabs = [targetTab];
+        this.switchTab(targetTab);
+        return;
+      }
+
+      if (this.isLoggedIn && targetTab && targetTab !== this.currentTab) {
         this.openNewTab(targetTab);
       }
     },
@@ -457,7 +482,7 @@ export default {
       this.heartbeatTimer = null;
     },
     async sendHeartbeat() {
-      if (this.isLoggedIn && this.currentUsername) {
+      if (this.isLoggedIn && this.currentUsername && !this.isGuestMode) {
         try {
           await axios.post('/api/heartbeat', { username: this.currentUsername });
         } catch (e) {}
@@ -465,7 +490,7 @@ export default {
     },
 
     async reloadCurrentUserPermissions() {
-      if (!this.isLoggedIn || !this.currentUsername || this.isSysAdmin) return;
+      if (!this.isLoggedIn || !this.currentUsername || this.isSysAdmin || this.isGuestMode) return;
       try {
         const res = await axios.get('/api/get-users');
         if (res.data?.status === 'success' && res.data?.users) {
@@ -492,6 +517,7 @@ export default {
     },
 
     hasModulePermission(tabKey) {
+      if (this.isGuestMode) return true;
       if (this.isSysAdmin || tabKey === 'home' || tabKey === 'settings_perm' || tabKey === 'settings_log' || tabKey === 'item_sales_history') return true;
       const perms = this.currentUserPermissions;
       if (!perms || perms === 'all' || perms === 'all,') return true;
@@ -554,7 +580,9 @@ export default {
     },
 
     async sendCurrentLog(feature, action) {
-      await this.sendLog(this.currentUsername || 'unknown', feature, action);
+      if (!this.isGuestMode) {
+        await this.sendLog(this.currentUsername || 'unknown', feature, action);
+      }
     },
 
     async fetchDashboardMetrics() {
@@ -591,12 +619,11 @@ export default {
       localStorage.setItem('opened_tabs', JSON.stringify(this.openedTabs));
       this.sendCurrentLog('選單切換', '切換至頁籤: ' + this.getTabName(tabKey));
       
-      // 🌟 自動切換並同步瀏覽器網址列 Hash 路徑
+      // 原生 Hash 網址同步[cite: 18]
       const targetPath = TAB_PATH_MAP[tabKey] || '/';
-      if (this.$router && this.$route.path !== targetPath) {
-        this.$router.push(targetPath).catch(() => {});
-      } else if (!this.$router) {
-        window.location.hash = '#' + targetPath;
+      const expectedHash = '#' + targetPath;
+      if (window.location.hash !== expectedHash) {
+        window.location.hash = expectedHash;
       }
 
       this.fetchGlobalConfig();
@@ -853,6 +880,7 @@ export default {
         if (res.data && (res.data.status === 'success' || res.data.success === true)) {
           const userData = res.data.user || res.data.data || {};
           this.isLoggedIn = true; 
+          this.isGuestMode = false;
           this.currentUsername = res.data.username || userData.username || this.loginForm.username; 
           this.currentUser = res.data.name || userData.name || this.currentUsername;
           this.currentUserRole = res.data.role || userData.role || 'user';
@@ -870,18 +898,16 @@ export default {
           this.fetchDashboardMetrics(); 
           this.fetchLogs(); 
 
-          // 🌟 登入後精準還原使用者原本想去的網址頁面
           const hashClean = window.location.hash.replace(/^#\/?/, '').split('?')[0];
-          const fullPath = '/' + hashClean;
-          const targetTab = PATH_TAB_MAP[fullPath] || PATH_TAB_MAP[hashClean];
+          const targetTab = PATH_TAB_MAP['/' + hashClean] || PATH_TAB_MAP[hashClean];
 
           if (targetTab && targetTab !== 'home' && this.hasModulePermission(targetTab)) {
             this.currentTab = targetTab;
             this.openedTabs = ['home', targetTab];
           } else {
-            this.currentTab = 'home';
+            this.currentTab = 'home'; 
             this.openedTabs = ['home'];
-            if (!hashClean) window.location.hash = '#/';
+            window.location.hash = '#/';
           }
           localStorage.setItem('current_tab', this.currentTab);
           localStorage.setItem('opened_tabs', JSON.stringify(this.openedTabs));
@@ -901,11 +927,12 @@ export default {
     },
 
     async handleLogout() {
-      try { if (this.currentUsername) await axios.post('/api/logout', { username: this.currentUsername }); } catch (e) {}
+      try { if (this.currentUsername && !this.isGuestMode) await axios.post('/api/logout', { username: this.currentUsername }); } catch (e) {}
       this.stopHeartbeat();
       if (typeof this.clearSession === 'function') this.clearSession();
       this.stopTimers();
       this.isLoggedIn = false; 
+      this.isGuestMode = false;
       this.currentUser = ''; 
       this.currentUsername = ''; 
       this.currentUserRole = 'user';
