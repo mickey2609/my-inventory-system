@@ -240,6 +240,27 @@ import { useUserManagement } from './composables/useUserManagement.js'
 import { useLocSummary } from './composables/useLocSummary.js'
 import { processCsvUpload, processExportData, triggerSaveLocationHistory } from './utils/exportImportHelpers.js'
 
+// 🌟 模組 Key 與 URL 路徑雙向映射表
+const TAB_PATH_MAP = {
+  'home': '/',
+  'inv80': '/inv-query-80',
+  'inv15': '/inv-search-15',
+  'loc_summary': '/loc-summary',
+  'item_sales_history': '/item-sales-history',
+  'turnover': '/turnover',
+  'abnormal_purchase': '/abnormal-purchase',
+  'inbound_fish': '/inbound-fish',
+  'replenish_fish': '/replenish-fish',
+  'transfer_80_15': '/transfer-8015',
+  'transfer_15_80': '/transfer-1580',
+  'settings_perm': '/settings-perm',
+  'settings_log': '/settings-log'
+};
+
+const PATH_TAB_MAP = Object.fromEntries(
+  Object.entries(TAB_PATH_MAP).map(([k, v]) => [v, k])
+);
+
 export default {
   name: 'App',
   components: {
@@ -379,6 +400,9 @@ export default {
           this.startHeartbeat();
           this.fetchDashboardMetrics();
           this.fetchLogs();
+          
+          // 🌟 登入狀態下檢查網址直達
+          this.syncTabFromUrl();
         } else {
           this.clearSession();
           this.timeoutMessage = '系統閒置已超過 1 小時，請重新登入！';
@@ -388,16 +412,36 @@ export default {
       }
     }
 
+    // 🌟 監聽瀏覽器上一頁 / 下一頁切換網址
+    window.addEventListener('hashchange', this.handleHashChange);
     window.addEventListener('focus', this.reloadCurrentUserPermissions);
     window.addEventListener('inventory-updated', this.fetchDashboardMetrics);
     this.fetchUsers();
   },
   beforeUnmount() {
     this.stopHeartbeat();
+    window.removeEventListener('hashchange', this.handleHashChange);
     window.removeEventListener('focus', this.reloadCurrentUserPermissions);
     window.removeEventListener('inventory-updated', this.fetchDashboardMetrics);
   },
   methods: {
+    // 🌟 根據當前網址 Hash 同步分頁標籤（支援書籤直達）
+    syncTabFromUrl() {
+      const currentHash = window.location.hash.replace(/^#/, '') || '/';
+      const targetTab = PATH_TAB_MAP[currentHash];
+      if (targetTab && targetTab !== 'home') {
+        this.openNewTab(targetTab);
+      }
+    },
+    handleHashChange() {
+      if (!this.isLoggedIn) return;
+      const currentHash = window.location.hash.replace(/^#/, '') || '/';
+      const targetTab = PATH_TAB_MAP[currentHash];
+      if (targetTab && targetTab !== this.currentTab) {
+        this.openNewTab(targetTab);
+      }
+    },
+
     updateCurrentExportConfig(newCfg) {
       if (this.currentTab === 'inv15') this.exportConfig15 = newCfg;
       else this.exportConfig80 = newCfg;
@@ -446,7 +490,6 @@ export default {
       } catch (e) {}
     },
 
-    // 🌟 精準過濾與安全放行邏輯
     hasModulePermission(tabKey) {
       if (this.isSysAdmin || tabKey === 'home' || tabKey === 'settings_perm' || tabKey === 'settings_log' || tabKey === 'item_sales_history') return true;
       const perms = this.currentUserPermissions;
@@ -547,6 +590,14 @@ export default {
       localStorage.setItem('opened_tabs', JSON.stringify(this.openedTabs));
       this.sendCurrentLog('選單切換', '切換至頁籤: ' + this.getTabName(tabKey));
       
+      // 🌟 自動切換並同步瀏覽器網址列 Hash 路徑
+      const targetPath = TAB_PATH_MAP[tabKey] || '/';
+      if (this.$router && this.$route.path !== targetPath) {
+        this.$router.push(targetPath).catch(() => {});
+      } else if (!this.$router) {
+        window.location.hash = '#' + targetPath;
+      }
+
       this.fetchGlobalConfig();
 
       if (tabKey === 'home') this.fetchDashboardMetrics();
@@ -792,7 +843,6 @@ export default {
     },
     async fetchLogs() { try { const res = await axios.get('/api/get-logs'); if (res.data?.logs) this.logsList = res.data.logs; } catch (e) {} },
     
-    // 🌟 登入防禦邏輯：狀態校驗與錯誤處理
     async handleLogin() {
       if (!this.loginForm.username || !this.loginForm.password) return ElMessage.warning('請輸入帳密！');
       this.loginLoading = true;
@@ -812,17 +862,27 @@ export default {
           if (typeof this.saveOrClearCredentials === 'function') this.saveOrClearCredentials(this.loginForm);
           if (typeof this.saveSession === 'function') this.saveSession(this.currentUsername, this.currentUser, this.currentUserRole, this.currentUserPermissions);
 
-          this.currentTab = 'home'; 
-          this.openedTabs = ['home'];
-          localStorage.setItem('current_tab', 'home');
-          localStorage.setItem('opened_tabs', JSON.stringify(['home']));
-
           this.formatLoginTimeStr();
           this.startTimers();
           this.startHeartbeat();
           this.fetchGlobalConfig();
           this.fetchDashboardMetrics(); 
           this.fetchLogs(); 
+
+          // 🌟 登入後優先檢查網址直達需求，若無則回首頁
+          const currentHash = window.location.hash.replace(/^#/, '') || '/';
+          const targetTab = PATH_TAB_MAP[currentHash];
+          if (targetTab && targetTab !== 'home' && this.hasModulePermission(targetTab)) {
+            this.currentTab = targetTab;
+            this.openedTabs = ['home', targetTab];
+          } else {
+            this.currentTab = 'home'; 
+            this.openedTabs = ['home'];
+            window.location.hash = '#/';
+          }
+          localStorage.setItem('current_tab', this.currentTab);
+          localStorage.setItem('opened_tabs', JSON.stringify(this.openedTabs));
+
           ElMessage.success('歡迎回來，' + this.currentUser + '！');
         } else { 
           this.isLoggedIn = false;
@@ -848,6 +908,7 @@ export default {
       this.currentUserRole = 'user';
       this.currentUserPermissions = [];
       this.openedTabs = [];
+      window.location.hash = '#/';
       ElMessage.info('已成功登出');
     },
     getTabName(k) {

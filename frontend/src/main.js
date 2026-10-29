@@ -2,12 +2,10 @@ import { createApp } from 'vue';
 import ElementPlus from 'element-plus';
 import 'element-plus/dist/index.css';
 import * as ElementPlusIconsVue from '@element-plus/icons-vue';
-import axios from 'axios'; // 引入 axios 用於設定全域 API 基礎網址
+import axios from 'axios';
 import App from './App.vue';
+import router from './router'; // 🌟 引入路由設定
 
-// -------------------------------------------------------------
-// 1. 動態從 JSONBin 讀取桌機 Tunnel 網址並設定全域 Axios
-// -------------------------------------------------------------
 const BIN_ID = '6aad2ed2ac6210605adc4575';
 const JSONBIN_KEY = '$2a$10$GBayhoY0k2Exom4NkRzydu3CEcLJj1vior2Yld0PPsPDHsjDJG0wm';
 
@@ -28,22 +26,18 @@ async function initDesktopApiBase() {
   }
 }
 
-// 啟動時先讀取網址
 initDesktopApiBase();
 
 const app = createApp(App);
 
-// 2. 自動註冊所有 Element Plus 圖示
 for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
   app.component(key, component);
 }
 
 app.use(ElementPlus);
+app.use(router); // 🌟 掛載 Vue Router
 app.mount('#app');
 
-// -------------------------------------------------------------
-// 3. 本機環境自動標記 (測) 腳本（強效定時與監聽版）
-// -------------------------------------------------------------
 const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
 if (isLocal) {
@@ -53,10 +47,7 @@ if (isLocal) {
     }
   };
 
-  // 每 0.5 秒定期檢查並補上 (測)
   setInterval(applyTestTitle, 500);
-
-  // 監聽整個 HTML <head> 確保任何改變都能抓到
   const observer = new MutationObserver(applyTestTitle);
   observer.observe(document.head, { subtree: true, characterData: true, childList: true });
 }

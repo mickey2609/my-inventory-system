@@ -1,65 +1,25 @@
 // frontend/src/router/index.js
-import { createRouter, createWebHistory } from 'vue-router'
-import HomeDashboard from '../views/HomeDashboard.vue'
-import InvQuery80 from '../views/InvQuery80.vue'
-import InvSearch15 from '../views/InvSearch15.vue'
-import LocSummary from '../views/LocSummary.vue'
-import InboundFishList from '../views/InboundFishList.vue'
-import ReplenishFishList from '../views/ReplenishFishList.vue'
-import Transfer8015FishList from '../views/Transfer8015FishList.vue'
-import SettingsPerm from '../views/SettingsPerm.vue'
-import SettingsLog from '../views/SettingsLog.vue'
+import { createRouter, createWebHashHistory } from 'vue-router'
 
 const routes = [
-  {
-    path: '/',
-    name: 'Home',
-    component: HomeDashboard
-  },
-  {
-    path: '/inv-query-80',
-    name: 'InvQuery80',
-    component: InvQuery80
-  },
-  {
-    path: '/inv-search-15',
-    name: 'InvSearch15',
-    component: InvSearch15
-  },
-  {
-    path: '/loc-summary',
-    name: 'LocSummary',
-    component: LocSummary
-  },
-  {
-    path: '/inbound-fish',
-    name: 'InboundFish',
-    component: InboundFishList
-  },
-  {
-    path: '/replenish-fish',
-    name: 'ReplenishFish',
-    component: ReplenishFishList
-  },
-  {
-    path: '/transfer-8015',
-    name: 'Transfer8015',
-    component: Transfer8015FishList
-  },
-  {
-    path: '/settings-perm',
-    name: 'SettingsPerm',
-    component: SettingsPerm
-  },
-  {
-    path: '/settings-log',
-    name: 'SettingsLog',
-    component: SettingsLog
-  }
+  { path: '/', name: 'Home', meta: { tab: 'home' } },
+  { path: '/inv-query-80', name: 'InvQuery80', meta: { tab: 'inv80' } },
+  { path: '/inv-search-15', name: 'InvSearch15', meta: { tab: 'inv15' } },
+  { path: '/loc-summary', name: 'LocSummary', meta: { tab: 'loc_summary' } },
+  { path: '/item-sales-history', name: 'ItemSalesHistory', meta: { tab: 'item_sales_history' } },
+  { path: '/turnover', name: 'Turnover', meta: { tab: 'turnover' } },
+  { path: '/abnormal-purchase', name: 'AbnormalPurchase', meta: { tab: 'abnormal_purchase' } },
+  { path: '/inbound-fish', name: 'InboundFish', meta: { tab: 'inbound_fish' } },
+  { path: '/replenish-fish', name: 'ReplenishFish', meta: { tab: 'replenish_fish' } },
+  { path: '/transfer-8015', name: 'Transfer8015', meta: { tab: 'transfer_80_15' } },
+  { path: '/transfer-1580', name: 'Transfer1580', meta: { tab: 'transfer_15_80' } },
+  { path: '/settings-perm', name: 'SettingsPerm', meta: { tab: 'settings_perm' } },
+  { path: '/settings-log', name: 'SettingsLog', meta: { tab: 'settings_log' } }
 ]
 
 const router = createRouter({
-  history: createWebHistory(),
+  // 🌟 使用 Hash 模式，在 Cloudflare Pages 上重新整理絕不 404
+  history: createWebHashHistory(),
   routes
 })
 
