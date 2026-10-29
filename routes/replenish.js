@@ -280,7 +280,7 @@ module.exports = function(db) {
     });
   });
 
-  // 🌟 3. 每月總表 API（完全對齊單日時段分析的未完成判定標準）
+  // 🌟 3. 每月總表 API（100% 絕對與魚群分析對齊的未完成單據統計）
   router.get('/monthly-summary', (req, res) => {
     const { month, docTypes, reasons } = req.query;
     if (!month) return res.status(400).json({ success: false, message: '請提供查詢月份 (YYYY-MM)' });
@@ -297,53 +297,54 @@ module.exports = function(db) {
       rows = rows || [];
       const daysMap = {};
 
+      // 輔助函式：確保日期物件存在
+      const getDayObj = (d) => {
+        if (!daysMap[d]) {
+          daysMap[d] = {
+            date: d,
+            genOrderSet: new Set(),
+            genPcs: 0,
+            pendingOrderSet: new Set(),
+            cohortFinOrderSet: new Set(),
+            finOrderSet: new Set(),
+            finPcs: 0,
+            delOrderSet: new Set()
+          };
+        }
+        return daysMap[d];
+      };
+
       rows.forEach(r => {
         const orderNo = (r.order_no || '').trim();
         const status = (r.doc_status || '').trim();
-        const gDate = r.gen_date;
-        const fDate = r.finish_date;
-        const hasFinishDate = !!(fDate && fDate.trim() !== '');
+        const gDate = (r.gen_date || '').trim();
+        const fDate = (r.finish_date || '').trim();
+        const hasFinishDate = !!(fDate && fDate !== '');
 
+        // 1. 產生補貨單邏輯（依產生日期 gen_date 歸類）
         if (gDate && gDate.startsWith(month)) {
-          if (!daysMap[gDate]) {
-            daysMap[gDate] = {
-              date: gDate,
-              genOrderSet: new Set(), genPcs: 0,
-              pendingOrderSet: new Set(),
-              cohortFinOrderSet: new Set(),
-              finOrderSet: new Set(), finPcs: 0,
-              delOrderSet: new Set()
-            };
-          }
-          if (orderNo) daysMap[gDate].genOrderSet.add(orderNo);
-          daysMap[gDate].genPcs += (r.suggest_qty || 0);
+          const day = getDayObj(gDate);
+          if (orderNo) day.genOrderSet.add(orderNo);
+          day.genPcs += (r.suggest_qty || 0);
 
           if (hasFinishDate && status !== '已刪單') {
-            if (orderNo) daysMap[gDate].cohortFinOrderSet.add(orderNo);
+            if (orderNo) day.cohortFinOrderSet.add(orderNo);
           }
 
-          // 🌟 100% 同步單日時段分析的未完成判定規則：
+          // 🌟 核心修正：只要該明細無完成日期，且不是已刪單與已銷案，便將單號加入當日未完成單據中
           if (!hasFinishDate && status !== '已刪單' && status !== '已銷案') {
-            if (orderNo) daysMap[gDate].pendingOrderSet.add(orderNo);
+            if (orderNo) day.pendingOrderSet.add(orderNo);
           }
         }
 
+        // 2. 完成補貨單邏輯（依完成日期 finish_date 歸類）
         if (fDate && fDate.startsWith(month)) {
-          if (!daysMap[fDate]) {
-            daysMap[fDate] = {
-              date: fDate,
-              genOrderSet: new Set(), genPcs: 0,
-              pendingOrderSet: new Set(),
-              cohortFinOrderSet: new Set(),
-              finOrderSet: new Set(), finPcs: 0,
-              delOrderSet: new Set()
-            };
-          }
+          const day = getDayObj(fDate);
           if (status !== '已刪單') {
-            if (orderNo) daysMap[fDate].finOrderSet.add(orderNo);
-            daysMap[fDate].finPcs += (r.actual_pcs || 0);
+            if (orderNo) day.finOrderSet.add(orderNo);
+            day.finPcs += (r.actual_pcs || 0);
           } else {
-            if (orderNo) daysMap[fDate].delOrderSet.add(orderNo);
+            if (orderNo) day.delOrderSet.add(orderNo);
           }
         }
       });
@@ -356,9 +357,11 @@ module.exports = function(db) {
 
         return {
           date: item.date,
-          genOrderCount: genCount, genPcs: item.genPcs,
-          pendingOrderCount: item.pendingOrderSet ? item.pendingOrderSet.size : 0,
-          finOrderCount: item.finOrderSet.size, finPcs: item.finPcs,
+          genOrderCount: genCount,
+          genPcs: item.genPcs,
+          pendingOrderCount: item.pendingOrderSet.size, // 🌟 正確提取 Set.size
+          finOrderCount: item.finOrderSet.size,
+          finPcs: item.finPcs,
           delOrderCount: item.delOrderSet.size,
           cohortFinOrderCount: cohortFinCount,
           finishRate: Math.min(100, rateVal).toFixed(2) + '%'
@@ -401,9 +404,9 @@ module.exports = function(db) {
       rows.forEach(r => {
         const orderNo = (r.order_no || '').trim();
         const status = (r.doc_status || '').trim();
-        const gDate = r.gen_date;
-        const fDate = r.finish_date;
-        const isFinished = !!(fDate && fDate.trim() !== '') && status !== '已刪單';
+        const gDate = (r.gen_date || '').trim();
+        const fDate = (r.finish_date || '').trim();
+        const isFinished = !!(fDate && fDate !== '') && status !== '已刪單';
 
         if (gDate && gDate.startsWith(year)) {
           const mKey = gDate.substring(0, 7);
