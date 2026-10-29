@@ -78,7 +78,7 @@ app.use('/api/turnover80', turnover80Module(db));
 const abnormalRouter = require('./routes/abnormal')(db);
 app.use('/api/abnormal', abnormalRouter);
 
-// 🌟 7. 全商品歷史銷量與驗收總表 API
+// 7. 全商品歷史銷量與驗收總表 API
 const itemSalesHistoryRouter = require('./routes/itemSalesHistory')(db);
 app.use('/api/item-sales-history', itemSalesHistoryRouter);
 
@@ -764,8 +764,11 @@ app.get('/api/categories/small', (req, res) => {
   });
 });
 
+// 🌟 心跳 API：記錄使用者與訪客 (guest) 在線狀態
 app.post('/api/heartbeat', (req, res) => {
-  if (req.body.username) db.run('UPDATE users SET last_active = ? WHERE username = ?', [Math.floor(Date.now() / 1000), req.body.username]);
+  if (req.body.username) {
+    db.run('UPDATE users SET last_active = ? WHERE username = ?', [Math.floor(Date.now() / 1000), req.body.username]);
+  }
   res.json({ success: true });
 });
 
@@ -774,11 +777,31 @@ app.post('/api/logout', (req, res) => {
   res.json({ success: true, message: '已成功登出' });
 });
 
+// 🌟 取得所有使用者清單（含訪客 guest 自動補齊與精準在線判定）
 app.get('/api/get-users', (req, res) => {
   db.all('SELECT username, name, role, permissions, last_active FROM users', [], (err, rows) => {
     if (err) return res.status(500).json({ success: false, error: err.message });
+    rows = rows || [];
     const now = Math.floor(Date.now() / 1000);
-    res.json({ success: true, users: (rows || []).map(u => ({ ...u, is_online: !!(u.last_active && (now - u.last_active < 60)) })) });
+
+    // 檢查若無 guest 帳號則注入一筆
+    const hasGuest = rows.some(u => u.username === 'guest');
+    if (!hasGuest) {
+      rows.push({
+        username: 'guest',
+        name: '訪客 (免登直達)',
+        role: 'guest',
+        permissions: 'replenish_fish,transfer_80_15,transfer_15_80',
+        last_active: 0
+      });
+    }
+
+    const formattedUsers = rows.map(u => ({
+      ...u,
+      is_online: !!(u.last_active && (now - u.last_active < 60))
+    }));
+
+    res.json({ success: true, users: formattedUsers });
   });
 });
 
@@ -801,6 +824,9 @@ app.post(['/api/update-role', '/api/update-user-role', '/api/update-user'], (req
 });
 
 app.post(['/api/update-password', '/api/update-user-password'], (req, res) => {
+  if (req.body.username === 'guest') {
+    return res.status(400).json({ success: false, message: '訪客為免密碼帳號，無須變更密碼！' });
+  }
   db.run('UPDATE users SET password = ? WHERE username = ?', [req.body.new_password || req.body.password, req.body.username], (err) => {
     if (err) return res.status(500).json({ success: false, error: err.message });
     res.json({ success: true, message: '密碼已成功變更！' });
@@ -816,6 +842,9 @@ app.post(['/api/update-permissions', '/api/update-user-permissions'], (req, res)
 });
 
 app.post('/api/delete-user', (req, res) => {
+  if (req.body.username === 'guest') {
+    return res.status(400).json({ success: false, message: '訪客帳號為系統內建直達核心，無法刪除！' });
+  }
   db.run('DELETE FROM users WHERE username = ?', [req.body.username], (err) => {
     if (err) return res.status(500).json({ success: false, error: err.message });
     res.json({ success: true, message: '刪除帳號成功！' });
@@ -1004,7 +1033,6 @@ app.post('/api/upload', (req, res) => {
     const { items, isFirstChunk, fileName } = req.body;
     if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ success: false, message: '上傳資料格式無效' });
 
-    // 從檔名解析上傳日期 (例如 inventory_20261021.csv 轉為 2026-10-21)
     let recordDateStr = new Date().toISOString().split('T')[0];
     if (fileName) {
       const matchDate = fileName.match(/\d{8}/);
@@ -1022,7 +1050,6 @@ app.post('/api/upload', (req, res) => {
       db.run('BEGIN TRANSACTION');
       if (isFirstChunk) {
         db.run('DELETE FROM inventory');
-        // 🌟 上傳全新 80 庫全量檔時，先預設將原本 80 庫存清空歸零（避免已售罄下架商品殘留舊庫存數）
         db.run(`UPDATE item_sales_history SET stock_qty_80 = 0, total_stock_qty = IFNULL(stock_qty_15, 0)`);
       }
 
@@ -1042,7 +1069,6 @@ app.post('/api/upload', (req, res) => {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
-      // 🌟 核心升級 Upsert 邏輯：只有當本次庫存 > 0 時，才更新「銷量」與「最後在庫日期」！
       const stmtHistory = db.prepare(`
         INSERT INTO item_sales_history (
           item_id, item_name, pm, supplier_name, stock_qty_80, total_stock_qty,
@@ -1137,8 +1163,13 @@ db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS system_config (config_key TEXT PRIMARY KEY, config_value TEXT);`);
   db.run(`CREATE TABLE IF NOT EXISTS locations_master (id INTEGER PRIMARY KEY AUTOINCREMENT, floor TEXT, zone TEXT, loc_type TEXT, cubic_feet REAL, grid_count INTEGER, single_cubic_feet REAL);`);
   db.run(`CREATE TABLE IF NOT EXISTS import_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, module_type TEXT, file_name TEXT, row_count INTEGER, imported_at TEXT);`);
+  
+  // 基礎系統帳號
   db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions) VALUES ('admin', '系統管理員', 'sys_admin', 'admin', 'all');`);
   db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions) VALUES ('801854', '黃勝鴻', 'sys_admin', '801854', 'all');`);
+  
+  // 🌟 初始化訪客 (免登直達) 帳號，預設開放三大魚群模組
+  db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions, last_active) VALUES ('guest', '訪客 (免登直達)', 'guest', 'guest_direct_no_pwd', 'replenish_fish,transfer_80_15,transfer_15_80', 0);`);
 });
 
 app.listen(PORT, '0.0.0.0', () => {

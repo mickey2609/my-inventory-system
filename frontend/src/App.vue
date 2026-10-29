@@ -240,7 +240,7 @@ import { useUserManagement } from './composables/useUserManagement.js'
 import { useLocSummary } from './composables/useLocSummary.js'
 import { processCsvUpload, processExportData, triggerSaveLocationHistory } from './utils/exportImportHelpers.js'
 
-// 模組 Key 與 URL 路徑雙向映射表[cite: 18]
+// 模組 Key 與 URL 路徑雙向映射表[cite: 17]
 const TAB_PATH_MAP = {
   'home': '/',
   'inv80': '/inv-query-80',
@@ -377,7 +377,7 @@ export default {
 
     await this.fetchGlobalConfig();
 
-    // 方案 A 檢查：網址是否直接指定某個特定模組[cite: 18]
+    // 方案 A 檢查：網址是否直接指定某個特定模組[cite: 17]
     const hashClean = window.location.hash.replace(/^#\/?/, '').split('?')[0];
     const initialMatchedTab = PATH_TAB_MAP['/' + hashClean] || PATH_TAB_MAP[hashClean];
 
@@ -415,7 +415,7 @@ export default {
       }
     }
 
-    // 方案 A 判斷：若無登入 Session，但開著非首頁的特定模組網址，自動以訪客身分直達[cite: 18]
+    // 方案 A 訪客直達判斷：若無登入 Session 但開著特定模組網址，以訪客身分直達並啟動心跳回報[cite: 17]
     if (!hasValidSession) {
       if (initialMatchedTab && initialMatchedTab !== 'home') {
         this.isLoggedIn = true;
@@ -426,6 +426,7 @@ export default {
         this.currentUserPermissions = 'all';
         this.openedTabs = [initialMatchedTab];
         this.switchTab(initialMatchedTab);
+        this.startHeartbeat(); // 🌟 啟動訪客在線心跳
       } else {
         this.isLoggedIn = false;
       }
@@ -460,6 +461,7 @@ export default {
         this.currentUserPermissions = 'all';
         this.openedTabs = [targetTab];
         this.switchTab(targetTab);
+        this.startHeartbeat();
         return;
       }
 
@@ -482,7 +484,8 @@ export default {
       this.heartbeatTimer = null;
     },
     async sendHeartbeat() {
-      if (this.isLoggedIn && this.currentUsername && !this.isGuestMode) {
+      // 🌟 訪客 (guest) 與登入帳號皆發送心跳，確保後端掌握在線狀態[cite: 17]
+      if (this.isLoggedIn && this.currentUsername) {
         try {
           await axios.post('/api/heartbeat', { username: this.currentUsername });
         } catch (e) {}
@@ -619,7 +622,7 @@ export default {
       localStorage.setItem('opened_tabs', JSON.stringify(this.openedTabs));
       this.sendCurrentLog('選單切換', '切換至頁籤: ' + this.getTabName(tabKey));
       
-      // 原生 Hash 網址同步[cite: 18]
+      // 原生 Hash 網址同步[cite: 17]
       const targetPath = TAB_PATH_MAP[tabKey] || '/';
       const expectedHash = '#' + targetPath;
       if (window.location.hash !== expectedHash) {

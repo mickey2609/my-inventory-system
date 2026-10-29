@@ -45,7 +45,7 @@
           </template>
         </el-table-column>
 
-        <!-- 身份角色標籤對應 (sys_admin / admin / user) -->
+        <!-- 身份角色標籤對應 (sys_admin / admin / user / guest) -->
         <el-table-column prop="role" label="身份" width="150">
           <template #default="scope">
             <el-tag :type="getRoleTagType(scope.row)" size="small">
@@ -62,9 +62,10 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="密碼" width="100">
-          <template #default>
-            <span class="pwd-mask">******</span>
+        <el-table-column label="密碼" width="110">
+          <template #default="scope">
+            <span v-if="scope.row.username === 'guest'" class="guest-pwd-tip">免密碼直達</span>
+            <span v-else class="pwd-mask">******</span>
           </template>
         </el-table-column>
 
@@ -83,17 +84,37 @@
               <el-button type="purple" size="small" class="opt-btn purple-btn" @click="$emit('open-role', scope.row)">
                 🆔 身份設定
               </el-button>
-              <el-button type="warning" size="small" class="opt-btn warning-btn" @click="$emit('open-pwd', scope.row)">
+              
+              <!-- 訪客帳號不需修改密碼 -->
+              <el-button 
+                v-if="scope.row.username !== 'guest'"
+                type="warning" 
+                size="small" 
+                class="opt-btn warning-btn" 
+                @click="$emit('open-pwd', scope.row)"
+              >
                 修改密碼
               </el-button>
+              <el-button 
+                v-else
+                type="info" 
+                size="small" 
+                class="opt-btn info-btn-disabled" 
+                disabled
+              >
+                免設密碼
+              </el-button>
+
               <el-button type="primary" size="small" class="opt-btn primary-btn" @click="$emit('open-perm', scope.row)">
                 權限設定
               </el-button>
+              
+              <!-- admin 與 guest 帳號防護不可刪除 -->
               <el-button 
                 type="danger" 
                 size="small" 
                 class="opt-btn danger-btn" 
-                :disabled="scope.row.username === 'admin'"
+                :disabled="scope.row.username === 'admin' || scope.row.username === 'guest'"
                 @click="$emit('delete-user', scope.row.username)"
               >
                 刪除
@@ -150,6 +171,7 @@ export default {
   methods: {
     getRoleLabel(row) {
       if (!row) return '👤 一般人員';
+      if (row.username === 'guest' || row.role === 'guest') return '🌐 訪客直達';
       const role = row.role;
       if (role === 'sys_admin' || row.username === 'admin') return '👑 系統管理員';
       if (role === 'admin') return '👑 管理員';
@@ -157,6 +179,7 @@ export default {
     },
     getRoleTagType(row) {
       if (!row) return 'info';
+      if (row.username === 'guest' || row.role === 'guest') return 'success';
       const role = row.role;
       if (role === 'sys_admin' || row.username === 'admin') return 'danger'; 
       if (role === 'admin') return 'warning'; 
@@ -164,6 +187,7 @@ export default {
     },
     isUserOnline(row) {
       if (!row) return false;
+      // 優先依後端計算好的 is_online (心跳判定)
       if (row.is_online !== undefined && row.is_online !== null) {
         return row.is_online;
       }
@@ -177,30 +201,29 @@ export default {
              (rowUser && rowUser === curUser) || 
              (rowName && rowName === curUser);
     },
-    // 在 SettingsPerm.vue 或權限列表中轉換名稱的邏輯
     formatPermissions(perms) {
-    if (!perms) return '無權限';
-    if (perms === 'all' || perms === 'all,') return '全模組權限';
+      if (!perms) return '無權限';
+      if (perms === 'all' || perms === 'all,') return '全模組權限';
 
-    const moduleMap = {
-      'loc_summary': '儲位數才數統整',
-      'inv80': '庫存查詢80',
-      'inv15': '庫存查詢15',
-      'item_sales_history': '全商品歷史銷量與進貨履歷',
-      'turnover': '迴轉率清單',
-      'abnormal_purchase': '不合理進貨清單',
-      'inbound_fish': '進貨上架魚群',
-      'replenish_fish': '立即補貨單魚群',
-      'transfer_80_15': '跨庫調撥 80>15',
-      'transfer_15_80': '跨庫調撥 15>80'
-    };
+      const moduleMap = {
+        'loc_summary': '儲位數才數統整',
+        'inv80': '庫存查詢80',
+        'inv15': '庫存查詢15',
+        'item_sales_history': '全商品歷史銷量與進貨履歷',
+        'turnover': '迴轉率清單',
+        'abnormal_purchase': '不合理進貨清單',
+        'inbound_fish': '進貨上架魚群',
+        'replenish_fish': '立即補貨單魚群',
+        'transfer_80_15': '跨庫調撥 80>15',
+        'transfer_15_80': '跨庫調撥 15>80'
+      };
 
-    const list = Array.isArray(perms) 
-      ? perms 
-      : String(perms).split(',').map(s => s.trim()).filter(Boolean);
+      const list = Array.isArray(perms) 
+        ? perms 
+        : String(perms).split(',').map(s => s.trim()).filter(Boolean);
 
-    return list.map(key => moduleMap[key] || key).join(', ');
-   }
+      return list.map(key => moduleMap[key] || key).join(', ');
+    }
   }
 }
 </script>
@@ -264,6 +287,7 @@ export default {
 .status-online { color: #4ade80 !important; font-weight: bold; font-size: 13px; }
 .status-offline { color: #94a3b8 !important; font-size: 13px; }
 .pwd-mask { color: #64748b !important; }
+.guest-pwd-tip { color: #38bdf8 !important; font-size: 12px; font-weight: bold; }
 .cell-perm-text { color: #cbd5e1 !important; font-size: 13px; }
 
 .opt-btn-group {
@@ -283,6 +307,13 @@ export default {
   background-color: #8b5cf6 !important;
   border-color: #7c3aed !important;
   color: #ffffff !important;
+}
+
+.opt-btn.info-btn-disabled {
+  background-color: #334155 !important;
+  border-color: #475569 !important;
+  color: #94a3b8 !important;
+  cursor: not-allowed !important;
 }
 
 :deep(.custom-perm-table) {
