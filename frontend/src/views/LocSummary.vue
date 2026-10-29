@@ -37,7 +37,9 @@
             重新整理數據
           </el-button>
 
+          <!-- 🌟 訪客免登時隱藏儲位定義設定 -->
           <el-button 
+            v-if="!isGuestMode"
             type="warning" 
             size="small" 
             icon="el-icon-setting" 
@@ -46,8 +48,9 @@
             ⚙️ 儲位定義設定
           </el-button>
 
+          <!-- 🌟 訪客免登時隱藏匯出 xlsx 按鈕 -->
           <el-button 
-            v-if="exportPerms.xlsx"
+            v-if="!isGuestMode && exportPerms.xlsx"
             type="success" 
             size="small" 
             icon="el-icon-document" 
@@ -304,7 +307,6 @@
             </div>
             <div v-else class="svg-charts-container">
               
-              <!-- 圖表一：全區總體使用中 -->
               <div class="svg-chart-card">
                 <div class="chart-title">
                   <span>📊 一、80 庫全區「使用中儲格數」與「使用中才數」歷史推移曲線</span>
@@ -346,7 +348,6 @@
                 </div>
               </div>
 
-              <!-- 圖表二：剩餘空儲格數與才數 -->
               <div class="svg-chart-card">
                 <div class="chart-title">
                   <span>📦 二、80 庫全區「剩餘空儲格數」與「剩餘空才數」歷史推移曲線</span>
@@ -388,7 +389,6 @@
                 </div>
               </div>
 
-              <!-- 圖表三：整體健康度 -->
               <div class="svg-chart-card">
                 <div class="chart-title">
                   <span>🩺 三、80 庫「儲位整體健康度 (儲位使用率 %)」歷史走勢曲線</span>
@@ -450,7 +450,6 @@
               </div>
 
               <div class="svg-charts-container">
-                <!-- 1. 各類型：使用中儲格數與才數 -->
                 <div class="svg-chart-card">
                   <div class="chart-title">
                     <span>📊 一、【{{ selectedLocType }}】使用中儲格數 (左 Y 軸) 與 使用中才數 (右 Y 軸) 推移曲線</span>
@@ -492,7 +491,6 @@
                   </div>
                 </div>
 
-                <!-- 2. 各類型：剩餘空儲格數與才數 -->
                 <div class="svg-chart-card">
                   <div class="chart-title">
                     <span>📦 二、【{{ selectedLocType }}】剩餘空儲格數 (左 Y 軸) 與 剩餘空才數 (右 Y 軸) 推移曲線</span>
@@ -534,7 +532,6 @@
                   </div>
                 </div>
 
-                <!-- 3. 各類型：類型健康度 -->
                 <div class="svg-chart-card">
                   <div class="chart-title">
                     <span>🩺 三、【{{ selectedLocType }}】類型健康度 (使用率 %) 歷史走勢曲線</span>
@@ -578,7 +575,7 @@
           <el-tab-pane label="🗓️ 儲位 7 大 KPI 歷史快照管理清單" name="history_manager">
             <div class="history-page-wrapper">
               <div class="history-page-header">
-                <span class="history-page-title">🗓️️ 80 庫歷史快照點詳細紀錄列表</span>
+                <span class="history-page-title">🗓 80 庫歷史快照點詳細紀錄列表</span>
                 <span class="history-page-subtitle">共 {{ historyList.length }} 筆歷史資料（點擊左側 ➕ 可展開檢視各儲位類型小計指標）</span>
               </div>
               
@@ -649,6 +646,7 @@
                 <el-table-column label="操作" width="110" align="center" fixed="right">
                   <template #default="scope">
                     <el-button 
+                      v-if="!isGuestMode"
                       type="danger" 
                       size="mini" 
                       icon="el-icon-delete"
@@ -767,7 +765,8 @@ export default {
   name: 'LocSummary',
   props: [
     'loading', 'calcProgress', 'progressColors', 'summaryStats', 
-    'summaryGridData', 'summaryVolData', 'typeMergedData', 'areaGridTable', 'areaVolTable'
+    'summaryGridData', 'summaryVolData', 'typeMergedData', 'areaGridTable', 'areaVolTable',
+    'isGuestMode'
   ],
   data() {
     return {
@@ -1282,7 +1281,6 @@ export default {
       }
     },
 
-    // 匯出 XLSX
     async exportFullXlsx() {
       if (!this.exportPerms.xlsx) {
         return this.$message.warning('權限受限：管理者尚未開放匯出 xlsx 功能');

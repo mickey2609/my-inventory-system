@@ -17,7 +17,7 @@
         :opened-tabs="openedTabs"
         :app-version="appVersion"
         :current-user="currentUser"
-        :show-export-btn="currentTab === 'loc_summary' && (summaryGridData.length > 0 || areaGridTable.length > 0)"
+        :show-export-btn="!isGuestMode && currentTab === 'loc_summary' && (summaryGridData.length > 0 || areaGridTable.length > 0)"
         @switch-tab="switchTab"
         @close-tab="closeTab"
         @open-drawer="showUnifiedDrawer = true"
@@ -41,6 +41,7 @@
             :loading="locLoading" :calc-progress="calcProgress" :progress-colors="progressColors"
             :summaryStats="summaryStats" :area-grid-table="areaGridTable" :summary-grid-data="summaryGridData"
             :area-vol-table="areaVolTable" :summary-vol-data="summaryVolData"
+            :is-guest-mode="isGuestMode"
             @refresh-summary="handleSummaryCalc"
           />
 
@@ -240,7 +241,6 @@ import { useUserManagement } from './composables/useUserManagement.js'
 import { useLocSummary } from './composables/useLocSummary.js'
 import { processCsvUpload, processExportData, triggerSaveLocationHistory } from './utils/exportImportHelpers.js'
 
-// 模組 Key 與 URL 路徑雙向映射表[cite: 17]
 const TAB_PATH_MAP = {
   'home': '/',
   'inv80': '/inv-query-80',
@@ -377,7 +377,6 @@ export default {
 
     await this.fetchGlobalConfig();
 
-    // 方案 A 檢查：網址是否直接指定某個特定模組[cite: 17]
     const hashClean = window.location.hash.replace(/^#\/?/, '').split('?')[0];
     const initialMatchedTab = PATH_TAB_MAP['/' + hashClean] || PATH_TAB_MAP[hashClean];
 
@@ -415,7 +414,6 @@ export default {
       }
     }
 
-    // 方案 A 訪客直達判斷：若無登入 Session 但開著特定模組網址，以訪客身分直達並啟動心跳回報[cite: 17]
     if (!hasValidSession) {
       if (initialMatchedTab && initialMatchedTab !== 'home') {
         this.isLoggedIn = true;
@@ -426,7 +424,7 @@ export default {
         this.currentUserPermissions = 'all';
         this.openedTabs = [initialMatchedTab];
         this.switchTab(initialMatchedTab);
-        this.startHeartbeat(); // 🌟 啟動訪客在線心跳
+        this.startHeartbeat();
       } else {
         this.isLoggedIn = false;
       }
@@ -484,7 +482,6 @@ export default {
       this.heartbeatTimer = null;
     },
     async sendHeartbeat() {
-      // 🌟 訪客 (guest) 與登入帳號皆發送心跳，確保後端掌握在線狀態[cite: 17]
       if (this.isLoggedIn && this.currentUsername) {
         try {
           await axios.post('/api/heartbeat', { username: this.currentUsername });
@@ -622,7 +619,6 @@ export default {
       localStorage.setItem('opened_tabs', JSON.stringify(this.openedTabs));
       this.sendCurrentLog('選單切換', '切換至頁籤: ' + this.getTabName(tabKey));
       
-      // 原生 Hash 網址同步[cite: 17]
       const targetPath = TAB_PATH_MAP[tabKey] || '/';
       const expectedHash = '#' + targetPath;
       if (window.location.hash !== expectedHash) {
