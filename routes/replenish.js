@@ -280,7 +280,7 @@ module.exports = function(db) {
     });
   });
 
-  // 3. 每月總表 API
+  // 3. 每月總表 API（🌟 支援統計未完成筆數 pendingOrderCount）
   router.get('/monthly-summary', (req, res) => {
     const { month, docTypes, reasons } = req.query;
     if (!month) return res.status(400).json({ success: false, message: '請提供查詢月份 (YYYY-MM)' });
@@ -302,13 +302,15 @@ module.exports = function(db) {
         const status = (r.doc_status || '').trim();
         const gDate = r.gen_date;
         const fDate = r.finish_date;
-        const isFinished = !!(fDate || r.finish_time) && status !== '已刪單';
+        const hasFinish = !!(fDate && fDate.trim() !== '') || !!(r.finish_time && r.finish_time.trim() !== '');
+        const isFinished = hasFinish && status !== '已刪單';
 
         if (gDate && gDate.startsWith(month)) {
           if (!daysMap[gDate]) {
             daysMap[gDate] = {
               date: gDate,
               genOrderSet: new Set(), genPcs: 0,
+              pendingOrderSet: new Set(),
               cohortFinOrderSet: new Set(),
               finOrderSet: new Set(), finPcs: 0,
               delOrderSet: new Set()
@@ -320,6 +322,11 @@ module.exports = function(db) {
           if (isFinished && orderNo) {
             daysMap[gDate].cohortFinOrderSet.add(orderNo);
           }
+
+          // 🌟 統計未完成單據：當日產生但未完成且非已刪單/銷案
+          if (!hasFinish && status !== '已刪單' && status !== '已銷案') {
+            if (orderNo) daysMap[gDate].pendingOrderSet.add(orderNo);
+          }
         }
 
         if (fDate && fDate.startsWith(month)) {
@@ -327,6 +334,7 @@ module.exports = function(db) {
             daysMap[fDate] = {
               date: fDate,
               genOrderSet: new Set(), genPcs: 0,
+              pendingOrderSet: new Set(),
               cohortFinOrderSet: new Set(),
               finOrderSet: new Set(), finPcs: 0,
               delOrderSet: new Set()
@@ -350,6 +358,7 @@ module.exports = function(db) {
         return {
           date: item.date,
           genOrderCount: genCount, genPcs: item.genPcs,
+          pendingOrderCount: item.pendingOrderSet ? item.pendingOrderSet.size : 0,
           finOrderCount: item.finOrderSet.size, finPcs: item.finPcs,
           delOrderCount: item.delOrderSet.size,
           cohortFinOrderCount: cohortFinCount,
@@ -443,7 +452,7 @@ module.exports = function(db) {
     });
   });
 
-  // 🌟 5. 未完成明細日期選單（左側導航欄，統計每日筆數）
+  // 5. 未完成明細日期選單（左側導航欄，統計每日筆數）
   router.get('/pending-dates', (req, res) => {
     const sql = `
       SELECT gen_date, COUNT(*) as count 
