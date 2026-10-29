@@ -208,7 +208,7 @@
       </div>
     </div>
 
-    <!-- 3.2 每月每日總表區塊 -->
+    <!-- 3.2 每月每日總表區塊（🌟 包含未完成筆數） -->
     <div class="table-container" v-loading="loadingMonthly" v-else-if="analysisMode === 'monthly'">
       <div class="sheet-title">
         🗓️ 倉庫 跨庫調撥 (80➔15) - {{ targetMonth }} 月份每日總表
@@ -219,16 +219,17 @@
           <thead>
             <tr class="header-main">
               <th style="width: 110px;" rowspan="2">日期</th>
-              <th colspan="2" class="group-blue-header">產生調撥單匯總</th>
+              <th colspan="3" class="group-blue-header">產生調撥單匯總</th>
               <th colspan="2" class="group-green-header">完成調撥單匯總</th>
               <th class="col-ratio-header" rowspan="2" style="width: 100px;">已刪單筆數</th>
               <th class="col-ratio-header" rowspan="2" style="width: 110px;">完成率 (%)</th>
             </tr>
             <tr class="header-sub">
-              <th style="width: 120px;">產生單數</th>
-              <th style="width: 130px;">產生 PCS</th>
-              <th style="width: 120px;">完成單數</th>
-              <th style="width: 130px;">完成 PCS</th>
+              <th style="width: 100px;">產生單數</th>
+              <th style="width: 110px;">產生 PCS</th>
+              <th class="col-pending-header" style="width: 100px;">未完成筆數</th>
+              <th style="width: 100px;">完成單數</th>
+              <th style="width: 110px;">完成 PCS</th>
             </tr>
           </thead>
 
@@ -237,6 +238,7 @@
               <td class="text-center font-bold">{{ day.date }}</td>
               <td class="text-right">{{ formatNumber(day.genOrderCount) }}</td>
               <td class="text-right font-bold text-blue">{{ formatNumber(day.genPcs) }}</td>
+              <td class="text-right font-bold text-red">{{ formatNumber(day.pendingOrderCount) }}</td>
               
               <td class="text-right">{{ formatNumber(day.finOrderCount) }}</td>
               <td class="text-right font-bold text-green">{{ formatNumber(day.finPcs) }}</td>
@@ -251,6 +253,7 @@
               <td class="text-center font-bold">全月總計</td>
               <td class="text-right font-bold">{{ formatNumber(monthlySummaryTotal.genOrderCount) }}</td>
               <td class="text-right font-bold text-blue">{{ formatNumber(monthlySummaryTotal.genPcs) }}</td>
+              <td class="text-right font-bold text-red">{{ formatNumber(monthlySummaryTotal.pendingOrderCount) }}</td>
               
               <td class="text-right font-bold">{{ formatNumber(monthlySummaryTotal.finOrderCount) }}</td>
               <td class="text-right font-bold text-green">{{ formatNumber(monthlySummaryTotal.finPcs) }}</td>
@@ -318,7 +321,7 @@
       </div>
     </div>
 
-    <!-- 4. 未完成追蹤對話框彈窗 -->
+    <!-- 4. 未完成追蹤對話框彈窗（🌟 包含「進貨單號」欄位） -->
     <el-dialog
       v-model="showPendingDialog"
       title="⚠️ 尚未調撥完成單據明細監控與更正處置"
@@ -390,6 +393,14 @@
                 <span class="text-orange font-bold">{{ scope.row.order_no }}</span>
               </template>
             </el-table-column>
+            
+            <!-- 🌟 80 ➔ 15 專屬欄位：進貨單號 (匯入檔 AD 欄) -->
+            <el-table-column prop="overseas_order_no" label="進貨單號" width="150" align="center">
+              <template #default="scope">
+                <span class="text-yellow font-bold">{{ scope.row.overseas_order_no }}</span>
+              </template>
+            </el-table-column>
+
             <el-table-column prop="item_id" label="商品編號" width="140" align="center">
               <template #default="scope">
                 <span class="text-blue font-bold">{{ scope.row.item_id }}</span>
@@ -634,7 +645,6 @@ export default {
     }
   },
   computed: {
-    // 🔒 僅限 SysAdmin 刪除與清理
     checkSysAdmin() {
       if (this.isSysAdmin) return true;
       try {
@@ -647,7 +657,6 @@ export default {
       const username = localStorage.getItem('currentUser') || localStorage.getItem('username') || '';
       return username === 'admin' || username === '系統管理員';
     },
-    // 🔓 開放 Admin 與 SysAdmin 均可匯入
     checkAdmin() {
       if (this.isSysAdmin || this.isAdmin) return true;
       try {
@@ -673,10 +682,11 @@ export default {
       return tot;
     },
     monthlySummaryTotal() {
-      const tot = { genOrderCount: 0, genPcs: 0, cohortFinOrderCount: 0, finOrderCount: 0, finPcs: 0, delOrderCount: 0 };
+      const tot = { genOrderCount: 0, genPcs: 0, pendingOrderCount: 0, cohortFinOrderCount: 0, finOrderCount: 0, finPcs: 0, delOrderCount: 0 };
       this.monthlyDailyList.forEach(d => {
         tot.genOrderCount += d.genOrderCount || 0;
         tot.genPcs += d.genPcs || 0;
+        tot.pendingOrderCount += d.pendingOrderCount || 0;
         tot.cohortFinOrderCount += d.cohortFinOrderCount || 0;
         tot.finOrderCount += d.finOrderCount || 0;
         tot.finPcs += d.finPcs || 0;
@@ -822,7 +832,7 @@ export default {
           confirmButtonText: '執行銷案',
           cancelButtonText: '取消',
           inputValue: '2026-01-01, 2026-08-31',
-          inputPattern: /^\d{4}-\d{2}-\d{2}\s*,\s*\d{4}-\d{2}-\d{2}$/,
+          inputPattern: /^\d{4}-\d{2}-\d{2}\s*,\s*\d{4}-\d{2}-\d{2}\$/,
           inputErrorMessage: '格式不正確，例：2026-01-01, 2026-08-31'
         });
 
@@ -1305,6 +1315,7 @@ export default {
 .text-blue { color: #38bdf8; }
 .text-green { color: #4ade80; }
 .text-orange { color: #fbbf24; }
+.text-yellow { color: #facc15; }
 .text-red { color: #f87171; }
 .font-bold { font-weight: bold; }
 

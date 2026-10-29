@@ -11,7 +11,7 @@ function getTunnelUrlFromBin() {
     const options = {
       hostname: 'api.jsonbin.io',
       port: 443,
-      path: `/v3/b/${BIN_ID}/latest`,
+      path: `/v3/b/${BIN_ID}/latest?t=${Date.now()}`,
       method: 'GET',
       headers: { 'X-Master-Key': JSONBIN_KEY }
     };
@@ -33,7 +33,7 @@ function getTunnelUrlFromBin() {
   });
 }
 
-function pushSingleFileToDesktop(desktopUrl, relativeFilePath) {
+function sendFile(desktopUrl, relativeFilePath) {
   return new Promise((resolve, reject) => {
     const fullPath = path.join(__dirname, relativeFilePath);
     if (!fs.existsSync(fullPath)) {
@@ -45,7 +45,7 @@ function pushSingleFileToDesktop(desktopUrl, relativeFilePath) {
     const urlObj = new URL(desktopUrl);
 
     const postData = JSON.stringify({
-      filename: relativeFilePath,
+      filename: relativeFilePath.replace(/\\/g, '/'),
       code: fileContent
     });
 
@@ -67,7 +67,9 @@ function pushSingleFileToDesktop(desktopUrl, relativeFilePath) {
         if (res.statusCode === 200) {
           console.log(`🎉 成功更新 ${relativeFilePath} 至地端桌機！`);
           resolve(body);
-        } else reject(`桌機回應錯誤 (${res.statusCode}): ${body}`);
+        } else {
+          reject(`桌機回應錯誤 (${res.statusCode}): ${body}`);
+        }
       });
     });
 
@@ -77,18 +79,34 @@ function pushSingleFileToDesktop(desktopUrl, relativeFilePath) {
   });
 }
 
+async function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function pushWithRetry(desktopUrl, relativeFilePath, maxRetries = 3) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      await sendFile(desktopUrl, relativeFilePath);
+      return;
+    } catch (err) {
+      console.log(`⏳ [${relativeFilePath}] 推送遭遇中斷 (${err})，等待 3 秒後重試 (${attempt}/${maxRetries})...`);
+      await sleep(3000);
+      if (attempt === maxRetries) throw err;
+    }
+  }
+}
+
 async function main() {
   try {
     console.log('🔍 正在從 JSONBin 讀取桌機最新網址...');
     const desktopUrl = await getTunnelUrlFromBin();
     console.log(`🔗 成功取得桌機網址：${desktopUrl}`);
 
-    console.log('🚀 開始推送程式碼至桌機...');
+    console.log('🚀 開始收集需推送的模組檔案...');
     
-    // 1. 先加入 server.js
-    const filesToPush = ['server.js'];
+    // 🌟 先傳送所有 routes 子模組，最後再傳送 server.js 觸發重啟！
+    const filesToPush = [];
 
-    // 2. 🌟 自動掃描 routes 資料夾內所有的 .js 檔案 🌟
     const routesDir = path.join(__dirname, 'routes');
     if (fs.existsSync(routesDir)) {
       const routeFiles = fs.readdirSync(routesDir);
@@ -99,12 +117,18 @@ async function main() {
       });
     }
 
-    // 3. 逐一推播至地端桌機
+    // 將 server.js 放在最後一個傳送，避免中途重啟導致 502
+    filesToPush.push('server.js');
+
+    console.log(`📦 預計推送清單: ${filesToPush.join(', ')}`);
+
     for (const relativeFilePath of filesToPush) {
-      await pushSingleFileToDesktop(desktopUrl, relativeFilePath);
+      await pushWithRetry(desktopUrl, relativeFilePath);
+      // 每個檔案間隔 1 秒，保持通道穩定
+      await sleep(1000);
     }
 
-    console.log('✨ 所有檔案（自動掃描 routes 資料夾全數模組）已全部推播至地端桌機！');
+    console.log('✨ 所有檔案（含 routes 與 server.js）已成功全數推播至地端桌機！');
   } catch (err) {
     console.error('❌ 執行失敗:', err);
   }

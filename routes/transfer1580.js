@@ -48,10 +48,14 @@ module.exports = function(db) {
         finish_remark TEXT,
         remark TEXT,
         actual_pcs REAL,
+        overseas_order_no TEXT,
         imported_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (warehouse, order_no, item_id)
       )
     `);
+
+    // 自動相容既有資料表升級 overseas_order_no 欄位
+    db.run(`ALTER TABLE transfer_1580_details ADD COLUMN overseas_order_no TEXT`, (err) => {});
   });
 
   function applyFilters(sql, params, docTypes, reasons) {
@@ -105,7 +109,6 @@ module.exports = function(db) {
         }
 
         const isNotTRorGD = !orderNo.startsWith('TR') && !orderNo.startsWith('GD');
-        // 🌟 關鍵限制：跨庫調撥 15➔80 之目的庫不可為 15
         const isDest15 = destWh === '15';
 
         return isNotTRorGD || isDest15;
@@ -138,8 +141,8 @@ module.exports = function(db) {
           warehouse, order_no, doc_type, dest_warehouse, doc_status,
           item_id, item_name, item_spec, supplier_item_no, suggest_qty,
           gen_date, gen_time, apply_user, finish_date, finish_time,
-          finish_user, finish_remark, remark, actual_pcs
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          finish_user, finish_remark, remark, actual_pcs, overseas_order_no
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(warehouse, order_no, item_id) DO UPDATE SET
           doc_type = EXCLUDED.doc_type,
           dest_warehouse = EXCLUDED.dest_warehouse,
@@ -154,6 +157,7 @@ module.exports = function(db) {
           finish_remark = EXCLUDED.finish_remark,
           remark = EXCLUDED.remark,
           actual_pcs = EXCLUDED.actual_pcs,
+          overseas_order_no = EXCLUDED.overseas_order_no,
           imported_at = CURRENT_TIMESTAMP
       `);
 
@@ -198,12 +202,14 @@ module.exports = function(db) {
         const finish_remark = getVal('完成備註', 'finish_remark');
         const remark = getVal('備註說明', 'remark', '備註');
         const actual_pcs = getNum('實際上架PCS', 'actual_pcs');
+        // AD 欄位：海外訂單編號
+        const overseas_order_no = getVal('海外訂單編號', '海外單號', '訂單單號', '進貨單號', 'overseas_order_no');
 
         stmt.run(
           warehouse, order_no, doc_type, dest_warehouse, doc_status,
           item_id, item_name, item_spec, supplier_item_no, suggest_qty,
           gen_date, gen_time, apply_user, finish_date, finish_time,
-          finish_user, finish_remark, remark, actual_pcs
+          finish_user, finish_remark, remark, actual_pcs, overseas_order_no
         );
         processedCount++;
       }
@@ -247,7 +253,7 @@ module.exports = function(db) {
       rows.forEach(r => {
         const orderNo = (r.order_no || '').trim();
         const status = (r.doc_status || '').trim();
-        const hasFinishDate = !!(r.finish_date && r.finish_date.trim() !== '');
+        const hasFinishDate = !!(r.finish_date && String(r.finish_date).trim() !== '');
 
         if (r.gen_date === targetDate && r.gen_time) {
           const h = parseInt(r.gen_time.split(':')[0], 10);
@@ -287,84 +293,106 @@ module.exports = function(db) {
     });
   });
 
-  // 3. 每月總表 API
+  // 3. 每月總表 API（🌟 聚合未完成筆數）
   router.get('/monthly-summary', (req, res) => {
     const { month, docTypes, reasons } = req.query;
     if (!month) return res.status(400).json({ success: false, message: '請提供查詢月份 (YYYY-MM)' });
 
-    let sql = `SELECT * FROM transfer_1580_details WHERE (gen_date LIKE ? OR finish_date LIKE ?)`;
     const monthPattern = `${month}%`;
-    const params = [monthPattern, monthPattern];
 
-    sql = applyFilters(sql, params, docTypes, reasons);
+    let pendingSql = `
+      SELECT gen_date, COUNT(DISTINCT order_no) AS pending_count
+      FROM transfer_1580_details
+      WHERE gen_date LIKE ?
+        AND (finish_date IS NULL OR TRIM(finish_date) = '')
+        AND (doc_status IS NULL OR (doc_status != '已刪單' AND doc_status != '已銷案'))
+    `;
+    const pendingParams = [monthPattern];
+    pendingSql = applyFilters(pendingSql, pendingParams, docTypes, reasons);
+    pendingSql += ` GROUP BY gen_date`;
 
-    db.all(sql, params, (err, rows) => {
-      if (err) return res.status(500).json({ success: false, message: err.message });
+    db.all(pendingSql, pendingParams, (errPending, pendingRows) => {
+      if (errPending) return res.status(500).json({ success: false, message: errPending.message });
 
-      rows = rows || [];
-      const daysMap = {};
-
-      rows.forEach(r => {
-        const orderNo = (r.order_no || '').trim();
-        const status = (r.doc_status || '').trim();
-        const gDate = r.gen_date;
-        const fDate = r.finish_date;
-        const isFinished = !!(fDate || r.finish_time) && status !== '已刪單';
-
-        if (gDate && gDate.startsWith(month)) {
-          if (!daysMap[gDate]) {
-            daysMap[gDate] = {
-              date: gDate,
-              genOrderSet: new Set(), genPcs: 0,
-              cohortFinOrderSet: new Set(),
-              finOrderSet: new Set(), finPcs: 0,
-              delOrderSet: new Set()
-            };
-          }
-          if (orderNo) daysMap[gDate].genOrderSet.add(orderNo);
-          daysMap[gDate].genPcs += (r.suggest_qty || 0);
-
-          if (isFinished && orderNo) {
-            daysMap[gDate].cohortFinOrderSet.add(orderNo);
-          }
-        }
-
-        if (fDate && fDate.startsWith(month)) {
-          if (!daysMap[fDate]) {
-            daysMap[fDate] = {
-              date: fDate,
-              genOrderSet: new Set(), genPcs: 0,
-              cohortFinOrderSet: new Set(),
-              finOrderSet: new Set(), finPcs: 0,
-              delOrderSet: new Set()
-            };
-          }
-          if (status !== '已刪單') {
-            if (orderNo) daysMap[fDate].finOrderSet.add(orderNo);
-            daysMap[fDate].finPcs += (r.actual_pcs || 0);
-          } else {
-            if (orderNo) daysMap[fDate].delOrderSet.add(orderNo);
-          }
-        }
+      const pendingMap = {};
+      (pendingRows || []).forEach(p => {
+        if (p.gen_date) pendingMap[p.gen_date] = p.pending_count || 0;
       });
 
-      const dailyList = Object.keys(daysMap).sort().map(d => {
-        const item = daysMap[d];
-        const genCount = item.genOrderSet.size;
-        const cohortFinCount = item.cohortFinOrderSet.size;
-        const rateVal = genCount > 0 ? (cohortFinCount / genCount) * 100 : 0;
+      let sql = `SELECT * FROM transfer_1580_details WHERE (gen_date LIKE ? OR finish_date LIKE ?)`;
+      const params = [monthPattern, monthPattern];
+      sql = applyFilters(sql, params, docTypes, reasons);
 
-        return {
-          date: item.date,
-          genOrderCount: genCount, genPcs: item.genPcs,
-          finOrderCount: item.finOrderSet.size, finPcs: item.finPcs,
-          delOrderCount: item.delOrderSet.size,
-          cohortFinOrderCount: cohortFinCount,
-          finishRate: Math.min(100, rateVal).toFixed(2) + '%'
+      db.all(sql, params, (err, rows) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+
+        rows = rows || [];
+        const daysMap = {};
+
+        const getDayObj = (d) => {
+          if (!daysMap[d]) {
+            daysMap[d] = {
+              date: d,
+              genOrderSet: new Set(),
+              genPcs: 0,
+              cohortFinOrderSet: new Set(),
+              finOrderSet: new Set(),
+              finPcs: 0,
+              delOrderSet: new Set()
+            };
+          }
+          return daysMap[d];
         };
-      });
 
-      res.json({ success: true, month, dailyList });
+        rows.forEach(r => {
+          const orderNo = (r.order_no || '').trim();
+          const status = (r.doc_status || '').trim();
+          const gDate = (r.gen_date || '').trim();
+          const fDate = (r.finish_date || '').trim();
+          const hasFinish = !!(fDate && fDate !== '');
+
+          if (gDate && gDate.startsWith(month)) {
+            const day = getDayObj(gDate);
+            if (orderNo) day.genOrderSet.add(orderNo);
+            day.genPcs += (r.suggest_qty || 0);
+
+            if (hasFinish && status !== '已刪單') {
+              if (orderNo) day.cohortFinOrderSet.add(orderNo);
+            }
+          }
+
+          if (fDate && fDate.startsWith(month)) {
+            const day = getDayObj(fDate);
+            if (status !== '已刪單') {
+              if (orderNo) day.finOrderSet.add(orderNo);
+              day.finPcs += (r.actual_pcs || 0);
+            } else {
+              if (orderNo) day.delOrderSet.add(orderNo);
+            }
+          }
+        });
+
+        const dailyList = Object.keys(daysMap).sort().map(d => {
+          const item = daysMap[d];
+          const genCount = item.genOrderSet.size;
+          const cohortFinCount = item.cohortFinOrderSet.size;
+          const rateVal = genCount > 0 ? (cohortFinCount / genCount) * 100 : 0;
+
+          return {
+            date: item.date,
+            genOrderCount: genCount,
+            genPcs: item.genPcs,
+            pendingOrderCount: pendingMap[item.date] || 0,
+            finOrderCount: item.finOrderSet.size,
+            finPcs: item.finPcs,
+            delOrderCount: item.delOrderSet.size,
+            cohortFinOrderCount: cohortFinCount,
+            finishRate: Math.min(100, rateVal).toFixed(2) + '%'
+          };
+        });
+
+        res.json({ success: true, month, dailyList });
+      });
     });
   });
 
@@ -400,9 +428,9 @@ module.exports = function(db) {
       rows.forEach(r => {
         const orderNo = (r.order_no || '').trim();
         const status = (r.doc_status || '').trim();
-        const gDate = r.gen_date;
-        const fDate = r.finish_date;
-        const isFinished = !!(fDate || r.finish_time) && status !== '已刪單';
+        const gDate = (r.gen_date || '').trim();
+        const fDate = (r.finish_date || '').trim();
+        const isFinished = !!(fDate && fDate !== '') && status !== '已刪單';
 
         if (gDate && gDate.startsWith(year)) {
           const mKey = gDate.substring(0, 7);
@@ -467,7 +495,7 @@ module.exports = function(db) {
     });
   });
 
-  // 6. 未完成明細 API
+  // 6. 未完成明細 API（🌟 回傳 overseas_order_no）
   router.get('/pending-details', (req, res) => {
     const { targetDate, docTypes, reasons } = req.query;
 
@@ -497,7 +525,8 @@ module.exports = function(db) {
         gen_date: r.gen_date || '-',
         gen_time: r.gen_time || '-',
         apply_user: r.apply_user || '-',
-        remark: r.remark || '-'
+        remark: r.remark || '-',
+        overseas_order_no: r.overseas_order_no || '-'
       }));
 
       res.json({ success: true, totalPending: pendingList.length, pendingList });
@@ -589,7 +618,7 @@ module.exports = function(db) {
 
       stmt.finalize();
       db.run('COMMIT', (err) => {
-        if (err) return res.status(500).json({ success: false, message: '刪除失敗：' + err.message });
+        if (err) return res.status(500).json({ success: false, message: err.message });
         res.json({
           success: true,
           message: `🎉 成功剔除 ${count} 筆勾選的異常跨庫調撥單據！`,
