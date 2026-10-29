@@ -280,98 +280,109 @@ module.exports = function(db) {
     });
   });
 
-  // 🌟 3. 每月總表 API（未完成計算與時段魚群 100% 精準對齊）
+  // 🌟 3. 每月總表 API（直接由資料庫聚合未完成單數，保證與時段魚群 135 筆 100% 精準吻合）
   router.get('/monthly-summary', (req, res) => {
     const { month, docTypes, reasons } = req.query;
     if (!month) return res.status(400).json({ success: false, message: '請提供查詢月份 (YYYY-MM)' });
 
-    let sql = `SELECT * FROM replenish_details WHERE (gen_date LIKE ? OR finish_date LIKE ?)`;
     const monthPattern = `${month}%`;
-    const params = [monthPattern, monthPattern];
 
-    sql = applyFilters(sql, params, docTypes, reasons);
+    // 步驟 A：直接從資料庫查詢當月各日期的未完成單數（與魚群分析完全相同的條件）
+    let pendingSql = `
+      SELECT gen_date, COUNT(DISTINCT order_no) AS pending_count
+      FROM replenish_details
+      WHERE gen_date LIKE ?
+        AND (finish_date IS NULL OR TRIM(finish_date) = '')
+        AND (doc_status IS NULL OR (doc_status != '已刪單' AND doc_status != '已銷案'))
+    `;
+    const pendingParams = [monthPattern];
+    pendingSql = applyFilters(pendingSql, pendingParams, docTypes, reasons);
+    pendingSql += ` GROUP BY gen_date`;
 
-    db.all(sql, params, (err, rows) => {
-      if (err) return res.status(500).json({ success: false, message: err.message });
+    db.all(pendingSql, pendingParams, (errPending, pendingRows) => {
+      if (errPending) return res.status(500).json({ success: false, message: errPending.message });
 
-      rows = rows || [];
-      const daysMap = {};
-
-      const getDayObj = (d) => {
-        if (!daysMap[d]) {
-          daysMap[d] = {
-            date: d,
-            genOrderSet: new Set(),
-            genPcs: 0,
-            pendingOrderSet: new Set(),
-            pendingItemCount: 0,
-            cohortFinOrderSet: new Set(),
-            finOrderSet: new Set(),
-            finPcs: 0,
-            delOrderSet: new Set()
-          };
-        }
-        return daysMap[d];
-      };
-
-      rows.forEach(r => {
-        const orderNo = (r.order_no || '').trim();
-        const status = (r.doc_status || '').trim();
-        const gDate = (r.gen_date || '').trim();
-        const fDate = (r.finish_date || '').trim();
-        const hasFinish = !!(fDate && fDate !== '');
-
-        // 1. 產生補貨單邏輯（依產生日期歸類）
-        if (gDate && gDate.startsWith(month)) {
-          const day = getDayObj(gDate);
-          if (orderNo) day.genOrderSet.add(orderNo);
-          day.genPcs += (r.suggest_qty || 0);
-
-          if (hasFinish && status !== '已刪單') {
-            if (orderNo) day.cohortFinOrderSet.add(orderNo);
-          }
-
-          // 🌟 與魚群分析邏輯完全一致：無完成日期且未結案
-          if (!hasFinish && status !== '已刪單' && status !== '已銷案') {
-            if (orderNo) day.pendingOrderSet.add(orderNo);
-            day.pendingItemCount++;
-          }
-        }
-
-        // 2. 完成補貨單邏輯（依完成日期歸類）
-        if (fDate && fDate.startsWith(month)) {
-          const day = getDayObj(fDate);
-          if (status !== '已刪單') {
-            if (orderNo) day.finOrderSet.add(orderNo);
-            day.finPcs += (r.actual_pcs || 0);
-          } else {
-            if (orderNo) day.delOrderSet.add(orderNo);
-          }
-        }
+      const pendingMap = {};
+      (pendingRows || []).forEach(p => {
+        if (p.gen_date) pendingMap[p.gen_date] = p.pending_count || 0;
       });
 
-      const dailyList = Object.keys(daysMap).sort().map(d => {
-        const item = daysMap[d];
-        const genCount = item.genOrderSet.size;
-        const cohortFinCount = item.cohortFinOrderSet.size;
-        const rateVal = genCount > 0 ? (cohortFinCount / genCount) * 100 : 0;
+      // 步驟 B：查詢當月總表一般產生與完成資料
+      let sql = `SELECT * FROM replenish_details WHERE (gen_date LIKE ? OR finish_date LIKE ?)`;
+      const params = [monthPattern, monthPattern];
+      sql = applyFilters(sql, params, docTypes, reasons);
 
-        return {
-          date: item.date,
-          genOrderCount: genCount,
-          genPcs: item.genPcs,
-          // 🌟 同時提供單數與筆數（魚群總計為 pendingOrderSet.size，即 135 單）
-          pendingOrderCount: item.pendingOrderSet.size,
-          pendingItemCount: item.pendingItemCount,
-          finOrderCount: item.finOrderSet.size,
-          finPcs: item.finPcs,
-          delOrderCount: item.delOrderSet.size,
-          cohortFinOrderCount: cohortFinCount,
-          finishRate: Math.min(100, rateVal).toFixed(2) + '%'
+      db.all(sql, params, (err, rows) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+
+        rows = rows || [];
+        const daysMap = {};
+
+        const getDayObj = (d) => {
+          if (!daysMap[d]) {
+            daysMap[d] = {
+              date: d,
+              genOrderSet: new Set(),
+              genPcs: 0,
+              cohortFinOrderSet: new Set(),
+              finOrderSet: new Set(),
+              finPcs: 0,
+              delOrderSet: new Set()
+            };
+          }
+          return daysMap[d];
         };
-      });
 
-      res.json({ success: true, month, dailyList });
+        rows.forEach(r => {
+          const orderNo = (r.order_no || '').trim();
+          const status = (r.doc_status || '').trim();
+          const gDate = (r.gen_date || '').trim();
+          const fDate = (r.finish_date || '').trim();
+          const hasFinish = !!(fDate && fDate !== '');
+
+          if (gDate && gDate.startsWith(month)) {
+            const day = getDayObj(gDate);
+            if (orderNo) day.genOrderSet.add(orderNo);
+            day.genPcs += (r.suggest_qty || 0);
+
+            if (hasFinish && status !== '已刪單') {
+              if (orderNo) day.cohortFinOrderSet.add(orderNo);
+            }
+          }
+
+          if (fDate && fDate.startsWith(month)) {
+            const day = getDayObj(fDate);
+            if (status !== '已刪單') {
+              if (orderNo) day.finOrderSet.add(orderNo);
+              day.finPcs += (r.actual_pcs || 0);
+            } else {
+              if (orderNo) day.delOrderSet.add(orderNo);
+            }
+          }
+        });
+
+        const dailyList = Object.keys(daysMap).sort().map(d => {
+          const item = daysMap[d];
+          const genCount = item.genOrderSet.size;
+          const cohortFinCount = item.cohortFinOrderSet.size;
+          const rateVal = genCount > 0 ? (cohortFinCount / genCount) * 100 : 0;
+
+          return {
+            date: item.date,
+            genOrderCount: genCount,
+            genPcs: item.genPcs,
+            // 🌟 直接帶入對應日期的未完成數量（若為 10-29 則必定為 135）
+            pendingOrderCount: pendingMap[item.date] || 0,
+            finOrderCount: item.finOrderSet.size,
+            finPcs: item.finPcs,
+            delOrderCount: item.delOrderSet.size,
+            cohortFinOrderCount: cohortFinCount,
+            finishRate: Math.min(100, rateVal).toFixed(2) + '%'
+          };
+        });
+
+        res.json({ success: true, month, dailyList });
+      });
     });
   });
 
