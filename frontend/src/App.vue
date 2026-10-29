@@ -427,8 +427,9 @@ export default {
   methods: {
     // 🌟 根據當前網址 Hash 同步分頁標籤（支援書籤直達）
     syncTabFromUrl() {
-      const currentHash = window.location.hash.replace(/^#/, '') || '/';
-      const targetTab = PATH_TAB_MAP[currentHash];
+      const hashClean = window.location.hash.replace(/^#\/?/, '').split('?')[0];
+      const fullPath = '/' + hashClean;
+      const targetTab = PATH_TAB_MAP[fullPath] || PATH_TAB_MAP[hashClean];
       if (targetTab && targetTab !== 'home') {
         this.openNewTab(targetTab);
       }
@@ -869,16 +870,18 @@ export default {
           this.fetchDashboardMetrics(); 
           this.fetchLogs(); 
 
-          // 🌟 登入後優先檢查網址直達需求，若無則回首頁
-          const currentHash = window.location.hash.replace(/^#/, '') || '/';
-          const targetTab = PATH_TAB_MAP[currentHash];
+          // 🌟 登入後精準還原使用者原本想去的網址頁面
+          const hashClean = window.location.hash.replace(/^#\/?/, '').split('?')[0];
+          const fullPath = '/' + hashClean;
+          const targetTab = PATH_TAB_MAP[fullPath] || PATH_TAB_MAP[hashClean];
+
           if (targetTab && targetTab !== 'home' && this.hasModulePermission(targetTab)) {
             this.currentTab = targetTab;
             this.openedTabs = ['home', targetTab];
           } else {
-            this.currentTab = 'home'; 
+            this.currentTab = 'home';
             this.openedTabs = ['home'];
-            window.location.hash = '#/';
+            if (!hashClean) window.location.hash = '#/';
           }
           localStorage.setItem('current_tab', this.currentTab);
           localStorage.setItem('opened_tabs', JSON.stringify(this.openedTabs));
