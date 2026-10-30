@@ -112,7 +112,7 @@
         </el-checkbox-group>
       </div>
 
-      <!-- 🌟 2. 迴轉級距篩選：全面改為勾選方塊 -->
+      <!-- 🌟 2. 迴轉級距篩選：勾選方塊 -->
       <div class="filter-card">
         <span class="filter-label">📊 迴轉級距篩選：</span>
         <el-checkbox
@@ -409,13 +409,13 @@ export default {
       targetDate: today,
       warehouse: 'all',
 
-      // 🌟 不合理類型複選
+      // 不合理類型複選
       checkAllRules: true,
       isRuleIndeterminate: false,
       allRuleOptions,
       selectedRules: [...allRuleOptions],
 
-      // 🌟 迴轉級距複選
+      // 迴轉級距複選
       checkAllLevels: true,
       isLevelIndeterminate: false,
       allLevelOptions,
@@ -469,7 +469,7 @@ export default {
     const savedSortOrder = localStorage.getItem('abnormal_sort_order');
     if (savedSortOrder) this.configSortOrder = savedSortOrder;
 
-    this.$nextTick(() => { this.fetchAbnormalData(); });
+    this.fetchAbnormalData();
   },
   methods: {
     formatNumber(val) {
@@ -480,7 +480,6 @@ export default {
     handleSizeChange(val) { this.pageSize = val; this.currentPage = 1; },
     handleCurrentChange(val) { this.currentPage = val; },
 
-    // 🌟 不合理類型全選與複選連動
     handleCheckAllRulesChange(val) {
       this.selectedRules = val ? [...this.allRuleOptions] : [];
       this.isRuleIndeterminate = false;
@@ -494,7 +493,6 @@ export default {
       this.fetchAbnormalData();
     },
 
-    // 🌟 迴轉級距全選與複選連動
     handleCheckAllLevelsChange(val) {
       this.selectedLevels = val ? [...this.allLevelOptions] : [];
       this.isLevelIndeterminate = false;
@@ -508,7 +506,6 @@ export default {
       this.fetchAbnormalData();
     },
 
-    // 快速切換前一天、後一天、今天
     changeDate(offsetDays) {
       const cur = new Date(this.targetDate || new Date());
       cur.setDate(cur.getDate() + offsetDays);
@@ -646,13 +643,13 @@ export default {
           endDate: this.targetDate,
           warehouse: this.warehouse,
           ruleTypes: this.selectedRules.join(','),
-          turnoverLevels: this.selectedLevels.join(','), // 🌟 傳送複選級距
+          turnoverLevels: this.selectedLevels.join(','),
           limit: this.configLimit
         };
 
         const endpoint = this.viewMode === 'snapshot' ? '/api/abnormal/snapshot-list' : '/api/abnormal/list';
 
-        const res = await axios.get(endpoint, { params, timeout: 60000 });
+        const res = await axios.get(endpoint, { params, timeout: 30000 });
         if (res.data?.success) {
           this.summary = res.data.summary || { totalCount: 0, totalPcs: 0, totalCubicFeet: 0, pmCount: 0 };
           let list = res.data.data || [];
