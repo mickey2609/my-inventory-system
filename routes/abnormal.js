@@ -9,7 +9,6 @@ module.exports = function(db) {
     return String(str).trim().toUpperCase().replace(/\s+/g, '');
   };
 
-  // 🌟 核心：細分 3個月、3~6個月、6~9個月、9~12個月
   const getTurnoverLevelInfo = (monthsVal) => {
     const months = Number(monthsVal) || 0;
     if (months >= 99999) {
@@ -33,31 +32,52 @@ module.exports = function(db) {
 
   router.get('/list', (req, res) => {
     const { startDate, endDate, warehouse, ruleType, turnoverLevel, limit } = req.query;
-    const maxLimit = Number(limit) || 10000; // 預設 10,000 筆
+    const maxLimit = Number(limit) || 10000;
 
     try {
+      // 🌟 核心升級：同時讀取 item_sales_history（歷史銷量總表）與即時庫存表，避免斷貨商品被過濾
+      const historySql = `SELECT * FROM item_sales_history`;
       const inv80Sql = `SELECT * FROM inventory`;
       const inv15Sql = `SELECT * FROM inventory_15`;
       const inv15AltSql = `SELECT * FROM inventory15`;
 
-      db.all(inv80Sql, [], (err80, rows80) => {
-        if (err80) console.error('80庫主檔查詢警告：', err80.message);
-
-        db.all(inv15Sql, [], (err15, rows15) => {
-          if (err15) {
-            db.all(inv15AltSql, [], (err15Alt, rows15Alt) => {
-              const valid15Rows = err15Alt ? [] : (rows15Alt || []);
-              processAllInventory(rows80 || [], valid15Rows);
-            });
-          } else {
-            processAllInventory(rows80 || [], rows15 || []);
-          }
+      db.all(historySql, [], (errHist, rowsHist) => {
+        db.all(inv80Sql, [], (err80, rows80) => {
+          db.all(inv15Sql, [], (err15, rows15) => {
+            if (err15) {
+              db.all(inv15AltSql, [], (err15Alt, rows15Alt) => {
+                const valid15Rows = err15Alt ? [] : (rows15Alt || []);
+                processAllInventory(rowsHist || [], rows80 || [], valid15Rows);
+              });
+            } else {
+              processAllInventory(rowsHist || [], rows80 || [], rows15 || []);
+            }
+          });
         });
       });
 
-      function processAllInventory(validRows80, validRows15) {
+      function processAllInventory(validHistRows, validRows80, validRows15) {
         const invMap = new Map();
 
+        // 1. 先用歷史銷量總表奠定基準底層
+        validHistRows.forEach(row => {
+          const key = normalizeKey(row.item_id);
+          if (!key) return;
+
+          invMap.set(key, {
+            item_id: key,
+            item_name: row.item_name || '',
+            total_qty: Number(row.total_stock_qty || row.stock_qty_80 || 0),
+            sales_90d: Number(row.sales_90d || 0),
+            monthly_sales: Number(row.monthly_sales || 0),
+            turn_days_total: 0,
+            age: 0,
+            supplier_name: String(row.supplier_name || '').trim() || '未知供應商',
+            pm: String(row.pm || '').trim() || '未指定PM'
+          });
+        });
+
+        // 2. 疊加即時庫存表的庫齡與最新儲位庫存
         const processInvRow = (row) => {
           const rawKey = row.item_id || row['商品ID'] || row.itemId;
           const key = normalizeKey(rawKey);
@@ -65,20 +85,16 @@ module.exports = function(db) {
 
           const locQty = Number(row.qty || row['儲位庫存數'] || row.loc_qty) || 0;
           const rawTotalQty = Number(row.total_qty || row['總庫存數']) || 0;
-
           const sales90 = Number(row.sales_90d || row['(近)90日銷量'] || row['90日銷量']) || 0;
           const salesMonth = Number(row.monthly_sales || row['(近)月銷量'] || row['月銷量']) || 0;
           const turnMonths = Number(row.turn_days_total || row['總庫存_迴轉天數'] || row['迴轉天數'] || row['迴轉月數']) || 0;
           const ageVal = Number(row.age || row['庫齡']) || 0;
-          
           const pmVal = String(row.pm || row['所屬PM'] || row.PM || row['PM'] || '').trim();
           const suppVal = String(row.supplier_name || row['供應商名稱'] || row.supplierName || '').trim();
 
           if (invMap.has(key)) {
             const existing = invMap.get(key);
-            existing.calc_loc_sum += locQty;
-            existing.total_qty = Math.max(existing.total_qty, rawTotalQty, existing.calc_loc_sum);
-
+            existing.total_qty = Math.max(existing.total_qty, rawTotalQty, locQty);
             existing.sales_90d = Math.max(existing.sales_90d, sales90);
             existing.monthly_sales = Math.max(existing.monthly_sales, salesMonth);
             existing.age = Math.max(existing.age, ageVal);
@@ -88,7 +104,7 @@ module.exports = function(db) {
           } else {
             invMap.set(key, {
               item_id: key,
-              calc_loc_sum: locQty,
+              item_name: row.item_name || row['商品名稱'] || '',
               total_qty: Math.max(rawTotalQty, locQty),
               sales_90d: sales90,
               monthly_sales: salesMonth,
@@ -141,27 +157,46 @@ module.exports = function(db) {
 
           (inboundRows || []).forEach(r => {
             const key = normalizeKey(r.item_id);
-            if (!invMap.has(key)) return;
+            // 🌟 即使無庫存紀錄，只要有進貨資料即預設基礎物件，絕不整筆丟棄
+            const inv = invMap.get(key) || {
+              item_id: key,
+              item_name: r.item_name || '',
+              total_qty: 0,
+              sales_90d: 0,
+              monthly_sales: 0,
+              turn_days_total: 99999, // 銷量為 0，視為滯銷品
+              age: 0,
+              supplier_name: '未知供應商',
+              pm: '未指定PM'
+            };
 
-            const inv = invMap.get(key);
             const importQty = Number(r.import_qty) || 0;
             const sales90 = Number(inv.sales_90d) || 0;
-            const turnMonths = Number(inv.turn_days_total) || 0;
+            const mSales = Number(inv.monthly_sales) || 0;
             const age = Number(inv.age) || 0;
             const len = Number(r.length) || 0;
             const w = Number(r.width) || 0;
             const h = Number(r.height) || 0;
 
+            // 動態計算迴轉月數：若月銷量為 0 則為 99999
+            let turnMonths = inv.turn_days_total || 0;
+            if (turnMonths === 0 || turnMonths >= 99999) {
+              if (mSales > 0) {
+                turnMonths = parseFloat(((inv.total_qty + importQty) / mSales).toFixed(1));
+              } else {
+                turnMonths = 99999;
+              }
+            }
+
             const singleCubicFeet = (len > 0 && w > 0 && h > 0) ? ((len * w * h) / 28317) : 0;
             const importCubicFeet = parseFloat((singleCubicFeet * importQty).toFixed(2));
-
             const levelInfo = getTurnoverLevelInfo(turnMonths);
 
             const tags = [];
             if (sales90 === 0 && importQty > 0) tags.push({ text: '🚨 90日零銷量進貨', type: 'danger' });
             else if (age >= 180) tags.push({ text: '🚨 高庫齡滯銷進貨', type: 'danger' });
 
-            if (turnMonths > 6) tags.push({ text: `⚠️ 迴轉月數過高 (${turnMonths}個月)`, type: 'warning' });
+            if (turnMonths > 6) tags.push({ text: `⚠️ 迴轉月數過高 (${turnMonths >= 99999 ? '99999個月' : turnMonths + '個月'})`, type: 'warning' });
             if (sales90 > 0 && importQty >= (sales90 * 2)) tags.push({ text: `⚠️ 超量驗收 (進貨>90日銷量2倍)`, type: 'warning' });
 
             let isMatchRule = false;
@@ -180,10 +215,11 @@ module.exports = function(db) {
             if (isMatchRule && isMatchLevel) {
               abnormalRows.push({
                 ...r,
+                item_name: r.item_name || inv.item_name || '-',
                 current_stock_qty: inv.total_qty,
                 sales_90d: inv.sales_90d,
                 monthly_sales: inv.monthly_sales,
-                turn_days_total: inv.turn_days_total,
+                turn_days_total: turnMonths,
                 turnover_level: levelInfo.label,
                 age: inv.age,
                 supplier_name: inv.supplier_name,
@@ -209,7 +245,7 @@ module.exports = function(db) {
             data: abnormalRows
           });
         });
-      };
+      }
     } catch (e) {
       res.status(500).json({ success: false, message: '伺服器內部異常：' + e.message });
     }

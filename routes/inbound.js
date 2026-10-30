@@ -94,7 +94,7 @@ module.exports = function(db) {
     });
   });
 
-  // 1. 匯入 API (包含 M'N'O 欄位長寬高)
+  // 1. 匯入 API (支援歷史單據累積 + 最新上架時間覆蓋更新)
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     const fileName = req.body.fileName || 'latest_inbound.csv';
@@ -116,6 +116,7 @@ module.exports = function(db) {
         );
       }
 
+      // 🌟 核心 Upsert 語法：保留舊紀錄，但只要新資料有上架日期時間就精準覆蓋
       const stmt = db.prepare(`
         INSERT INTO inbound_details (
           warehouse, rec_date, rec_time, put_date, put_time,
@@ -123,16 +124,16 @@ module.exports = function(db) {
           qty, length, width, height, weight
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(warehouse, po_no, batch_no, item_id) DO UPDATE SET
-          rec_date = EXCLUDED.rec_date,
-          rec_time = EXCLUDED.rec_time,
-          put_date = EXCLUDED.put_date,
-          put_time = EXCLUDED.put_time,
-          remark = EXCLUDED.remark,
+          rec_date = CASE WHEN EXCLUDED.rec_date != '' THEN EXCLUDED.rec_date ELSE inbound_details.rec_date END,
+          rec_time = CASE WHEN EXCLUDED.rec_time != '' THEN EXCLUDED.rec_time ELSE inbound_details.rec_time END,
+          put_date = CASE WHEN EXCLUDED.put_date != '' THEN EXCLUDED.put_date ELSE inbound_details.put_date END,
+          put_time = CASE WHEN EXCLUDED.put_time != '' THEN EXCLUDED.put_time ELSE inbound_details.put_time END,
+          remark = CASE WHEN EXCLUDED.remark != '' THEN EXCLUDED.remark ELSE inbound_details.remark END,
           qty = EXCLUDED.qty,
-          length = EXCLUDED.length,
-          width = EXCLUDED.width,
-          height = EXCLUDED.height,
-          weight = EXCLUDED.weight,
+          length = CASE WHEN EXCLUDED.length > 0 THEN EXCLUDED.length ELSE inbound_details.length END,
+          width = CASE WHEN EXCLUDED.width > 0 THEN EXCLUDED.width ELSE inbound_details.width END,
+          height = CASE WHEN EXCLUDED.height > 0 THEN EXCLUDED.height ELSE inbound_details.height END,
+          weight = CASE WHEN EXCLUDED.weight > 0 THEN EXCLUDED.weight ELSE inbound_details.weight END,
           imported_at = CURRENT_TIMESTAMP
       `);
 
@@ -420,7 +421,7 @@ module.exports = function(db) {
     });
   });
 
-  // 🌟 6. 每月每日總表 API (計算每日驗收總才數)
+  // 6. 每月每日總表 API (計算每日驗收總才數)
   router.get('/monthly-summary', (req, res) => {
     const { month, warehouse, remarks } = req.query;
 
@@ -468,7 +469,7 @@ module.exports = function(db) {
               unputPoSet: new Set(),
               unputBatSet: new Set(),
               recPcs: 0,
-              recCubicFeet: 0, // 🌟 當日驗收才數
+              recCubicFeet: 0,
               putPoSet: new Set(),
               putBatSet: new Set(),
               putPcs: 0,
@@ -481,7 +482,6 @@ module.exports = function(db) {
           const qty = r.qty || 0;
           daysInMonthMap[d].recPcs += qty;
 
-          // 計算該筆商品的單才數與進貨總才數: (長*寬*高 / 27000) * 數量
           const length = r.length || 0;
           const width = r.width || 0;
           const height = r.height || 0;
@@ -533,7 +533,7 @@ module.exports = function(db) {
           recBatCount: item.recBatSet.size,
           unputBatCount: item.unputBatSet.size,
           recPcs: item.recPcs,
-          recCubicFeet: parseFloat(item.recCubicFeet.toFixed(2)), // 🌟 取小數兩位
+          recCubicFeet: parseFloat(item.recCubicFeet.toFixed(2)),
           putPoCount: item.putPoSet.size,
           putBatCount: item.putBatSet.size,
           putPcs: item.putPcs,
@@ -549,7 +549,7 @@ module.exports = function(db) {
     });
   });
 
-  // 🌟 7. 年度每月總表 API (計算每月驗收總才數)
+  // 7. 年度每月總表 API (計算每月驗收總才數)
   router.get('/yearly-summary', (req, res) => {
     const { year, warehouse, remarks } = req.query;
 
@@ -594,7 +594,7 @@ module.exports = function(db) {
           unputPoSet: new Set(),
           unputBatSet: new Set(),
           recPcs: 0,
-          recCubicFeet: 0, // 🌟 當月驗收才數
+          recCubicFeet: 0,
           putPoSet: new Set(),
           putBatSet: new Set(),
           putPcs: 0,
@@ -650,7 +650,7 @@ module.exports = function(db) {
           recBatCount: item.recBatSet.size,
           unputBatCount: item.unputBatSet.size,
           recPcs: item.recPcs,
-          recCubicFeet: parseFloat(item.recCubicFeet.toFixed(2)), // 🌟 取小數兩位
+          recCubicFeet: parseFloat(item.recCubicFeet.toFixed(2)),
           putPoCount: item.putPoSet.size,
           putBatCount: item.putBatSet.size,
           putPcs: item.putPcs,
