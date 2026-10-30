@@ -1214,6 +1214,12 @@ db.serialize(() => {
   db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions, last_active) VALUES ('guest', '訪客 (免登直達)', 'guest', 'guest_direct_no_pwd', 'replenish_fish,transfer_80_15,transfer_15_80', 0);`);
 });
 
+  // 🌟 為進貨明細與快照歷史表建立日期索引，秒級檢索
+  db.run(`CREATE INDEX IF NOT EXISTS idx_inbound_rec_date ON inbound_details(rec_date)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_inbound_item_id ON inbound_details(item_id)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_abnormal_rec_date ON abnormal_purchase_history(rec_date)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_abnormal_snapshot_date ON abnormal_purchase_history(snapshot_date)`);
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 業務 API 伺服器已成功啟動！(Port: ${PORT})`);
 });

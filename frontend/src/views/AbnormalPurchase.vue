@@ -552,7 +552,7 @@ export default {
         // 🌟 根據選擇的 viewMode 決定請求 live 還是 snapshot-list API
         const endpoint = this.viewMode === 'snapshot' ? '/api/abnormal/snapshot-list' : '/api/abnormal/list';
 
-        const res = await axios.get(endpoint, { params, timeout: 25000 });
+        const res = await axios.get(endpoint, { params, timeout: 120000 });
         if (res.data?.success) {
           this.summary = res.data.summary || { totalCount: 0, totalPcs: 0, totalCubicFeet: 0, pmCount: 0 };
           let list = res.data.data || [];
