@@ -92,7 +92,7 @@
 
     <!-- 3. 頂部雙層快速條件卡片 (即時模式時顯示完整篩選) -->
     <div class="filter-card-group" v-if="viewMode === 'live'">
-      <!-- 🌟 改為純勾選形式，已移除排除贈品按鈕 -->
+      <!-- 🌟 1. 不合理類型：勾選方塊 -->
       <div class="filter-card">
         <span class="filter-label">📌 不合理類型：</span>
         <el-checkbox
@@ -112,19 +112,28 @@
         </el-checkbox-group>
       </div>
 
+      <!-- 🌟 2. 迴轉級距篩選：全面改為勾選方塊 -->
       <div class="filter-card">
         <span class="filter-label">📊 迴轉級距篩選：</span>
-        <el-radio-group v-model="turnoverLevelFilter" size="small" @change="fetchAbnormalData">
-          <el-radio-button label="all">🌐 全部級距</el-radio-button>
-          <el-radio-button label="le3">🟢 &lt;=3個月</el-radio-button>
-          <el-radio-button label="m3_6">🟢 3~6個月</el-radio-button>
-          <el-radio-button label="m6_9">🟢 6~9個月</el-radio-button>
-          <el-radio-button label="m9_12">🟢 9~12個月</el-radio-button>
-          <el-radio-button label="m13_60">🟡 1年~5年 (13~60個月)</el-radio-button>
-          <el-radio-button label="m61_120">🟠 5年~10年 (61~120個月)</el-radio-button>
-          <el-radio-button label="gt120">🔴 10年以上 (>120個月)</el-radio-button>
-          <el-radio-button label="m99999">🚨 99999 滯銷品</el-radio-button>
-        </el-radio-group>
+        <el-checkbox
+          v-model="checkAllLevels"
+          :indeterminate="isLevelIndeterminate"
+          class="mr-12"
+          @change="handleCheckAllLevelsChange"
+        >
+          🌐 全部級距
+        </el-checkbox>
+
+        <el-checkbox-group v-model="selectedLevels" size="small" @change="handleLevelChange">
+          <el-checkbox label="le3">🟢 &lt;=3個月</el-checkbox>
+          <el-checkbox label="m3_6">🟢 3~6個月</el-checkbox>
+          <el-checkbox label="m6_9">🟢 6~9個月</el-checkbox>
+          <el-checkbox label="m9_12">🟢 9~12個月</el-checkbox>
+          <el-checkbox label="m13_60">🟡 1年~5年 (13~60個月)</el-checkbox>
+          <el-checkbox label="m61_120">🟠 5年~10年 (61~120個月)</el-checkbox>
+          <el-checkbox label="gt120">🔴 10年以上 (>120個月)</el-checkbox>
+          <el-checkbox label="m99999">🚨 99999 滯銷品</el-checkbox>
+        </el-checkbox-group>
       </div>
     </div>
 
@@ -389,19 +398,28 @@ export default {
   data() {
     const today = new Date().toISOString().split('T')[0];
 
+    const allRuleOptions = ['zero_sales', 'high_turnover', 'over_import', 'gift'];
+    const allLevelOptions = ['le3', 'm3_6', 'm6_9', 'm9_12', 'm13_60', 'm61_120', 'gt120', 'm99999'];
+
     return {
       loading: false,
       snapshotLoading: false,
-      viewMode: 'live', // live: 即時分析, snapshot: 每日快照庫
-      targetDate: today, // 🌟 單一檢視日期，預設今天
+      debounceTimer: null,
+      viewMode: 'live',
+      targetDate: today,
       warehouse: 'all',
-      turnoverLevelFilter: 'all',
 
-      // 🌟 不合理類型複選變數 (全選/半選/單選)
+      // 🌟 不合理類型複選
       checkAllRules: true,
       isRuleIndeterminate: false,
-      allRuleOptions: ['zero_sales', 'high_turnover', 'over_import', 'gift'],
-      selectedRules: ['zero_sales', 'high_turnover', 'over_import', 'gift'],
+      allRuleOptions,
+      selectedRules: [...allRuleOptions],
+
+      // 🌟 迴轉級距複選
+      checkAllLevels: true,
+      isLevelIndeterminate: false,
+      allLevelOptions,
+      selectedLevels: [...allLevelOptions],
 
       summary: { totalCount: 0, totalPcs: 0, totalCubicFeet: 0, pmCount: 0 },
       rawTableData: [],
@@ -462,7 +480,7 @@ export default {
     handleSizeChange(val) { this.pageSize = val; this.currentPage = 1; },
     handleCurrentChange(val) { this.currentPage = val; },
 
-    // 🌟 全選與複選連動
+    // 🌟 不合理類型全選與複選連動
     handleCheckAllRulesChange(val) {
       this.selectedRules = val ? [...this.allRuleOptions] : [];
       this.isRuleIndeterminate = false;
@@ -473,6 +491,20 @@ export default {
       const checkedCount = value.length;
       this.checkAllRules = checkedCount === this.allRuleOptions.length;
       this.isRuleIndeterminate = checkedCount > 0 && checkedCount < this.allRuleOptions.length;
+      this.fetchAbnormalData();
+    },
+
+    // 🌟 迴轉級距全選與複選連動
+    handleCheckAllLevelsChange(val) {
+      this.selectedLevels = val ? [...this.allLevelOptions] : [];
+      this.isLevelIndeterminate = false;
+      this.fetchAbnormalData();
+    },
+
+    handleLevelChange(value) {
+      const checkedCount = value.length;
+      this.checkAllLevels = checkedCount === this.allLevelOptions.length;
+      this.isLevelIndeterminate = checkedCount > 0 && checkedCount < this.allLevelOptions.length;
       this.fetchAbnormalData();
     },
 
@@ -598,15 +630,23 @@ export default {
       ElMessage.success('🎉 成功匯出週報 Excel！');
     },
 
-    async fetchAbnormalData() {
+    // 🌟 加入防手抖（Debounce）機制，避免多個條件連鎖觸發連跳超時
+    fetchAbnormalData() {
+      if (this.debounceTimer) clearTimeout(this.debounceTimer);
+      this.debounceTimer = setTimeout(() => {
+        this.executeFetch();
+      }, 250);
+    },
+
+    async executeFetch() {
       this.loading = true;
       try {
         const params = {
           startDate: this.targetDate,
           endDate: this.targetDate,
           warehouse: this.warehouse,
-          ruleTypes: this.selectedRules.join(','), // 🌟 傳遞勾選陣列給後端
-          turnoverLevel: this.turnoverLevelFilter,
+          ruleTypes: this.selectedRules.join(','),
+          turnoverLevels: this.selectedLevels.join(','), // 🌟 傳送複選級距
           limit: this.configLimit
         };
 
@@ -683,7 +723,7 @@ export default {
 .abnormal-purchase-page { padding: 16px; height: calc(100vh - 52px); box-sizing: border-box; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
 .top-bar { display: flex; justify-content: space-between; align-items: center; background: #1e293b; padding: 8px 16px; border-radius: 8px; border: 1px solid #334155; }
 .filter-card-group { display: flex; flex-direction: column; gap: 8px; }
-.filter-card { display: flex; align-items: center; background: #1e293b; padding: 6px 16px; border-radius: 8px; border: 1px solid #334155; gap: 12px; }
+.filter-card { display: flex; align-items: center; background: #1e293b; padding: 6px 16px; border-radius: 8px; border: 1px solid #334155; gap: 12px; flex-wrap: wrap; }
 .title-group, .action-group { display: flex; align-items: center; gap: 12px; }
 .page-title { font-size: 16px; font-weight: bold; color: #f87171; }
 .date-switch-group { display: flex; align-items: center; gap: 6px; }
