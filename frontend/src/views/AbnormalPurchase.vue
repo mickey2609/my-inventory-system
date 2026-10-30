@@ -252,7 +252,7 @@
         <el-pagination
           v-model:current-page="currentPage"
           v-model:page-size="pageSize"
-          :page-sizes="[100, 200, 500, 1000]"
+          :page-sizes="[100, 200]"
           layout="total, sizes, prev, pager, next, jumper"
           :total="rawTableData.length"
           @size-change="handleSizeChange"
@@ -424,7 +424,7 @@ export default {
       summary: { totalCount: 0, totalPcs: 0, totalCubicFeet: 0, pmCount: 0 },
       rawTableData: [],
       currentPage: 1,
-      pageSize: 500,
+      pageSize: 200,
 
       showConfigDialog: false,
       configLimit: 10000,
