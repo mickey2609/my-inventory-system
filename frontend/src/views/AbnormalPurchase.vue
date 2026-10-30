@@ -11,7 +11,7 @@
           <el-radio-button label="snapshot">📸 每日歷史快照庫</el-radio-button>
         </el-radio-group>
         
-        <!-- 🌟 改為單一日期選擇器 + 前後天快速切換 -->
+        <!-- 單一日期選擇器 + 前後天快速切換 -->
         <div class="date-switch-group">
           <el-button size="mini" type="info" plain icon="el-icon-arrow-left" @click="changeDate(-1)">前一天</el-button>
           <el-date-picker
@@ -36,7 +36,7 @@
       </div>
 
       <div class="action-group">
-        <!-- 🌟 快照庫模式下一鍵補算當日快照 -->
+        <!-- 快照庫模式下一鍵補算當日快照 -->
         <el-button 
           v-if="viewMode === 'snapshot'" 
           type="danger" 
@@ -92,24 +92,24 @@
 
     <!-- 3. 頂部雙層快速條件卡片 (即時模式時顯示完整篩選) -->
     <div class="filter-card-group" v-if="viewMode === 'live'">
+      <!-- 🌟 改為純勾選形式，已移除排除贈品按鈕 -->
       <div class="filter-card">
         <span class="filter-label">📌 不合理類型：</span>
-        <el-radio-group v-model="ruleType" size="small" @change="fetchAbnormalData">
-          <el-radio-button label="all">🌐 全選 (所有不合理)</el-radio-button>
-          <el-radio-button label="zero_sales">🚨 零銷量/高庫齡進貨</el-radio-button>
-          <el-radio-button label="high_turnover">⚠️ 迴轉月數過高 (>6個月)</el-radio-button>
-          <el-radio-button label="over_import">⚠️ 爆量驗收 (進貨>90日銷量2倍)</el-radio-button>
-          <el-radio-button label="gift">🎁 贈品採購</el-radio-button>
-        </el-radio-group>
-
-        <!-- 排除贈品過濾 -->
         <el-checkbox
-          v-model="excludeGifts"
-          class="gift-checkbox"
-          @change="fetchAbnormalData"
+          v-model="checkAllRules"
+          :indeterminate="isRuleIndeterminate"
+          class="mr-12"
+          @change="handleCheckAllRulesChange"
         >
-          🚫 排除贈品
+          🌐 全選 (所有不合理)
         </el-checkbox>
+
+        <el-checkbox-group v-model="selectedRules" size="small" @change="handleRuleChange">
+          <el-checkbox label="zero_sales">🚨 零銷量/高庫齡進貨</el-checkbox>
+          <el-checkbox label="high_turnover">⚠️ 迴轉月數過高 (>6個月)</el-checkbox>
+          <el-checkbox label="over_import">⚠️ 爆量驗收 (進貨>90日銷量2倍)</el-checkbox>
+          <el-checkbox label="gift">🎁 贈品採購</el-checkbox>
+        </el-checkbox-group>
       </div>
 
       <div class="filter-card">
@@ -393,11 +393,16 @@ export default {
       loading: false,
       snapshotLoading: false,
       viewMode: 'live', // live: 即時分析, snapshot: 每日快照庫
-      targetDate: today, // 🌟 單一日期選擇，預設今天
+      targetDate: today, // 🌟 單一檢視日期，預設今天
       warehouse: 'all',
-      ruleType: 'all',
       turnoverLevelFilter: 'all',
-      excludeGifts: false,
+
+      // 🌟 不合理類型複選變數 (全選/半選/單選)
+      checkAllRules: true,
+      isRuleIndeterminate: false,
+      allRuleOptions: ['zero_sales', 'high_turnover', 'over_import', 'gift'],
+      selectedRules: ['zero_sales', 'high_turnover', 'over_import', 'gift'],
+
       summary: { totalCount: 0, totalPcs: 0, totalCubicFeet: 0, pmCount: 0 },
       rawTableData: [],
       currentPage: 1,
@@ -457,7 +462,21 @@ export default {
     handleSizeChange(val) { this.pageSize = val; this.currentPage = 1; },
     handleCurrentChange(val) { this.currentPage = val; },
 
-    // 🌟 快速切換前一天、後一天、今天
+    // 🌟 全選與複選連動
+    handleCheckAllRulesChange(val) {
+      this.selectedRules = val ? [...this.allRuleOptions] : [];
+      this.isRuleIndeterminate = false;
+      this.fetchAbnormalData();
+    },
+
+    handleRuleChange(value) {
+      const checkedCount = value.length;
+      this.checkAllRules = checkedCount === this.allRuleOptions.length;
+      this.isRuleIndeterminate = checkedCount > 0 && checkedCount < this.allRuleOptions.length;
+      this.fetchAbnormalData();
+    },
+
+    // 快速切換前一天、後一天、今天
     changeDate(offsetDays) {
       const cur = new Date(this.targetDate || new Date());
       cur.setDate(cur.getDate() + offsetDays);
@@ -513,7 +532,6 @@ export default {
       }
     },
 
-    // 🌟 快照庫模式下一鍵補結算當日快照
     async triggerManualSnapshot() {
       if (!this.targetDate) return ElMessage.warning('請先選擇檢視日期');
       this.snapshotLoading = true;
@@ -587,15 +605,13 @@ export default {
           startDate: this.targetDate,
           endDate: this.targetDate,
           warehouse: this.warehouse,
-          ruleType: this.ruleType,
+          ruleTypes: this.selectedRules.join(','), // 🌟 傳遞勾選陣列給後端
           turnoverLevel: this.turnoverLevelFilter,
-          excludeGifts: this.excludeGifts,
           limit: this.configLimit
         };
 
         const endpoint = this.viewMode === 'snapshot' ? '/api/abnormal/snapshot-list' : '/api/abnormal/list';
 
-        // 🌟 單日模式下 0.5 秒即可完成，設置 60 秒緩衝防止超時
         const res = await axios.get(endpoint, { params, timeout: 60000 });
         if (res.data?.success) {
           this.summary = res.data.summary || { totalCount: 0, totalPcs: 0, totalCubicFeet: 0, pmCount: 0 };
@@ -672,7 +688,9 @@ export default {
 .page-title { font-size: 16px; font-weight: bold; color: #f87171; }
 .date-switch-group { display: flex; align-items: center; gap: 6px; }
 .filter-label { font-size: 13px; color: #f8fafc; font-weight: bold; }
-.gift-checkbox { margin-left: 12px; color: #4ade80 !important; font-weight: bold; }
+.mr-12 { margin-right: 12px; }
+:deep(.el-checkbox) { color: #f8fafc !important; font-weight: bold; }
+:deep(.el-checkbox__input.is-checked + .el-checkbox__label) { color: #38bdf8 !important; }
 .metrics-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
 .metric-card { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 12px 16px; display: flex; flex-direction: column; gap: 4px; }
 .border-red { border-left: 4px solid #ef4444 !important; }
