@@ -25,11 +25,15 @@
       </div>
 
       <div class="action-group">
+        <!-- 🌟 每週一週報分析按鈕 -->
+        <el-button type="warning" size="small" icon="el-icon-date" @click="openWeeklyReport">
+          📅 每週一週報分析
+        </el-button>
+
         <el-button type="info" size="small" icon="el-icon-refresh" :loading="loading" @click="fetchAbnormalData">
           🔄 重新整理
         </el-button>
 
-        <!-- 🌟 新增：參數設定按鈕 -->
         <el-button type="primary" size="small" icon="el-icon-setting" @click="showConfigDialog = true">
           ⚙️ 參數設定
         </el-button>
@@ -72,15 +76,24 @@
           <el-radio-button label="zero_sales">🚨 零銷量/高庫齡進貨</el-radio-button>
           <el-radio-button label="high_turnover">⚠️ 迴轉月數過高 (>6個月)</el-radio-button>
           <el-radio-button label="over_import">⚠️ 爆量驗收 (進貨>90日銷量2倍)</el-radio-button>
+          <el-radio-button label="gift">🎁 贈品採購</el-radio-button>
         </el-radio-group>
+
+        <!-- 🌟 排除贈品過濾 -->
+        <el-checkbox
+          v-model="excludeGifts"
+          class="gift-checkbox"
+          @change="fetchAbnormalData"
+        >
+          🚫 排除贈品
+        </el-checkbox>
       </div>
 
-      <!-- 🌟 升級：迴轉級距細分選項 -->
       <div class="filter-card">
         <span class="filter-label">📊 迴轉級距篩選：</span>
         <el-radio-group v-model="turnoverLevelFilter" size="small" @change="fetchAbnormalData">
           <el-radio-button label="all">🌐 全部級距</el-radio-button>
-          <el-radio-button label="le3">🟢 <=3個月</el-radio-button>
+          <el-radio-button label="le3">🟢 &lt;=3個月</el-radio-button>
           <el-radio-button label="m3_6">🟢 3~6個月</el-radio-button>
           <el-radio-button label="m6_9">🟢 6~9個月</el-radio-button>
           <el-radio-button label="m9_12">🟢 9~12個月</el-radio-button>
@@ -99,7 +112,7 @@
         border
         stripe
         size="small"
-        height="calc(100vh - 350px)"
+        height="calc(100vh - 360px)"
         class="dark-table"
         :default-sort="defaultSortConfig"
       >
@@ -109,12 +122,15 @@
             <span class="font-bold text-orange">{{ scope.row.po_no }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="item_id" label="商品編號" width="150" align="center" sortable>
+        <el-table-column prop="item_id" label="商品編號" width="160" align="center" sortable>
           <template #default="scope">
-            <span class="font-bold text-blue">{{ scope.row.item_id }}</span>
+            <div class="item-link" @click="openNoteDialog(scope.row)">
+              <span class="font-bold text-blue">{{ scope.row.item_id }}</span>
+              <el-tag v-if="scope.row.is_gift" type="success" size="mini" effect="dark" class="ml-4">🎁 贈品</el-tag>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column prop="item_name" label="商品名稱" min-width="200" show-overflow-tooltip sortable />
+        <el-table-column prop="item_name" label="商品名稱" min-width="180" show-overflow-tooltip sortable />
         
         <el-table-column prop="import_qty" label="驗收PCS" width="95" align="right" sortable>
           <template #default="scope">
@@ -154,11 +170,13 @@
 
         <el-table-column prop="turn_days_total" label="迴轉月數" width="110" align="right" sortable>
           <template #default="scope">
-            <span :class="scope.row.turn_days_total > 6 ? 'text-red font-bold' : ''">{{ formatNumber(scope.row.turn_days_total) }} 個月</span>
+            <span :class="scope.row.turn_days_total > 6 ? 'text-red font-bold' : ''">
+              {{ scope.row.turn_days_total >= 99999 ? '99,999 個月' : formatNumber(scope.row.turn_days_total) + ' 個月' }}
+            </span>
           </template>
         </el-table-column>
 
-        <el-table-column prop="turnover_level" label="迴轉級距" width="180" align="center" sortable>
+        <el-table-column prop="turnover_level" label="迴轉級距" width="170" align="center" sortable>
           <template #default="scope">
             <span :class="scope.row.turnover_level.includes('99999') ? 'text-red font-bold' : 'text-purple'">
               {{ scope.row.turnover_level }}
@@ -167,7 +185,7 @@
         </el-table-column>
 
         <el-table-column prop="pm" label="所屬 PM" width="95" align="center" sortable />
-        <el-table-column label="不合理判定原因" min-width="200">
+        <el-table-column label="不合理判定原因" min-width="190">
           <template #default="scope">
             <div class="tag-group">
               <el-tag
@@ -179,6 +197,18 @@
               >
                 {{ t.text }}
               </el-tag>
+            </div>
+          </template>
+        </el-table-column>
+
+        <!-- 🌟 自訂備註與操作欄 -->
+        <el-table-column label="自訂備註" width="140" align="center">
+          <template #default="scope">
+            <div class="note-col">
+              <span v-if="scope.row.custom_remark" class="note-text" :title="scope.row.custom_remark">{{ scope.row.custom_remark }}</span>
+              <el-button size="mini" type="text" icon="el-icon-edit" @click="openNoteDialog(scope.row)">
+                {{ scope.row.custom_remark || scope.row.is_gift ? '編輯' : '新增備註' }}
+              </el-button>
             </div>
           </template>
         </el-table-column>
@@ -198,12 +228,93 @@
       </div>
     </div>
 
-    <!-- 🌟 新增：參數設定 Modal 彈窗 -->
+    <!-- 🌟 5. 點擊商品備註／贈品設定彈窗 (Modal) -->
+    <el-dialog
+      v-model="showNoteDialog"
+      title="🎁 商品自訂備註與屬性維護"
+      width="460px"
+      class="custom-dark-dialog"
+    >
+      <div class="dialog-form-body">
+        <div class="dialog-row">
+          <span class="d-label">商品編號：</span>
+          <span class="d-val text-blue font-bold">{{ currentNoteItem.item_id }}</span>
+        </div>
+        <div class="dialog-row">
+          <span class="d-label">商品名稱：</span>
+          <span class="d-val">{{ currentNoteItem.item_name }}</span>
+        </div>
+        <div class="dialog-row">
+          <span class="d-label">贈品屬性：</span>
+          <el-checkbox v-model="currentNoteItem.is_gift" class="gift-switch">
+            標註為「🎁 贈品／行銷搭贈品」（系統將自動免除零銷量與高迴轉警示）
+          </el-checkbox>
+        </div>
+        <div class="dialog-row-col">
+          <span class="d-label">人工自訂備註：</span>
+          <el-input
+            v-model="currentNoteItem.remark"
+            type="textarea"
+            :rows="3"
+            placeholder="請輸入特殊備註（例如：廠商公關品、買一送一搭贈、90天檔期促銷...）"
+          />
+        </div>
+      </div>
+
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button size="small" class="dialog-cancel-btn" @click="showNoteDialog = false">取消</el-button>
+          <el-button size="small" type="primary" :loading="savingNote" @click="saveItemNote">💾 儲存並套用</el-button>
+        </span>
+      </template>
+    </el-dialog>
+
+    <!-- 🌟 6. 每週一週報分析視角彈窗 (Modal) -->
+    <el-dialog
+      v-model="showWeeklyDialog"
+      title="📅 每週一 不合理進貨週報分析"
+      width="820px"
+      class="custom-dark-dialog"
+    >
+      <div v-loading="weeklyLoading" class="weekly-modal-content">
+        <div class="weekly-header-bar">
+          <span class="weekly-range">分析週期：{{ weeklyData.range?.startDate }} ~ {{ weeklyData.range?.endDate }} (上週全量快照)</span>
+          <el-button size="mini" type="success" icon="el-icon-download" @click="exportWeeklyExcel">匯出週報 Excel</el-button>
+        </div>
+
+        <div class="weekly-summary-grid">
+          <div class="w-card"><span class="w-lbl">上週不合理總單</span><span class="w-val text-red">{{ formatNumber(weeklyData.summary?.totalCount) }} 筆</span></div>
+          <div class="w-card"><span class="w-lbl">上週驗收 PCS</span><span class="w-val text-blue">{{ formatNumber(weeklyData.summary?.totalPcs) }} PCS</span></div>
+          <div class="w-card"><span class="w-lbl">佔用總才數</span><span class="w-val text-yellow">{{ formatNumber(weeklyData.summary?.totalCubicFeet) }} 才</span></div>
+          <div class="w-card"><span class="w-lbl">涉及 PM 人數</span><span class="w-val text-purple">{{ formatNumber(weeklyData.summary?.pmCount) }} 人</span></div>
+        </div>
+
+        <div class="weekly-sub-title">📌 各 PM 採購異常分佈排行</div>
+        <el-table :data="weeklyPmList" border stripe size="mini" class="dark-table" max-height="260px">
+          <el-table-column prop="pm" label="所屬 PM" width="130" align="center" />
+          <el-table-column prop="count" label="異常單數" width="100" align="right" sortable />
+          <el-table-column prop="pcs" label="驗收總 PCS" width="130" align="right" sortable>
+            <template #default="scope">{{ formatNumber(scope.row.pcs) }}</template>
+          </el-table-column>
+          <el-table-column prop="cubicFeet" label="進貨才數" min-width="120" align="right" sortable>
+            <template #default="scope">{{ formatNumber(scope.row.cubicFeet) }} 才</template>
+          </el-table-column>
+        </el-table>
+      </div>
+
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button size="small" class="dialog-cancel-btn" @click="showWeeklyDialog = false">關閉</el-button>
+        </span>
+      </template>
+    </el-dialog>
+
+    <!-- 🌟 7. 參數設定 Modal 彈窗 -->
     <el-dialog
       v-model="showConfigDialog"
       title="⚙️ 不合理進貨分析 - 參數設定"
       width="480px"
-      custom-class="dark-dialog"
+      class="custom-dark-dialog"
     >
       <el-form label-width="140px" size="small">
         <el-form-item label="📊 抓取資料筆數上限">
@@ -236,12 +347,11 @@
 
       <template #footer>
         <span class="dialog-footer">
-          <el-button size="small" @click="showConfigDialog = false">取消</el-button>
+          <el-button size="small" class="dialog-cancel-btn" @click="showConfigDialog = false">取消</el-button>
           <el-button size="small" type="primary" @click="saveAndApplyConfig">💾 儲存並重新載入</el-button>
         </span>
       </template>
     </el-dialog>
-
   </div>
 </template>
 
@@ -262,16 +372,27 @@ export default {
       warehouse: 'all',
       ruleType: 'all',
       turnoverLevelFilter: 'all',
+      excludeGifts: false,
       summary: { totalCount: 0, totalPcs: 0, totalCubicFeet: 0, pmCount: 0 },
       rawTableData: [],
       currentPage: 1,
       pageSize: 500,
 
-      // 🌟 參數設定選單變數
+      // 參數設定變數
       showConfigDialog: false,
       configLimit: 10000,
       configSortProp: 'rec_date',
-      configSortOrder: 'descending'
+      configSortOrder: 'descending',
+
+      // 自訂備註與贈品維護
+      showNoteDialog: false,
+      savingNote: false,
+      currentNoteItem: { item_id: '', item_name: '', is_gift: false, remark: '' },
+
+      // 每週一週報分析視角
+      showWeeklyDialog: false,
+      weeklyLoading: false,
+      weeklyData: { range: {}, summary: {}, pmStats: {}, data: [] }
     }
   },
   computed: {
@@ -282,6 +403,15 @@ export default {
     },
     defaultSortConfig() {
       return { prop: this.configSortProp, order: this.configSortOrder };
+    },
+    weeklyPmList() {
+      const stats = this.weeklyData.pmStats || {};
+      return Object.keys(stats).map(pm => ({
+        pm,
+        count: stats[pm].count,
+        pcs: stats[pm].pcs,
+        cubicFeet: parseFloat((stats[pm].cubicFeet || 0).toFixed(2))
+      })).sort((a, b) => b.count - a.count);
     }
   },
   mounted() {
@@ -314,6 +444,85 @@ export default {
       this.fetchAbnormalData();
     },
 
+    openNoteDialog(row) {
+      this.currentNoteItem = {
+        item_id: row.item_id,
+        item_name: row.item_name,
+        is_gift: !!row.is_gift,
+        remark: row.custom_remark || ''
+      };
+      this.showNoteDialog = true;
+    },
+
+    async saveItemNote() {
+      if (!this.currentNoteItem.item_id) return;
+      this.savingNote = true;
+      try {
+        const res = await axios.post('/api/abnormal/save-note', {
+          itemId: this.currentNoteItem.item_id,
+          isGift: this.currentNoteItem.is_gift,
+          remark: this.currentNoteItem.remark,
+          updatedBy: '系統管理員'
+        });
+        if (res.data?.success) {
+          ElMessage.success('🎉 商品備註與贈品屬性已成功儲存！');
+          this.showNoteDialog = false;
+          this.fetchAbnormalData();
+        } else {
+          ElMessage.error(res.data?.message || '儲存失敗');
+        }
+      } catch (e) {
+        ElMessage.error('儲存失敗：' + e.message);
+      } finally {
+        this.savingNote = false;
+      }
+    },
+
+    async openWeeklyReport() {
+      this.showWeeklyDialog = true;
+      this.weeklyLoading = true;
+      try {
+        const res = await axios.get('/api/abnormal/weekly-summary');
+        if (res.data?.success) {
+          this.weeklyData = res.data;
+        } else {
+          ElMessage.error(res.data?.message || '週報取得失敗');
+        }
+      } catch (e) {
+        ElMessage.error('讀取週報失敗：' + e.message);
+      } finally {
+        this.weeklyLoading = false;
+      }
+    },
+
+    exportWeeklyExcel() {
+      const list = this.weeklyData.data || [];
+      if (!list.length) return ElMessage.warning('上週無不合理進貨資料可匯出');
+
+      const rows = list.map(r => ({
+        '快照結算日': r.snapshot_date,
+        '驗收日期': r.rec_date,
+        '進貨單號(PO)': r.po_no,
+        '商品編號': r.item_id,
+        '商品名稱': r.item_name,
+        '驗收數量': r.import_qty,
+        '進貨才數': r.import_cubic_feet,
+        '快照庫存': r.stock_qty,
+        '月銷量': r.monthly_sales,
+        '90日銷量': r.sales_90d,
+        '迴轉月數': r.turn_months,
+        '迴轉級距': r.turnover_level,
+        '所屬PM': r.pm,
+        '供應商': r.supplier_name
+      }));
+
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "上週不合理進貨週報");
+      XLSX.writeFile(wb, `不合理進貨週報_${this.weeklyData.range?.startDate}_${this.weeklyData.range?.endDate}.xlsx`);
+      ElMessage.success('🎉 成功匯出週報 Excel！');
+    },
+
     async fetchAbnormalData() {
       this.loading = true;
       try {
@@ -331,7 +540,8 @@ export default {
           warehouse: this.warehouse,
           ruleType: this.ruleType,
           turnoverLevel: this.turnoverLevelFilter,
-          limit: this.configLimit // 🌟 傳送抓取上限筆數
+          excludeGifts: this.excludeGifts,
+          limit: this.configLimit
         };
 
         const res = await axios.get('/api/abnormal/list', { params, timeout: 25000 });
@@ -339,7 +549,6 @@ export default {
           this.summary = res.data.summary || { totalCount: 0, totalPcs: 0, totalCubicFeet: 0, pmCount: 0 };
           let list = res.data.data || [];
 
-          // 🌟 前端依據設定實施預設排序
           const prop = this.configSortProp;
           const isAsc = this.configSortOrder === 'ascending';
           list.sort((a, b) => {
@@ -384,6 +593,8 @@ export default {
         '迴轉級距': r.turnover_level,
         '所屬PM': r.pm,
         '供應商': r.supplier_name,
+        '是否為贈品': r.is_gift ? '是' : '否',
+        '自訂備註': r.custom_remark || '',
         '不合理判定原因': (r.tags || []).map(t => t.text).join(' | ')
       }));
 
@@ -405,6 +616,7 @@ export default {
 .title-group, .action-group { display: flex; align-items: center; gap: 12px; }
 .page-title { font-size: 16px; font-weight: bold; color: #f87171; }
 .filter-label { font-size: 13px; color: #f8fafc; font-weight: bold; }
+.gift-checkbox { margin-left: 12px; color: #4ade80 !important; font-weight: bold; }
 .metrics-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
 .metric-card { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 12px 16px; display: flex; flex-direction: column; gap: 4px; }
 .border-red { border-left: 4px solid #ef4444 !important; }
@@ -420,6 +632,11 @@ export default {
 :deep(.dark-table th.el-table__cell) { background-color: #0f172a !important; color: #38bdf8 !important; border-bottom: 1px solid #334155 !important; }
 :deep(.dark-table td.el-table__cell) { background-color: #1e293b !important; color: #f8fafc !important; border-bottom: 1px solid #334155 !important; }
 .tag-group { display: flex; flex-wrap: wrap; gap: 4px; }
+.item-link { cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 4px; }
+.item-link:hover span { text-decoration: underline; color: #60a5fa; }
+.note-col { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.note-text { font-size: 11px; color: #fbbf24; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ml-4 { margin-left: 4px; }
 .text-red { color: #f87171 !important; }
 .text-blue { color: #38bdf8 !important; }
 .text-green { color: #4ade80 !important; }
@@ -427,4 +644,79 @@ export default {
 .text-orange { color: #fbbf24 !important; }
 .text-purple { color: #c084fc !important; }
 .font-bold { font-weight: bold; }
+
+/* 彈窗樣式 */
+.dialog-form-body { display: flex; flex-direction: column; gap: 14px; padding: 10px 0; color: #f8fafc; }
+.dialog-row { display: flex; align-items: center; gap: 10px; }
+.dialog-row-col { display: flex; flex-direction: column; gap: 8px; }
+.d-label { width: 110px; font-weight: bold; color: #94a3b8; font-size: 13px; }
+.d-val { font-size: 13px; }
+.gift-switch { color: #4ade80 !important; font-weight: bold; }
+.weekly-modal-content { display: flex; flex-direction: column; gap: 14px; }
+.weekly-header-bar { display: flex; justify-content: space-between; align-items: center; background: #0f172a; padding: 8px 12px; border-radius: 6px; border: 1px solid #334155; }
+.weekly-range { color: #38bdf8; font-weight: bold; font-size: 13px; }
+.weekly-summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.w-card { background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 8px 12px; display: flex; flex-direction: column; gap: 4px; }
+.w-lbl { font-size: 11px; color: #94a3b8; }
+.w-val { font-size: 16px; font-weight: bold; }
+.weekly-sub-title { font-size: 13px; font-weight: bold; color: #f8fafc; margin-top: 6px; }
+</style>
+
+<!-- 🌟 全域注入彈窗樣式：黑底白字主題，格子維持白底黑字 -->
+<style>
+.custom-dark-dialog {
+  background-color: #1e293b !important;
+  border: 1px solid #334155 !important;
+  border-radius: 10px !important;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.7) !important;
+}
+
+.custom-dark-dialog .el-dialog__header {
+  background-color: #0f172a !important;
+  border-bottom: 1px solid #334155 !important;
+  padding: 16px 20px !important;
+}
+
+.custom-dark-dialog .el-dialog__title {
+  color: #38bdf8 !important;
+  font-weight: bold !important;
+  font-size: 16px !important;
+}
+
+.custom-dark-dialog .el-dialog__body {
+  background-color: #1e293b !important;
+  color: #ffffff !important;
+  padding: 20px 24px !important;
+}
+
+.custom-dark-dialog .el-dialog__footer {
+  background-color: #0f172a !important;
+  border-top: 1px solid #334155 !important;
+  padding: 12px 20px !important;
+}
+
+.custom-dark-dialog .el-form-item__label {
+  color: #ffffff !important;
+  font-weight: bold !important;
+}
+
+/* 🌟 格子區維持純白底黑字 */
+.custom-dark-dialog .el-input__inner,
+.custom-dark-dialog .el-textarea__inner,
+.custom-dark-dialog .el-select .el-input__inner {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+  font-weight: bold !important;
+  border: 1px solid #cbd5e1 !important;
+}
+
+.dialog-cancel-btn {
+  background-color: #334155 !important;
+  border-color: #475569 !important;
+  color: #f1f5f9 !important;
+}
+.dialog-cancel-btn:hover {
+  background-color: #475569 !important;
+  color: #ffffff !important;
+}
 </style>
