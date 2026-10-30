@@ -28,7 +28,7 @@ module.exports = function(db) {
     const { startDate, endDate, warehouse, ruleTypes, ruleType, turnoverLevels, turnoverLevel, limit } = req.query;
     const maxLimit = Number(limit) || 10000;
 
-    const ruleList = (ruleTypes || ruleType || 'all').split(',').map(s => s.trim()).filter(Boolean);
+    const ruleList = (ruleTypes || ruleType || '').split(',').map(s => s.trim()).filter(Boolean);
     const levelList = (turnoverLevels || turnoverLevel || 'all').split(',').map(s => s.trim()).filter(Boolean);
 
     let inSql = `
@@ -72,10 +72,20 @@ module.exports = function(db) {
         });
       }
 
+      // 🌟 計算當天同商品的「驗收總 PCS」
+      const dailyTotalImportMap = new Map();
+      inboundRows.forEach(r => {
+        const k = normalizeKey(r.item_id);
+        const qty = Number(r.import_qty) || 0;
+        dailyTotalImportMap.set(k, (dailyTotalImportMap.get(k) || 0) + qty);
+      });
+
+      const validInvCondition = `WHERE IFNULL(qty, 0) > 0`;
+
       db.all(`SELECT item_id, is_gift, remark FROM item_custom_notes`, [], (errNotes, notesRows) => {
         db.all(`SELECT item_id, total_stock_qty, stock_qty_80, sales_90d, monthly_sales, pm, supplier_name FROM item_sales_history`, [], (errHist, histRows) => {
-          db.all(`SELECT item_id, MAX(age) AS max_age, SUM(qty) AS inv_qty, MAX(turn_days_total) AS turn_days, MAX(pm) AS inv_pm, MAX(supplier_name) AS inv_supplier FROM inventory GROUP BY item_id`, [], (err80, inv80Rows) => {
-            db.all(`SELECT item_id, MAX(age) AS max_age, SUM(qty) AS inv_qty, MAX(turn_days_total) AS turn_days, MAX(pm) AS inv_pm, MAX(supplier_name) AS inv_supplier FROM inventory_15 GROUP BY item_id`, [], (err15, inv15Rows) => {
+          db.all(`SELECT item_id, MAX(age) AS max_age, SUM(qty) AS inv_qty, MAX(turn_days_total) AS turn_days, MAX(pm) AS inv_pm, MAX(supplier_name) AS inv_supplier FROM inventory ${validInvCondition} GROUP BY item_id`, [], (err80, inv80Rows) => {
+            db.all(`SELECT item_id, MAX(age) AS max_age, SUM(qty) AS inv_qty, MAX(turn_days_total) AS turn_days, MAX(pm) AS inv_pm, MAX(supplier_name) AS inv_supplier FROM inventory_15 ${validInvCondition} GROUP BY item_id`, [], (err15, inv15Rows) => {
               
               const notesMap = new Map();
               (notesRows || []).forEach(n => {
@@ -138,11 +148,12 @@ module.exports = function(db) {
                 const stockQty = Math.max(hist ? hist.stock_qty : 0, invInfo.inv_qty);
                 const sales90 = hist ? hist.sales_90d : 0;
                 const monthlySales = hist ? hist.monthly_sales : 0;
-                const actualAge = invInfo.age;
+                let actualAge = invInfo.age;
                 const pm = invInfo.pm || (hist ? hist.pm : '未指定PM') || '未指定PM';
                 const supplier = invInfo.supplier || (hist ? hist.supplier_name : '未知供應商') || '未知供應商';
 
                 const importQty = Number(r.import_qty) || 0;
+                const dailyTotalImportQty = dailyTotalImportMap.get(key) || importQty; // 🌟 當日驗收總PCS
                 const len = Number(r.length) || 0;
                 const w = Number(r.width) || 0;
                 const h = Number(r.height) || 0;
@@ -152,23 +163,22 @@ module.exports = function(db) {
 
                 const isNewItem = (!isHistoryRecorded && sales90 === 0 && actualAge === 0 && !isGift);
 
+                // 🌟 核心調整：迴轉月數改抓「當日驗收總PCS / 月銷量」
                 let turnMonths = 0;
                 if (!isNewItem && !isGift) {
-                  turnMonths = Number(invInfo.turn_days) || 0;
-                  if (turnMonths === 0 || turnMonths >= 99999) {
-                    turnMonths = monthlySales > 0 ? parseFloat(((stockQty + importQty) / monthlySales).toFixed(1)) : 99999;
+                  if (monthlySales > 0) {
+                    turnMonths = parseFloat((dailyTotalImportQty / monthlySales).toFixed(1));
+                  } else {
+                    turnMonths = 99999;
                   }
                 }
 
                 const levelInfo = getTurnoverLevelInfo(turnMonths, isNewItem, isGift);
 
                 const tags = [];
-
                 if (isGift) {
-                  // 🌟 贈品採購：只貼贈品標籤，免除任何銷量、迴轉、滯銷、爆量警告！
                   tags.push({ text: '🎁 贈品採購', type: 'info' });
                 } else if (isNewItem) {
-                  // 首次建檔新品
                   tags.push({ text: '✨ 首次建檔新品', type: 'success' });
                 } else {
                   if (isHistoryRecorded && stockQty === 0 && sales90 === 0) tags.push({ text: '📦 斷貨重進舊品', type: 'warning' });
@@ -176,19 +186,19 @@ module.exports = function(db) {
                   else if (actualAge >= 180) tags.push({ text: '🚨 高庫齡滯銷進貨', type: 'danger' });
 
                   if (turnMonths > 6) tags.push({ text: `⚠️ 迴轉月數過高 (${turnMonths >= 99999 ? '99999個月' : turnMonths + '個月'})`, type: 'warning' });
-                  // 🌟 只有一般非贈品才判定爆量驗收
-                  if (sales90 > 0 && importQty >= (sales90 * 2)) tags.push({ text: `⚠️ 爆量驗收 (進貨>90日銷量2倍)`, type: 'warning' });
+                  if (sales90 > 0 && dailyTotalImportQty >= (sales90 * 2)) tags.push({ text: `⚠️ 爆量驗收 (進貨>90日銷量2倍)`, type: 'warning' });
                 }
 
-                // 🌟 比對篩選條件：
-                // 如果未勾選 'gift'，但該商品是贈品，強制排除！
-                const allowGift = ruleList.includes('gift') || ruleList.includes('all') || ruleList.length === 0;
-                if (isGift && !allowGift) {
-                  return; // 直接跳過，不列入結果
-                }
+                // 🌟 未勾選贈品時嚴格過濾
+                const allowGift = ruleList.includes('gift') || ruleList.includes('all');
+                if (isGift && !allowGift) return;
+
+                // 🌟 未勾選新品時嚴格過濾
+                const allowNewItem = ruleList.includes('new_item') || ruleList.includes('all');
+                if (isNewItem && !allowNewItem) return;
 
                 let isMatchRule = false;
-                if (ruleList.includes('all') || ruleList.length === 0 || ruleList.length === 5) {
+                if (ruleList.includes('all') || ruleList.length === 0) {
                   isMatchRule = tags.length > 0;
                 } else {
                   if (ruleList.includes('zero_sales') && tags.some(t => t.text.includes('零銷量') || t.text.includes('滯銷'))) isMatchRule = true;
@@ -215,6 +225,7 @@ module.exports = function(db) {
                     item_id: r.item_id,
                     item_name: r.item_name || '-',
                     import_qty: importQty,
+                    daily_total_import_qty: dailyTotalImportQty, // 🌟 當日驗收總PCS
                     current_stock_qty: stockQty,
                     import_cubic_feet: importCubicFeet,
                     age: actualAge,
@@ -372,7 +383,7 @@ module.exports = function(db) {
     });
   });
 
-  // 5. 補結算快照 API (含贈品豁免規則)
+  // 5. 補結算快照 API
   router.post('/generate-history-snapshot', (req, res) => {
     const { startDate, endDate } = req.body;
     let inSql = `
@@ -385,15 +396,24 @@ module.exports = function(db) {
     const inParams = [];
     if (startDate && endDate) { inSql += ` AND rec_date >= ? AND rec_date <= ?`; inParams.push(startDate, endDate); }
 
+    const validInvCondition = `WHERE IFNULL(qty, 0) > 0`;
+
     db.all(inSql, inParams, (errIn, inboundRows) => {
       if (errIn || !inboundRows || inboundRows.length === 0) {
         return res.json({ success: true, count: 0, message: '查無符合日期的進貨明細可供結算！' });
       }
 
+      const dailyTotalImportMap = new Map();
+      inboundRows.forEach(r => {
+        const k = normalizeKey(r.item_id);
+        const qty = Number(r.import_qty) || 0;
+        dailyTotalImportMap.set(k, (dailyTotalImportMap.get(k) || 0) + qty);
+      });
+
       db.all(`SELECT item_id, is_gift FROM item_custom_notes`, [], (errN, notesRows) => {
         db.all(`SELECT item_id, total_stock_qty, stock_qty_80, sales_90d, monthly_sales, pm, supplier_name FROM item_sales_history`, [], (errH, histRows) => {
-          db.all(`SELECT item_id, MAX(age) AS max_age, SUM(qty) AS inv_qty, MAX(turn_days_total) AS turn_days, MAX(pm) AS inv_pm, MAX(supplier_name) AS inv_supplier FROM inventory GROUP BY item_id`, [], (err80, inv80Rows) => {
-            db.all(`SELECT item_id, MAX(age) AS max_age, SUM(qty) AS inv_qty, MAX(turn_days_total) AS turn_days, MAX(pm) AS inv_pm, MAX(supplier_name) AS inv_supplier FROM inventory_15 GROUP BY item_id`, [], (err15, inv15Rows) => {
+          db.all(`SELECT item_id, MAX(age) AS max_age, SUM(qty) AS inv_qty, MAX(turn_days_total) AS turn_days, MAX(pm) AS inv_pm, MAX(supplier_name) AS inv_supplier FROM inventory ${validInvCondition} GROUP BY item_id`, [], (err80, inv80Rows) => {
+            db.all(`SELECT item_id, MAX(age) AS max_age, SUM(qty) AS inv_qty, MAX(turn_days_total) AS turn_days, MAX(pm) AS inv_pm, MAX(supplier_name) AS inv_supplier FROM inventory_15 ${validInvCondition} GROUP BY item_id`, [], (err15, inv15Rows) => {
               
               const notesMap = new Map();
               (notesRows || []).forEach(n => notesMap.set(normalizeKey(n.item_id), Number(n.is_gift) === 1));
@@ -467,6 +487,7 @@ module.exports = function(db) {
                   const supplier = invInfo.supplier || (hist ? hist.supplier_name : '未知供應商') || '未知供應商';
 
                   const importQty = Number(r.import_qty) || 0;
+                  const dailyTotalImportQty = dailyTotalImportMap.get(key) || importQty;
                   const len = Number(r.length) || 0;
                   const w = Number(r.width) || 0;
                   const h = Number(r.height) || 0;
@@ -478,9 +499,10 @@ module.exports = function(db) {
 
                   let turnMonths = 0;
                   if (!isNewItem && !isGift) {
-                    turnMonths = Number(invInfo.turn_days) || 0;
-                    if (turnMonths === 0 || turnMonths >= 99999) {
-                      turnMonths = monthlySales > 0 ? parseFloat(((stockQty + importQty) / monthlySales).toFixed(1)) : 99999;
+                    if (monthlySales > 0) {
+                      turnMonths = parseFloat((dailyTotalImportQty / monthlySales).toFixed(1));
+                    } else {
+                      turnMonths = 99999;
                     }
                   }
 
@@ -497,7 +519,7 @@ module.exports = function(db) {
                     else if (actualAge >= 180) tags.push({ text: '🚨 高庫齡滯銷進貨', type: 'danger' });
 
                     if (turnMonths > 6) tags.push({ text: `⚠️ 迴轉月數過高 (${turnMonths >= 99999 ? '99999個月' : turnMonths + '個月'})`, type: 'warning' });
-                    if (sales90 > 0 && importQty >= (sales90 * 2)) tags.push({ text: `⚠️ 爆量驗收 (進貨>90日銷量2倍)`, type: 'warning' });
+                    if (sales90 > 0 && dailyTotalImportQty >= (sales90 * 2)) tags.push({ text: `⚠️ 爆量驗收 (進貨>90日銷量2倍)`, type: 'warning' });
                   }
 
                   if (tags.length > 0) {

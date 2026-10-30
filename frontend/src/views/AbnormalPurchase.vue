@@ -92,7 +92,7 @@
 
     <!-- 3. 頂部雙層快速條件卡片 (即時模式時顯示完整篩選) -->
     <div class="filter-card-group" v-if="viewMode === 'live'">
-      <!-- 🌟 1. 不合理類型：已新增「✨ 首次建檔新品」勾選方塊 -->
+      <!-- 🌟 1. 不合理類型：贈品與新品預設不勾選 -->
       <div class="filter-card">
         <span class="filter-label">📌 不合理類型：</span>
         <el-checkbox
@@ -108,7 +108,7 @@
           <el-checkbox label="zero_sales">🚨 零銷量/高庫齡進貨</el-checkbox>
           <el-checkbox label="high_turnover">⚠️ 迴轉月數過高 (>6個月)</el-checkbox>
           <el-checkbox label="over_import">⚠️ 爆量驗收 (進貨>90日銷量2倍)</el-checkbox>
-          <el-checkbox label="gift">🎁 贈品</el-checkbox>
+          <el-checkbox label="gift">🎁 贈品採購</el-checkbox>
           <el-checkbox label="new_item">✨ 首次建檔新品</el-checkbox>
         </el-checkbox-group>
       </div>
@@ -171,6 +171,13 @@
             <span class="font-bold text-blue">{{ formatNumber(scope.row.import_qty) }}</span>
           </template>
         </el-table-column>
+
+        <!-- 🌟 新增：當日驗收總PCS -->
+        <el-table-column prop="daily_total_import_qty" label="當日驗收總PCS" width="115" align="right" sortable>
+          <template #default="scope">
+            <span class="font-bold text-yellow">{{ formatNumber(scope.row.daily_total_import_qty || scope.row.import_qty) }}</span>
+          </template>
+        </el-table-column>
         
         <el-table-column prop="current_stock_qty" label="總庫存" width="95" align="right" sortable>
           <template #default="scope">
@@ -213,7 +220,7 @@
 
         <el-table-column prop="turnover_level" label="迴轉級距" width="170" align="center" sortable>
           <template #default="scope">
-            <span v-if="scope.row.turnover_level.includes('新品免評')" class="text-green font-bold">
+            <span v-if="(scope.row.turnover_level || '').includes('免評')" class="text-green font-bold">
               {{ scope.row.turnover_level }}
             </span>
             <span v-else :class="(scope.row.turnover_level || '').includes('99999') ? 'text-red font-bold' : 'text-purple'">
@@ -252,12 +259,12 @@
         </el-table-column>
       </el-table>
 
-      <!-- 底部分頁列：預設 200 筆/頁 -->
+      <!-- 🌟 底部分頁列：上限 200 筆/頁，移除 500 與 1000 -->
       <div class="pagination-bar">
         <el-pagination
           v-model:current-page="currentPage"
           v-model:page-size="pageSize"
-          :page-sizes="[100, 200]"
+          :page-sizes="[50, 100, 200]"
           layout="total, sizes, prev, pager, next, jumper"
           :total="rawTableData.length"
           @size-change="handleSizeChange"
@@ -368,6 +375,7 @@
           <el-select v-model="configSortProp" style="width: 100%;">
             <el-option value="rec_date" label="📅 驗收日期" />
             <el-option value="turn_days_total" label="📈 迴轉月數" />
+            <el-option value="daily_total_import_qty" label="📦 當日驗收總 PCS" />
             <el-option value="import_qty" label="📦 驗收 PCS" />
             <el-option value="import_cubic_feet" label="📐 進貨才數" />
             <el-option value="sales_90d" label="📊 近90日銷量" />
@@ -403,9 +411,11 @@ export default {
   data() {
     const today = new Date().toISOString().split('T')[0];
 
-    // 🌟 不合理類型選項新增 new_item
     const allRuleOptions = ['zero_sales', 'high_turnover', 'over_import', 'gift', 'new_item'];
     const allLevelOptions = ['le3', 'm3_6', 'm6_9', 'm9_12', 'm13_60', 'm61_120', 'gt120', 'm99999'];
+
+    // 🌟 預設只勾選常見的三個異常類型，贈品與首次建檔新品預設不打勾
+    const defaultSelectedRules = ['zero_sales', 'high_turnover', 'over_import'];
 
     return {
       loading: false,
@@ -415,11 +425,11 @@ export default {
       targetDate: today,
       warehouse: 'all',
 
-      // 不合理類型複選 (預設全選，可手動取消 new_item)
-      checkAllRules: true,
-      isRuleIndeterminate: false,
+      // 不合理類型複選
+      checkAllRules: false,
+      isRuleIndeterminate: true,
       allRuleOptions,
-      selectedRules: [...allRuleOptions],
+      selectedRules: defaultSelectedRules,
 
       // 迴轉級距複選
       checkAllLevels: true,
@@ -430,7 +440,7 @@ export default {
       summary: { totalCount: 0, totalPcs: 0, totalCubicFeet: 0, pmCount: 0 },
       rawTableData: [],
       currentPage: 1,
-      pageSize: 200, // 🌟 預設 200 筆/頁
+      pageSize: 200, // 🌟 預設 200 筆/頁[cite: 18]
 
       showConfigDialog: false,
       configLimit: 10000,
@@ -616,6 +626,7 @@ export default {
         '商品編號': r.item_id,
         '商品名稱': r.item_name,
         '驗收數量': r.import_qty,
+        '當日驗收總PCS': r.daily_total_import_qty,
         '進貨才數': r.import_cubic_feet,
         '快照庫存': r.stock_qty,
         '月銷量': r.monthly_sales,
@@ -696,6 +707,7 @@ export default {
         '商品編號': r.item_id,
         '商品名稱': r.item_name,
         '驗收數量(PCS)': r.import_qty,
+        '當日驗收總PCS': r.daily_total_import_qty,
         '快照總庫存': r.current_stock_qty,
         '進貨才數': r.import_cubic_feet,
         '最長庫齡': r.age,
