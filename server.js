@@ -1164,6 +1164,48 @@ db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS locations_master (id INTEGER PRIMARY KEY AUTOINCREMENT, floor TEXT, zone TEXT, loc_type TEXT, cubic_feet REAL, grid_count INTEGER, single_cubic_feet REAL);`);
   db.run(`CREATE TABLE IF NOT EXISTS import_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, module_type TEXT, file_name TEXT, row_count INTEGER, imported_at TEXT);`);
   
+  // 🌟 1. 每日不合理進貨快照歷史表 (記錄每天進貨當下的真實快照數據)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS abnormal_purchase_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      snapshot_date TEXT,
+      warehouse TEXT,
+      rec_date TEXT,
+      rec_time TEXT,
+      po_no TEXT,
+      batch_no TEXT,
+      item_id TEXT,
+      item_name TEXT,
+      import_qty REAL,
+      length REAL,
+      width REAL,
+      height REAL,
+      import_cubic_feet REAL,
+      stock_qty REAL,
+      monthly_sales REAL,
+      sales_90d REAL,
+      turn_months REAL,
+      turnover_level TEXT,
+      age INTEGER,
+      supplier_name TEXT,
+      pm TEXT,
+      abnormal_tags TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(warehouse, po_no, batch_no, item_id, rec_date)
+    );
+  `);
+
+  // 🌟 2. 商品自訂屬性與贈品備註表 (永久記錄手動備註與贈品註記)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS item_custom_notes (
+      item_id TEXT PRIMARY KEY,
+      is_gift INTEGER DEFAULT 0,
+      remark TEXT,
+      updated_by TEXT,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
   // 基礎系統帳號
   db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions) VALUES ('admin', '系統管理員', 'sys_admin', 'admin', 'all');`);
   db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions) VALUES ('801854', '黃勝鴻', 'sys_admin', '801854', 'all');`);
