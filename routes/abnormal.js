@@ -21,7 +21,7 @@ module.exports = function(db) {
     return { code: 'le3', label: '<=3個月' };
   };
 
-  // 1. 取得不合理進貨即時動態清單 (分步精準查詢 + 記憶體 $O(1)$ 比對，0.1 秒秒開)
+  // 1. 取得不合理進貨即時動態清單 (精確納入 inventory 表庫齡 age)
   router.get('/list', (req, res) => {
     const { startDate, endDate, warehouse, ruleTypes, ruleType, turnoverLevels, turnoverLevel, limit } = req.query;
     const maxLimit = Number(limit) || 10000;
@@ -46,6 +46,7 @@ module.exports = function(db) {
       inParams.push(startDate, endDate);
     } else if (startDate) {
       inSql += ` AND rec_date = ?`;
+      params = [startDate];
       inParams.push(startDate);
     }
 
@@ -57,7 +58,7 @@ module.exports = function(db) {
     inSql += ` ORDER BY rec_date DESC, rec_time DESC LIMIT ?`;
     inParams.push(maxLimit);
 
-    // 第一步：先抓當天進貨明細（走 idx_inbound_rec_date 索引，約 1ms）
+    // 第一步：精準抓取當天進貨明細
     db.all(inSql, inParams, (errIn, inboundRows) => {
       if (errIn) {
         return res.status(500).json({ success: false, message: '進貨明細讀取失敗：' + errIn.message });
@@ -71,135 +72,159 @@ module.exports = function(db) {
         });
       }
 
-      // 第二步：抓取所有自訂備註與歷史銷量（只抓必要欄位，極快）
+      // 第二步：平行載入備註表、銷量總表、庫存主檔(取最高庫齡與庫存)
       db.all(`SELECT item_id, is_gift, remark FROM item_custom_notes`, [], (errNotes, notesRows) => {
         db.all(`SELECT item_id, total_stock_qty, stock_qty_80, sales_90d, monthly_sales, pm, supplier_name FROM item_sales_history`, [], (errHist, histRows) => {
-          
-          // 建立自訂備註 Map
-          const notesMap = new Map();
-          (notesRows || []).forEach(n => {
-            const k = normalizeKey(n.item_id);
-            if (k) notesMap.set(k, { is_gift: Number(n.is_gift) === 1, remark: n.remark || '' });
-          });
+          db.all(`SELECT item_id, MAX(age) AS max_age, SUM(qty) AS inv_qty, MAX(turn_days_total) AS turn_days, MAX(pm) AS inv_pm, MAX(supplier_name) AS inv_supplier FROM inventory GROUP BY item_id`, [], (errInv, invRows) => {
+            
+            // 建立自訂備註 Map
+            const notesMap = new Map();
+            (notesRows || []).forEach(n => {
+              const k = normalizeKey(n.item_id);
+              if (k) notesMap.set(k, { is_gift: Number(n.is_gift) === 1, remark: n.remark || '' });
+            });
 
-          // 建立歷史基準 Map
-          const histMap = new Map();
-          (histRows || []).forEach(h => {
-            const k = normalizeKey(h.item_id);
-            if (k) {
-              histMap.set(k, {
-                stock_qty: Number(h.total_stock_qty || h.stock_qty_80 || 0),
-                sales_90d: Number(h.sales_90d || 0),
-                monthly_sales: Number(h.monthly_sales || 0),
-                pm: h.pm || '未指定PM',
-                supplier_name: h.supplier_name || '未知供應商'
-              });
-            }
-          });
+            // 建立庫存主檔庫齡 Map (🌟 修正重點：取實際庫齡)
+            const invAgeMap = new Map();
+            (invRows || []).forEach(i => {
+              const k = normalizeKey(i.item_id);
+              if (k) {
+                invAgeMap.set(k, {
+                  age: Number(i.max_age) || 0,
+                  inv_qty: Number(i.inv_qty) || 0,
+                  turn_days: Number(i.turn_days) || 0,
+                  pm: i.inv_pm || '',
+                  supplier: i.inv_supplier || ''
+                });
+              }
+            });
 
-          const abnormalRows = [];
-          let totalPcs = 0;
-          let totalCubicFeet = 0;
-          const pmSet = new Set();
+            // 建立歷史基準 Map
+            const histMap = new Map();
+            (histRows || []).forEach(h => {
+              const k = normalizeKey(h.item_id);
+              if (k) {
+                histMap.set(k, {
+                  stock_qty: Number(h.total_stock_qty || h.stock_qty_80 || 0),
+                  sales_90d: Number(h.sales_90d || 0),
+                  monthly_sales: Number(h.monthly_sales || 0),
+                  pm: h.pm || '未指定PM',
+                  supplier_name: h.supplier_name || '未知供應商'
+                });
+              }
+            });
 
-          // 第三步：直接比對
-          inboundRows.forEach(r => {
-            const key = normalizeKey(r.item_id);
-            const noteInfo = notesMap.get(key) || { is_gift: false, remark: '' };
-            const hist = histMap.get(key);
+            const abnormalRows = [];
+            let totalPcs = 0;
+            let totalCubicFeet = 0;
+            const pmSet = new Set();
 
-            const isHistoryRecorded = !!hist;
-            const stockQty = hist ? hist.stock_qty : 0;
-            const sales90 = hist ? hist.sales_90d : 0;
-            const monthlySales = hist ? hist.monthly_sales : 0;
-            const pm = hist ? hist.pm : '未指定PM';
-            const supplier = hist ? hist.supplier_name : '未知供應商';
+            // 第三步：比對並計算各項不合理指標
+            inboundRows.forEach(r => {
+              const key = normalizeKey(r.item_id);
+              const noteInfo = notesMap.get(key) || { is_gift: false, remark: '' };
+              const hist = histMap.get(key);
+              const invInfo = invAgeMap.get(key) || { age: 0, inv_qty: 0, turn_days: 0, pm: '', supplier: '' };
 
-            const importQty = Number(r.import_qty) || 0;
-            const len = Number(r.length) || 0;
-            const w = Number(r.width) || 0;
-            const h = Number(r.height) || 0;
+              const isHistoryRecorded = !!hist;
+              const stockQty = Math.max(hist ? hist.stock_qty : 0, invInfo.inv_qty);
+              const sales90 = hist ? hist.sales_90d : 0;
+              const monthlySales = hist ? hist.monthly_sales : 0;
+              const actualAge = invInfo.age; // 🌟 讀取實際庫齡天數
+              const pm = invInfo.pm || (hist ? hist.pm : '未指定PM') || '未指定PM';
+              const supplier = invInfo.supplier || (hist ? hist.supplier_name : '未知供應商') || '未知供應商';
 
-            const singleCf = (len > 0 && w > 0 && h > 0) ? ((len * w * h) / 28317) : 0;
-            const importCubicFeet = parseFloat((singleCf * importQty).toFixed(2));
+              const importQty = Number(r.import_qty) || 0;
+              const len = Number(r.length) || 0;
+              const w = Number(r.width) || 0;
+              const h = Number(r.height) || 0;
 
-            let turnMonths = monthlySales > 0 ? parseFloat(((stockQty + importQty) / monthlySales).toFixed(1)) : 99999;
-            const levelInfo = getTurnoverLevelInfo(turnMonths);
+              const singleCf = (len > 0 && w > 0 && h > 0) ? ((len * w * h) / 28317) : 0;
+              const importCubicFeet = parseFloat((singleCf * importQty).toFixed(2));
 
-            const tags = [];
-            if (noteInfo.is_gift) tags.push({ text: '🎁 贈品採購', type: 'info' });
-            if (!isHistoryRecorded && sales90 === 0) tags.push({ text: '✨ 首次建檔新品', type: 'info' });
-            else if (isHistoryRecorded && stockQty === 0 && sales90 === 0) tags.push({ text: '📦 斷貨重進舊品', type: 'warning' });
+              let turnMonths = Number(invInfo.turn_days) || 0;
+              if (turnMonths === 0 || turnMonths >= 99999) {
+                turnMonths = monthlySales > 0 ? parseFloat(((stockQty + importQty) / monthlySales).toFixed(1)) : 99999;
+              }
+              const levelInfo = getTurnoverLevelInfo(turnMonths);
 
-            if (sales90 === 0 && importQty > 0 && !noteInfo.is_gift && isHistoryRecorded) {
-              tags.push({ text: '🚨 90日零銷量進貨', type: 'danger' });
-            }
+              const tags = [];
+              if (noteInfo.is_gift) tags.push({ text: '🎁 贈品採購', type: 'info' });
+              if (!isHistoryRecorded && sales90 === 0 && actualAge === 0) tags.push({ text: '✨ 首次建檔新品', type: 'info' });
+              else if (isHistoryRecorded && stockQty === 0 && sales90 === 0) tags.push({ text: '📦 斷貨重進舊品', type: 'warning' });
 
-            if (turnMonths > 6 && !noteInfo.is_gift) {
-              tags.push({ text: `⚠️ 迴轉月數過高 (${turnMonths >= 99999 ? '99999個月' : turnMonths + '個月'})`, type: 'warning' });
-            }
-            if (sales90 > 0 && importQty >= (sales90 * 2)) {
-              tags.push({ text: `⚠️ 爆量驗收 (進貨>90日銷量2倍)`, type: 'warning' });
-            }
+              if (sales90 === 0 && importQty > 0 && !noteInfo.is_gift && isHistoryRecorded) {
+                tags.push({ text: '🚨 90日零銷量進貨', type: 'danger' });
+              } else if (actualAge >= 180) {
+                tags.push({ text: '🚨 高庫齡滯銷進貨', type: 'danger' });
+              }
 
-            // 1. 不合理類型比對 (支援多選)
-            let isMatchRule = false;
-            if (ruleList.includes('all') || ruleList.length === 0 || ruleList.length === 4) {
-              isMatchRule = tags.length > 0;
-            } else {
-              if (ruleList.includes('zero_sales') && tags.some(t => t.text.includes('零銷量') || t.text.includes('滯銷'))) isMatchRule = true;
-              if (ruleList.includes('high_turnover') && tags.some(t => t.text.includes('迴轉月數過高'))) isMatchRule = true;
-              if (ruleList.includes('over_import') && tags.some(t => t.text.includes('爆量驗收') || t.text.includes('超量驗收'))) isMatchRule = true;
-              if (ruleList.includes('gift') && noteInfo.is_gift) isMatchRule = true;
-            }
+              if (turnMonths > 6 && !noteInfo.is_gift) {
+                tags.push({ text: `⚠️ 迴轉月數過高 (${turnMonths >= 99999 ? '99999個月' : turnMonths + '個月'})`, type: 'warning' });
+              }
+              if (sales90 > 0 && importQty >= (sales90 * 2)) {
+                tags.push({ text: `⚠️ 爆量驗收 (進貨>90日銷量2倍)`, type: 'warning' });
+              }
 
-            // 2. 迴轉級距比對 (支援多選)
-            let isMatchLevel = false;
-            if (levelList.includes('all') || levelList.length === 0 || levelList.length === 8) {
-              isMatchLevel = true;
-            } else {
-              isMatchLevel = levelList.includes(levelInfo.code);
-            }
+              // 1. 不合理類型比對 (多選)
+              let isMatchRule = false;
+              if (ruleList.includes('all') || ruleList.length === 0 || ruleList.length === 4) {
+                isMatchRule = tags.length > 0;
+              } else {
+                if (ruleList.includes('zero_sales') && tags.some(t => t.text.includes('零銷量') || t.text.includes('滯銷'))) isMatchRule = true;
+                if (ruleList.includes('high_turnover') && tags.some(t => t.text.includes('迴轉月數過高'))) isMatchRule = true;
+                if (ruleList.includes('over_import') && tags.some(t => t.text.includes('爆量驗收') || t.text.includes('超量驗收'))) isMatchRule = true;
+                if (ruleList.includes('gift') && noteInfo.is_gift) isMatchRule = true;
+              }
 
-            if (isMatchRule && isMatchLevel) {
-              abnormalRows.push({
-                warehouse: r.warehouse,
-                rec_date: r.rec_date,
-                rec_time: r.rec_time,
-                po_no: r.po_no,
-                batch_no: r.batch_no,
-                item_id: r.item_id,
-                item_name: r.item_name || '-',
-                import_qty: importQty,
-                current_stock_qty: stockQty,
-                import_cubic_feet: importCubicFeet,
-                age: 0,
-                monthly_sales: monthlySales,
-                sales_90d: sales90,
-                turn_days_total: turnMonths,
-                turnover_level: levelInfo.label,
-                pm,
-                supplier_name: supplier,
-                is_gift: noteInfo.is_gift,
-                custom_remark: noteInfo.remark,
-                tags
-              });
+              // 2. 迴轉級距比對 (多選)
+              let isMatchLevel = false;
+              if (levelList.includes('all') || levelList.length === 0 || levelList.length === 8) {
+                isMatchLevel = true;
+              } else {
+                isMatchLevel = levelList.includes(levelInfo.code);
+              }
 
-              totalPcs += importQty;
-              totalCubicFeet += importCubicFeet;
-              if (pm && pm !== '未指定PM') pmSet.add(pm);
-            }
-          });
+              if (isMatchRule && isMatchLevel) {
+                abnormalRows.push({
+                  warehouse: r.warehouse,
+                  rec_date: r.rec_date,
+                  rec_time: r.rec_time,
+                  po_no: r.po_no,
+                  batch_no: r.batch_no,
+                  item_id: r.item_id,
+                  item_name: r.item_name || '-',
+                  import_qty: importQty,
+                  current_stock_qty: stockQty,
+                  import_cubic_feet: importCubicFeet,
+                  age: actualAge, // 🌟 正確填入實際庫齡天數
+                  monthly_sales: monthlySales,
+                  sales_90d: sales90,
+                  turn_days_total: turnMonths,
+                  turnover_level: levelInfo.label,
+                  pm,
+                  supplier_name: supplier,
+                  is_gift: noteInfo.is_gift,
+                  custom_remark: noteInfo.remark,
+                  tags
+                });
 
-          res.json({
-            success: true,
-            summary: {
-              totalCount: abnormalRows.length,
-              totalPcs,
-              totalCubicFeet: parseFloat(totalCubicFeet.toFixed(2)),
-              pmCount: pmSet.size
-            },
-            data: abnormalRows
+                totalPcs += importQty;
+                totalCubicFeet += importCubicFeet;
+                if (pm && pm !== '未指定PM') pmSet.add(pm);
+              }
+            });
+
+            res.json({
+              success: true,
+              summary: {
+                totalCount: abnormalRows.length,
+                totalPcs,
+                totalCubicFeet: parseFloat(totalCubicFeet.toFixed(2)),
+                pmCount: pmSet.size
+              },
+              data: abnormalRows
+            });
           });
         });
       });
@@ -326,7 +351,7 @@ module.exports = function(db) {
     });
   });
 
-  // 5. 補結算快照 API
+  // 5. 補結算快照 API (含真實庫齡)
   router.post('/generate-history-snapshot', (req, res) => {
     const { startDate, endDate } = req.body;
     let inSql = `
@@ -346,87 +371,109 @@ module.exports = function(db) {
 
       db.all(`SELECT item_id, is_gift FROM item_custom_notes`, [], (errN, notesRows) => {
         db.all(`SELECT item_id, total_stock_qty, stock_qty_80, sales_90d, monthly_sales, pm, supplier_name FROM item_sales_history`, [], (errH, histRows) => {
-          const notesMap = new Map();
-          (notesRows || []).forEach(n => notesMap.set(normalizeKey(n.item_id), Number(n.is_gift) === 1));
+          db.all(`SELECT item_id, MAX(age) AS max_age, SUM(qty) AS inv_qty, MAX(turn_days_total) AS turn_days, MAX(pm) AS inv_pm, MAX(supplier_name) AS inv_supplier FROM inventory GROUP BY item_id`, [], (errInv, invRows) => {
+            const notesMap = new Map();
+            (notesRows || []).forEach(n => notesMap.set(normalizeKey(n.item_id), Number(n.is_gift) === 1));
 
-          const histMap = new Map();
-          (histRows || []).forEach(h => {
-            histMap.set(normalizeKey(h.item_id), {
-              stock_qty: Number(h.total_stock_qty || h.stock_qty_80 || 0),
-              sales_90d: Number(h.sales_90d || 0),
-              monthly_sales: Number(h.monthly_sales || 0),
-              pm: h.pm || '未指定PM',
-              supplier_name: h.supplier_name || '未知供應商'
-            });
-          });
-
-          db.serialize(() => {
-            db.run('BEGIN TRANSACTION');
-            const snapshotStmt = db.prepare(`
-              INSERT INTO abnormal_purchase_history (
-                snapshot_date, warehouse, rec_date, rec_time, po_no, batch_no,
-                item_id, item_name, import_qty, length, width, height,
-                import_cubic_feet, stock_qty, monthly_sales, sales_90d,
-                turn_months, turnover_level, age, supplier_name, pm, abnormal_tags
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-              ON CONFLICT(warehouse, po_no, batch_no, item_id, rec_date) DO UPDATE SET
-                snapshot_date = EXCLUDED.snapshot_date,
-                import_qty = EXCLUDED.import_qty, stock_qty = EXCLUDED.stock_qty,
-                monthly_sales = EXCLUDED.monthly_sales, sales_90d = EXCLUDED.sales_90d,
-                turn_months = EXCLUDED.turn_months, turnover_level = EXCLUDED.turnover_level,
-                abnormal_tags = EXCLUDED.abnormal_tags
-            `);
-
-            let snapCount = 0;
-            inboundRows.forEach(r => {
-              const key = normalizeKey(r.item_id);
-              const isGift = notesMap.get(key) || false;
-              const hist = histMap.get(key);
-
-              const isHistoryRecorded = !!hist;
-              const stockQty = hist ? hist.stock_qty : 0;
-              const sales90 = hist ? hist.sales_90d : 0;
-              const monthlySales = hist ? hist.monthly_sales : 0;
-              const pm = hist ? hist.pm : '未指定PM';
-              const supplier = hist ? hist.supplier_name : '未知供應商';
-
-              const importQty = Number(r.import_qty) || 0;
-              const len = Number(r.length) || 0;
-              const w = Number(r.width) || 0;
-              const h = Number(r.height) || 0;
-
-              const singleCf = (len > 0 && w > 0 && h > 0) ? ((len * w * h) / 28317) : 0;
-              const importCubicFeet = parseFloat((singleCf * importQty).toFixed(2));
-
-              let turnMonths = monthlySales > 0 ? parseFloat(((stockQty + importQty) / monthlySales).toFixed(1)) : 99999;
-              const levelInfo = getTurnoverLevelInfo(turnMonths);
-
-              const tags = [];
-              if (isGift) tags.push({ text: '🎁 贈品採購', type: 'info' });
-              if (!isHistoryRecorded && sales90 === 0) tags.push({ text: '✨ 首次建檔新品', type: 'info' });
-              else if (isHistoryRecorded && stockQty === 0 && sales90 === 0) tags.push({ text: '📦 斷貨重進舊品', type: 'warning' });
-
-              if (sales90 === 0 && importQty > 0 && !isGift && isHistoryRecorded) tags.push({ text: '🚨 90日零銷量進貨', type: 'danger' });
-
-              if (turnMonths > 6 && !isGift) tags.push({ text: `⚠️ 迴轉月數過高 (${turnMonths >= 99999 ? '99999個月' : turnMonths + '個月'})`, type: 'warning' });
-              if (sales90 > 0 && importQty >= (sales90 * 2)) tags.push({ text: `⚠️ 爆量驗收 (進貨>90日銷量2倍)`, type: 'warning' });
-
-              if (tags.length > 0) {
-                snapshotStmt.run(
-                  r.rec_date, r.warehouse, r.rec_date, r.rec_time, r.po_no, r.batch_no,
-                  r.item_id, r.item_name, importQty, len, w, h,
-                  importCubicFeet, stockQty, monthlySales, sales90,
-                  turnMonths, levelInfo.label, 0, supplier, pm,
-                  JSON.stringify(tags)
-                );
-                snapCount++;
+            const invAgeMap = new Map();
+            (invRows || []).forEach(i => {
+              const k = normalizeKey(i.item_id);
+              if (k) {
+                invAgeMap.set(k, {
+                  age: Number(i.max_age) || 0,
+                  inv_qty: Number(i.inv_qty) || 0,
+                  turn_days: Number(i.turn_days) || 0,
+                  pm: i.inv_pm || '',
+                  supplier: i.inv_supplier || ''
+                });
               }
             });
 
-            snapshotStmt.finalize();
-            db.run('COMMIT', (commitErr) => {
-              if (commitErr) return res.status(500).json({ success: false, message: '快照寫入失敗: ' + commitErr.message });
-              res.json({ success: true, count: snapCount, message: `🎉 成功完成歷史進貨快照結算，共歸檔 ${snapCount} 筆異常紀錄！` });
+            const histMap = new Map();
+            (histRows || []).forEach(h => {
+              histMap.set(normalizeKey(h.item_id), {
+                stock_qty: Number(h.total_stock_qty || h.stock_qty_80 || 0),
+                sales_90d: Number(h.sales_90d || 0),
+                monthly_sales: Number(h.monthly_sales || 0),
+                pm: h.pm || '未指定PM',
+                supplier_name: h.supplier_name || '未知供應商'
+              });
+            });
+
+            db.serialize(() => {
+              db.run('BEGIN TRANSACTION');
+              const snapshotStmt = db.prepare(`
+                INSERT INTO abnormal_purchase_history (
+                  snapshot_date, warehouse, rec_date, rec_time, po_no, batch_no,
+                  item_id, item_name, import_qty, length, width, height,
+                  import_cubic_feet, stock_qty, monthly_sales, sales_90d,
+                  turn_months, turnover_level, age, supplier_name, pm, abnormal_tags
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(warehouse, po_no, batch_no, item_id, rec_date) DO UPDATE SET
+                  snapshot_date = EXCLUDED.snapshot_date,
+                  import_qty = EXCLUDED.import_qty, stock_qty = EXCLUDED.stock_qty,
+                  monthly_sales = EXCLUDED.monthly_sales, sales_90d = EXCLUDED.sales_90d,
+                  turn_months = EXCLUDED.turn_months, turnover_level = EXCLUDED.turnover_level,
+                  age = EXCLUDED.age, abnormal_tags = EXCLUDED.abnormal_tags
+              `);
+
+              let snapCount = 0;
+              inboundRows.forEach(r => {
+                const key = normalizeKey(r.item_id);
+                const isGift = notesMap.get(key) || false;
+                const hist = histMap.get(key);
+                const invInfo = invAgeMap.get(key) || { age: 0, inv_qty: 0, turn_days: 0, pm: '', supplier: '' };
+
+                const isHistoryRecorded = !!hist;
+                const stockQty = Math.max(hist ? hist.stock_qty : 0, invInfo.inv_qty);
+                const sales90 = hist ? hist.sales_90d : 0;
+                const monthlySales = hist ? hist.monthly_sales : 0;
+                const actualAge = invInfo.age;
+                const pm = invInfo.pm || (hist ? hist.pm : '未指定PM') || '未指定PM';
+                const supplier = invInfo.supplier || (hist ? hist.supplier_name : '未知供應商') || '未知供應商';
+
+                const importQty = Number(r.import_qty) || 0;
+                const len = Number(r.length) || 0;
+                const w = Number(r.width) || 0;
+                const h = Number(r.height) || 0;
+
+                const singleCf = (len > 0 && w > 0 && h > 0) ? ((len * w * h) / 28317) : 0;
+                const importCubicFeet = parseFloat((singleCf * importQty).toFixed(2));
+
+                let turnMonths = Number(invInfo.turn_days) || 0;
+                if (turnMonths === 0 || turnMonths >= 99999) {
+                  turnMonths = monthlySales > 0 ? parseFloat(((stockQty + importQty) / monthlySales).toFixed(1)) : 99999;
+                }
+                const levelInfo = getTurnoverLevelInfo(turnMonths);
+
+                const tags = [];
+                if (isGift) tags.push({ text: '🎁 贈品採購', type: 'info' });
+                if (!isHistoryRecorded && sales90 === 0 && actualAge === 0) tags.push({ text: '✨ 首次建檔新品', type: 'info' });
+                else if (isHistoryRecorded && stockQty === 0 && sales90 === 0) tags.push({ text: '📦 斷貨重進舊品', type: 'warning' });
+
+                if (sales90 === 0 && importQty > 0 && !isGift && isHistoryRecorded) tags.push({ text: '🚨 90日零銷量進貨', type: 'danger' });
+                else if (actualAge >= 180) tags.push({ text: '🚨 高庫齡滯銷進貨', type: 'danger' });
+
+                if (turnMonths > 6 && !isGift) tags.push({ text: `⚠️ 迴轉月數過高 (${turnMonths >= 99999 ? '99999個月' : turnMonths + '個月'})`, type: 'warning' });
+                if (sales90 > 0 && importQty >= (sales90 * 2)) tags.push({ text: `⚠️ 爆量驗收 (進貨>90日銷量2倍)`, type: 'warning' });
+
+                if (tags.length > 0) {
+                  snapshotStmt.run(
+                    r.rec_date, r.warehouse, r.rec_date, r.rec_time, r.po_no, r.batch_no,
+                    r.item_id, r.item_name, importQty, len, w, h,
+                    importCubicFeet, stockQty, monthlySales, sales90,
+                    turnMonths, levelInfo.label, actualAge, supplier, pm,
+                    JSON.stringify(tags)
+                  );
+                  snapCount++;
+                }
+              });
+
+              snapshotStmt.finalize();
+              db.run('COMMIT', (commitErr) => {
+                if (commitErr) return res.status(500).json({ success: false, message: '快照寫入失敗: ' + commitErr.message });
+                res.json({ success: true, count: snapCount, message: `🎉 成功完成歷史進貨快照結算，共歸檔 ${snapCount} 筆異常紀錄！` });
+              });
             });
           });
         });
