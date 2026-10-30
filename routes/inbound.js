@@ -26,181 +26,6 @@ module.exports = function(db) {
     return str;
   }
 
-  const normalizeKey = (str) => {
-    if (!str) return '';
-    return String(str).trim().toUpperCase().replace(/\s+/g, '');
-  };
-
-  const getTurnoverLevelInfo = (monthsVal) => {
-    const months = Number(monthsVal) || 0;
-    if (months >= 99999) return { code: 'm99999', label: '🚨 99999 滯銷品' };
-    if (months > 120) return { code: 'gt120', label: '10 年以上 (>120個月)' };
-    if (months >= 61) return { code: 'm61_120', label: '5 年～10 年 (61~120個月)' };
-    if (months >= 13) return { code: 'm13_60', label: '1 年～5 年 (13~60個月)' };
-    if (months >= 9) return { code: 'm9_12', label: '9~12個月' };
-    if (months >= 6) return { code: 'm6_9', label: '6~9個月' };
-    if (months >= 3) return { code: 'm3_6', label: '3~6個月' };
-    return { code: 'le3', label: '<=3個月' };
-  };
-
-  // 🌟 自動產生不合理進貨快照輔助函式
-  function autoSnapshotInbound(targetDate) {
-    if (!targetDate) return;
-
-    const historySql = `SELECT * FROM item_sales_history`;
-    const notesSql = `SELECT * FROM item_custom_notes`;
-    const inv80Sql = `SELECT * FROM inventory`;
-    const inv15Sql = `SELECT * FROM inventory_15`;
-    const inSql = `
-      SELECT warehouse, rec_date, rec_time, po_no, batch_no, item_id, item_name,
-             IFNULL(qty, 0) AS import_qty, IFNULL(length, 0) AS length,
-             IFNULL(width, 0) AS width, IFNULL(height, 0) AS height
-      FROM inbound_details
-      WHERE rec_date = ?
-    `;
-
-    db.all(historySql, [], (errH, rowsH) => {
-      if (errH) return console.error('快照銷量讀取錯誤:', errH.message);
-      db.all(notesSql, [], (errN, rowsN) => {
-        db.all(inv80Sql, [], (err80, rows80) => {
-          db.all(inv15Sql, [], (err15, rows15) => {
-            db.all(inSql, [targetDate], (errIn, inboundRows) => {
-              if (errIn || !inboundRows || inboundRows.length === 0) return;
-
-              const notesMap = new Map();
-              (rowsN || []).forEach(n => {
-                const k = normalizeKey(n.item_id);
-                if (k) notesMap.set(k, { is_gift: Number(n.is_gift) === 1, remark: n.remark || '' });
-              });
-
-              const invMap = new Map();
-              (rowsH || []).forEach(row => {
-                const k = normalizeKey(row.item_id);
-                if (!k) return;
-                invMap.set(k, {
-                  total_qty: Number(row.total_stock_qty || row.stock_qty_80 || 0),
-                  sales_90d: Number(row.sales_90d || 0),
-                  monthly_sales: Number(row.monthly_sales || 0),
-                  turn_days_total: 0,
-                  age: 0,
-                  is_history_recorded: true,
-                  supplier_name: String(row.supplier_name || '').trim() || '未知供應商',
-                  pm: String(row.pm || '').trim() || '未指定PM'
-                });
-              });
-
-              const mergeInv = (row) => {
-                const k = normalizeKey(row.item_id || row['商品ID']);
-                if (!k) return;
-                const locQty = Number(row.qty || row['儲位庫存數']) || 0;
-                const rawTotal = Number(row.total_qty || row['總庫存數']) || 0;
-                const s90 = Number(row.sales_90d || row['(近)90日銷量']) || 0;
-                const mSales = Number(row.monthly_sales || row['(近)月銷量']) || 0;
-                const turnM = Number(row.turn_days_total || row['總庫存_迴轉天數']) || 0;
-                const ageVal = Number(row.age || row['庫齡']) || 0;
-                const pmVal = String(row.pm || row['所屬PM'] || '').trim();
-                const suppVal = String(row.supplier_name || row['供應商名稱'] || '').trim();
-
-                if (invMap.has(k)) {
-                  const exist = invMap.get(k);
-                  exist.total_qty = Math.max(exist.total_qty, rawTotal, locQty);
-                  exist.sales_90d = Math.max(exist.sales_90d, s90);
-                  exist.monthly_sales = Math.max(exist.monthly_sales, mSales);
-                  exist.age = Math.max(exist.age, ageVal);
-                  exist.turn_days_total = Math.max(exist.turn_days_total, turnM);
-                  if ((!exist.pm || exist.pm === '未指定PM') && pmVal) exist.pm = pmVal;
-                  if ((!exist.supplier_name || exist.supplier_name === '未知供應商') && suppVal) exist.supplier_name = suppVal;
-                } else {
-                  invMap.set(k, {
-                    total_qty: Math.max(rawTotal, locQty),
-                    sales_90d: s90,
-                    monthly_sales: mSales,
-                    turn_days_total: turnM,
-                    age: ageVal,
-                    is_history_recorded: false,
-                    supplier_name: suppVal || '未知供應商',
-                    pm: pmVal || '未指定PM'
-                  });
-                }
-              };
-
-              (rows80 || []).forEach(mergeInv);
-              (rows15 || []).forEach(mergeInv);
-
-              const snapshotStmt = db.prepare(`
-                INSERT INTO abnormal_purchase_history (
-                  snapshot_date, warehouse, rec_date, rec_time, po_no, batch_no,
-                  item_id, item_name, import_qty, length, width, height,
-                  import_cubic_feet, stock_qty, monthly_sales, sales_90d,
-                  turn_months, turnover_level, age, supplier_name, pm, abnormal_tags
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(warehouse, po_no, batch_no, item_id, rec_date) DO UPDATE SET
-                  snapshot_date = EXCLUDED.snapshot_date,
-                  import_qty = EXCLUDED.import_qty,
-                  stock_qty = EXCLUDED.stock_qty,
-                  monthly_sales = EXCLUDED.monthly_sales,
-                  sales_90d = EXCLUDED.sales_90d,
-                  turn_months = EXCLUDED.turn_months,
-                  turnover_level = EXCLUDED.turnover_level,
-                  abnormal_tags = EXCLUDED.abnormal_tags
-              `);
-
-              inboundRows.forEach(r => {
-                const k = normalizeKey(r.item_id);
-                const noteInfo = notesMap.get(k) || { is_gift: false };
-                const inv = invMap.get(k) || {
-                  total_qty: 0, sales_90d: 0, monthly_sales: 0, turn_days_total: 99999,
-                  age: 0, is_history_recorded: false, supplier_name: '未知供應商', pm: '未指定PM'
-                };
-
-                const importQty = Number(r.import_qty) || 0;
-                const sales90 = Number(inv.sales_90d) || 0;
-                const mSales = Number(inv.monthly_sales) || 0;
-                const age = Number(inv.age) || 0;
-                const len = Number(r.length) || 0;
-                const w = Number(r.width) || 0;
-                const h = Number(r.height) || 0;
-
-                let turnMonths = inv.turn_days_total || 0;
-                if (turnMonths === 0 || turnMonths >= 99999) {
-                  turnMonths = mSales > 0 ? parseFloat(((inv.total_qty + importQty) / mSales).toFixed(1)) : 99999;
-                }
-
-                const singleCf = (len > 0 && w > 0 && h > 0) ? ((len * w * h) / 28317) : 0;
-                const importCf = parseFloat((singleCf * importQty).toFixed(2));
-                const levelInfo = getTurnoverLevelInfo(turnMonths);
-
-                const tags = [];
-                if (noteInfo.is_gift) tags.push({ text: '🎁 贈品採購', type: 'info' });
-                if (!inv.is_history_recorded && sales90 === 0 && age === 0) tags.push({ text: '✨ 首次建檔新品', type: 'info' });
-                else if (inv.is_history_recorded && inv.total_qty === 0 && sales90 === 0) tags.push({ text: '📦 斷貨重進舊品', type: 'warning' });
-
-                if (sales90 === 0 && importQty > 0 && !noteInfo.is_gift && inv.is_history_recorded) tags.push({ text: '🚨 90日零銷量進貨', type: 'danger' });
-                else if (age >= 180) tags.push({ text: '🚨 高庫齡滯銷進貨', type: 'danger' });
-
-                if (turnMonths > 6 && !noteInfo.is_gift) tags.push({ text: `⚠️ 迴轉月數過高 (${turnMonths >= 99999 ? '99999個月' : turnMonths + '個月'})`, type: 'warning' });
-                if (sales90 > 0 && importQty >= (sales90 * 2)) tags.push({ text: `⚠️ 超量驗收 (進貨>90日銷量2倍)`, type: 'warning' });
-
-                if (tags.length > 0) {
-                  snapshotStmt.run(
-                    targetDate, r.warehouse, r.rec_date, r.rec_time, r.po_no, r.batch_no,
-                    r.item_id, r.item_name, importQty, len, w, h,
-                    importCf, inv.total_qty, mSales, sales90,
-                    turnMonths, levelInfo.label, age, inv.supplier_name, inv.pm,
-                    JSON.stringify(tags)
-                  );
-                }
-              });
-
-              snapshotStmt.finalize();
-              console.log(`📸 [自動快照] 已成功完成 ${targetDate} 的不合理進貨每日快照結算！`);
-            });
-          });
-        });
-      });
-    });
-  }
-
   db.serialize(() => {
     db.run(`
       CREATE TABLE IF NOT EXISTS inbound_details (
@@ -228,9 +53,12 @@ module.exports = function(db) {
 
     db.run(`ALTER TABLE inbound_details ADD COLUMN is_resolved INTEGER DEFAULT 0`, () => {});
     db.run(`ALTER TABLE inbound_details ADD COLUMN resolve_reason TEXT`, () => {});
+    // 為高頻查詢欄位建立索引，大幅提升查詢效能
+    db.run(`CREATE INDEX IF NOT EXISTS idx_inbound_rec_date ON inbound_details (rec_date)`, () => {});
+    db.run(`CREATE INDEX IF NOT EXISTS idx_inbound_item_id ON inbound_details (item_id)`, () => {});
   });
 
-  // 清空地端所有進貨明細 API[cite: 6]
+  // 清空地端所有進貨明細 API[cite: 20]
   router.post('/clear-inbound-data', (req, res) => {
     db.run('DELETE FROM inbound_details', (err) => {
       if (err) return res.status(500).json({ success: false, message: '清空失敗：' + err.message });
@@ -238,7 +66,7 @@ module.exports = function(db) {
     });
   });
 
-  // 依驗收日期刪除 API[cite: 6]
+  // 依驗收日期刪除 API[cite: 20]
   router.post('/delete-by-date', (req, res) => {
     const { startDate, endDate, warehouse } = req.body;
 
@@ -269,8 +97,8 @@ module.exports = function(db) {
     });
   });
 
-  // 1. 匯入 API (支援歷史累積 + 最新上架覆蓋 + 自動觸發每日快照)[cite: 6]
-  router.post('/import-json', (req, res) => {
+  // 1. 匯入 API (低記憶體流式分批處理，絕不觸發 OOM 崩潰)[cite: 20]
+  router.post('/import-json', async (req, res) => {
     const items = req.body.items || req.body;
     const fileName = req.body.fileName || 'latest_inbound.csv';
     const isFirstChunk = req.body.isFirstChunk === true;
@@ -279,119 +107,114 @@ module.exports = function(db) {
       return res.status(400).json({ success: false, message: '未收到有效的進貨明細資料' });
     }
 
-    db.serialize(() => {
-      db.run('PRAGMA synchronous = OFF');
-      db.run('PRAGMA journal_mode = MEMORY');
-      db.run('BEGIN TRANSACTION');
+    try {
+      db.serialize(() => {
+        db.run('PRAGMA synchronous = OFF');
+        db.run('PRAGMA journal_mode = MEMORY');
+        db.run('BEGIN TRANSACTION');
 
-      if (isFirstChunk) {
-        db.run(
-          `INSERT INTO import_logs (module_type, file_name, row_count, imported_at) VALUES ('inbound', ?, ?, DATETIME('now'))`,
-          [fileName, items.length]
-        );
-      }
-
-      // 🌟 保留歷史，新檔案有上架日期時精準覆蓋[cite: 6]
-      const stmt = db.prepare(`
-        INSERT INTO inbound_details (
-          warehouse, rec_date, rec_time, put_date, put_time,
-          batch_no, po_no, remark, item_id, item_name,
-          qty, length, width, height, weight
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(warehouse, po_no, batch_no, item_id) DO UPDATE SET
-          rec_date = CASE WHEN EXCLUDED.rec_date != '' THEN EXCLUDED.rec_date ELSE inbound_details.rec_date END,
-          rec_time = CASE WHEN EXCLUDED.rec_time != '' THEN EXCLUDED.rec_time ELSE inbound_details.rec_time END,
-          put_date = CASE WHEN EXCLUDED.put_date != '' THEN EXCLUDED.put_date ELSE inbound_details.put_date END,
-          put_time = CASE WHEN EXCLUDED.put_time != '' THEN EXCLUDED.put_time ELSE inbound_details.put_time END,
-          remark = CASE WHEN EXCLUDED.remark != '' THEN EXCLUDED.remark ELSE inbound_details.remark END,
-          qty = EXCLUDED.qty,
-          length = CASE WHEN EXCLUDED.length > 0 THEN EXCLUDED.length ELSE inbound_details.length END,
-          width = CASE WHEN EXCLUDED.width > 0 THEN EXCLUDED.width ELSE inbound_details.width END,
-          height = CASE WHEN EXCLUDED.height > 0 THEN EXCLUDED.height ELSE inbound_details.height END,
-          weight = CASE WHEN EXCLUDED.weight > 0 THEN EXCLUDED.weight ELSE inbound_details.weight END,
-          imported_at = CURRENT_TIMESTAMP
-      `);
-
-      let processedCount = 0;
-      const importedDates = new Set();
-
-      for (const item of items) {
-        const getVal = (...keys) => {
-          if (!item || typeof item !== 'object') return '';
-          for (const k of keys) {
-            if (item[k] !== undefined && item[k] !== null && String(item[k]).trim() !== '') {
-              return String(item[k]).trim();
-            }
-          }
-          return '';
-        };
-
-        const getNum = (...keys) => {
-          const v = getVal(...keys);
-          return v ? (parseFloat(v.replace(/,/g, '')) || 0) : 0;
-        };
-
-        const item_id = getVal('item_id', '商品編號', '商品ID');
-        const po_no = getVal('po_no', '進貨單號', '進貨單據');
-        const batch_no = getVal('batch_no', '驗收批號');
-        const qty_str = getVal('qty', '驗收數量', '驗收數量(PCS)');
-
-        if (
-          !item_id ||
-          item_id.includes('筆數') ||
-          item_id.includes('總數') ||
-          po_no.includes('筆數') ||
-          po_no.includes('狀態') ||
-          qty_str.includes('總數') ||
-          qty_str.includes('筆數')
-        ) {
-          continue;
+        if (isFirstChunk) {
+          db.run(
+            `INSERT INTO import_logs (module_type, file_name, row_count, imported_at) VALUES ('inbound', ?, ?, DATETIME('now'))`,
+            [fileName, items.length]
+          );
         }
 
-        let warehouse = getVal('warehouse', '__EMPTY', '__EMPTY_1', '庫別', 'Unnamed: 1') || '80';
-        if (warehouse === '-') warehouse = '80';
+        const stmt = db.prepare(`
+          INSERT INTO inbound_details (
+            warehouse, rec_date, rec_time, put_date, put_time,
+            batch_no, po_no, remark, item_id, item_name,
+            qty, length, width, height, weight
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(warehouse, po_no, batch_no, item_id) DO UPDATE SET
+            rec_date = CASE WHEN EXCLUDED.rec_date != '' THEN EXCLUDED.rec_date ELSE inbound_details.rec_date END,
+            rec_time = CASE WHEN EXCLUDED.rec_time != '' THEN EXCLUDED.rec_time ELSE inbound_details.rec_time END,
+            put_date = CASE WHEN EXCLUDED.put_date != '' THEN EXCLUDED.put_date ELSE inbound_details.put_date END,
+            put_time = CASE WHEN EXCLUDED.put_time != '' THEN EXCLUDED.put_time ELSE inbound_details.put_time END,
+            remark = CASE WHEN EXCLUDED.remark != '' THEN EXCLUDED.remark ELSE inbound_details.remark END,
+            qty = EXCLUDED.qty,
+            length = CASE WHEN EXCLUDED.length > 0 THEN EXCLUDED.length ELSE inbound_details.length END,
+            width = CASE WHEN EXCLUDED.width > 0 THEN EXCLUDED.width ELSE inbound_details.width END,
+            height = CASE WHEN EXCLUDED.height > 0 THEN EXCLUDED.height ELSE inbound_details.height END,
+            weight = CASE WHEN EXCLUDED.weight > 0 THEN EXCLUDED.weight ELSE inbound_details.weight END,
+            imported_at = CURRENT_TIMESTAMP
+        `);
 
-        const rec_date = standardizeDate(getVal('rec_date', '驗收日期'));
-        const rec_time = standardizeTime(getVal('rec_time', '驗收時間'));
-        
-        let rawPutDate = getVal('put_date', '上架日期');
-        let put_date = standardizeDate(rawPutDate);
+        let processedCount = 0;
 
-        const put_time = standardizeTime(getVal('put_time', '上架時間'));
-        const remark = getVal('remark', '收貨備註', '備註');
-        const item_name = getVal('item_name', '商品名稱');
-        const qty = getNum('qty', '驗收數量', '驗收數量(PCS)');
-        const length = getNum('length', '長(cm)');
-        const width = getNum('width', '寬(cm)');
-        const height = getNum('height', '高(cm)');
-        const weight = getNum('weight', '重量(kg)');
+        for (const item of items) {
+          const getVal = (...keys) => {
+            if (!item || typeof item !== 'object') return '';
+            for (const k of keys) {
+              if (item[k] !== undefined && item[k] !== null && String(item[k]).trim() !== '') {
+                return String(item[k]).trim();
+              }
+            }
+            return '';
+          };
 
-        if (rec_date) importedDates.add(rec_date);
+          const getNum = (...keys) => {
+            const v = getVal(...keys);
+            return v ? (parseFloat(v.replace(/,/g, '')) || 0) : 0;
+          };
 
-        stmt.run(
-          warehouse, rec_date, rec_time, put_date, put_time,
-          batch_no, po_no, remark, item_id, item_name,
-          qty, length, width, height, weight
-        );
-        processedCount++;
-      }
+          const item_id = getVal('item_id', '商品編號', '商品ID');
+          const po_no = getVal('po_no', '進貨單號', '進貨單據');
+          const batch_no = getVal('batch_no', '驗收批號');
+          const qty_str = getVal('qty', '驗收數量', '驗收數量(PCS)');
 
-      stmt.finalize();
-      db.run('COMMIT', (err) => {
-        db.run('PRAGMA synchronous = NORMAL');
-        if (err) return res.status(500).json({ success: false, message: '進貨資料寫入失敗：' + err.message });
+          if (
+            !item_id ||
+            item_id.includes('筆數') ||
+            item_id.includes('總數') ||
+            po_no.includes('筆數') ||
+            po_no.includes('狀態') ||
+            qty_str.includes('總數') ||
+            qty_str.includes('筆數')
+          ) {
+            continue;
+          }
 
-        // 🌟 非同步觸發當日不合理進貨自動快照結算
-        setTimeout(() => {
-          importedDates.forEach(d => autoSnapshotInbound(d));
-        }, 100);
+          let warehouse = getVal('warehouse', '__EMPTY', '__EMPTY_1', '庫別', 'Unnamed: 1') || '80';
+          if (warehouse === '-') warehouse = '80';
 
-        res.json({ success: true, count: processedCount, message: `成功更新與處理 ${processedCount} 筆進貨資料！` });
+          const rec_date = standardizeDate(getVal('rec_date', '驗收日期'));
+          const rec_time = standardizeTime(getVal('rec_time', '驗收時間'));
+          
+          let rawPutDate = getVal('put_date', '上架日期');
+          let put_date = standardizeDate(rawPutDate);
+
+          const put_time = standardizeTime(getVal('put_time', '上架時間'));
+          const remark = getVal('remark', '收貨備註', '備註');
+          const item_name = getVal('item_name', '商品名稱');
+          const qty = getNum('qty', '驗收數量', '驗收數量(PCS)');
+          const length = getNum('length', '長(cm)');
+          const width = getNum('width', '寬(cm)');
+          const height = getNum('height', '高(cm)');
+          const weight = getNum('weight', '重量(kg)');
+
+          stmt.run(
+            warehouse, rec_date, rec_time, put_date, put_time,
+            batch_no, po_no, remark, item_id, item_name,
+            qty, length, width, height, weight
+          );
+          processedCount++;
+        }
+
+        stmt.finalize();
+        db.run('COMMIT', (err) => {
+          db.run('PRAGMA synchronous = NORMAL');
+          if (err) return res.status(500).json({ success: false, message: '進貨資料寫入失敗：' + err.message });
+          res.json({ success: true, count: processedCount, message: `成功更新與處理 ${processedCount} 筆進貨資料！` });
+        });
       });
-    });
+    } catch (e) {
+      console.error('進貨匯入異常:', e);
+      res.status(500).json({ success: false, message: '匯入處理異常: ' + e.message });
+    }
   });
 
-  // 2. 未上架摘要統計[cite: 6]
+  // 2. 未上架摘要統計[cite: 20]
   router.get('/pending-putaway', (req, res) => {
     const sql = `
       SELECT 
@@ -413,7 +236,7 @@ module.exports = function(db) {
     });
   });
 
-  // 3. 未上架明細 API[cite: 6]
+  // 3. 未上架明細 API[cite: 20]
   router.get('/pending-details', (req, res) => {
     let { recDate } = req.query;
 
@@ -460,7 +283,7 @@ module.exports = function(db) {
     }
   });
 
-  // 4. 更正銷案 API[cite: 6]
+  // 4. 更正銷案 API[cite: 20]
   router.post('/update-pending-status', (req, res) => {
     const { keys, reason, customPutDate } = req.body;
 
@@ -494,7 +317,7 @@ module.exports = function(db) {
     });
   });
 
-  // 5. 魚群分析 API[cite: 6]
+  // 5. 魚群分析 API[cite: 20]
   router.get('/fish-analysis', (req, res) => {
     const { targetDate, warehouse, remarks } = req.query;
 
@@ -606,7 +429,7 @@ module.exports = function(db) {
     });
   });
 
-  // 6. 每月每日總表 API[cite: 6]
+  // 6. 每月每日總表 API[cite: 20]
   router.get('/monthly-summary', (req, res) => {
     const { month, warehouse, remarks } = req.query;
 
@@ -734,7 +557,7 @@ module.exports = function(db) {
     });
   });
 
-  // 7. 年度每月總表 API[cite: 6]
+  // 7. 年度每月總表 API[cite: 20]
   router.get('/yearly-summary', (req, res) => {
     const { year, warehouse, remarks } = req.query;
 
@@ -851,7 +674,7 @@ module.exports = function(db) {
     });
   });
 
-  // 8. 依日期區間一鍵批次銷案 API[cite: 6]
+  // 8. 依日期區間一鍵批次銷案 API[cite: 20]
   router.post('/batch-resolve-range', (req, res) => {
     const { startDate, endDate, reason, customPutDate } = req.body;
 
