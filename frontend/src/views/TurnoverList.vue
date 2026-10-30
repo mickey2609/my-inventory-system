@@ -162,7 +162,7 @@
       title="⚙️ 迴轉率與庫齡分析參數設定" 
       width="480px"
       append-to-body
-      custom-class="dark-dialog"
+      class="custom-turnover-dialog"
     >
       <div class="dialog-body">
         <div class="param-row">
@@ -194,7 +194,7 @@
 
       <template #footer>
         <span class="dialog-footer">
-          <el-button size="small" @click="showParamDialog = false">取消</el-button>
+          <el-button size="small" class="dialog-cancel-btn" @click="showParamDialog = false">取消</el-button>
           <el-button type="primary" size="small" @click="applyParamSettings">套用並重新計算</el-button>
         </span>
       </template>
@@ -396,16 +396,16 @@ export default {
 }
 
 .param-label {
-  width: 120px;
+  width: 130px;
   text-align: right;
   font-size: 13px;
-  color: #f8fafc;
+  color: #ffffff !important;
   font-weight: bold;
 }
 
 .param-tip {
   font-size: 12px;
-  color: #94a3b8;
+  color: #f1f5f9 !important;
 }
 
 .tier-tabs-bar {
@@ -528,5 +528,80 @@ export default {
   padding: 6px 12px;
   border-radius: 6px;
   border: 1px solid #334155;
+}
+
+/* ========================================================================= */
+/* 🌟 參數設定彈窗：黑底白字主題，格子保持白底黑字                          */
+/* ========================================================================= */
+:deep(.el-dialog.custom-turnover-dialog),
+:deep(.custom-turnover-dialog .el-dialog) {
+  background-color: #1e293b !important;
+  border: 1px solid #334155 !important;
+  border-radius: 10px !important;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5) !important;
+}
+
+:deep(.custom-turnover-dialog .el-dialog__header) {
+  background-color: #0f172a !important;
+  border-bottom: 1px solid #334155 !important;
+  padding: 16px 20px !important;
+}
+
+:deep(.custom-turnover-dialog .el-dialog__title) {
+  color: #38bdf8 !important;
+  font-weight: bold !important;
+  font-size: 16px !important;
+}
+
+:deep(.custom-turnover-dialog .el-dialog__headerbtn .el-dialog__close) {
+  color: #94a3b8 !important;
+}
+
+:deep(.custom-turnover-dialog .el-dialog__headerbtn:hover .el-dialog__close) {
+  color: #ffffff !important;
+}
+
+:deep(.custom-turnover-dialog .el-dialog__body) {
+  background-color: #1e293b !important;
+  color: #ffffff !important;
+  padding: 20px 24px !important;
+}
+
+:deep(.custom-turnover-dialog .el-dialog__footer) {
+  background-color: #0f172a !important;
+  border-top: 1px solid #334155 !important;
+  padding: 12px 20px !important;
+}
+
+.dialog-cancel-btn {
+  background-color: #334155 !important;
+  border-color: #475569 !important;
+  color: #f1f5f9 !important;
+}
+.dialog-cancel-btn:hover {
+  background-color: #475569 !important;
+  color: #ffffff !important;
+}
+
+/* 🌟 格子區（數字輸入框、下拉選擇框）：維持純白底與深黑字 */
+:deep(.custom-turnover-dialog .el-input__inner),
+:deep(.custom-turnover-dialog .el-input-number .el-input__inner) {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+  font-weight: bold !important;
+  border: 1px solid #cbd5e1 !important;
+}
+
+/* 計數器 (+ / -) 按鈕：保持亮底深色圖示，避免看不見 */
+:deep(.custom-turnover-dialog .el-input-number__decrease),
+:deep(.custom-turnover-dialog .el-input-number__increase) {
+  background-color: #e2e8f0 !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+:deep(.custom-turnover-dialog .el-input-number__decrease:hover),
+:deep(.custom-turnover-dialog .el-input-number__increase:hover) {
+  background-color: #cbd5e1 !important;
+  color: #2563eb !important;
 }
 </style>
