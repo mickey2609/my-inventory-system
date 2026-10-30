@@ -365,6 +365,69 @@ module.exports = function(db) {
       });
     });
   });
+  // 🌟 4. 取得每日不合理進貨快照歷史清單
+  router.get('/snapshot-list', (req, res) => {
+    const { startDate, endDate, warehouse, limit } = req.query;
+    const maxLimit = Number(limit) || 10000;
 
+    let sql = `SELECT * FROM abnormal_purchase_history WHERE 1=1`;
+    const params = [];
+
+    if (startDate && endDate) {
+      sql += ` AND rec_date >= ? AND rec_date <= ?`;
+      params.push(startDate, endDate);
+    } else if (startDate) {
+      sql += ` AND rec_date = ?`;
+      params.push(startDate);
+    }
+
+    if (warehouse && warehouse !== 'all') {
+      sql += ` AND warehouse = ?`;
+      params.push(warehouse);
+    }
+
+    sql += ` ORDER BY snapshot_date DESC, rec_date DESC, rec_time DESC LIMIT ?`;
+    params.push(maxLimit);
+
+    db.all(sql, params, (err, rows) => {
+      if (err) return res.status(500).json({ success: false, message: '快照資料讀取失敗：' + err.message });
+
+      rows = rows || [];
+      let totalPcs = 0;
+      let totalCubicFeet = 0;
+      const pmSet = new Set();
+
+      const formattedRows = rows.map(r => {
+        let tags = [];
+        try {
+          tags = JSON.parse(r.abnormal_tags || '[]');
+        } catch (e) {
+          tags = [];
+        }
+
+        totalPcs += (r.import_qty || 0);
+        totalCubicFeet += (r.import_cubic_feet || 0);
+        if (r.pm && r.pm !== '未指定PM') pmSet.add(r.pm);
+
+        return {
+          ...r,
+          current_stock_qty: r.stock_qty,
+          tags
+        };
+      });
+
+      res.json({
+        success: true,
+        summary: {
+          totalCount: formattedRows.length,
+          totalPcs,
+          totalCubicFeet: parseFloat(totalCubicFeet.toFixed(2)),
+          pmCount: pmSet.size
+        },
+        data: formattedRows
+      });
+    });
+  });
+  
   return router;
 };

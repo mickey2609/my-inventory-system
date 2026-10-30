@@ -4,6 +4,12 @@
     <div class="top-bar">
       <div class="title-group">
         <span class="page-title">⚠️ 倉庫 不合理進貨追蹤與分析</span>
+
+        <!-- 🌟 資料模式切換：即時分析 vs 每日快照歷史 -->
+        <el-radio-group v-model="viewMode" size="small" @change="fetchAbnormalData">
+          <el-radio-button label="live">⚡ 即時動態分析</el-radio-button>
+          <el-radio-button label="snapshot">📸 每日歷史快照庫</el-radio-button>
+        </el-radio-group>
         
         <el-date-picker
           v-model="dateRange"
@@ -25,7 +31,7 @@
       </div>
 
       <div class="action-group">
-        <!-- 🌟 每週一週報分析按鈕 -->
+        <!-- 每週一週報分析按鈕 -->
         <el-button type="warning" size="small" icon="el-icon-date" @click="openWeeklyReport">
           📅 每週一週報分析
         </el-button>
@@ -39,7 +45,7 @@
         </el-button>
 
         <el-button type="success" size="small" icon="el-icon-download" @click="exportExcel">
-          📊 匯出不合理報表
+          📊 匯出報表
         </el-button>
       </div>
     </div>
@@ -47,7 +53,7 @@
     <!-- 2. 統計 KPI 卡片區塊 -->
     <div class="metrics-grid">
       <div class="metric-card border-red">
-        <div class="m-label">不合理進貨總筆數 (最多產出{{ formatNumber(configLimit) }}筆)</div>
+        <div class="m-label">{{ viewMode === 'snapshot' ? '已存檔快照總筆數' : '不合理進貨總筆數' }} (最多產出{{ formatNumber(configLimit) }}筆)</div>
         <div class="m-value text-red">{{ formatNumber(summary.totalCount) }} <span class="m-unit">筆</span></div>
       </div>
 
@@ -67,8 +73,8 @@
       </div>
     </div>
 
-    <!-- 3. 頂部雙層快速條件卡片 -->
-    <div class="filter-card-group">
+    <!-- 3. 頂部雙層快速條件卡片 (即時模式時顯示完整篩選) -->
+    <div class="filter-card-group" v-if="viewMode === 'live'">
       <div class="filter-card">
         <span class="filter-label">📌 不合理類型：</span>
         <el-radio-group v-model="ruleType" size="small" @change="fetchAbnormalData">
@@ -79,7 +85,7 @@
           <el-radio-button label="gift">🎁 贈品採購</el-radio-button>
         </el-radio-group>
 
-        <!-- 🌟 排除贈品過濾 -->
+        <!-- 排除贈品過濾 -->
         <el-checkbox
           v-model="excludeGifts"
           class="gift-checkbox"
@@ -112,10 +118,11 @@
         border
         stripe
         size="small"
-        height="calc(100vh - 360px)"
+        :height="viewMode === 'live' ? 'calc(100vh - 360px)' : 'calc(100vh - 280px)'"
         class="dark-table"
         :default-sort="defaultSortConfig"
       >
+        <el-table-column v-if="viewMode === 'snapshot'" prop="snapshot_date" label="快照結算日" width="105" align="center" sortable />
         <el-table-column prop="rec_date" label="驗收日期" width="105" align="center" sortable />
         <el-table-column prop="po_no" label="進貨單號 (PO)" width="150" align="center" sortable>
           <template #default="scope">
@@ -138,7 +145,7 @@
           </template>
         </el-table-column>
         
-        <el-table-column prop="current_stock_qty" label="總庫存數" width="100" align="right" sortable>
+        <el-table-column prop="current_stock_qty" label="快照總庫存" width="100" align="right" sortable>
           <template #default="scope">
             <span class="font-bold text-green">{{ formatNumber(scope.row.current_stock_qty) }}</span>
           </template>
@@ -150,19 +157,19 @@
           </template>
         </el-table-column>
 
-        <el-table-column prop="age" label="最長庫齡" width="100" align="right" sortable>
+        <el-table-column prop="age" label="庫齡" width="90" align="right" sortable>
           <template #default="scope">
             <span :class="scope.row.age >= 180 ? 'text-red font-bold' : ''">{{ formatNumber(scope.row.age) }}天</span>
           </template>
         </el-table-column>
 
-        <el-table-column prop="monthly_sales" label="近月銷量" width="95" align="right" sortable>
+        <el-table-column prop="monthly_sales" label="月銷量" width="90" align="right" sortable>
           <template #default="scope">
             <span>{{ formatNumber(scope.row.monthly_sales) }}</span>
           </template>
         </el-table-column>
 
-        <el-table-column prop="sales_90d" label="近90日銷量" width="105" align="right" sortable>
+        <el-table-column prop="sales_90d" label="90日銷量" width="100" align="right" sortable>
           <template #default="scope">
             <span :class="scope.row.sales_90d === 0 ? 'text-red font-bold' : ''">{{ formatNumber(scope.row.sales_90d) }}</span>
           </template>
@@ -170,15 +177,15 @@
 
         <el-table-column prop="turn_days_total" label="迴轉月數" width="110" align="right" sortable>
           <template #default="scope">
-            <span :class="scope.row.turn_days_total > 6 ? 'text-red font-bold' : ''">
-              {{ scope.row.turn_days_total >= 99999 ? '99,999 個月' : formatNumber(scope.row.turn_days_total) + ' 個月' }}
+            <span :class="(scope.row.turn_days_total || scope.row.turn_months) > 6 ? 'text-red font-bold' : ''">
+              {{ (scope.row.turn_days_total || scope.row.turn_months) >= 99999 ? '99,999 個月' : formatNumber(scope.row.turn_days_total || scope.row.turn_months) + ' 個月' }}
             </span>
           </template>
         </el-table-column>
 
         <el-table-column prop="turnover_level" label="迴轉級距" width="170" align="center" sortable>
           <template #default="scope">
-            <span :class="scope.row.turnover_level.includes('99999') ? 'text-red font-bold' : 'text-purple'">
+            <span :class="(scope.row.turnover_level || '').includes('99999') ? 'text-red font-bold' : 'text-purple'">
               {{ scope.row.turnover_level }}
             </span>
           </template>
@@ -201,8 +208,8 @@
           </template>
         </el-table-column>
 
-        <!-- 🌟 自訂備註與操作欄 -->
-        <el-table-column label="自訂備註" width="140" align="center">
+        <!-- 自訂備註欄 -->
+        <el-table-column label="自訂備註" width="130" align="center">
           <template #default="scope">
             <div class="note-col">
               <span v-if="scope.row.custom_remark" class="note-text" :title="scope.row.custom_remark">{{ scope.row.custom_remark }}</span>
@@ -228,7 +235,7 @@
       </div>
     </div>
 
-    <!-- 🌟 5. 點擊商品備註／贈品設定彈窗 (Modal) -->
+    <!-- 5. 點擊商品備註／贈品設定彈窗 (Modal) -->
     <el-dialog
       v-model="showNoteDialog"
       title="🎁 商品自訂備註與屬性維護"
@@ -247,7 +254,7 @@
         <div class="dialog-row">
           <span class="d-label">贈品屬性：</span>
           <el-checkbox v-model="currentNoteItem.is_gift" class="gift-switch">
-            標註為「🎁 贈品／行銷搭贈品」（系統將自動免除零銷量與高迴轉警示）
+            標註為「🎁 贈品／行銷搭贈品」（系統自動免除零銷量與高迴轉警示）
           </el-checkbox>
         </div>
         <div class="dialog-row-col">
@@ -256,7 +263,7 @@
             v-model="currentNoteItem.remark"
             type="textarea"
             :rows="3"
-            placeholder="請輸入特殊備註（例如：廠商公關品、買一送一搭贈、90天檔期促銷...）"
+            placeholder="請輸入特殊備註（例如：廠商公關品、買一送一搭贈、90天促銷檔期...）"
           />
         </div>
       </div>
@@ -269,7 +276,7 @@
       </template>
     </el-dialog>
 
-    <!-- 🌟 6. 每週一週報分析視角彈窗 (Modal) -->
+    <!-- 6. 每週一週報分析視角彈窗 (Modal) -->
     <el-dialog
       v-model="showWeeklyDialog"
       title="📅 每週一 不合理進貨週報分析"
@@ -309,7 +316,7 @@
       </template>
     </el-dialog>
 
-    <!-- 🌟 7. 參數設定 Modal 彈窗 -->
+    <!-- 7. 參數設定 Modal 彈窗 -->
     <el-dialog
       v-model="showConfigDialog"
       title="⚙️ 不合理進貨分析 - 參數設定"
@@ -368,6 +375,7 @@ export default {
 
     return {
       loading: false,
+      viewMode: 'live', // live: 即時分析, snapshot: 每日快照庫
       dateRange: [past30, today],
       warehouse: 'all',
       ruleType: 'all',
@@ -378,18 +386,15 @@ export default {
       currentPage: 1,
       pageSize: 500,
 
-      // 參數設定變數
       showConfigDialog: false,
       configLimit: 10000,
       configSortProp: 'rec_date',
       configSortOrder: 'descending',
 
-      // 自訂備註與贈品維護
       showNoteDialog: false,
       savingNote: false,
       currentNoteItem: { item_id: '', item_name: '', is_gift: false, remark: '' },
 
-      // 每週一週報分析視角
       showWeeklyDialog: false,
       weeklyLoading: false,
       weeklyData: { range: {}, summary: {}, pmStats: {}, data: [] }
@@ -544,7 +549,10 @@ export default {
           limit: this.configLimit
         };
 
-        const res = await axios.get('/api/abnormal/list', { params, timeout: 25000 });
+        // 🌟 根據選擇的 viewMode 決定請求 live 還是 snapshot-list API
+        const endpoint = this.viewMode === 'snapshot' ? '/api/abnormal/snapshot-list' : '/api/abnormal/list';
+
+        const res = await axios.get(endpoint, { params, timeout: 25000 });
         if (res.data?.success) {
           this.summary = res.data.summary || { totalCount: 0, totalPcs: 0, totalCubicFeet: 0, pmCount: 0 };
           let list = res.data.data || [];
@@ -563,7 +571,7 @@ export default {
           this.rawTableData = list;
           this.currentPage = 1;
         } else {
-          ElMessage.error(res.data?.message || '讀取不合理進貨失敗');
+          ElMessage.error(res.data?.message || '讀取資料失敗');
         }
       } catch (e) {
         ElMessage.error('載入失敗：' + (e.response?.data?.message || e.message));
@@ -574,22 +582,24 @@ export default {
 
     exportExcel() {
       if (!this.rawTableData.length) {
-        return ElMessage.warning('無可匯出的不合理資料！');
+        return ElMessage.warning('無可匯出資料！');
       }
 
+      const isSnap = this.viewMode === 'snapshot';
       const exportRows = this.rawTableData.map(r => ({
+        ...(isSnap ? { '快照結算日': r.snapshot_date } : {}),
         '驗收日期': r.rec_date,
         '進貨單號(PO)': r.po_no,
         '驗收批號': r.batch_no,
         '商品編號': r.item_id,
         '商品名稱': r.item_name,
         '驗收數量(PCS)': r.import_qty,
-        '總庫存數': r.current_stock_qty,
+        '快照總庫存': r.current_stock_qty,
         '進貨才數': r.import_cubic_feet,
         '最長庫齡': r.age,
         '近月銷量': r.monthly_sales,
         '近90日銷量': r.sales_90d,
-        '預估迴轉月數': r.turn_days_total,
+        '預估迴轉月數': r.turn_days_total || r.turn_months,
         '迴轉級距': r.turnover_level,
         '所屬PM': r.pm,
         '供應商': r.supplier_name,
@@ -600,9 +610,10 @@ export default {
 
       const worksheet = XLSX.utils.json_to_sheet(exportRows);
       const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, "不合理進貨清單");
-      XLSX.writeFile(workbook, `不合理進貨分析_${new Date().getTime()}.xlsx`);
-      ElMessage.success('🎉 已成功匯出全量不合理進貨分析 Excel 報表！');
+      const title = isSnap ? "每日不合理進貨歷史快照" : "不合理進貨清單";
+      XLSX.utils.book_append_sheet(workbook, worksheet, title);
+      XLSX.writeFile(workbook, `${title}_${new Date().getTime()}.xlsx`);
+      ElMessage.success(`🎉 已成功匯出全量${title} Excel 報表！`);
     }
   }
 }
@@ -662,7 +673,7 @@ export default {
 .weekly-sub-title { font-size: 13px; font-weight: bold; color: #f8fafc; margin-top: 6px; }
 </style>
 
-<!-- 🌟 全域注入彈窗樣式：黑底白字主題，格子維持白底黑字 -->
+<!-- 全域注入彈窗樣式：黑底白字主題，格子維持白底黑字 -->
 <style>
 .custom-dark-dialog {
   background-color: #1e293b !important;
@@ -700,7 +711,6 @@ export default {
   font-weight: bold !important;
 }
 
-/* 🌟 格子區維持純白底黑字 */
 .custom-dark-dialog .el-input__inner,
 .custom-dark-dialog .el-textarea__inner,
 .custom-dark-dialog .el-select .el-input__inner {
