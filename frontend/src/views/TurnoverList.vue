@@ -156,12 +156,11 @@
       </div>
     </div>
 
-    <!-- 4. ⚙️ 參數設定對話盒 (Modal) -->
+    <!-- 4. ⚙️ 參數設定對話盒 (移除 append-to-body 確保 scoped 樣式生效) -->
     <el-dialog 
       v-model="showParamDialog" 
       title="⚙️ 迴轉率與庫齡分析參數設定" 
       width="480px"
-      append-to-body
       class="custom-turnover-dialog"
     >
       <div class="dialog-body">
@@ -210,7 +209,6 @@ import { ElMessage } from 'element-plus'
 export default {
   name: 'TurnoverList',
   props: {
-    // 接收來自 App.vue 傳入的系統管理員權限識別
     isSysAdmin: { type: Boolean, default: false }
   },
   data() {
@@ -405,7 +403,8 @@ export default {
 
 .param-tip {
   font-size: 12px;
-  color: #f1f5f9 !important;
+  color: #93c5fd !important;
+  font-weight: 500;
 }
 
 .tier-tabs-bar {
@@ -530,49 +529,6 @@ export default {
   border: 1px solid #334155;
 }
 
-/* ========================================================================= */
-/* 🌟 參數設定彈窗：黑底白字主題，格子保持白底黑字                          */
-/* ========================================================================= */
-:deep(.el-dialog.custom-turnover-dialog),
-:deep(.custom-turnover-dialog .el-dialog) {
-  background-color: #1e293b !important;
-  border: 1px solid #334155 !important;
-  border-radius: 10px !important;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5) !important;
-}
-
-:deep(.custom-turnover-dialog .el-dialog__header) {
-  background-color: #0f172a !important;
-  border-bottom: 1px solid #334155 !important;
-  padding: 16px 20px !important;
-}
-
-:deep(.custom-turnover-dialog .el-dialog__title) {
-  color: #38bdf8 !important;
-  font-weight: bold !important;
-  font-size: 16px !important;
-}
-
-:deep(.custom-turnover-dialog .el-dialog__headerbtn .el-dialog__close) {
-  color: #94a3b8 !important;
-}
-
-:deep(.custom-turnover-dialog .el-dialog__headerbtn:hover .el-dialog__close) {
-  color: #ffffff !important;
-}
-
-:deep(.custom-turnover-dialog .el-dialog__body) {
-  background-color: #1e293b !important;
-  color: #ffffff !important;
-  padding: 20px 24px !important;
-}
-
-:deep(.custom-turnover-dialog .el-dialog__footer) {
-  background-color: #0f172a !important;
-  border-top: 1px solid #334155 !important;
-  padding: 12px 20px !important;
-}
-
 .dialog-cancel-btn {
   background-color: #334155 !important;
   border-color: #475569 !important;
@@ -582,25 +538,63 @@ export default {
   background-color: #475569 !important;
   color: #ffffff !important;
 }
+</style>
 
-/* 🌟 格子區（數字輸入框、下拉選擇框）：維持純白底與深黑字 */
-:deep(.custom-turnover-dialog .el-input__inner),
-:deep(.custom-turnover-dialog .el-input-number .el-input__inner) {
+<!-- 🌟 全域注入樣式：強制蓋過白底問題 -->
+<style>
+.custom-turnover-dialog {
+  background-color: #1e293b !important;
+  border: 1px solid #334155 !important;
+  border-radius: 10px !important;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.7) !important;
+}
+
+.custom-turnover-dialog .el-dialog__header {
+  background-color: #0f172a !important;
+  border-bottom: 1px solid #334155 !important;
+  padding: 16px 20px !important;
+}
+
+.custom-turnover-dialog .el-dialog__title {
+  color: #38bdf8 !important;
+  font-weight: bold !important;
+  font-size: 16px !important;
+}
+
+.custom-turnover-dialog .el-dialog__headerbtn .el-dialog__close {
+  color: #94a3b8 !important;
+}
+
+.custom-turnover-dialog .el-dialog__body {
+  background-color: #1e293b !important;
+  color: #ffffff !important;
+  padding: 24px 30px !important;
+}
+
+.custom-turnover-dialog .el-dialog__footer {
+  background-color: #0f172a !important;
+  border-top: 1px solid #334155 !important;
+  padding: 12px 20px !important;
+}
+
+/* 🌟 格子部分（輸入框、計數器、下拉選單）：維持純白底深黑字 */
+.custom-turnover-dialog .el-input__inner,
+.custom-turnover-dialog .el-input-number .el-input__inner {
   background-color: #ffffff !important;
   color: #000000 !important;
   font-weight: bold !important;
   border: 1px solid #cbd5e1 !important;
 }
 
-/* 計數器 (+ / -) 按鈕：保持亮底深色圖示，避免看不見 */
-:deep(.custom-turnover-dialog .el-input-number__decrease),
-:deep(.custom-turnover-dialog .el-input-number__increase) {
+/* 計數器 (+ / -) 按鈕：保持清晰灰底深色字 */
+.custom-turnover-dialog .el-input-number__decrease,
+.custom-turnover-dialog .el-input-number__increase {
   background-color: #e2e8f0 !important;
   color: #0f172a !important;
   border-color: #cbd5e1 !important;
 }
-:deep(.custom-turnover-dialog .el-input-number__decrease:hover),
-:deep(.custom-turnover-dialog .el-input-number__increase:hover) {
+.custom-turnover-dialog .el-input-number__decrease:hover,
+.custom-turnover-dialog .el-input-number__increase:hover {
   background-color: #cbd5e1 !important;
   color: #2563eb !important;
 }
