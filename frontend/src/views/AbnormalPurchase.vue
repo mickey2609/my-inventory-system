@@ -5,23 +5,28 @@
       <div class="title-group">
         <span class="page-title">⚠️ 倉庫 不合理進貨追蹤與分析</span>
 
-        <!-- 🌟 資料模式切換：即時分析 vs 每日快照歷史 -->
+        <!-- 模式切換：即時分析 vs 每日快照歷史 -->
         <el-radio-group v-model="viewMode" size="small" @change="fetchAbnormalData">
           <el-radio-button label="live">⚡ 即時動態分析</el-radio-button>
           <el-radio-button label="snapshot">📸 每日歷史快照庫</el-radio-button>
         </el-radio-group>
         
-        <el-date-picker
-          v-model="dateRange"
-          type="daterange"
-          size="small"
-          range-separator="至"
-          start-placeholder="開始日期"
-          end-placeholder="結束日期"
-          value-format="YYYY-MM-DD"
-          style="width: 260px;"
-          @change="fetchAbnormalData"
-        />
+        <!-- 🌟 改為單一日期選擇器 + 前後天快速切換 -->
+        <div class="date-switch-group">
+          <el-button size="mini" type="info" plain icon="el-icon-arrow-left" @click="changeDate(-1)">前一天</el-button>
+          <el-date-picker
+            v-model="targetDate"
+            type="date"
+            size="small"
+            placeholder="選擇檢視日期"
+            value-format="YYYY-MM-DD"
+            :clearable="false"
+            style="width: 140px;"
+            @change="fetchAbnormalData"
+          />
+          <el-button size="mini" type="info" plain @click="changeDate(1)">後一天<i class="el-icon-arrow-right el-icon--right"></i></el-button>
+          <el-button size="mini" type="primary" plain @click="setToday">今天</el-button>
+        </div>
 
         <el-radio-group v-model="warehouse" size="small" @change="fetchAbnormalData">
           <el-radio-button label="all">🌐 雙庫合計</el-radio-button>
@@ -31,6 +36,18 @@
       </div>
 
       <div class="action-group">
+        <!-- 🌟 快照庫模式下一鍵補算當日快照 -->
+        <el-button 
+          v-if="viewMode === 'snapshot'" 
+          type="danger" 
+          size="small" 
+          icon="el-icon-camera" 
+          :loading="snapshotLoading"
+          @click="triggerManualSnapshot"
+        >
+          📸 補結算當日快照
+        </el-button>
+
         <!-- 每週一週報分析按鈕 -->
         <el-button type="warning" size="small" icon="el-icon-date" @click="openWeeklyReport">
           📅 每週一週報分析
@@ -53,12 +70,12 @@
     <!-- 2. 統計 KPI 卡片區塊 -->
     <div class="metrics-grid">
       <div class="metric-card border-red">
-        <div class="m-label">{{ viewMode === 'snapshot' ? '已存檔快照總筆數' : '不合理進貨總筆數' }} (最多產出{{ formatNumber(configLimit) }}筆)</div>
+        <div class="m-label">{{ viewMode === 'snapshot' ? '當日存檔快照總筆數' : '當日不合理進貨總筆數' }}</div>
         <div class="m-value text-red">{{ formatNumber(summary.totalCount) }} <span class="m-unit">筆</span></div>
       </div>
 
       <div class="metric-card border-blue">
-        <div class="m-label">不合理驗收總 PCS</div>
+        <div class="m-label">當日不合理驗收總 PCS</div>
         <div class="m-value text-blue">{{ formatNumber(summary.totalPcs) }} <span class="m-unit">PCS</span></div>
       </div>
 
@@ -145,7 +162,7 @@
           </template>
         </el-table-column>
         
-        <el-table-column prop="current_stock_qty" label="快照總庫存" width="100" align="right" sortable>
+        <el-table-column prop="current_stock_qty" label="總庫存" width="95" align="right" sortable>
           <template #default="scope">
             <span class="font-bold text-green">{{ formatNumber(scope.row.current_stock_qty) }}</span>
           </template>
@@ -371,12 +388,12 @@ export default {
   name: 'AbnormalPurchase',
   data() {
     const today = new Date().toISOString().split('T')[0];
-    const past30 = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
 
     return {
       loading: false,
+      snapshotLoading: false,
       viewMode: 'live', // live: 即時分析, snapshot: 每日快照庫
-      dateRange: [past30, today],
+      targetDate: today, // 🌟 單一日期選擇，預設今天
       warehouse: 'all',
       ruleType: 'all',
       turnoverLevelFilter: 'all',
@@ -440,6 +457,19 @@ export default {
     handleSizeChange(val) { this.pageSize = val; this.currentPage = 1; },
     handleCurrentChange(val) { this.currentPage = val; },
 
+    // 🌟 快速切換前一天、後一天、今天
+    changeDate(offsetDays) {
+      const cur = new Date(this.targetDate || new Date());
+      cur.setDate(cur.getDate() + offsetDays);
+      this.targetDate = cur.toISOString().split('T')[0];
+      this.fetchAbnormalData();
+    },
+
+    setToday() {
+      this.targetDate = new Date().toISOString().split('T')[0];
+      this.fetchAbnormalData();
+    },
+
     saveAndApplyConfig() {
       localStorage.setItem('abnormal_limit', this.configLimit);
       localStorage.setItem('abnormal_sort_prop', this.configSortProp);
@@ -480,6 +510,28 @@ export default {
         ElMessage.error('儲存失敗：' + e.message);
       } finally {
         this.savingNote = false;
+      }
+    },
+
+    // 🌟 快照庫模式下一鍵補結算當日快照
+    async triggerManualSnapshot() {
+      if (!this.targetDate) return ElMessage.warning('請先選擇檢視日期');
+      this.snapshotLoading = true;
+      try {
+        const res = await axios.post('/api/abnormal/generate-history-snapshot', {
+          startDate: this.targetDate,
+          endDate: this.targetDate
+        });
+        if (res.data?.success) {
+          ElMessage.success(res.data.message);
+          this.fetchAbnormalData();
+        } else {
+          ElMessage.error(res.data?.message || '快照補結算失敗');
+        }
+      } catch (e) {
+        ElMessage.error('連線異常: ' + e.message);
+      } finally {
+        this.snapshotLoading = false;
       }
     },
 
@@ -531,17 +583,9 @@ export default {
     async fetchAbnormalData() {
       this.loading = true;
       try {
-        let startDate = '';
-        let endDate = '';
-
-        if (Array.isArray(this.dateRange) && this.dateRange.length === 2) {
-          startDate = this.dateRange[0] || '';
-          endDate = this.dateRange[1] || '';
-        }
-
         const params = {
-          startDate,
-          endDate,
+          startDate: this.targetDate,
+          endDate: this.targetDate,
           warehouse: this.warehouse,
           ruleType: this.ruleType,
           turnoverLevel: this.turnoverLevelFilter,
@@ -549,10 +593,10 @@ export default {
           limit: this.configLimit
         };
 
-        // 🌟 根據選擇的 viewMode 決定請求 live 還是 snapshot-list API
         const endpoint = this.viewMode === 'snapshot' ? '/api/abnormal/snapshot-list' : '/api/abnormal/list';
 
-        const res = await axios.get(endpoint, { params, timeout: 120000 });
+        // 🌟 單日模式下 0.5 秒即可完成，設置 60 秒緩衝防止超時
+        const res = await axios.get(endpoint, { params, timeout: 60000 });
         if (res.data?.success) {
           this.summary = res.data.summary || { totalCount: 0, totalPcs: 0, totalCubicFeet: 0, pmCount: 0 };
           let list = res.data.data || [];
@@ -610,10 +654,10 @@ export default {
 
       const worksheet = XLSX.utils.json_to_sheet(exportRows);
       const workbook = XLSX.utils.book_new();
-      const title = isSnap ? "每日不合理進貨歷史快照" : "不合理進貨清單";
+      const title = isSnap ? `不合理進貨快照_${this.targetDate}` : `不合理進貨_${this.targetDate}`;
       XLSX.utils.book_append_sheet(workbook, worksheet, title);
-      XLSX.writeFile(workbook, `${title}_${new Date().getTime()}.xlsx`);
-      ElMessage.success(`🎉 已成功匯出全量${title} Excel 報表！`);
+      XLSX.writeFile(workbook, `${title}.xlsx`);
+      ElMessage.success(`🎉 已成功匯出 ${title} Excel 報表！`);
     }
   }
 }
@@ -626,6 +670,7 @@ export default {
 .filter-card { display: flex; align-items: center; background: #1e293b; padding: 6px 16px; border-radius: 8px; border: 1px solid #334155; gap: 12px; }
 .title-group, .action-group { display: flex; align-items: center; gap: 12px; }
 .page-title { font-size: 16px; font-weight: bold; color: #f87171; }
+.date-switch-group { display: flex; align-items: center; gap: 6px; }
 .filter-label { font-size: 13px; color: #f8fafc; font-weight: bold; }
 .gift-checkbox { margin-left: 12px; color: #4ade80 !important; font-weight: bold; }
 .metrics-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
