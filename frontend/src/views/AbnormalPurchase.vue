@@ -92,7 +92,7 @@
 
     <!-- 3. 頂部雙層快速條件卡片 (即時模式時顯示完整篩選) -->
     <div class="filter-card-group" v-if="viewMode === 'live'">
-      <!-- 🌟 1. 不合理類型：贈品與新品預設不勾選 -->
+      <!-- 1. 不合理類型：贈品與新品預設不勾選 -->
       <div class="filter-card">
         <span class="filter-label">📌 不合理類型：</span>
         <el-checkbox
@@ -113,7 +113,7 @@
         </el-checkbox-group>
       </div>
 
-      <!-- 🌟 2. 迴轉級距篩選：勾選方塊 -->
+      <!-- 2. 迴轉級距篩選：勾選方塊 -->
       <div class="filter-card">
         <span class="filter-label">📊 迴轉級距篩選：</span>
         <el-checkbox
@@ -172,7 +172,6 @@
           </template>
         </el-table-column>
 
-        <!-- 🌟 新增：當日驗收總PCS -->
         <el-table-column prop="daily_total_import_qty" label="當日驗收總PCS" width="115" align="right" sortable>
           <template #default="scope">
             <span class="font-bold text-yellow">{{ formatNumber(scope.row.daily_total_import_qty || scope.row.import_qty) }}</span>
@@ -259,7 +258,7 @@
         </el-table-column>
       </el-table>
 
-      <!-- 🌟 底部分頁列：上限 200 筆/頁，移除 500 與 1000 -->
+      <!-- 底部分頁列：預設 200 筆/頁 -->
       <div class="pagination-bar">
         <el-pagination
           v-model:current-page="currentPage"
@@ -354,7 +353,7 @@
       </template>
     </el-dialog>
 
-    <!-- 7. 參數設定 Modal 彈窗 -->
+    <!-- 7. 參數設定 Modal 彈窗 (🌟 已加入庫齡門檻篩選) -->
     <el-dialog
       v-model="showConfigDialog"
       title="⚙️ 不合理進貨分析 - 參數設定"
@@ -368,6 +367,18 @@
             <el-option :value="5000" label="5,000 筆" />
             <el-option :value="10000" label="10,000 筆 (預設)" />
             <el-option :value="30000" label="30,000 筆 (全量分析)" />
+          </el-select>
+        </el-form-item>
+
+        <!-- 🌟 新增：最長庫齡篩選門檻 -->
+        <el-form-item label="⏳ 庫齡篩選門檻">
+          <el-select v-model="configMinAge" style="width: 100%;">
+            <el-option :value="0" label="全部顯示 (不限庫齡門檻)" />
+            <el-option :value="30" label="庫齡 >= 30 天" />
+            <el-option :value="60" label="庫齡 >= 60 天" />
+            <el-option :value="90" label="庫齡 >= 90 天" />
+            <el-option :value="180" label="庫齡 >= 180 天 (半年滯銷)" />
+            <el-option :value="365" label="庫齡 >= 365 天 (一年以上)" />
           </el-select>
         </el-form-item>
 
@@ -413,8 +424,6 @@ export default {
 
     const allRuleOptions = ['zero_sales', 'high_turnover', 'over_import', 'gift', 'new_item'];
     const allLevelOptions = ['le3', 'm3_6', 'm6_9', 'm9_12', 'm13_60', 'm61_120', 'gt120', 'm99999'];
-
-    // 🌟 預設只勾選常見的三個異常類型，贈品與首次建檔新品預設不打勾
     const defaultSelectedRules = ['zero_sales', 'high_turnover', 'over_import'];
 
     return {
@@ -440,10 +449,11 @@ export default {
       summary: { totalCount: 0, totalPcs: 0, totalCubicFeet: 0, pmCount: 0 },
       rawTableData: [],
       currentPage: 1,
-      pageSize: 200, // 🌟 預設 200 筆/頁[cite: 18]
+      pageSize: 200,
 
       showConfigDialog: false,
       configLimit: 10000,
+      configMinAge: 0, // 🌟 預設 0 天 (不限庫齡門檻)
       configSortProp: 'rec_date',
       configSortOrder: 'descending',
 
@@ -478,6 +488,9 @@ export default {
   mounted() {
     const savedLimit = localStorage.getItem('abnormal_limit');
     if (savedLimit) this.configLimit = Number(savedLimit);
+
+    const savedMinAge = localStorage.getItem('abnormal_min_age');
+    if (savedMinAge !== null) this.configMinAge = Number(savedMinAge);
 
     const savedSortProp = localStorage.getItem('abnormal_sort_prop');
     if (savedSortProp) this.configSortProp = savedSortProp;
@@ -536,6 +549,7 @@ export default {
 
     saveAndApplyConfig() {
       localStorage.setItem('abnormal_limit', this.configLimit);
+      localStorage.setItem('abnormal_min_age', this.configMinAge);
       localStorage.setItem('abnormal_sort_prop', this.configSortProp);
       localStorage.setItem('abnormal_sort_order', this.configSortOrder);
       this.showConfigDialog = false;
@@ -660,6 +674,7 @@ export default {
           warehouse: this.warehouse,
           ruleTypes: this.selectedRules.join(','),
           turnoverLevels: this.selectedLevels.join(','),
+          minAge: this.configMinAge, // 🌟 傳遞庫齡門檻
           limit: this.configLimit
         };
 

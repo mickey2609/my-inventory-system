@@ -23,10 +23,11 @@ module.exports = function(db) {
     return { code: 'le3', label: '<=3個月' };
   };
 
-  // 1. 取得不合理進貨即時動態清單
+  // 1. 取得不合理進貨即時動態清單 (支援 minAge 庫齡門檻篩選)
   router.get('/list', (req, res) => {
-    const { startDate, endDate, warehouse, ruleTypes, ruleType, turnoverLevels, turnoverLevel, limit } = req.query;
+    const { startDate, endDate, warehouse, ruleTypes, ruleType, turnoverLevels, turnoverLevel, minAge, limit } = req.query;
     const maxLimit = Number(limit) || 10000;
+    const minAgeThreshold = Number(minAge) || 0; // 🌟 讀取庫齡門檻
 
     const ruleList = (ruleTypes || ruleType || '').split(',').map(s => s.trim()).filter(Boolean);
     const levelList = (turnoverLevels || turnoverLevel || 'all').split(',').map(s => s.trim()).filter(Boolean);
@@ -72,7 +73,7 @@ module.exports = function(db) {
         });
       }
 
-      // 🌟 計算當天同商品的「驗收總 PCS」
+      // 計算當天同商品的「驗收總 PCS」
       const dailyTotalImportMap = new Map();
       inboundRows.forEach(r => {
         const k = normalizeKey(r.item_id);
@@ -148,12 +149,17 @@ module.exports = function(db) {
                 const stockQty = Math.max(hist ? hist.stock_qty : 0, invInfo.inv_qty);
                 const sales90 = hist ? hist.sales_90d : 0;
                 const monthlySales = hist ? hist.monthly_sales : 0;
-                let actualAge = invInfo.age;
+                const actualAge = invInfo.age;
                 const pm = invInfo.pm || (hist ? hist.pm : '未指定PM') || '未指定PM';
                 const supplier = invInfo.supplier || (hist ? hist.supplier_name : '未知供應商') || '未知供應商';
 
+                // 🌟 庫齡門檻篩選：若設定了 minAgeThreshold，庫齡未達標者直接跳過
+                if (minAgeThreshold > 0 && actualAge < minAgeThreshold) {
+                  return;
+                }
+
                 const importQty = Number(r.import_qty) || 0;
-                const dailyTotalImportQty = dailyTotalImportMap.get(key) || importQty; // 🌟 當日驗收總PCS
+                const dailyTotalImportQty = dailyTotalImportMap.get(key) || importQty;
                 const len = Number(r.length) || 0;
                 const w = Number(r.width) || 0;
                 const h = Number(r.height) || 0;
@@ -163,7 +169,7 @@ module.exports = function(db) {
 
                 const isNewItem = (!isHistoryRecorded && sales90 === 0 && actualAge === 0 && !isGift);
 
-                // 🌟 核心調整：迴轉月數改抓「當日驗收總PCS / 月銷量」
+                // 迴轉月數以「當日驗收總PCS / 月銷量」計算
                 let turnMonths = 0;
                 if (!isNewItem && !isGift) {
                   if (monthlySales > 0) {
@@ -189,11 +195,11 @@ module.exports = function(db) {
                   if (sales90 > 0 && dailyTotalImportQty >= (sales90 * 2)) tags.push({ text: `⚠️ 爆量驗收 (進貨>90日銷量2倍)`, type: 'warning' });
                 }
 
-                // 🌟 未勾選贈品時嚴格過濾
+                // 未勾選贈品時嚴格過濾
                 const allowGift = ruleList.includes('gift') || ruleList.includes('all');
                 if (isGift && !allowGift) return;
 
-                // 🌟 未勾選新品時嚴格過濾
+                // 未勾選新品時嚴格過濾
                 const allowNewItem = ruleList.includes('new_item') || ruleList.includes('all');
                 if (isNewItem && !allowNewItem) return;
 
@@ -225,7 +231,7 @@ module.exports = function(db) {
                     item_id: r.item_id,
                     item_name: r.item_name || '-',
                     import_qty: importQty,
-                    daily_total_import_qty: dailyTotalImportQty, // 🌟 當日驗收總PCS
+                    daily_total_import_qty: dailyTotalImportQty,
                     current_stock_qty: stockQty,
                     import_cubic_feet: importCubicFeet,
                     age: actualAge,
