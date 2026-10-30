@@ -9,7 +9,8 @@ module.exports = function(db) {
     return String(str).trim().toUpperCase();
   };
 
-  const getTurnoverLevelInfo = (monthsVal, isNewItem = false) => {
+  const getTurnoverLevelInfo = (monthsVal, isNewItem = false, isGift = false) => {
+    if (isGift) return { code: 'gift', label: '🎁 贈品免評' };
     if (isNewItem) return { code: 'new_item', label: '✨ 新品免評' };
     const months = Number(monthsVal) || 0;
     if (months >= 99999) return { code: 'm99999', label: '🚨 99999 滯銷品' };
@@ -132,6 +133,7 @@ module.exports = function(db) {
                 const hist = histMap.get(key);
                 const invInfo = invAgeMap.get(key) || { age: 0, inv_qty: 0, turn_days: 0, pm: '', supplier: '' };
 
+                const isGift = !!noteInfo.is_gift;
                 const isHistoryRecorded = !!hist;
                 const stockQty = Math.max(hist ? hist.stock_qty : 0, invInfo.inv_qty);
                 const sales90 = hist ? hist.sales_90d : 0;
@@ -148,37 +150,43 @@ module.exports = function(db) {
                 const singleCf = (len > 0 && w > 0 && h > 0) ? ((len * w * h) / 28317) : 0;
                 const importCubicFeet = parseFloat((singleCf * importQty).toFixed(2));
 
-                // 🌟 新品邏輯判斷
-                const isNewItem = (!isHistoryRecorded && sales90 === 0 && actualAge === 0);
+                const isNewItem = (!isHistoryRecorded && sales90 === 0 && actualAge === 0 && !isGift);
 
                 let turnMonths = 0;
-                if (!isNewItem) {
+                if (!isNewItem && !isGift) {
                   turnMonths = Number(invInfo.turn_days) || 0;
                   if (turnMonths === 0 || turnMonths >= 99999) {
                     turnMonths = monthlySales > 0 ? parseFloat(((stockQty + importQty) / monthlySales).toFixed(1)) : 99999;
                   }
                 }
 
-                const levelInfo = getTurnoverLevelInfo(turnMonths, isNewItem);
+                const levelInfo = getTurnoverLevelInfo(turnMonths, isNewItem, isGift);
 
                 const tags = [];
-                if (noteInfo.is_gift) {
-                  tags.push({ text: '🎁 贈品採購', type: 'info' });
-                }
 
-                if (isNewItem) {
-                  // 🌟 首次建檔新品：僅標註新品，絕不重複打上滯銷或高迴轉
+                if (isGift) {
+                  // 🌟 贈品採購：只貼贈品標籤，免除任何銷量、迴轉、滯銷、爆量警告！
+                  tags.push({ text: '🎁 贈品採購', type: 'info' });
+                } else if (isNewItem) {
+                  // 首次建檔新品
                   tags.push({ text: '✨ 首次建檔新品', type: 'success' });
                 } else {
                   if (isHistoryRecorded && stockQty === 0 && sales90 === 0) tags.push({ text: '📦 斷貨重進舊品', type: 'warning' });
-                  if (sales90 === 0 && importQty > 0 && !noteInfo.is_gift && isHistoryRecorded) tags.push({ text: '🚨 90日零銷量進貨', type: 'danger' });
+                  if (sales90 === 0 && importQty > 0 && isHistoryRecorded) tags.push({ text: '🚨 90日零銷量進貨', type: 'danger' });
                   else if (actualAge >= 180) tags.push({ text: '🚨 高庫齡滯銷進貨', type: 'danger' });
 
-                  if (turnMonths > 6 && !noteInfo.is_gift) tags.push({ text: `⚠️ 迴轉月數過高 (${turnMonths >= 99999 ? '99999個月' : turnMonths + '個月'})`, type: 'warning' });
+                  if (turnMonths > 6) tags.push({ text: `⚠️ 迴轉月數過高 (${turnMonths >= 99999 ? '99999個月' : turnMonths + '個月'})`, type: 'warning' });
+                  // 🌟 只有一般非贈品才判定爆量驗收
                   if (sales90 > 0 && importQty >= (sales90 * 2)) tags.push({ text: `⚠️ 爆量驗收 (進貨>90日銷量2倍)`, type: 'warning' });
                 }
 
-                // 1. 不合理類型複選比對 (支援 new_item)
+                // 🌟 比對篩選條件：
+                // 如果未勾選 'gift'，但該商品是贈品，強制排除！
+                const allowGift = ruleList.includes('gift') || ruleList.includes('all') || ruleList.length === 0;
+                if (isGift && !allowGift) {
+                  return; // 直接跳過，不列入結果
+                }
+
                 let isMatchRule = false;
                 if (ruleList.includes('all') || ruleList.length === 0 || ruleList.length === 5) {
                   isMatchRule = tags.length > 0;
@@ -186,11 +194,10 @@ module.exports = function(db) {
                   if (ruleList.includes('zero_sales') && tags.some(t => t.text.includes('零銷量') || t.text.includes('滯銷'))) isMatchRule = true;
                   if (ruleList.includes('high_turnover') && tags.some(t => t.text.includes('迴轉月數過高'))) isMatchRule = true;
                   if (ruleList.includes('over_import') && tags.some(t => t.text.includes('爆量驗收') || t.text.includes('超量驗收'))) isMatchRule = true;
-                  if (ruleList.includes('gift') && noteInfo.is_gift) isMatchRule = true;
+                  if (ruleList.includes('gift') && isGift) isMatchRule = true;
                   if (ruleList.includes('new_item') && isNewItem) isMatchRule = true;
                 }
 
-                // 2. 迴轉級距複選比對
                 let isMatchLevel = false;
                 if (levelList.includes('all') || levelList.length === 0 || levelList.length === 8) {
                   isMatchLevel = true;
@@ -213,11 +220,11 @@ module.exports = function(db) {
                     age: actualAge,
                     monthly_sales: monthlySales,
                     sales_90d: sales90,
-                    turn_days_total: isNewItem ? '-' : turnMonths,
+                    turn_days_total: (isNewItem || isGift) ? '-' : turnMonths,
                     turnover_level: levelInfo.label,
                     pm,
                     supplier_name: supplier,
-                    is_gift: noteInfo.is_gift,
+                    is_gift: isGift,
                     custom_remark: noteInfo.remark,
                     tags
                   });
@@ -365,7 +372,7 @@ module.exports = function(db) {
     });
   });
 
-  // 5. 補結算快照 API
+  // 5. 補結算快照 API (含贈品豁免規則)
   router.post('/generate-history-snapshot', (req, res) => {
     const { startDate, endDate } = req.body;
     let inSql = `
@@ -467,29 +474,29 @@ module.exports = function(db) {
                   const singleCf = (len > 0 && w > 0 && h > 0) ? ((len * w * h) / 28317) : 0;
                   const importCubicFeet = parseFloat((singleCf * importQty).toFixed(2));
 
-                  const isNewItem = (!isHistoryRecorded && sales90 === 0 && actualAge === 0);
+                  const isNewItem = (!isHistoryRecorded && sales90 === 0 && actualAge === 0 && !isGift);
 
                   let turnMonths = 0;
-                  if (!isNewItem) {
+                  if (!isNewItem && !isGift) {
                     turnMonths = Number(invInfo.turn_days) || 0;
                     if (turnMonths === 0 || turnMonths >= 99999) {
                       turnMonths = monthlySales > 0 ? parseFloat(((stockQty + importQty) / monthlySales).toFixed(1)) : 99999;
                     }
                   }
 
-                  const levelInfo = getTurnoverLevelInfo(turnMonths, isNewItem);
+                  const levelInfo = getTurnoverLevelInfo(turnMonths, isNewItem, isGift);
 
                   const tags = [];
-                  if (isGift) tags.push({ text: '🎁 贈品採購', type: 'info' });
-
-                  if (isNewItem) {
+                  if (isGift) {
+                    tags.push({ text: '🎁 贈品採購', type: 'info' });
+                  } else if (isNewItem) {
                     tags.push({ text: '✨ 首次建檔新品', type: 'success' });
                   } else {
                     if (isHistoryRecorded && stockQty === 0 && sales90 === 0) tags.push({ text: '📦 斷貨重進舊品', type: 'warning' });
-                    if (sales90 === 0 && importQty > 0 && !isGift && isHistoryRecorded) tags.push({ text: '🚨 90日零銷量進貨', type: 'danger' });
+                    if (sales90 === 0 && importQty > 0 && isHistoryRecorded) tags.push({ text: '🚨 90日零銷量進貨', type: 'danger' });
                     else if (actualAge >= 180) tags.push({ text: '🚨 高庫齡滯銷進貨', type: 'danger' });
 
-                    if (turnMonths > 6 && !isGift) tags.push({ text: `⚠️ 迴轉月數過高 (${turnMonths >= 99999 ? '99999個月' : turnMonths + '個月'})`, type: 'warning' });
+                    if (turnMonths > 6) tags.push({ text: `⚠️ 迴轉月數過高 (${turnMonths >= 99999 ? '99999個月' : turnMonths + '個月'})`, type: 'warning' });
                     if (sales90 > 0 && importQty >= (sales90 * 2)) tags.push({ text: `⚠️ 爆量驗收 (進貨>90日銷量2倍)`, type: 'warning' });
                   }
 

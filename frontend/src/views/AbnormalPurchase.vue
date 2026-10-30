@@ -108,7 +108,7 @@
           <el-checkbox label="zero_sales">🚨 零銷量/高庫齡進貨</el-checkbox>
           <el-checkbox label="high_turnover">⚠️ 迴轉月數過高 (>6個月)</el-checkbox>
           <el-checkbox label="over_import">⚠️ 爆量驗收 (進貨>90日銷量2倍)</el-checkbox>
-          <el-checkbox label="gift">🎁 贈品採購</el-checkbox>
+          <el-checkbox label="gift">🎁 贈品</el-checkbox>
           <el-checkbox label="new_item">✨ 首次建檔新品</el-checkbox>
         </el-checkbox-group>
       </div>
