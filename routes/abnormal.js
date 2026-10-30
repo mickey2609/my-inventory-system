@@ -30,36 +30,46 @@ module.exports = function(db) {
     }
   };
 
+  // 🌟 1. 取得不合理進貨清單 (含贈品註記、歷史快照、精準斷貨/新品判定)
   router.get('/list', (req, res) => {
-    const { startDate, endDate, warehouse, ruleType, turnoverLevel, limit } = req.query;
+    const { startDate, endDate, warehouse, ruleType, turnoverLevel, excludeGifts, limit } = req.query;
     const maxLimit = Number(limit) || 10000;
 
     try {
-      // 🌟 核心升級：同時讀取 item_sales_history（歷史銷量總表）與即時庫存表，避免斷貨商品被過濾
       const historySql = `SELECT * FROM item_sales_history`;
       const inv80Sql = `SELECT * FROM inventory`;
       const inv15Sql = `SELECT * FROM inventory_15`;
       const inv15AltSql = `SELECT * FROM inventory15`;
+      const notesSql = `SELECT * FROM item_custom_notes`;
 
       db.all(historySql, [], (errHist, rowsHist) => {
-        db.all(inv80Sql, [], (err80, rows80) => {
-          db.all(inv15Sql, [], (err15, rows15) => {
-            if (err15) {
-              db.all(inv15AltSql, [], (err15Alt, rows15Alt) => {
-                const valid15Rows = err15Alt ? [] : (rows15Alt || []);
-                processAllInventory(rowsHist || [], rows80 || [], valid15Rows);
-              });
-            } else {
-              processAllInventory(rowsHist || [], rows80 || [], rows15 || []);
-            }
+        db.all(notesSql, [], (errNotes, rowsNotes) => {
+          db.all(inv80Sql, [], (err80, rows80) => {
+            db.all(inv15Sql, [], (err15, rows15) => {
+              if (err15) {
+                db.all(inv15AltSql, [], (err15Alt, rows15Alt) => {
+                  const valid15Rows = err15Alt ? [] : (rows15Alt || []);
+                  processAll(rowsHist || [], rowsNotes || [], rows80 || [], valid15Rows);
+                });
+              } else {
+                processAll(rowsHist || [], rowsNotes || [], rows80 || [], rows15 || []);
+              }
+            });
           });
         });
       });
 
-      function processAllInventory(validHistRows, validRows80, validRows15) {
+      function processAll(validHistRows, validNotesRows, validRows80, validRows15) {
+        // 建立自訂備註與贈品 Map
+        const notesMap = new Map();
+        validNotesRows.forEach(n => {
+          const k = normalizeKey(n.item_id);
+          if (k) notesMap.set(k, { is_gift: Number(n.is_gift) === 1, remark: n.remark || '' });
+        });
+
+        // 建立庫存與銷量基準 Map
         const invMap = new Map();
 
-        // 1. 先用歷史銷量總表奠定基準底層
         validHistRows.forEach(row => {
           const key = normalizeKey(row.item_id);
           if (!key) return;
@@ -72,12 +82,13 @@ module.exports = function(db) {
             monthly_sales: Number(row.monthly_sales || 0),
             turn_days_total: 0,
             age: 0,
+            last_record_date: row.last_record_date || '',
+            is_history_recorded: true,
             supplier_name: String(row.supplier_name || '').trim() || '未知供應商',
             pm: String(row.pm || '').trim() || '未指定PM'
           });
         });
 
-        // 2. 疊加即時庫存表的庫齡與最新儲位庫存
         const processInvRow = (row) => {
           const rawKey = row.item_id || row['商品ID'] || row.itemId;
           const key = normalizeKey(rawKey);
@@ -110,6 +121,8 @@ module.exports = function(db) {
               monthly_sales: salesMonth,
               turn_days_total: turnMonths,
               age: ageVal,
+              last_record_date: '',
+              is_history_recorded: false,
               supplier_name: suppVal || '未知供應商',
               pm: pmVal || '未指定PM'
             });
@@ -157,15 +170,21 @@ module.exports = function(db) {
 
           (inboundRows || []).forEach(r => {
             const key = normalizeKey(r.item_id);
-            // 🌟 即使無庫存紀錄，只要有進貨資料即預設基礎物件，絕不整筆丟棄
+            const noteInfo = notesMap.get(key) || { is_gift: false, remark: '' };
+
+            // 若選擇排除贈品，則跳過
+            if (excludeGifts === 'true' && noteInfo.is_gift) return;
+
             const inv = invMap.get(key) || {
               item_id: key,
               item_name: r.item_name || '',
               total_qty: 0,
               sales_90d: 0,
               monthly_sales: 0,
-              turn_days_total: 99999, // 銷量為 0，視為滯銷品
+              turn_days_total: 99999,
               age: 0,
+              last_record_date: '',
+              is_history_recorded: false,
               supplier_name: '未知供應商',
               pm: '未指定PM'
             };
@@ -178,7 +197,6 @@ module.exports = function(db) {
             const w = Number(r.width) || 0;
             const h = Number(r.height) || 0;
 
-            // 動態計算迴轉月數：若月銷量為 0 則為 99999
             let turnMonths = inv.turn_days_total || 0;
             if (turnMonths === 0 || turnMonths >= 99999) {
               if (mSales > 0) {
@@ -193,17 +211,37 @@ module.exports = function(db) {
             const levelInfo = getTurnoverLevelInfo(turnMonths);
 
             const tags = [];
-            if (sales90 === 0 && importQty > 0) tags.push({ text: '🚨 90日零銷量進貨', type: 'danger' });
-            else if (age >= 180) tags.push({ text: '🚨 高庫齡滯銷進貨', type: 'danger' });
 
-            if (turnMonths > 6) tags.push({ text: `⚠️ 迴轉月數過高 (${turnMonths >= 99999 ? '99999個月' : turnMonths + '個月'})`, type: 'warning' });
-            if (sales90 > 0 && importQty >= (sales90 * 2)) tags.push({ text: `⚠️ 超量驗收 (進貨>90日銷量2倍)`, type: 'warning' });
+            // 🌟 判定規則細分 (融入贈品、新品、斷貨重進機制)
+            if (noteInfo.is_gift) {
+              tags.push({ text: '🎁 贈品採購', type: 'info' });
+            }
+
+            if (!inv.is_history_recorded && sales90 === 0 && age === 0) {
+              tags.push({ text: '✨ 首次建檔新品', type: 'info' });
+            } else if (inv.is_history_recorded && inv.total_qty === 0 && sales90 === 0) {
+              tags.push({ text: '📦 斷貨重進舊品', type: 'warning' });
+            }
+
+            if (sales90 === 0 && importQty > 0 && !noteInfo.is_gift && inv.is_history_recorded) {
+              tags.push({ text: '🚨 90日零銷量進貨', type: 'danger' });
+            } else if (age >= 180) {
+              tags.push({ text: '🚨 高庫齡滯銷進貨', type: 'danger' });
+            }
+
+            if (turnMonths > 6 && !noteInfo.is_gift) {
+              tags.push({ text: `⚠️ 迴轉月數過高 (${turnMonths >= 99999 ? '99999個月' : turnMonths + '個月'})`, type: 'warning' });
+            }
+            if (sales90 > 0 && importQty >= (sales90 * 2)) {
+              tags.push({ text: `⚠️ 超量驗收 (進貨>90日銷量2倍)`, type: 'warning' });
+            }
 
             let isMatchRule = false;
             if (!ruleType || ruleType === 'all') isMatchRule = tags.length > 0;
             else if (ruleType === 'zero_sales') isMatchRule = tags.some(t => t.text.includes('零銷量') || t.text.includes('滯銷'));
             else if (ruleType === 'high_turnover') isMatchRule = tags.some(t => t.text.includes('迴轉月數過高'));
             else if (ruleType === 'over_import') isMatchRule = tags.some(t => t.text.includes('超量驗收'));
+            else if (ruleType === 'gift') isMatchRule = noteInfo.is_gift;
 
             let isMatchLevel = false;
             if (!turnoverLevel || turnoverLevel === 'all') {
@@ -224,6 +262,8 @@ module.exports = function(db) {
                 age: inv.age,
                 supplier_name: inv.supplier_name,
                 pm: inv.pm,
+                is_gift: noteInfo.is_gift,
+                custom_remark: noteInfo.remark,
                 tags,
                 import_cubic_feet: importCubicFeet
               });
@@ -249,6 +289,81 @@ module.exports = function(db) {
     } catch (e) {
       res.status(500).json({ success: false, message: '伺服器內部異常：' + e.message });
     }
+  });
+
+  // 🌟 2. 儲存/更新商品自訂備註與贈品狀態 API
+  router.post('/save-note', (req, res) => {
+    const { itemId, isGift, remark, updatedBy } = req.body;
+    if (!itemId) return res.status(400).json({ success: false, message: '請提供商品編號' });
+
+    const key = normalizeKey(itemId);
+    const sql = `
+      INSERT INTO item_custom_notes (item_id, is_gift, remark, updated_by, updated_at)
+      VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(item_id) DO UPDATE SET
+        is_gift = EXCLUDED.is_gift,
+        remark = EXCLUDED.remark,
+        updated_by = EXCLUDED.updated_by,
+        updated_at = CURRENT_TIMESTAMP
+    `;
+
+    db.run(sql, [key, isGift ? 1 : 0, remark || '', updatedBy || '系統管理員'], function(err) {
+      if (err) return res.status(500).json({ success: false, message: '儲存備註失敗：' + err.message });
+      res.json({ success: true, message: `🎉 商品 ${key} 備註與贈品狀態已成功儲存！` });
+    });
+  });
+
+  // 🌟 3. 每週一週報分析 API (回溯上週一至上週日的快照與判定數據)
+  router.get('/weekly-summary', (req, res) => {
+    const now = new Date();
+    // 計算上週一與上週日日期
+    const dayOfWeek = now.getDay() || 7;
+    const lastMonday = new Date(now);
+    lastMonday.setDate(now.getDate() - dayOfWeek - 6);
+    const lastSunday = new Date(now);
+    lastSunday.setDate(now.getDate() - dayOfWeek);
+
+    const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const startStr = req.query.startDate || fmt(lastMonday);
+    const endStr = req.query.endDate || fmt(lastSunday);
+
+    const sql = `
+      SELECT * FROM abnormal_purchase_history 
+      WHERE rec_date >= ? AND rec_date <= ?
+      ORDER BY rec_date DESC
+    `;
+
+    db.all(sql, [startStr, endStr], (err, rows) => {
+      if (err) return res.status(500).json({ success: false, message: '週報讀取失敗：' + err.message });
+
+      rows = rows || [];
+      let totalPcs = 0;
+      let totalCubicFeet = 0;
+      const pmStats = {};
+
+      rows.forEach(r => {
+        totalPcs += (r.import_qty || 0);
+        totalCubicFeet += (r.import_cubic_feet || 0);
+        const pm = r.pm || '未指定PM';
+        if (!pmStats[pm]) pmStats[pm] = { count: 0, pcs: 0, cubicFeet: 0 };
+        pmStats[pm].count += 1;
+        pmStats[pm].pcs += (r.import_qty || 0);
+        pmStats[pm].cubicFeet += (r.import_cubic_feet || 0);
+      });
+
+      res.json({
+        success: true,
+        range: { startDate: startStr, endDate: endStr },
+        summary: {
+          totalCount: rows.length,
+          totalPcs,
+          totalCubicFeet: parseFloat(totalCubicFeet.toFixed(2)),
+          pmCount: Object.keys(pmStats).length
+        },
+        pmStats,
+        data: rows
+      });
+    });
   });
 
   return router;
