@@ -9,7 +9,8 @@ module.exports = function(db) {
     return String(str).trim().toUpperCase();
   };
 
-  const getTurnoverLevelInfo = (monthsVal) => {
+  const getTurnoverLevelInfo = (monthsVal, isNewItem = false) => {
+    if (isNewItem) return { code: 'new_item', label: '✨ 新品免評' };
     const months = Number(monthsVal) || 0;
     if (months >= 99999) return { code: 'm99999', label: '🚨 99999 滯銷品' };
     if (months > 120) return { code: 'gt120', label: '10 年以上 (>120個月)' };
@@ -21,7 +22,7 @@ module.exports = function(db) {
     return { code: 'le3', label: '<=3個月' };
   };
 
-  // 1. 取得不合理進貨即時動態清單 (同步合併 80 庫與 15 庫最高庫齡)
+  // 1. 取得不合理進貨即時動態清單
   router.get('/list', (req, res) => {
     const { startDate, endDate, warehouse, ruleTypes, ruleType, turnoverLevels, turnoverLevel, limit } = req.query;
     const maxLimit = Number(limit) || 10000;
@@ -70,7 +71,6 @@ module.exports = function(db) {
         });
       }
 
-      // 🌟 平行載入：自訂備註、銷量總表、80 庫庫存主檔、15 庫庫存主檔
       db.all(`SELECT item_id, is_gift, remark FROM item_custom_notes`, [], (errNotes, notesRows) => {
         db.all(`SELECT item_id, total_stock_qty, stock_qty_80, sales_90d, monthly_sales, pm, supplier_name FROM item_sales_history`, [], (errHist, histRows) => {
           db.all(`SELECT item_id, MAX(age) AS max_age, SUM(qty) AS inv_qty, MAX(turn_days_total) AS turn_days, MAX(pm) AS inv_pm, MAX(supplier_name) AS inv_supplier FROM inventory GROUP BY item_id`, [], (err80, inv80Rows) => {
@@ -82,9 +82,7 @@ module.exports = function(db) {
                 if (k) notesMap.set(k, { is_gift: Number(n.is_gift) === 1, remark: n.remark || '' });
               });
 
-              // 🌟 整合雙庫庫存、最高庫齡與迴轉指標
               const invAgeMap = new Map();
-
               const mergeInvRow = (row) => {
                 const k = normalizeKey(row.item_id);
                 if (!k) return;
@@ -96,8 +94,8 @@ module.exports = function(db) {
 
                 if (invAgeMap.has(k)) {
                   const exist = invAgeMap.get(k);
-                  exist.age = Math.max(exist.age, age); // 取雙庫中最長庫齡
-                  exist.inv_qty += qty;                 // 雙庫庫存累加
+                  exist.age = Math.max(exist.age, age);
+                  exist.inv_qty += qty;
                   exist.turn_days = Math.max(exist.turn_days, turn);
                   if (!exist.pm && pm) exist.pm = pm;
                   if (!exist.supplier && supplier) exist.supplier = supplier;
@@ -138,7 +136,7 @@ module.exports = function(db) {
                 const stockQty = Math.max(hist ? hist.stock_qty : 0, invInfo.inv_qty);
                 const sales90 = hist ? hist.sales_90d : 0;
                 const monthlySales = hist ? hist.monthly_sales : 0;
-                const actualAge = invInfo.age; // 雙庫最高庫齡
+                const actualAge = invInfo.age;
                 const pm = invInfo.pm || (hist ? hist.pm : '未指定PM') || '未指定PM';
                 const supplier = invInfo.supplier || (hist ? hist.supplier_name : '未知供應商') || '未知供應商';
 
@@ -150,42 +148,49 @@ module.exports = function(db) {
                 const singleCf = (len > 0 && w > 0 && h > 0) ? ((len * w * h) / 28317) : 0;
                 const importCubicFeet = parseFloat((singleCf * importQty).toFixed(2));
 
-                let turnMonths = Number(invInfo.turn_days) || 0;
-                if (turnMonths === 0 || turnMonths >= 99999) {
-                  turnMonths = monthlySales > 0 ? parseFloat(((stockQty + importQty) / monthlySales).toFixed(1)) : 99999;
+                // 🌟 新品邏輯判斷
+                const isNewItem = (!isHistoryRecorded && sales90 === 0 && actualAge === 0);
+
+                let turnMonths = 0;
+                if (!isNewItem) {
+                  turnMonths = Number(invInfo.turn_days) || 0;
+                  if (turnMonths === 0 || turnMonths >= 99999) {
+                    turnMonths = monthlySales > 0 ? parseFloat(((stockQty + importQty) / monthlySales).toFixed(1)) : 99999;
+                  }
                 }
-                const levelInfo = getTurnoverLevelInfo(turnMonths);
+
+                const levelInfo = getTurnoverLevelInfo(turnMonths, isNewItem);
 
                 const tags = [];
-                if (noteInfo.is_gift) tags.push({ text: '🎁 贈品採購', type: 'info' });
-                if (!isHistoryRecorded && sales90 === 0 && actualAge === 0) tags.push({ text: '✨ 首次建檔新品', type: 'info' });
-                else if (isHistoryRecorded && stockQty === 0 && sales90 === 0) tags.push({ text: '📦 斷貨重進舊品', type: 'warning' });
-
-                if (sales90 === 0 && importQty > 0 && !noteInfo.is_gift && isHistoryRecorded) {
-                  tags.push({ text: '🚨 90日零銷量進貨', type: 'danger' });
-                } else if (actualAge >= 180) {
-                  tags.push({ text: '🚨 高庫齡滯銷進貨', type: 'danger' });
+                if (noteInfo.is_gift) {
+                  tags.push({ text: '🎁 贈品採購', type: 'info' });
                 }
 
-                if (turnMonths > 6 && !noteInfo.is_gift) {
-                  tags.push({ text: `⚠️ 迴轉月數過高 (${turnMonths >= 99999 ? '99999個月' : turnMonths + '個月'})`, type: 'warning' });
-                }
-                if (sales90 > 0 && importQty >= (sales90 * 2)) {
-                  tags.push({ text: `⚠️ 爆量驗收 (進貨>90日銷量2倍)`, type: 'warning' });
+                if (isNewItem) {
+                  // 🌟 首次建檔新品：僅標註新品，絕不重複打上滯銷或高迴轉
+                  tags.push({ text: '✨ 首次建檔新品', type: 'success' });
+                } else {
+                  if (isHistoryRecorded && stockQty === 0 && sales90 === 0) tags.push({ text: '📦 斷貨重進舊品', type: 'warning' });
+                  if (sales90 === 0 && importQty > 0 && !noteInfo.is_gift && isHistoryRecorded) tags.push({ text: '🚨 90日零銷量進貨', type: 'danger' });
+                  else if (actualAge >= 180) tags.push({ text: '🚨 高庫齡滯銷進貨', type: 'danger' });
+
+                  if (turnMonths > 6 && !noteInfo.is_gift) tags.push({ text: `⚠️ 迴轉月數過高 (${turnMonths >= 99999 ? '99999個月' : turnMonths + '個月'})`, type: 'warning' });
+                  if (sales90 > 0 && importQty >= (sales90 * 2)) tags.push({ text: `⚠️ 爆量驗收 (進貨>90日銷量2倍)`, type: 'warning' });
                 }
 
-                // 不合理類型複選比對
+                // 1. 不合理類型複選比對 (支援 new_item)
                 let isMatchRule = false;
-                if (ruleList.includes('all') || ruleList.length === 0 || ruleList.length === 4) {
+                if (ruleList.includes('all') || ruleList.length === 0 || ruleList.length === 5) {
                   isMatchRule = tags.length > 0;
                 } else {
                   if (ruleList.includes('zero_sales') && tags.some(t => t.text.includes('零銷量') || t.text.includes('滯銷'))) isMatchRule = true;
                   if (ruleList.includes('high_turnover') && tags.some(t => t.text.includes('迴轉月數過高'))) isMatchRule = true;
                   if (ruleList.includes('over_import') && tags.some(t => t.text.includes('爆量驗收') || t.text.includes('超量驗收'))) isMatchRule = true;
                   if (ruleList.includes('gift') && noteInfo.is_gift) isMatchRule = true;
+                  if (ruleList.includes('new_item') && isNewItem) isMatchRule = true;
                 }
 
-                // 迴轉級距複選比對
+                // 2. 迴轉級距複選比對
                 let isMatchLevel = false;
                 if (levelList.includes('all') || levelList.length === 0 || levelList.length === 8) {
                   isMatchLevel = true;
@@ -205,10 +210,10 @@ module.exports = function(db) {
                     import_qty: importQty,
                     current_stock_qty: stockQty,
                     import_cubic_feet: importCubicFeet,
-                    age: actualAge, // 雙庫最高庫齡
+                    age: actualAge,
                     monthly_sales: monthlySales,
                     sales_90d: sales90,
-                    turn_days_total: turnMonths,
+                    turn_days_total: isNewItem ? '-' : turnMonths,
                     turnover_level: levelInfo.label,
                     pm,
                     supplier_name: supplier,
@@ -360,7 +365,7 @@ module.exports = function(db) {
     });
   });
 
-  // 5. 補結算快照 API (含雙庫庫齡與庫存)
+  // 5. 補結算快照 API
   router.post('/generate-history-snapshot', (req, res) => {
     const { startDate, endDate } = req.body;
     let inSql = `
@@ -462,22 +467,31 @@ module.exports = function(db) {
                   const singleCf = (len > 0 && w > 0 && h > 0) ? ((len * w * h) / 28317) : 0;
                   const importCubicFeet = parseFloat((singleCf * importQty).toFixed(2));
 
-                  let turnMonths = Number(invInfo.turn_days) || 0;
-                  if (turnMonths === 0 || turnMonths >= 99999) {
-                    turnMonths = monthlySales > 0 ? parseFloat(((stockQty + importQty) / monthlySales).toFixed(1)) : 99999;
+                  const isNewItem = (!isHistoryRecorded && sales90 === 0 && actualAge === 0);
+
+                  let turnMonths = 0;
+                  if (!isNewItem) {
+                    turnMonths = Number(invInfo.turn_days) || 0;
+                    if (turnMonths === 0 || turnMonths >= 99999) {
+                      turnMonths = monthlySales > 0 ? parseFloat(((stockQty + importQty) / monthlySales).toFixed(1)) : 99999;
+                    }
                   }
-                  const levelInfo = getTurnoverLevelInfo(turnMonths);
+
+                  const levelInfo = getTurnoverLevelInfo(turnMonths, isNewItem);
 
                   const tags = [];
                   if (isGift) tags.push({ text: '🎁 贈品採購', type: 'info' });
-                  if (!isHistoryRecorded && sales90 === 0 && actualAge === 0) tags.push({ text: '✨ 首次建檔新品', type: 'info' });
-                  else if (isHistoryRecorded && stockQty === 0 && sales90 === 0) tags.push({ text: '📦 斷貨重進舊品', type: 'warning' });
 
-                  if (sales90 === 0 && importQty > 0 && !isGift && isHistoryRecorded) tags.push({ text: '🚨 90日零銷量進貨', type: 'danger' });
-                  else if (actualAge >= 180) tags.push({ text: '🚨 高庫齡滯銷進貨', type: 'danger' });
+                  if (isNewItem) {
+                    tags.push({ text: '✨ 首次建檔新品', type: 'success' });
+                  } else {
+                    if (isHistoryRecorded && stockQty === 0 && sales90 === 0) tags.push({ text: '📦 斷貨重進舊品', type: 'warning' });
+                    if (sales90 === 0 && importQty > 0 && !isGift && isHistoryRecorded) tags.push({ text: '🚨 90日零銷量進貨', type: 'danger' });
+                    else if (actualAge >= 180) tags.push({ text: '🚨 高庫齡滯銷進貨', type: 'danger' });
 
-                  if (turnMonths > 6 && !isGift) tags.push({ text: `⚠️ 迴轉月數過高 (${turnMonths >= 99999 ? '99999個月' : turnMonths + '個月'})`, type: 'warning' });
-                  if (sales90 > 0 && importQty >= (sales90 * 2)) tags.push({ text: `⚠️ 爆量驗收 (進貨>90日銷量2倍)`, type: 'warning' });
+                    if (turnMonths > 6 && !isGift) tags.push({ text: `⚠️ 迴轉月數過高 (${turnMonths >= 99999 ? '99999個月' : turnMonths + '個月'})`, type: 'warning' });
+                    if (sales90 > 0 && importQty >= (sales90 * 2)) tags.push({ text: `⚠️ 爆量驗收 (進貨>90日銷量2倍)`, type: 'warning' });
+                  }
 
                   if (tags.length > 0) {
                     snapshotStmt.run(

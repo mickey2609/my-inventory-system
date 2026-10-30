@@ -92,7 +92,7 @@
 
     <!-- 3. 頂部雙層快速條件卡片 (即時模式時顯示完整篩選) -->
     <div class="filter-card-group" v-if="viewMode === 'live'">
-      <!-- 🌟 1. 不合理類型：勾選方塊 -->
+      <!-- 🌟 1. 不合理類型：已新增「✨ 首次建檔新品」勾選方塊 -->
       <div class="filter-card">
         <span class="filter-label">📌 不合理類型：</span>
         <el-checkbox
@@ -101,7 +101,7 @@
           class="mr-12"
           @change="handleCheckAllRulesChange"
         >
-          🌐 全選 (所有不合理)
+          🌐 全選 (所有類型)
         </el-checkbox>
 
         <el-checkbox-group v-model="selectedRules" size="small" @change="handleRuleChange">
@@ -109,6 +109,7 @@
           <el-checkbox label="high_turnover">⚠️ 迴轉月數過高 (>6個月)</el-checkbox>
           <el-checkbox label="over_import">⚠️ 爆量驗收 (進貨>90日銷量2倍)</el-checkbox>
           <el-checkbox label="gift">🎁 贈品採購</el-checkbox>
+          <el-checkbox label="new_item">✨ 首次建檔新品</el-checkbox>
         </el-checkbox-group>
       </div>
 
@@ -183,7 +184,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column prop="age" label="庫齡" width="90" align="right" sortable>
+        <el-table-column prop="age" label="最長庫齡" width="95" align="right" sortable>
           <template #default="scope">
             <span :class="scope.row.age >= 180 ? 'text-red font-bold' : ''">{{ formatNumber(scope.row.age) }}天</span>
           </template>
@@ -203,7 +204,8 @@
 
         <el-table-column prop="turn_days_total" label="迴轉月數" width="110" align="right" sortable>
           <template #default="scope">
-            <span :class="(scope.row.turn_days_total || scope.row.turn_months) > 6 ? 'text-red font-bold' : ''">
+            <span v-if="scope.row.turn_days_total === '-'" class="text-green font-bold">-</span>
+            <span v-else :class="(scope.row.turn_days_total || scope.row.turn_months) > 6 ? 'text-red font-bold' : ''">
               {{ (scope.row.turn_days_total || scope.row.turn_months) >= 99999 ? '99,999 個月' : formatNumber(scope.row.turn_days_total || scope.row.turn_months) + ' 個月' }}
             </span>
           </template>
@@ -211,7 +213,10 @@
 
         <el-table-column prop="turnover_level" label="迴轉級距" width="170" align="center" sortable>
           <template #default="scope">
-            <span :class="(scope.row.turnover_level || '').includes('99999') ? 'text-red font-bold' : 'text-purple'">
+            <span v-if="scope.row.turnover_level.includes('新品免評')" class="text-green font-bold">
+              {{ scope.row.turnover_level }}
+            </span>
+            <span v-else :class="(scope.row.turnover_level || '').includes('99999') ? 'text-red font-bold' : 'text-purple'">
               {{ scope.row.turnover_level }}
             </span>
           </template>
@@ -247,7 +252,7 @@
         </el-table-column>
       </el-table>
 
-      <!-- 底部分頁列 -->
+      <!-- 底部分頁列：預設 200 筆/頁 -->
       <div class="pagination-bar">
         <el-pagination
           v-model:current-page="currentPage"
@@ -398,7 +403,8 @@ export default {
   data() {
     const today = new Date().toISOString().split('T')[0];
 
-    const allRuleOptions = ['zero_sales', 'high_turnover', 'over_import', 'gift'];
+    // 🌟 不合理類型選項新增 new_item
+    const allRuleOptions = ['zero_sales', 'high_turnover', 'over_import', 'gift', 'new_item'];
     const allLevelOptions = ['le3', 'm3_6', 'm6_9', 'm9_12', 'm13_60', 'm61_120', 'gt120', 'm99999'];
 
     return {
@@ -409,7 +415,7 @@ export default {
       targetDate: today,
       warehouse: 'all',
 
-      // 不合理類型複選
+      // 不合理類型複選 (預設全選，可手動取消 new_item)
       checkAllRules: true,
       isRuleIndeterminate: false,
       allRuleOptions,
@@ -424,7 +430,7 @@ export default {
       summary: { totalCount: 0, totalPcs: 0, totalCubicFeet: 0, pmCount: 0 },
       rawTableData: [],
       currentPage: 1,
-      pageSize: 200,
+      pageSize: 200, // 🌟 預設 200 筆/頁
 
       showConfigDialog: false,
       configLimit: 10000,
@@ -627,7 +633,6 @@ export default {
       ElMessage.success('🎉 成功匯出週報 Excel！');
     },
 
-    // 🌟 加入防手抖（Debounce）機制，避免多個條件連鎖觸發連跳超時
     fetchAbnormalData() {
       if (this.debounceTimer) clearTimeout(this.debounceTimer);
       this.debounceTimer = setTimeout(() => {
