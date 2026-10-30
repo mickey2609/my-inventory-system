@@ -4,6 +4,15 @@ const express = require('express');
 module.exports = function(db) {
   const router = express.Router();
 
+  // 初始化系統參數表
+  db.run(`
+    CREATE TABLE IF NOT EXISTS abnormal_purchase_configs (
+      key TEXT PRIMARY KEY,
+      value TEXT,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
   const normalizeKey = (str) => {
     if (!str) return '';
     return String(str).trim().toUpperCase();
@@ -23,11 +32,50 @@ module.exports = function(db) {
     return { code: 'le3', label: '<=3個月' };
   };
 
-  // 1. 取得不合理進貨即時動態清單 (支援 minAge 庫齡門檻篩選)
+  // 1. 取得全域同步參數設定
+  router.get('/config', (req, res) => {
+    db.all(`SELECT key, value FROM abnormal_purchase_configs`, [], (err, rows) => {
+      if (err) return res.status(500).json({ success: false, message: err.message });
+      const config = {};
+      (rows || []).forEach(r => { config[r.key] = r.value; });
+      res.json({
+        success: true,
+        config: {
+          limit: Number(config.limit) || 10000,
+          minAge: Number(config.minAge) || 0,
+          sortProp: config.sortProp || 'rec_date',
+          sortOrder: config.sortOrder || 'descending'
+        }
+      });
+    });
+  });
+
+  // 2. 儲存全域同步參數設定
+  router.post('/config', (req, res) => {
+    const { limit, minAge, sortProp, sortOrder } = req.body;
+    const stmt = db.prepare(`
+      INSERT INTO abnormal_purchase_configs (key, value, updated_at) 
+      VALUES (?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP
+    `);
+
+    db.serialize(() => {
+      stmt.run('limit', String(limit || 10000));
+      stmt.run('minAge', String(minAge || 0));
+      stmt.run('sortProp', String(sortProp || 'rec_date'));
+      stmt.run('sortOrder', String(sortOrder || 'descending'));
+      stmt.finalize((err) => {
+        if (err) return res.status(500).json({ success: false, message: '儲存失敗: ' + err.message });
+        res.json({ success: true, message: '全域參數已同步成功！' });
+      });
+    });
+  });
+
+  // 3. 取得不合理進貨即時動態清單
   router.get('/list', (req, res) => {
     const { startDate, endDate, warehouse, ruleTypes, ruleType, turnoverLevels, turnoverLevel, minAge, limit } = req.query;
     const maxLimit = Number(limit) || 10000;
-    const minAgeThreshold = Number(minAge) || 0; // 🌟 讀取庫齡門檻
+    const minAgeThreshold = Number(minAge) || 0;
 
     const ruleList = (ruleTypes || ruleType || '').split(',').map(s => s.trim()).filter(Boolean);
     const levelList = (turnoverLevels || turnoverLevel || 'all').split(',').map(s => s.trim()).filter(Boolean);
@@ -73,7 +121,6 @@ module.exports = function(db) {
         });
       }
 
-      // 計算當天同商品的「驗收總 PCS」
       const dailyTotalImportMap = new Map();
       inboundRows.forEach(r => {
         const k = normalizeKey(r.item_id);
@@ -153,7 +200,7 @@ module.exports = function(db) {
                 const pm = invInfo.pm || (hist ? hist.pm : '未指定PM') || '未指定PM';
                 const supplier = invInfo.supplier || (hist ? hist.supplier_name : '未知供應商') || '未知供應商';
 
-                // 🌟 庫齡門檻篩選：若設定了 minAgeThreshold，庫齡未達標者直接跳過
+                // 庫齡門檻篩選
                 if (minAgeThreshold > 0 && actualAge < minAgeThreshold) {
                   return;
                 }
@@ -169,7 +216,6 @@ module.exports = function(db) {
 
                 const isNewItem = (!isHistoryRecorded && sales90 === 0 && actualAge === 0 && !isGift);
 
-                // 迴轉月數以「當日驗收總PCS / 月銷量」計算
                 let turnMonths = 0;
                 if (!isNewItem && !isGift) {
                   if (monthlySales > 0) {
@@ -195,11 +241,9 @@ module.exports = function(db) {
                   if (sales90 > 0 && dailyTotalImportQty >= (sales90 * 2)) tags.push({ text: `⚠️ 爆量驗收 (進貨>90日銷量2倍)`, type: 'warning' });
                 }
 
-                // 未勾選贈品時嚴格過濾
                 const allowGift = ruleList.includes('gift') || ruleList.includes('all');
                 if (isGift && !allowGift) return;
 
-                // 未勾選新品時嚴格過濾
                 const allowNewItem = ruleList.includes('new_item') || ruleList.includes('all');
                 if (isNewItem && !allowNewItem) return;
 
@@ -269,7 +313,7 @@ module.exports = function(db) {
     });
   });
 
-  // 2. 快照清單查詢
+  // 4. 快照清單查詢
   router.get('/snapshot-list', (req, res) => {
     const { startDate, endDate, warehouse, limit } = req.query;
     const maxLimit = Number(limit) || 10000;
@@ -325,7 +369,7 @@ module.exports = function(db) {
     });
   });
 
-  // 3. 儲存備註
+  // 5. 儲存備註
   router.post('/save-note', (req, res) => {
     const { itemId, isGift, remark, updatedBy } = req.body;
     if (!itemId) return res.status(400).json({ success: false, message: '請提供商品編號' });
@@ -347,7 +391,7 @@ module.exports = function(db) {
     });
   });
 
-  // 4. 週報分析
+  // 6. 週報分析
   router.get('/weekly-summary', (req, res) => {
     const now = new Date();
     const dayOfWeek = now.getDay() || 7;
@@ -389,7 +433,7 @@ module.exports = function(db) {
     });
   });
 
-  // 5. 補結算快照 API
+  // 7. 補結算快照 API
   router.post('/generate-history-snapshot', (req, res) => {
     const { startDate, endDate } = req.body;
     let inSql = `

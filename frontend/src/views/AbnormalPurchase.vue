@@ -35,7 +35,8 @@
         </el-radio-group>
       </div>
 
-      <div class="action-group">
+      <!-- 🌟 圖二按鈕列：只有非訪客身份才顯示 -->
+      <div class="action-group" v-if="!isGuest">
         <!-- 快照庫模式下一鍵補算當日快照 -->
         <el-button 
           v-if="viewMode === 'snapshot'" 
@@ -92,7 +93,6 @@
 
     <!-- 3. 頂部雙層快速條件卡片 (即時模式時顯示完整篩選) -->
     <div class="filter-card-group" v-if="viewMode === 'live'">
-      <!-- 1. 不合理類型：贈品與新品預設不勾選 -->
       <div class="filter-card">
         <span class="filter-label">📌 不合理類型：</span>
         <el-checkbox
@@ -113,7 +113,6 @@
         </el-checkbox-group>
       </div>
 
-      <!-- 2. 迴轉級距篩選：勾選方塊 -->
       <div class="filter-card">
         <span class="filter-label">📊 迴轉級距篩選：</span>
         <el-checkbox
@@ -158,7 +157,7 @@
         </el-table-column>
         <el-table-column prop="item_id" label="商品編號" width="160" align="center" sortable>
           <template #default="scope">
-            <div class="item-link" @click="openNoteDialog(scope.row)">
+            <div class="item-link" @click="!isGuest && openNoteDialog(scope.row)">
               <span class="font-bold text-blue">{{ scope.row.item_id }}</span>
               <el-tag v-if="scope.row.is_gift" type="success" size="mini" effect="dark" class="ml-4">🎁 贈品</el-tag>
             </div>
@@ -250,7 +249,7 @@
           <template #default="scope">
             <div class="note-col">
               <span v-if="scope.row.custom_remark" class="note-text" :title="scope.row.custom_remark">{{ scope.row.custom_remark }}</span>
-              <el-button size="mini" type="text" icon="el-icon-edit" @click="openNoteDialog(scope.row)">
+              <el-button v-if="!isGuest" size="mini" type="text" icon="el-icon-edit" @click="openNoteDialog(scope.row)">
                 {{ scope.row.custom_remark || scope.row.is_gift ? '編輯' : '新增備註' }}
               </el-button>
             </div>
@@ -258,7 +257,7 @@
         </el-table-column>
       </el-table>
 
-      <!-- 底部分頁列：預設 200 筆/頁 -->
+      <!-- 底部分頁列 -->
       <div class="pagination-bar">
         <el-pagination
           v-model:current-page="currentPage"
@@ -353,7 +352,7 @@
       </template>
     </el-dialog>
 
-    <!-- 7. 參數設定 Modal 彈窗 (🌟 已加入庫齡門檻篩選) -->
+    <!-- 7. 參數設定 Modal 彈窗 (🌟 已加入庫齡門檻篩選，並同步後端資料庫) -->
     <el-dialog
       v-model="showConfigDialog"
       title="⚙️ 不合理進貨分析 - 參數設定"
@@ -370,7 +369,6 @@
           </el-select>
         </el-form-item>
 
-        <!-- 🌟 新增：最長庫齡篩選門檻 -->
         <el-form-item label="⏳ 庫齡篩選門檻">
           <el-select v-model="configMinAge" style="width: 100%;">
             <el-option :value="0" label="全部顯示 (不限庫齡門檻)" />
@@ -405,7 +403,7 @@
       <template #footer>
         <span class="dialog-footer">
           <el-button size="small" class="dialog-cancel-btn" @click="showConfigDialog = false">取消</el-button>
-          <el-button size="small" type="primary" @click="saveAndApplyConfig">💾 儲存並重新載入</el-button>
+          <el-button size="small" type="primary" :loading="savingConfig" @click="saveAndApplyConfig">💾 儲存並同步至系統</el-button>
         </span>
       </template>
     </el-dialog>
@@ -452,8 +450,9 @@ export default {
       pageSize: 200,
 
       showConfigDialog: false,
+      savingConfig: false,
       configLimit: 10000,
-      configMinAge: 0, // 🌟 預設 0 天 (不限庫齡門檻)
+      configMinAge: 0,
       configSortProp: 'rec_date',
       configSortOrder: 'descending',
 
@@ -467,6 +466,12 @@ export default {
     }
   },
   computed: {
+    // 🌟 判斷當前使用者是否為訪客
+    isGuest() {
+      const role = localStorage.getItem('user_role') || '';
+      const username = localStorage.getItem('username') || localStorage.getItem('user_name') || '';
+      return role === 'guest' || username.includes('訪客') || username === 'guest';
+    },
     paginatedTableData() {
       const start = (this.currentPage - 1) * this.pageSize;
       const end = start + this.pageSize;
@@ -485,19 +490,9 @@ export default {
       })).sort((a, b) => b.count - a.count);
     }
   },
-  mounted() {
-    const savedLimit = localStorage.getItem('abnormal_limit');
-    if (savedLimit) this.configLimit = Number(savedLimit);
-
-    const savedMinAge = localStorage.getItem('abnormal_min_age');
-    if (savedMinAge !== null) this.configMinAge = Number(savedMinAge);
-
-    const savedSortProp = localStorage.getItem('abnormal_sort_prop');
-    if (savedSortProp) this.configSortProp = savedSortProp;
-
-    const savedSortOrder = localStorage.getItem('abnormal_sort_order');
-    if (savedSortOrder) this.configSortOrder = savedSortOrder;
-
+  async mounted() {
+    // 🌟 先向後端載入全域同步設定
+    await this.fetchGlobalConfig();
     this.fetchAbnormalData();
   },
   methods: {
@@ -508,6 +503,47 @@ export default {
 
     handleSizeChange(val) { this.pageSize = val; this.currentPage = 1; },
     handleCurrentChange(val) { this.currentPage = val; },
+
+    // 🌟 從後端讀取全域同步參數
+    async fetchGlobalConfig() {
+      try {
+        const res = await axios.get('/api/abnormal/config');
+        if (res.data?.success && res.data.config) {
+          const cfg = res.data.config;
+          this.configLimit = cfg.limit || 10000;
+          this.configMinAge = cfg.minAge || 0;
+          this.configSortProp = cfg.sortProp || 'rec_date';
+          this.configSortOrder = cfg.sortOrder || 'descending';
+        }
+      } catch (e) {
+        console.warn('載入全域參數失敗，採用預設值:', e);
+      }
+    },
+
+    // 🌟 儲存參數並全域同步到後端資料庫
+    async saveAndApplyConfig() {
+      this.savingConfig = true;
+      try {
+        const payload = {
+          limit: this.configLimit,
+          minAge: this.configMinAge,
+          sortProp: this.configSortProp,
+          sortOrder: this.configSortOrder
+        };
+        const res = await axios.post('/api/abnormal/config', payload);
+        if (res.data?.success) {
+          ElMessage.success('🎉 系統參數已全域同步儲存！');
+          this.showConfigDialog = false;
+          this.fetchAbnormalData();
+        } else {
+          ElMessage.error(res.data?.message || '同步失敗');
+        }
+      } catch (e) {
+        ElMessage.error('儲存失敗：' + e.message);
+      } finally {
+        this.savingConfig = false;
+      }
+    },
 
     handleCheckAllRulesChange(val) {
       this.selectedRules = val ? [...this.allRuleOptions] : [];
@@ -544,16 +580,6 @@ export default {
 
     setToday() {
       this.targetDate = new Date().toISOString().split('T')[0];
-      this.fetchAbnormalData();
-    },
-
-    saveAndApplyConfig() {
-      localStorage.setItem('abnormal_limit', this.configLimit);
-      localStorage.setItem('abnormal_min_age', this.configMinAge);
-      localStorage.setItem('abnormal_sort_prop', this.configSortProp);
-      localStorage.setItem('abnormal_sort_order', this.configSortOrder);
-      this.showConfigDialog = false;
-      ElMessage.success('🎉 參數設定已儲存！');
       this.fetchAbnormalData();
     },
 
@@ -674,7 +700,7 @@ export default {
           warehouse: this.warehouse,
           ruleTypes: this.selectedRules.join(','),
           turnoverLevels: this.selectedLevels.join(','),
-          minAge: this.configMinAge, // 🌟 傳遞庫齡門檻
+          minAge: this.configMinAge,
           limit: this.configLimit
         };
 
