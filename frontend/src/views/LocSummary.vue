@@ -614,11 +614,11 @@
                         <!-- 🌟 較前次增減：移至剩餘儲格右邊，以剩餘空格（本次剩餘 - 上次剩餘）計算 -->
                         <el-table-column label="較前次增減" width="110" align="right">
                           <template #default="sub">
-                            <span v-if="sub.row.diff_grid > 0" class="text-green font-bold">
-                              +{{ formatNumber(sub.row.diff_grid) }} 🔺
+                            <span v-if="sub.row.diff_grid > 0" class="font-bold">
+                              +{{ formatNumber(sub.row.diff_grid) }} <span class="text-orange">▲</span>
                             </span>
-                            <span v-else-if="sub.row.diff_grid < 0" class="text-red font-bold">
-                              {{ formatNumber(sub.row.diff_grid) }} 🔻
+                            <span v-else-if="sub.row.diff_grid < 0" class="font-bold">
+                              {{ formatNumber(sub.row.diff_grid) }} <span class="text-green">▼</span>
                             </span>
                             <span v-else-if="sub.row.diff_grid === 0" class="text-gray">
                               0
