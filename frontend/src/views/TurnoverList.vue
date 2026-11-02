@@ -164,37 +164,6 @@
           </template>
         </el-table-column>
 
-        <!-- 商品屬性 -->
-        <el-table-column prop="item_tag" label="商品屬性" width="115" align="center" sortable>
-          <template #default="scope">
-            <el-select 
-              v-model="scope.row.item_tag" 
-              size="mini" 
-              class="tag-select"
-              :class="getTagClass(scope.row.item_tag)"
-              @change="saveItemAttr(scope.row)"
-            >
-              <el-option label="📦 主商品" value="主商品" />
-              <el-option label="🎁 贈品" value="贈品" />
-              <el-option label="🏷️ 樣品" value="樣品" />
-              <el-option label="📦 耗材" value="耗材" />
-            </el-select>
-          </template>
-        </el-table-column>
-
-        <!-- 自訂備註 -->
-        <el-table-column prop="remark" label="自訂備註" min-width="150" show-overflow-tooltip>
-          <template #default="scope">
-            <el-input 
-              v-model="scope.row.remark" 
-              size="mini" 
-              placeholder="備註..." 
-              @blur="saveItemAttr(scope.row)"
-              @keyup.enter.native="$event.target.blur()"
-            />
-          </template>
-        </el-table-column>
-
         <el-table-column prop="item_name" label="商品名稱" min-width="200" show-overflow-tooltip />
         <el-table-column prop="borrow_proc" label="借/採" width="75" align="center" />
         <el-table-column prop="total_qty" label="加總庫存數" width="105" align="right" sortable>
@@ -220,8 +189,39 @@
           <template #default="scope">{{ formatNumber(scope.row.monthly_sales) }}</template>
         </el-table-column>
 
-        <el-table-column prop="pallets" label="板數" width="115" align="right" sortable fixed="right">
+        <el-table-column prop="pallets" label="板數" width="115" align="right" sortable>
           <template #default="scope"><span class="text-cyan font-bold">{{ formatNumber(scope.row.pallets, 2) }}</span></template>
+        </el-table-column>
+
+        <!-- 🌟 移到最後面：商品屬性 -->
+        <el-table-column prop="item_tag" label="商品屬性" width="115" align="center" sortable fixed="right">
+          <template #default="scope">
+            <el-select 
+              v-model="scope.row.item_tag" 
+              size="mini" 
+              class="tag-select"
+              :class="getTagClass(scope.row.item_tag)"
+              @change="saveItemAttr(scope.row)"
+            >
+              <el-option label="📦 主商品" value="主商品" />
+              <el-option label="🎁 贈品" value="贈品" />
+              <el-option label="🏷️ 樣品" value="樣品" />
+              <el-option label="📦 耗材" value="耗材" />
+            </el-select>
+          </template>
+        </el-table-column>
+
+        <!-- 🌟 移到最後面：自訂備註 -->
+        <el-table-column prop="remark" label="自訂備註" min-width="150" show-overflow-tooltip fixed="right">
+          <template #default="scope">
+            <el-input 
+              v-model="scope.row.remark" 
+              size="mini" 
+              placeholder="備註..." 
+              @blur="saveItemAttr(scope.row)"
+              @keyup.enter.native="$event.target.blur()"
+            />
+          </template>
         </el-table-column>
       </el-table>
 
@@ -481,7 +481,6 @@ export default {
       this.updateReportTime();
 
       try {
-        // 先拉取最新的標籤與備註對照表
         const attrRes = await axios.get('/api/item-sales-history/list?pageSize=50000').catch(() => null);
         if (attrRes?.data?.success && attrRes.data.data) {
           const m = {};
@@ -541,14 +540,12 @@ export default {
           }
         }
 
-        // 綁定最新屬性與備註
         rawList.forEach(item => {
           const meta = this.attrMap[item.item_id];
           item.item_tag = meta ? meta.item_tag : '主商品';
           item.remark = meta ? meta.remark : '';
         });
 
-        // 條件篩選
         const filterFn = (item) => {
           const age = Number(item.max_age) || 0;
           const sales = Number(item.monthly_sales) || 0;
@@ -653,12 +650,13 @@ export default {
         });
 
         aoa.push([]);
-        aoa.push(['商品ID', '商品屬性', '自訂備註', '商品名稱', '借/採', '加總庫存數', '最長庫齡', '區編', '區名', '總才數', '迴轉(月)', '月銷量', '板數']);
+        aoa.push(['商品ID', '商品名稱', '借/採', '加總庫存數', '最長庫齡', '區編', '區名', '總才數', '迴轉(月)', '月銷量', '板數', '商品屬性', '自訂備註']);
 
         exportList.forEach(r => {
           aoa.push([
-            r.item_id, r.item_tag || '主商品', r.remark || '', r.item_name, r.borrow_proc, r.total_qty, r.max_age,
-            r.zone_id, r.zone_name, r.total_cubic_feet, r.turnover_month, r.monthly_sales, r.pallets
+            r.item_id, r.item_name, r.borrow_proc, r.total_qty, r.max_age,
+            r.zone_id, r.zone_name, r.total_cubic_feet, r.turnover_month, r.monthly_sales, r.pallets,
+            r.item_tag || '主商品', r.remark || ''
           ]);
         });
 

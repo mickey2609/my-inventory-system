@@ -70,37 +70,6 @@
           </template>
         </el-table-column>
 
-        <!-- 🌟 商品屬性 (下拉即時切換) -->
-        <el-table-column prop="item_tag" label="商品屬性" width="125" align="center" sortable>
-          <template #default="scope">
-            <el-select 
-              v-model="scope.row.item_tag" 
-              size="mini" 
-              class="tag-select"
-              :class="getTagClass(scope.row.item_tag)"
-              @change="saveItemAttr(scope.row)"
-            >
-              <el-option label="📦 主商品" value="主商品" />
-              <el-option label="🎁 贈品" value="贈品" />
-              <el-option label="🏷️ 樣品" value="樣品" />
-              <el-option label="📦 耗材" value="耗材" />
-            </el-select>
-          </template>
-        </el-table-column>
-
-        <!-- 🌟 自訂備註 (失焦或按 Enter 自動儲存) -->
-        <el-table-column prop="remark" label="自訂備註" min-width="170">
-          <template #default="scope">
-            <el-input 
-              v-model="scope.row.remark" 
-              size="mini" 
-              placeholder="輸入備註..." 
-              @blur="saveItemAttr(scope.row)"
-              @keyup.enter.native="$event.target.blur()"
-            />
-          </template>
-        </el-table-column>
-
         <el-table-column prop="item_name" label="商品名稱" min-width="220" show-overflow-tooltip sortable />
         <el-table-column prop="pm" label="所屬 PM" width="100" align="center" sortable />
         <el-table-column prop="supplier_name" label="供應商名稱" min-width="160" show-overflow-tooltip sortable />
@@ -154,6 +123,37 @@
             <span class="text-orange font-bold">{{ scope.row.last_inbound_date || '無驗收紀錄' }}</span>
           </template>
         </el-table-column>
+
+        <!-- 🌟 移到最後面：商品屬性 -->
+        <el-table-column prop="item_tag" label="商品屬性" width="125" align="center" sortable fixed="right">
+          <template #default="scope">
+            <el-select 
+              v-model="scope.row.item_tag" 
+              size="mini" 
+              class="tag-select"
+              :class="getTagClass(scope.row.item_tag)"
+              @change="saveItemAttr(scope.row)"
+            >
+              <el-option label="📦 主商品" value="主商品" />
+              <el-option label="🎁 贈品" value="贈品" />
+              <el-option label="🏷️ 樣品" value="樣品" />
+              <el-option label="📦 耗材" value="耗材" />
+            </el-select>
+          </template>
+        </el-table-column>
+
+        <!-- 🌟 移到最後面：自訂備註 -->
+        <el-table-column prop="remark" label="自訂備註" min-width="170" fixed="right">
+          <template #default="scope">
+            <el-input 
+              v-model="scope.row.remark" 
+              size="mini" 
+              placeholder="輸入備註..." 
+              @blur="saveItemAttr(scope.row)"
+              @keyup.enter.native="$event.target.blur()"
+            />
+          </template>
+        </el-table-column>
       </el-table>
 
       <!-- 底部分頁列 -->
@@ -170,7 +170,7 @@
       </div>
     </div>
 
-    <!-- 🌟 點選商品 ID 彈出的快速標記對話盒 -->
+    <!-- 點選商品 ID 彈出的快速標記對話盒 -->
     <el-dialog 
       v-model="showQuickTagModal" 
       title="🏷️ 商品屬性與備註標記" 
@@ -236,7 +236,6 @@ export default {
       pageSize: 500,
       totalRows: 0,
 
-      // 快速標記 Modal
       showQuickTagModal: false,
       activeItem: null,
       modalTag: '主商品',
@@ -302,7 +301,6 @@ export default {
       }
     },
 
-    // 🌟 點擊表格內下拉或失焦即時儲存
     async saveItemAttr(row) {
       try {
         const res = await axios.post('/api/item-sales-history/update-tag-remark', {
@@ -318,7 +316,6 @@ export default {
       }
     },
 
-    // 🌟 點選商品編號開啟彈窗
     openQuickTagModal(row) {
       this.activeItem = row;
       this.modalTag = row.item_tag || '主商品';
@@ -326,7 +323,6 @@ export default {
       this.showQuickTagModal = true;
     },
 
-    // 🌟 彈窗確定儲存
     async saveModalTag() {
       if (!this.activeItem) return;
       try {
@@ -367,8 +363,6 @@ export default {
         if (res.data?.success && res.data.data) {
           const exportRows = res.data.data.map(r => ({
             '商品編號': r.item_id,
-            '商品屬性': r.item_tag || '主商品',
-            '自訂備註': r.remark || '',
             '商品名稱': r.item_name,
             '所屬PM': r.pm,
             '供應商名稱': r.supplier_name,
@@ -378,7 +372,9 @@ export default {
             '(近)月銷量': r.monthly_sales,
             '(近)90日銷量': r.sales_90d,
             '最後庫存檔日期': r.last_record_date,
-            '最後進貨驗收日期': r.last_inbound_date
+            '最後進貨驗收日期': r.last_inbound_date,
+            '商品屬性': r.item_tag || '主商品',
+            '自訂備註': r.remark || ''
           }));
 
           const worksheet = XLSX.utils.json_to_sheet(exportRows);
