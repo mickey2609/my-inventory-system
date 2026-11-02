@@ -571,7 +571,7 @@
             </div>
           </el-tab-pane>
 
-          <!-- 頁籤 6：🗓 儲位 7 大 KPI 歷史快照管理清單[cite: 11] -->
+          <!-- 頁籤 6：🗓 儲位 7 大 KPI 歷史快照管理清單 -->
           <el-tab-pane label="🗓️ 儲位 7 大 KPI 歷史快照管理清單" name="history_manager">
             <div class="history-page-wrapper">
               <div class="history-page-header">
@@ -598,21 +598,21 @@
                         size="mini" 
                         class="dark-nested-table"
                       >
-                        <el-table-column prop="loc_type" label="儲位類型 (小計)" width="180" />
-                        <el-table-column label="規劃儲格" width="110" align="right">
+                        <el-table-column prop="loc_type" label="儲位類型 (小計)" width="160" />
+                        <el-table-column label="規劃儲格" width="95" align="right">
                           <template #default="sub">{{ formatNumber(sub.row.plan_grid) }}</template>
                         </el-table-column>
-                        <el-table-column label="使用儲格" width="110" align="right">
+                        <el-table-column label="使用儲格" width="95" align="right">
                           <template #default="sub"><span class="text-green">{{ formatNumber(sub.row.used_grid) }}</span></template>
                         </el-table-column>
                         
                         <!-- 剩餘儲格 -->
-                        <el-table-column label="剩餘儲格" width="110" align="right">
+                        <el-table-column label="剩餘儲格" width="95" align="right">
                           <template #default="sub"><span class="text-orange">{{ formatNumber(sub.row.rem_grid) }}</span></template>
                         </el-table-column>
                         
-                        <!-- 🌟 較前次增減：移至剩餘儲格右邊，以剩餘空格（本次剩餘 - 上次剩餘）計算 -->
-                        <el-table-column label="較前次增減" width="110" align="right">
+                        <!-- 1. 儲格增減 -->
+                        <el-table-column label="儲格增減" width="95" align="right">
                           <template #default="sub">
                             <span v-if="sub.row.diff_grid > 0" class="text-red font-bold">
                               +{{ formatNumber(sub.row.diff_grid) }} ▲
@@ -627,17 +627,53 @@
                           </template>
                         </el-table-column>
 
-                        <el-table-column label="規劃才數" width="130" align="right">
+                        <el-table-column label="規劃才數" width="105" align="right">
                           <template #default="sub">{{ formatNumber(sub.row.plan_vol) }}</template>
                         </el-table-column>
-                        <el-table-column label="使用才數" width="130" align="right">
+                        <el-table-column label="使用才數" width="105" align="right">
                           <template #default="sub"><span class="text-green">{{ formatNumber(sub.row.used_vol) }}</span></template>
                         </el-table-column>
-                        <el-table-column label="剩餘才數" width="130" align="right">
+                        
+                        <!-- 剩餘才數 -->
+                        <el-table-column label="剩餘才數" width="105" align="right">
                           <template #default="sub"><span class="text-orange">{{ formatNumber(sub.row.rem_vol) }}</span></template>
                         </el-table-column>
-                        <el-table-column prop="health_rate" label="類型健康度" width="110" align="right">
+
+                        <!-- 2. 🌟 新增：才數增減 (本次剩餘才數 - 上次剩餘才數) -->
+                        <el-table-column label="才數增減" width="105" align="right">
+                          <template #default="sub">
+                            <span v-if="sub.row.diff_vol > 0" class="text-red font-bold">
+                              +{{ formatNumber(sub.row.diff_vol) }} ▲
+                            </span>
+                            <span v-else-if="sub.row.diff_vol < 0" class="text-green font-bold">
+                              {{ formatNumber(sub.row.diff_vol) }} ▼
+                            </span>
+                            <span v-else-if="sub.row.diff_vol === 0" class="text-gray">
+                              0
+                            </span>
+                            <span v-else class="text-gray">-</span>
+                          </template>
+                        </el-table-column>
+
+                        <!-- 類型健康度 -->
+                        <el-table-column prop="health_rate" label="類型健康度" width="95" align="right">
                           <template #default="sub"><span class="text-cyan font-bold">{{ sub.row.health_rate }}%</span></template>
+                        </el-table-column>
+
+                        <!-- 3. 🌟 新增：健康度增減 (本次健康度% - 上次健康度%) -->
+                        <el-table-column label="健康度增減" width="95" align="right">
+                          <template #default="sub">
+                            <span v-if="sub.row.diff_health > 0" class="text-red font-bold">
+                              +{{ sub.row.diff_health }}% ▲
+                            </span>
+                            <span v-else-if="sub.row.diff_health < 0" class="text-green font-bold">
+                              {{ sub.row.diff_health }}% ▼
+                            </span>
+                            <span v-else-if="sub.row.diff_health === 0" class="text-gray">
+                              0%
+                            </span>
+                            <span v-else class="text-gray">-</span>
+                          </template>
                         </el-table-column>
                       </el-table>
                     </div>
@@ -682,7 +718,7 @@
       </div>
     </div>
 
-    <!-- ⚙ 儲位定義 Modal[cite: 11] -->
+    <!-- ⚙ 儲位定義 Modal -->
     <el-dialog
       title="⚙️ 儲位定義參數與權限設定"
       v-model="showConfigDialog"
@@ -1094,36 +1130,50 @@ export default {
       return d;
     },
 
-    // 🌟 核心計算：以「剩餘儲格」計算本次 - 上次 (空位變少即負數)
+    // 🌟 核心計算：同時計算「剩餘儲格」、「剩餘才數」、「健康度%」與上次快照的差異
     async fetchHistoryList() {
       try {
         const res = await axios.get('/api/location-stats/history');
         if (res.data && res.data.success) {
           const list = res.data.data || [];
 
-          // list 由新到舊排序：索引 i 是「本次」，索引 i + 1 是「上次」
           for (let i = 0; i < list.length; i++) {
             const curItem = list[i];
-            const prevItem = list[i + 1]; // 上一次快照
+            const prevItem = list[i + 1]; // 上一次歷史快照
 
-            // 建立上次快照中各儲位類型的「剩餘儲格」Map
-            const prevRemMap = new Map();
+            // 建立上次快照對應 loc_type 的詳細指標 Map
+            const prevDetailMap = new Map();
             if (prevItem && Array.isArray(prevItem.type_details)) {
               prevItem.type_details.forEach(td => {
                 if (td.loc_type) {
-                  prevRemMap.set(td.loc_type, Number(td.rem_grid) || 0);
+                  prevDetailMap.set(td.loc_type, {
+                    rem_grid: Number(td.rem_grid) || 0,
+                    rem_vol: Number(td.rem_vol) || 0,
+                    health_rate: Number(td.health_rate) || 0
+                  });
                 }
               });
             }
 
-            // 計算公式：本次剩餘 (curRem) - 上次剩餘 (prevRem)
+            // 對當前快照的每一項計算增減
             if (Array.isArray(curItem.type_details)) {
               curItem.type_details.forEach(td => {
-                const curRem = Number(td.rem_grid) || 0;
-                if (prevItem && prevRemMap.has(td.loc_type)) {
-                  td.diff_grid = curRem - prevRemMap.get(td.loc_type);
+                const curRemGrid = Number(td.rem_grid) || 0;
+                const curRemVol = Number(td.rem_vol) || 0;
+                const curHealth = Number(td.health_rate) || 0;
+
+                if (prevItem && prevDetailMap.has(td.loc_type)) {
+                  const prev = prevDetailMap.get(td.loc_type);
+                  // 1. 剩餘儲格差異 (本次 - 上次)
+                  td.diff_grid = curRemGrid - prev.rem_grid;
+                  // 2. 剩餘才數差異 (本次 - 上次)
+                  td.diff_vol = parseFloat((curRemVol - prev.rem_vol).toFixed(1));
+                  // 3. 健康度差異 (本次 - 上次)
+                  td.diff_health = parseFloat((curHealth - prev.health_rate).toFixed(1));
                 } else {
-                  td.diff_grid = null; // 無前次資料
+                  td.diff_grid = null;
+                  td.diff_vol = null;
+                  td.diff_health = null;
                 }
               });
             }
@@ -1507,7 +1557,7 @@ export default {
 .stat-val { font-size: 18px; font-weight: bold; margin-top: 2px; }
 
 .text-blue { color: #38bdf8; }
-.text-green { color: #4ade80; }
+.text-green { color: #4ade80 !important; }
 .text-orange { color: #fbbf24; }
 .text-cyan { color: #22d3ee; }
 .text-red { color: #f87171 !important; }
