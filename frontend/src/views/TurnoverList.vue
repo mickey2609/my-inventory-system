@@ -65,7 +65,12 @@
     <!-- 2. 總計摘要與級距統計面板 -->
     <div class="summary-overview-card" v-loading="loading">
       <div class="summary-header">
-        【摘要】{{ warehouseType === '15' ? '15庫 (自動化倉)' : '80庫 (人工倉)' }} 門檻：迴轉(月) ≥ {{ summary.minTurnover }} | 庫齡 ≥ {{ summary.minAge || 0 }} 天 | 筆數 Top {{ summary.limitCount }}
+        【摘要】{{ warehouseType === '15' ? '15庫 (自動化倉)' : '80庫 (人工倉)' }} 門檻：迴轉(月) ≥ {{ summary.minTurnover }} | 庫齡 ≥ {{ summary.minAge || 0 }} 天 | 
+        <span v-if="minMonthlySales !== null || maxMonthlySales !== null">
+          月銷量：{{ minMonthlySales !== null ? '≥ ' + minMonthlySales : '' }} {{ (minMonthlySales !== null && maxMonthlySales !== null) ? '且' : '' }} {{ maxMonthlySales !== null ? '≤ ' + maxMonthlySales : '' }} | 
+        </span>
+        <span v-if="minPallets > 0">板數 ≥ {{ minPallets }} | </span>
+        筆數 Top {{ summary.limitCount }}
         <span v-if="warehouseType === '15'">(排除 80U/80Z 儲位，同 ID 去重)</span>
         <span v-else>(全庫存統計，同 ID 去重)</span>
       </div>
@@ -156,24 +161,55 @@
       </div>
     </div>
 
-    <!-- 4. ⚙️ 參數設定對話盒 (移除 append-to-body 確保 scoped 樣式生效) -->
+    <!-- 4. ⚙️ 參數設定對話盒 (新增月銷量、板數、庫齡篩選條件) -->
     <el-dialog 
       v-model="showParamDialog" 
-      title="⚙️ 迴轉率與庫齡分析參數設定" 
-      width="480px"
+      title="⚙️ 迴轉率、銷量、板數與庫齡參數設定" 
+      width="530px"
       class="custom-turnover-dialog"
     >
       <div class="dialog-body">
         <div class="param-row">
           <span class="param-label">迴轉(月)門檻：</span>
-          <el-input-number v-model="minTurnover" :min="0" :max="9999" size="small" style="width: 180px;" />
+          <el-input-number v-model="minTurnover" :min="0" :max="99999" size="small" style="width: 180px;" />
           <span class="param-tip">(≥ 該月數)</span>
         </div>
 
+        <!-- 🌟 庫齡門檻設定 -->
         <div class="param-row">
-          <span class="param-label">庫齡門檻 (天)：</span>
-          <el-input-number v-model="minAge" :min="0" :max="9999" size="small" style="width: 180px;" />
+          <span class="param-label">最長庫齡門檻：</span>
+          <el-input-number v-model="minAge" :min="0" :max="99999" size="small" style="width: 180px;" />
           <span class="param-tip">(≥ 該天數)</span>
+        </div>
+
+        <!-- 🌟 月銷量區間門檻設定 -->
+        <div class="param-row">
+          <span class="param-label">月銷量範圍：</span>
+          <el-input-number 
+            v-model="minMonthlySales" 
+            :min="0" 
+            :max="999999" 
+            placeholder="下限" 
+            size="small" 
+            style="width: 110px;" 
+          />
+          <span style="color: #94a3b8;">~</span>
+          <el-input-number 
+            v-model="maxMonthlySales" 
+            :min="0" 
+            :max="999999" 
+            placeholder="上限(空=無)" 
+            size="small" 
+            style="width: 120px;" 
+          />
+          <span class="param-tip">(可篩滯銷 ≤ 0)</span>
+        </div>
+
+        <!-- 🌟 板數門檻設定 -->
+        <div class="param-row">
+          <span class="param-label">板數門檻：</span>
+          <el-input-number v-model="minPallets" :min="0" :step="0.5" :precision="1" size="small" style="width: 180px;" />
+          <span class="param-tip">(≥ 該板數)</span>
         </div>
 
         <div class="param-row">
@@ -183,10 +219,17 @@
         </div>
 
         <div class="param-row">
-          <span class="param-label">板數排序：</span>
-          <el-select v-model="sortOrder" size="small" style="width: 180px;">
-            <el-option label="由大到小 (降冪)" value="desc" />
-            <el-option label="由小到大 (升冪)" value="asc" />
+          <span class="param-label">資料排序欄位：</span>
+          <el-select v-model="sortBy" size="small" style="width: 130px;">
+            <el-option label="依板數" value="pallets" />
+            <el-option label="依月銷量" value="monthly_sales" />
+            <el-option label="依庫齡" value="max_age" />
+            <el-option label="依總才數" value="total_cubic_feet" />
+            <el-option label="依加總庫存" value="total_qty" />
+          </el-select>
+          <el-select v-model="sortOrder" size="small" style="width: 100px;">
+            <el-option label="降冪 (大到小)" value="desc" />
+            <el-option label="升冪 (小到大)" value="asc" />
           </el-select>
         </div>
       </div>
@@ -219,7 +262,11 @@ export default {
       warehouseType: '15',
       minTurnover: 0,
       minAge: 0,
+      minMonthlySales: null,
+      maxMonthlySales: null,
+      minPallets: 0,
       limitCount: 500,
+      sortBy: 'pallets',
       sortOrder: 'desc',
       selectedTier: 'all',
       currentPage: 1,
@@ -269,8 +316,12 @@ export default {
       const params = new URLSearchParams({
         minTurnover: this.minTurnover,
         minAge: this.minAge,
-        limit: this.limitCount,
+        minMonthlySales: this.minMonthlySales !== null ? this.minMonthlySales : '',
+        maxMonthlySales: this.maxMonthlySales !== null ? this.maxMonthlySales : '',
+        minPallets: this.minPallets,
+        sortBy: this.sortBy,
         sortOrder: this.sortOrder,
+        limit: this.limitCount,
         tier: this.selectedTier,
         page: this.currentPage,
         pageSize: this.pageSize
@@ -279,11 +330,27 @@ export default {
       try {
         const res = await axios.get(`${apiEndpoint}?${params.toString()}`);
         if (res.data?.success) {
+          let rows = res.data.data || [];
+          let exportRows = res.data.exportData || [];
+
+          // 🌟 前端安全輔助過濾（即使後端尚未實作此三項參數，前端也能直接生效）
+          const clientFilter = (item) => {
+            const age = Number(item.max_age) || 0;
+            const sales = Number(item.monthly_sales) || 0;
+            const pallets = Number(item.pallets) || 0;
+
+            if (this.minAge > 0 && age < this.minAge) return false;
+            if (this.minMonthlySales !== null && sales < this.minMonthlySales) return false;
+            if (this.maxMonthlySales !== null && sales > this.maxMonthlySales) return false;
+            if (this.minPallets > 0 && pallets < this.minPallets) return false;
+            return true;
+          };
+
+          this.tableData = rows.filter(clientFilter);
+          this.exportFullData = exportRows.length > 0 ? exportRows.filter(clientFilter) : this.tableData;
           this.summary = res.data.summary || {};
           this.tiers = res.data.tiers || [];
-          this.tableData = res.data.data || [];
-          this.exportFullData = res.data.exportData || [];
-          this.totalRows = res.data.pagination?.totalRows || 0;
+          this.totalRows = this.tableData.length;
         } else {
           ElMessage.error('計算失敗：' + (res.data?.message || '未知錯誤'));
         }
@@ -302,7 +369,7 @@ export default {
       try {
         const wb = XLSX.utils.book_new();
         const aoa = [
-          [`【摘要】${whName} 門檻設定：迴轉(月) ≥ ${this.minTurnover} | 庫齡 ≥ ${this.minAge}天 | 筆數上限 Top ${this.summary.limitCount}`],
+          [`【摘要】${whName} 門檻設定：迴轉(月) ≥ ${this.minTurnover} | 庫齡 ≥ ${this.minAge}天 | 月銷量 ≥ ${this.minMonthlySales ?? '無'} ~ ≤ ${this.maxMonthlySales ?? '無'} | 板數 ≥ ${this.minPallets} | 筆數上限 Top ${this.summary.limitCount}`],
           [`品項數總計：`, this.summary.totalItems, `PCS數總計：`, this.summary.totalPcs, `總才數總計：`, this.summary.totalVolume, `總板數總計：`, this.summary.totalPallets],
           [],
           ['級距門檻', '品項數', 'PCS 數', '才數', '板數']
