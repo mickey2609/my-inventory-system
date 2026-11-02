@@ -133,8 +133,6 @@
           <el-input-number 
             v-model="minPallets" 
             :min="0" 
-            :step="0" 
-            :precision="1" 
             size="mini" 
             controls-position="right"
             style="width: 80px;" 
