@@ -571,7 +571,7 @@
             </div>
           </el-tab-pane>
 
-          <!-- 頁籤 6：🗓 儲位 7 大 KPI 歷史快照管理清單[cite: 12] -->
+          <!-- 頁籤 6：🗓 儲位 7 大 KPI 歷史快照管理清單[cite: 11] -->
           <el-tab-pane label="🗓️ 儲位 7 大 KPI 歷史快照管理清單" name="history_manager">
             <div class="history-page-wrapper">
               <div class="history-page-header">
@@ -621,17 +621,17 @@
                           <template #default="sub"><span class="text-cyan font-bold">{{ sub.row.health_rate }}%</span></template>
                         </el-table-column>
                         
-                        <!-- 🌟 新增：與前一次儲位格差異欄位 -->
-                        <el-table-column label="與前一次儲位格差異" min-width="160" align="center">
+                        <!-- 🌟 簡化欄位名稱為「較前次增減」，寬度設為 110 -->
+                        <el-table-column label="較前次增減" width="110" align="right">
                           <template #default="sub">
-                            <span v-if="sub.row.diff_grid > 0" class="diff-tag text-red font-bold">
-                              +{{ formatNumber(sub.row.diff_grid) }} 格 🔺
+                            <span v-if="sub.row.diff_grid > 0" class="text-red font-bold">
+                              +{{ formatNumber(sub.row.diff_grid) }} 🔺
                             </span>
-                            <span v-else-if="sub.row.diff_grid < 0" class="diff-tag text-green font-bold">
-                              {{ formatNumber(sub.row.diff_grid) }} 格 🔻
+                            <span v-else-if="sub.row.diff_grid < 0" class="text-green font-bold">
+                              {{ formatNumber(sub.row.diff_grid) }} 🔻
                             </span>
                             <span v-else-if="sub.row.diff_grid === 0" class="text-gray">
-                              0 格
+                              0
                             </span>
                             <span v-else class="text-gray">-</span>
                           </template>
@@ -679,7 +679,7 @@
       </div>
     </div>
 
-    <!-- ⚙ 儲位定義 Modal[cite: 12] -->
+    <!-- ⚙ 儲位定義 Modal[cite: 11] -->
     <el-dialog
       title="⚙️ 儲位定義參數與權限設定"
       v-model="showConfigDialog"
@@ -1091,20 +1091,20 @@ export default {
       return d;
     },
 
-    // 🌟 抓取歷史快照並精確計算「與前一次儲位格差異」
+    // 🌟 抓取歷史快照並精確計算「本次使用格數 - 上次使用格數」[cite: 11]
     async fetchHistoryList() {
       try {
         const res = await axios.get('/api/location-stats/history');
         if (res.data && res.data.success) {
           const list = res.data.data || [];
 
-          // 核心邏輯：list 已是按照 record_date DESC (由新到舊) 排序
-          // 當前索引 i 的前一次快照就是索引 i + 1
+          // list 是按照 record_date DESC (由新到舊) 排序
+          // 當前索引 i 是「本次」，索引 i + 1 就是時間上的「上次」
           for (let i = 0; i < list.length; i++) {
             const curItem = list[i];
-            const prevItem = list[i + 1]; // 前一次歷史快照
+            const prevItem = list[i + 1]; // 上一次快照
 
-            // 建立前一次快照中各 loc_type 的使用格數 Map
+            // 建立上次快照的儲位使用格數 Map
             const prevTypeMap = new Map();
             if (prevItem && Array.isArray(prevItem.type_details)) {
               prevItem.type_details.forEach(td => {
@@ -1114,14 +1114,14 @@ export default {
               });
             }
 
-            // 對當前快照的每一項計算 diff_grid
+            // 計算公式：本次 (curUsed) - 上次 (prevUsed)
             if (Array.isArray(curItem.type_details)) {
               curItem.type_details.forEach(td => {
                 const curUsed = Number(td.used_grid) || 0;
                 if (prevItem && prevTypeMap.has(td.loc_type)) {
                   td.diff_grid = curUsed - prevTypeMap.get(td.loc_type);
                 } else {
-                  td.diff_grid = null; // 首次快照或無前次資料
+                  td.diff_grid = null; // 無前次快照對比
                 }
               });
             }
@@ -1511,13 +1511,6 @@ export default {
 .text-red { color: #f87171 !important; }
 .text-gray { color: #94a3b8 !important; }
 .font-bold { font-weight: bold; }
-
-.diff-tag {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.05);
-}
 
 .stat-card.highlight-health {
   background: rgba(34, 211, 238, 0.1);
