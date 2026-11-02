@@ -605,9 +605,28 @@
                         <el-table-column label="使用儲格" width="110" align="right">
                           <template #default="sub"><span class="text-green">{{ formatNumber(sub.row.used_grid) }}</span></template>
                         </el-table-column>
+                        
+                        <!-- 剩餘儲格 -->
                         <el-table-column label="剩餘儲格" width="110" align="right">
                           <template #default="sub"><span class="text-orange">{{ formatNumber(sub.row.rem_grid) }}</span></template>
                         </el-table-column>
+                        
+                        <!-- 🌟 較前次增減：移至剩餘儲格右邊，以剩餘空格（本次剩餘 - 上次剩餘）計算 -->
+                        <el-table-column label="較前次增減" width="110" align="right">
+                          <template #default="sub">
+                            <span v-if="sub.row.diff_grid > 0" class="text-green font-bold">
+                              +{{ formatNumber(sub.row.diff_grid) }} 🔺
+                            </span>
+                            <span v-else-if="sub.row.diff_grid < 0" class="text-red font-bold">
+                              {{ formatNumber(sub.row.diff_grid) }} 🔻
+                            </span>
+                            <span v-else-if="sub.row.diff_grid === 0" class="text-gray">
+                              0
+                            </span>
+                            <span v-else class="text-gray">-</span>
+                          </template>
+                        </el-table-column>
+
                         <el-table-column label="規劃才數" width="130" align="right">
                           <template #default="sub">{{ formatNumber(sub.row.plan_vol) }}</template>
                         </el-table-column>
@@ -619,22 +638,6 @@
                         </el-table-column>
                         <el-table-column prop="health_rate" label="類型健康度" width="110" align="right">
                           <template #default="sub"><span class="text-cyan font-bold">{{ sub.row.health_rate }}%</span></template>
-                        </el-table-column>
-                        
-                        <!-- 🌟 簡化欄位名稱為「較前次增減」，寬度設為 110 -->
-                        <el-table-column label="較前次增減" width="110" align="right">
-                          <template #default="sub">
-                            <span v-if="sub.row.diff_grid > 0" class="text-red font-bold">
-                              +{{ formatNumber(sub.row.diff_grid) }} 🔺
-                            </span>
-                            <span v-else-if="sub.row.diff_grid < 0" class="text-green font-bold">
-                              {{ formatNumber(sub.row.diff_grid) }} 🔻
-                            </span>
-                            <span v-else-if="sub.row.diff_grid === 0" class="text-gray">
-                              0
-                            </span>
-                            <span v-else class="text-gray">-</span>
-                          </template>
                         </el-table-column>
                       </el-table>
                     </div>
@@ -1091,37 +1094,36 @@ export default {
       return d;
     },
 
-    // 🌟 抓取歷史快照並精確計算「本次使用格數 - 上次使用格數」[cite: 11]
+    // 🌟 核心計算：以「剩餘儲格」計算本次 - 上次 (空位變少即負數)
     async fetchHistoryList() {
       try {
         const res = await axios.get('/api/location-stats/history');
         if (res.data && res.data.success) {
           const list = res.data.data || [];
 
-          // list 是按照 record_date DESC (由新到舊) 排序
-          // 當前索引 i 是「本次」，索引 i + 1 就是時間上的「上次」
+          // list 由新到舊排序：索引 i 是「本次」，索引 i + 1 是「上次」
           for (let i = 0; i < list.length; i++) {
             const curItem = list[i];
             const prevItem = list[i + 1]; // 上一次快照
 
-            // 建立上次快照的儲位使用格數 Map
-            const prevTypeMap = new Map();
+            // 建立上次快照中各儲位類型的「剩餘儲格」Map
+            const prevRemMap = new Map();
             if (prevItem && Array.isArray(prevItem.type_details)) {
               prevItem.type_details.forEach(td => {
                 if (td.loc_type) {
-                  prevTypeMap.set(td.loc_type, Number(td.used_grid) || 0);
+                  prevRemMap.set(td.loc_type, Number(td.rem_grid) || 0);
                 }
               });
             }
 
-            // 計算公式：本次 (curUsed) - 上次 (prevUsed)
+            // 計算公式：本次剩餘 (curRem) - 上次剩餘 (prevRem)
             if (Array.isArray(curItem.type_details)) {
               curItem.type_details.forEach(td => {
-                const curUsed = Number(td.used_grid) || 0;
-                if (prevItem && prevTypeMap.has(td.loc_type)) {
-                  td.diff_grid = curUsed - prevTypeMap.get(td.loc_type);
+                const curRem = Number(td.rem_grid) || 0;
+                if (prevItem && prevRemMap.has(td.loc_type)) {
+                  td.diff_grid = curRem - prevRemMap.get(td.loc_type);
                 } else {
-                  td.diff_grid = null; // 無前次快照對比
+                  td.diff_grid = null; // 無前次資料
                 }
               });
             }
