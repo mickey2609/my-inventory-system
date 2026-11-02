@@ -5,17 +5,18 @@
       <div class="title-group">
         <span class="page-title">📈 迴轉率分析清單</span>
         
-        <!-- 倉庫切換頁籤 -->
+        <!-- 🌟 圖1：加入雙庫模式 -->
         <el-radio-group v-model="warehouseType" size="small" @change="handleFilterChange">
           <el-radio-button label="15">📦 15庫 (自動化倉)</el-radio-button>
           <el-radio-button label="80">🔍 80庫 (人工倉)</el-radio-button>
+          <el-radio-button label="all">🔄 雙庫合併 (15+80)</el-radio-button>
         </el-radio-group>
 
         <span class="report-time">報表產出時間：{{ reportTime }}</span>
       </div>
 
       <div class="controls-group">
-        <!-- ⚙️ 參數設定按鈕 (僅系統管理員可見) -->
+        <!-- ⚙️ 筆數上限與進階設定按鈕 -->
         <el-button 
           v-if="isSysAdmin"
           type="warning" 
@@ -23,19 +24,17 @@
           icon="el-icon-setting" 
           @click="showParamDialog = true"
         >
-          ⚙️ 參數設定
+          ⚙️ 進階參數 (Top {{ limitCount }})
         </el-button>
 
-        <!-- 🔄 重新計算按鈕 (僅系統管理員可見) -->
         <el-button 
-          v-if="isSysAdmin"
           type="primary" 
           size="small" 
-          icon="el-icon-refresh" 
+          icon="el-icon-search" 
           :loading="loading"
-          @click="fetchTurnoverData"
+          @click="handleFilterChange"
         >
-          重新計算
+          查詢
         </el-button>
 
         <el-button 
@@ -50,29 +49,113 @@
       </div>
     </div>
 
-    <!-- 1. 年限級距切換頁籤 (Tabs) -->
-    <div class="tier-tabs-bar">
-      <el-tabs v-model="selectedTier" type="card" @tab-change="handleFilterChange">
-        <el-tab-pane label="🌐 全部級距" name="all" />
-        <el-tab-pane label="1 年以下" name="y_under_1" />
-        <el-tab-pane label="1 年 ~ 5 年" name="y_1_5" />
-        <el-tab-pane label="5 年 ~ 10 年" name="y_5_10" />
-        <el-tab-pane label="10 年以上" name="y_over_10" />
-        <el-tab-pane label="🚨 滯銷 99999" name="y99999" />
-      </el-tabs>
+    <!-- 🌟 圖3 + 圖2：級距勾選列 + 庫齡、迴轉、銷量、板數外顯控制列 -->
+    <div class="quick-filter-bar">
+      <!-- 左側：級距改為勾選 (支援全選與多選) -->
+      <div class="tier-checkbox-group">
+        <span class="filter-lbl">級距篩選：</span>
+        <el-checkbox 
+          v-model="checkAllTiers" 
+          :indeterminate="isIndeterminate" 
+          @change="handleCheckAllChange"
+          class="dark-chk"
+        >
+          🌐 全部級距
+        </el-checkbox>
+        <el-checkbox-group v-model="selectedTiers" @change="handleTierGroupChange" class="tier-chk-inner">
+          <el-checkbox label="y_under_1" class="dark-chk">1 年以下</el-checkbox>
+          <el-checkbox label="y_1_5" class="dark-chk">1 年 ~ 5 年</el-checkbox>
+          <el-checkbox label="y_5_10" class="dark-chk">5 年 ~ 10 年</el-checkbox>
+          <el-checkbox label="y_over_10" class="dark-chk">10 年以上</el-checkbox>
+          <el-checkbox label="y99999" class="dark-chk text-red">🚨 滯銷 99999</el-checkbox>
+        </el-checkbox-group>
+      </div>
+
+      <!-- 右側：將圖2的庫齡、迴轉、銷量、板數直接擺上來 -->
+      <div class="inputs-inline-group">
+        <!-- 庫齡門檻 -->
+        <div class="inline-item">
+          <span class="inline-lbl">庫齡 ≥</span>
+          <el-input-number 
+            v-model="minAge" 
+            :min="0" 
+            :max="99999" 
+            size="mini" 
+            controls-position="right"
+            style="width: 85px;" 
+            @change="handleFilterChange"
+          />
+          <span class="unit-lbl">天</span>
+        </div>
+
+        <!-- 迴轉月門檻 -->
+        <div class="inline-item">
+          <span class="inline-lbl">迴轉 ≥</span>
+          <el-input-number 
+            v-model="minTurnover" 
+            :min="0" 
+            :max="99999" 
+            size="mini" 
+            controls-position="right"
+            style="width: 85px;" 
+            @change="handleFilterChange"
+          />
+          <span class="unit-lbl">月</span>
+        </div>
+
+        <!-- 月銷量範圍 -->
+        <div class="inline-item">
+          <span class="inline-lbl">月銷</span>
+          <el-input-number 
+            v-model="minMonthlySales" 
+            :min="0" 
+            placeholder="下限" 
+            size="mini" 
+            controls-position="right"
+            style="width: 75px;" 
+            @change="handleFilterChange"
+          />
+          <span class="split-lbl">~</span>
+          <el-input-number 
+            v-model="maxMonthlySales" 
+            :min="0" 
+            placeholder="上限" 
+            size="mini" 
+            controls-position="right"
+            style="width: 75px;" 
+            @change="handleFilterChange"
+          />
+        </div>
+
+        <!-- 板數門檻 -->
+        <div class="inline-item">
+          <span class="inline-lbl">板數 ≥</span>
+          <el-input-number 
+            v-model="minPallets" 
+            :min="0" 
+            :step="0.5" 
+            :precision="1" 
+            size="mini" 
+            controls-position="right"
+            style="width: 80px;" 
+            @change="handleFilterChange"
+          />
+        </div>
+      </div>
     </div>
 
     <!-- 2. 總計摘要與級距統計面板 -->
     <div class="summary-overview-card" v-loading="loading">
       <div class="summary-header">
-        【摘要】{{ warehouseType === '15' ? '15庫 (自動化倉)' : '80庫 (人工倉)' }} 門檻：迴轉(月) ≥ {{ summary.minTurnover }} | 庫齡 ≥ {{ summary.minAge || 0 }} 天 | 
+        【摘要】{{ warehouseLabel }} 門檻：迴轉(月) ≥ {{ minTurnover }} | 庫齡 ≥ {{ minAge }} 天 | 
         <span v-if="minMonthlySales !== null || maxMonthlySales !== null">
           月銷量：{{ minMonthlySales !== null ? '≥ ' + minMonthlySales : '' }} {{ (minMonthlySales !== null && maxMonthlySales !== null) ? '且' : '' }} {{ maxMonthlySales !== null ? '≤ ' + maxMonthlySales : '' }} | 
         </span>
         <span v-if="minPallets > 0">板數 ≥ {{ minPallets }} | </span>
-        筆數 Top {{ summary.limitCount }}
+        筆數 Top {{ summary.limitCount || limitCount }}
         <span v-if="warehouseType === '15'">(排除 80U/80Z 儲位，同 ID 去重)</span>
-        <span v-else>(全庫存統計，同 ID 去重)</span>
+        <span v-else-if="warehouseType === '80'">(人工倉統計，同 ID 去重)</span>
+        <span v-else>(雙庫合併加總，同 ID 去重)</span>
       </div>
 
       <div class="summary-totals-grid">
@@ -161,57 +244,14 @@
       </div>
     </div>
 
-    <!-- 4. ⚙️ 參數設定對話盒 (新增月銷量、板數、庫齡篩選條件) -->
+    <!-- 4. ⚙️ 進階參數設定對話盒 (上限筆數與排序) -->
     <el-dialog 
       v-model="showParamDialog" 
-      title="⚙️ 迴轉率、銷量、板數與庫齡參數設定" 
-      width="530px"
+      title="⚙️ 迴轉率進階參數設定" 
+      width="460px"
       class="custom-turnover-dialog"
     >
       <div class="dialog-body">
-        <div class="param-row">
-          <span class="param-label">迴轉(月)門檻：</span>
-          <el-input-number v-model="minTurnover" :min="0" :max="99999" size="small" style="width: 180px;" />
-          <span class="param-tip">(≥ 該月數)</span>
-        </div>
-
-        <!-- 🌟 庫齡門檻設定 -->
-        <div class="param-row">
-          <span class="param-label">最長庫齡門檻：</span>
-          <el-input-number v-model="minAge" :min="0" :max="99999" size="small" style="width: 180px;" />
-          <span class="param-tip">(≥ 該天數)</span>
-        </div>
-
-        <!-- 🌟 月銷量區間門檻設定 -->
-        <div class="param-row">
-          <span class="param-label">月銷量範圍：</span>
-          <el-input-number 
-            v-model="minMonthlySales" 
-            :min="0" 
-            :max="999999" 
-            placeholder="下限" 
-            size="small" 
-            style="width: 110px;" 
-          />
-          <span style="color: #94a3b8;">~</span>
-          <el-input-number 
-            v-model="maxMonthlySales" 
-            :min="0" 
-            :max="999999" 
-            placeholder="上限(空=無)" 
-            size="small" 
-            style="width: 120px;" 
-          />
-          <span class="param-tip">(可篩滯銷 ≤ 0)</span>
-        </div>
-
-        <!-- 🌟 板數門檻設定 -->
-        <div class="param-row">
-          <span class="param-label">板數門檻：</span>
-          <el-input-number v-model="minPallets" :min="0" :step="0.5" :precision="1" size="small" style="width: 180px;" />
-          <span class="param-tip">(≥ 該板數)</span>
-        </div>
-
         <div class="param-row">
           <span class="param-label">上限筆數：</span>
           <el-input-number v-model="limitCount" :min="1" :max="10000" size="small" style="width: 180px;" />
@@ -220,7 +260,7 @@
 
         <div class="param-row">
           <span class="param-label">資料排序欄位：</span>
-          <el-select v-model="sortBy" size="small" style="width: 130px;">
+          <el-select v-model="sortBy" size="small" style="width: 120px;">
             <el-option label="依板數" value="pallets" />
             <el-option label="依月銷量" value="monthly_sales" />
             <el-option label="依庫齡" value="max_age" />
@@ -249,6 +289,8 @@ import axios from 'axios'
 import * as XLSX from 'xlsx'
 import { ElMessage } from 'element-plus'
 
+const ALL_TIER_KEYS = ['y_under_1', 'y_1_5', 'y_5_10', 'y_over_10', 'y99999'];
+
 export default {
   name: 'TurnoverList',
   props: {
@@ -259,7 +301,7 @@ export default {
       loading: false,
       exporting: false,
       showParamDialog: false,
-      warehouseType: '15',
+      warehouseType: '15', // 15, 80, all
       minTurnover: 0,
       minAge: 0,
       minMonthlySales: null,
@@ -268,7 +310,12 @@ export default {
       limitCount: 500,
       sortBy: 'pallets',
       sortOrder: 'desc',
-      selectedTier: 'all',
+      
+      // 🌟 勾選模式狀態
+      checkAllTiers: true,
+      isIndeterminate: false,
+      selectedTiers: [...ALL_TIER_KEYS],
+
       currentPage: 1,
       pageSize: 500,
       totalRows: 0,
@@ -277,6 +324,13 @@ export default {
       tiers: [],
       tableData: [],
       exportFullData: []
+    }
+  },
+  computed: {
+    warehouseLabel() {
+      if (this.warehouseType === '15') return '15庫 (自動化倉)';
+      if (this.warehouseType === '80') return '80庫 (人工倉)';
+      return '雙庫合併 (15+80)';
     }
   },
   mounted() {
@@ -294,82 +348,218 @@ export default {
       if (isNaN(num)) return val;
       return num.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
     },
+
+    // 🌟 全選級距變更
+    handleCheckAllChange(val) {
+      this.selectedTiers = val ? [...ALL_TIER_KEYS] : [];
+      this.isIndeterminate = false;
+      this.handleFilterChange();
+    },
+
+    // 🌟 單選級距勾選變更
+    handleTierGroupChange(value) {
+      const checkedCount = value.length;
+      this.checkAllTiers = checkedCount === ALL_TIER_KEYS.length;
+      this.isIndeterminate = checkedCount > 0 && checkedCount < ALL_TIER_KEYS.length;
+      this.handleFilterChange();
+    },
+
     handleFilterChange() {
       this.currentPage = 1;
-      setTimeout(() => {
+      this.$nextTick(() => {
         this.fetchTurnoverData();
-      }, 50);
+      });
     },
+
     applyParamSettings() {
       this.showParamDialog = false;
       this.handleFilterChange();
     },
+
     handlePageChange(page) {
       this.currentPage = page;
       this.fetchTurnoverData();
     },
+
+    // 判定單筆資料所屬級距
+    getItemTierKey(item) {
+      const t = Number(item.turnover_month);
+      if (t === 99999) return 'y99999';
+      if (t <= 12) return 'y_under_1';
+      if (t > 12 && t <= 60) return 'y_1_5';
+      if (t > 60 && t <= 120) return 'y_5_10';
+      if (t > 120) return 'y_over_10';
+      return 'y_under_1';
+    },
+
     async fetchTurnoverData() {
       this.loading = true;
       this.updateReportTime();
-      const apiEndpoint = this.warehouseType === '80' ? '/api/turnover80/search' : '/api/turnover15/search';
-      
-      const params = new URLSearchParams({
-        minTurnover: this.minTurnover,
-        minAge: this.minAge,
-        minMonthlySales: this.minMonthlySales !== null ? this.minMonthlySales : '',
-        maxMonthlySales: this.maxMonthlySales !== null ? this.maxMonthlySales : '',
-        minPallets: this.minPallets,
-        sortBy: this.sortBy,
-        sortOrder: this.sortOrder,
-        limit: this.limitCount,
-        tier: this.selectedTier,
-        page: this.currentPage,
-        pageSize: this.pageSize
-      });
 
       try {
-        const res = await axios.get(`${apiEndpoint}?${params.toString()}`);
-        if (res.data?.success) {
-          let rows = res.data.data || [];
-          let exportRows = res.data.exportData || [];
+        let rawList = [];
+        let exportList = [];
 
-          // 🌟 前端安全輔助過濾（即使後端尚未實作此三項參數，前端也能直接生效）
-          const clientFilter = (item) => {
-            const age = Number(item.max_age) || 0;
-            const sales = Number(item.monthly_sales) || 0;
-            const pallets = Number(item.pallets) || 0;
+        // 🌟 判斷是否為「雙庫合併」模式
+        if (this.warehouseType === 'all') {
+          const p15 = new URLSearchParams({
+            minTurnover: this.minTurnover,
+            minAge: this.minAge,
+            limit: this.limitCount,
+            sortOrder: this.sortOrder
+          });
+          const p80 = new URLSearchParams({
+            minTurnover: this.minTurnover,
+            minAge: this.minAge,
+            limit: this.limitCount,
+            sortOrder: this.sortOrder
+          });
 
-            if (this.minAge > 0 && age < this.minAge) return false;
-            if (this.minMonthlySales !== null && sales < this.minMonthlySales) return false;
-            if (this.maxMonthlySales !== null && sales > this.maxMonthlySales) return false;
-            if (this.minPallets > 0 && pallets < this.minPallets) return false;
-            return true;
-          };
+          // 同時請求 15 庫與 80 庫
+          const [res15, res80] = await Promise.all([
+            axios.get(`/api/turnover15/search?${p15.toString()}`).catch(() => ({ data: { success: false } })),
+            axios.get(`/api/turnover80/search?${p80.toString()}`).catch(() => ({ data: { success: false } }))
+          ]);
 
-          this.tableData = rows.filter(clientFilter);
-          this.exportFullData = exportRows.length > 0 ? exportRows.filter(clientFilter) : this.tableData;
-          this.summary = res.data.summary || {};
-          this.tiers = res.data.tiers || [];
-          this.totalRows = this.tableData.length;
+          const list15 = (res15.data?.success && res15.data.data) ? res15.data.data : [];
+          const list80 = (res80.data?.success && res80.data.data) ? res80.data.data : [];
+
+          // 雙庫合併去重加總 (依 item_id)
+          const mergedMap = new Map();
+          [...list15, ...list80].forEach(item => {
+            if (!mergedMap.has(item.item_id)) {
+              mergedMap.set(item.item_id, { ...item });
+            } else {
+              const cur = mergedMap.get(item.item_id);
+              cur.total_qty = (Number(cur.total_qty) || 0) + (Number(item.total_qty) || 0);
+              cur.total_cubic_feet = parseFloat(((Number(cur.total_cubic_feet) || 0) + (Number(item.total_cubic_feet) || 0)).toFixed(2));
+              cur.pallets = parseFloat(((Number(cur.pallets) || 0) + (Number(item.pallets) || 0)).toFixed(2));
+              cur.max_age = Math.max(Number(cur.max_age) || 0, Number(item.max_age) || 0);
+              cur.monthly_sales = Math.max(Number(cur.monthly_sales) || 0, Number(item.monthly_sales) || 0);
+            }
+          });
+
+          rawList = Array.from(mergedMap.values());
+          exportList = rawList;
         } else {
-          ElMessage.error('計算失敗：' + (res.data?.message || '未知錯誤'));
+          // 單庫查詢模式
+          const apiEndpoint = this.warehouseType === '80' ? '/api/turnover80/search' : '/api/turnover15/search';
+          const params = new URLSearchParams({
+            minTurnover: this.minTurnover,
+            minAge: this.minAge,
+            limit: this.limitCount,
+            sortOrder: this.sortOrder,
+            tier: 'all',
+            page: 1,
+            pageSize: 10000
+          });
+
+          const res = await axios.get(`${apiEndpoint}?${params.toString()}`);
+          if (res.data?.success) {
+            rawList = res.data.data || [];
+            exportList = res.data.exportData || rawList;
+          }
         }
+
+        // 🌟 本地即時過濾：庫齡、月銷、板數、級距勾選
+        const filterFn = (item) => {
+          const age = Number(item.max_age) || 0;
+          const sales = Number(item.monthly_sales) || 0;
+          const pallets = Number(item.pallets) || 0;
+
+          if (this.minAge > 0 && age < this.minAge) return false;
+          if (this.minTurnover > 0 && Number(item.turnover_month) < this.minTurnover) return false;
+          if (this.minMonthlySales !== null && sales < this.minMonthlySales) return false;
+          if (this.maxMonthlySales !== null && sales > this.maxMonthlySales) return false;
+          if (this.minPallets > 0 && pallets < this.minPallets) return false;
+
+          // 級距勾選判定
+          const tKey = this.getItemTierKey(item);
+          if (!this.selectedTiers.includes(tKey)) return false;
+
+          return true;
+        };
+
+        const filtered = rawList.filter(filterFn);
+
+        // 依選定欄位排序
+        filtered.sort((a, b) => {
+          const valA = Number(a[this.sortBy]) || 0;
+          const valB = Number(b[this.sortBy]) || 0;
+          return this.sortOrder === 'asc' ? valA - valB : valB - valA;
+        });
+
+        // 限制 Top N
+        const limitedRows = filtered.slice(0, this.limitCount);
+        this.tableData = limitedRows;
+        this.exportFullData = exportList.filter(filterFn).slice(0, this.limitCount);
+        this.totalRows = limitedRows.length;
+
+        // 動態重算 4 大 KPI 總計與各級距統計
+        this.recalculateSummaryAndTiers(limitedRows);
+
       } catch (e) {
-        ElMessage.error('連線失敗：' + e.message);
+        ElMessage.error('資料載入失敗：' + e.message);
       } finally {
         this.loading = false;
       }
     },
+
+    // 重新統計上方卡片與級距表
+    recalculateSummaryAndTiers(rows) {
+      let totalPcs = 0;
+      let totalVol = 0;
+      let totalPallets = 0;
+
+      const tierMap = {
+        y_under_1: { label: '1 年以下 (<=12個月)', items: 0, pcs: 0, vol: 0, pallets: 0, key: 'y_under_1' },
+        y_1_5: { label: '1 年 ~ 5 年 (13~60個月)', items: 0, pcs: 0, vol: 0, pallets: 0, key: 'y_1_5' },
+        y_5_10: { label: '5 年 ~ 10 年 (61~120個月)', items: 0, pcs: 0, vol: 0, pallets: 0, key: 'y_5_10' },
+        y_over_10: { label: '10 年以上 (>120個月)', items: 0, pcs: 0, vol: 0, pallets: 0, key: 'y_over_10' },
+        y99999: { label: '🚨 99999 滯銷品', items: 0, pcs: 0, vol: 0, pallets: 0, key: 'y99999' }
+      };
+
+      rows.forEach(r => {
+        const pcs = Number(r.total_qty) || 0;
+        const vol = Number(r.total_cubic_feet) || 0;
+        const pal = Number(r.pallets) || 0;
+
+        totalPcs += pcs;
+        totalVol += vol;
+        totalPallets += pal;
+
+        const k = this.getItemTierKey(r);
+        if (tierMap[k]) {
+          tierMap[k].items += 1;
+          tierMap[k].pcs += pcs;
+          tierMap[k].vol += vol;
+          tierMap[k].pallets += pal;
+        }
+      });
+
+      this.summary = {
+        minTurnover: this.minTurnover,
+        minAge: this.minAge,
+        limitCount: this.limitCount,
+        totalItems: rows.length,
+        totalPcs,
+        totalVolume: parseFloat(totalVol.toFixed(2)),
+        totalPallets: parseFloat(totalPallets.toFixed(2))
+      };
+
+      this.tiers = Object.values(tierMap);
+    },
+
     async exportExcel() {
       const exportList = this.exportFullData.length > 0 ? this.exportFullData : this.tableData;
       if (exportList.length === 0) return ElMessage.warning('查無資料可供匯出');
       
       this.exporting = true;
-      const whName = this.warehouseType === '15' ? '15庫_自動化倉' : '80庫_人工倉';
+      const whName = this.warehouseLabel.replace(/\s+/g, '_');
       try {
         const wb = XLSX.utils.book_new();
         const aoa = [
-          [`【摘要】${whName} 門檻設定：迴轉(月) ≥ ${this.minTurnover} | 庫齡 ≥ ${this.minAge}天 | 月銷量 ≥ ${this.minMonthlySales ?? '無'} ~ ≤ ${this.maxMonthlySales ?? '無'} | 板數 ≥ ${this.minPallets} | 筆數上限 Top ${this.summary.limitCount}`],
+          [`【摘要】${whName} 門檻設定：迴轉(月) ≥ ${this.minTurnover} | 庫齡 ≥ ${this.minAge}天 | 月銷量：${this.minMonthlySales ?? '無'} ~ ${this.maxMonthlySales ?? '無'} | 板數 ≥ ${this.minPallets} | 筆數上限 Top ${this.limitCount}`],
           [`品項數總計：`, this.summary.totalItems, `PCS數總計：`, this.summary.totalPcs, `總才數總計：`, this.summary.totalVolume, `總板數總計：`, this.summary.totalPallets],
           [],
           ['級距門檻', '品項數', 'PCS 數', '才數', '板數']
@@ -405,12 +595,12 @@ export default {
 
 <style scoped>
 .turnover-page {
-  padding: 16px;
+  padding: 12px 16px;
   height: calc(100vh - 52px);
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   overflow: hidden;
 }
 
@@ -421,17 +611,18 @@ export default {
   background: #1e293b;
   border: 1px solid #334155;
   border-radius: 8px;
-  padding: 10px 16px;
+  padding: 8px 16px;
+  flex-shrink: 0;
 }
 
 .title-group {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 14px;
 }
 
 .page-title {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: bold;
   color: #38bdf8;
 }
@@ -444,68 +635,90 @@ export default {
 .controls-group {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
-.dialog-body {
+/* 🌟 圖3 + 圖2 外顯控制列樣式 */
+.quick-filter-bar {
   display: flex;
-  flex-direction: column;
-  gap: 16px;
-  padding: 10px 0;
+  justify-content: space-between;
+  align-items: center;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 6px 14px;
+  flex-shrink: 0;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
-.param-row {
+.tier-checkbox-group {
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
-.param-label {
-  width: 130px;
-  text-align: right;
-  font-size: 13px;
-  color: #ffffff !important;
-  font-weight: bold;
-}
-
-.param-tip {
+.filter-lbl {
   font-size: 12px;
-  color: #93c5fd !important;
-  font-weight: 500;
-}
-
-.tier-tabs-bar {
-  background: #1e293b;
-  border-radius: 6px;
-  padding: 4px 8px 0 8px;
-}
-
-:deep(.el-tabs__header) {
-  margin: 0 !important;
-  border-bottom: none !important;
-}
-
-:deep(.el-tabs__item) {
-  color: #94a3b8 !important;
-  border-radius: 6px 6px 0 0 !important;
-  border: 1px solid transparent !important;
-}
-
-:deep(.el-tabs__item.is-active) {
-  color: #38bdf8 !important;
-  background: #0f172a !important;
-  border-color: #334155 #334155 #0f172a #334155 !important;
   font-weight: bold;
+  color: #38bdf8;
+}
+
+.tier-chk-inner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+:deep(.dark-chk .el-checkbox__label) {
+  color: #cbd5e1 !important;
+  font-size: 12px;
+}
+:deep(.dark-chk.is-checked .el-checkbox__label) {
+  color: #38bdf8 !important;
+  font-weight: bold;
+}
+:deep(.dark-chk.text-red.is-checked .el-checkbox__label) {
+  color: #f43f5e !important;
+}
+
+.inputs-inline-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.inline-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #1e293b;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid #334155;
+}
+
+.inline-lbl {
+  font-size: 12px;
+  color: #94a3b8;
+  font-weight: bold;
+  white-space: nowrap;
+}
+
+.unit-lbl, .split-lbl {
+  font-size: 11px;
+  color: #64748b;
 }
 
 .summary-overview-card {
   background: #1e293b;
   border: 1px solid #334155;
   border-radius: 8px;
-  padding: 10px 16px;
+  padding: 8px 14px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
 .summary-header {
@@ -513,27 +726,27 @@ export default {
   color: #c7d2fe;
   padding: 4px 10px;
   border-radius: 4px;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: bold;
 }
 
 .summary-totals-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 10px;
+  gap: 8px;
 }
 
 .total-box {
   background: #0f172a;
   border: 1px solid #334155;
   border-radius: 6px;
-  padding: 6px 12px;
+  padding: 4px 10px;
   display: flex;
   flex-direction: column;
 }
 
 .total-box .lbl { font-size: 11px; color: #94a3b8; }
-.total-box .val { font-size: 16px; font-weight: bold; margin-top: 2px; }
+.total-box .val { font-size: 15px; font-weight: bold; margin-top: 1px; }
 
 .tier-table-wrapper {
   overflow-x: auto;
@@ -548,7 +761,7 @@ export default {
 
 .tier-table th, .tier-table td {
   border: 1px solid #334155;
-  padding: 5px 8px;
+  padding: 4px 8px;
 }
 
 .tier-table th {
@@ -568,6 +781,7 @@ export default {
 .text-green { color: #4ade80; }
 .text-orange { color: #fbbf24; }
 .text-cyan { color: #22d3ee; }
+.text-red { color: #f43f5e !important; }
 .font-bold { font-weight: bold; }
 
 .tag-stagnant {
@@ -584,16 +798,42 @@ export default {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .pagination-footer {
   display: flex;
   justify-content: flex-end;
   background: #1e293b;
-  padding: 6px 12px;
+  padding: 4px 10px;
   border-radius: 6px;
   border: 1px solid #334155;
+}
+
+.dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 10px 0;
+}
+
+.param-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.param-label {
+  width: 120px;
+  text-align: right;
+  font-size: 13px;
+  color: #ffffff !important;
+  font-weight: bold;
+}
+
+.param-tip {
+  font-size: 12px;
+  color: #93c5fd !important;
 }
 
 .dialog-cancel-btn {
@@ -601,68 +841,40 @@ export default {
   border-color: #475569 !important;
   color: #f1f5f9 !important;
 }
-.dialog-cancel-btn:hover {
-  background-color: #475569 !important;
-  color: #ffffff !important;
-}
 </style>
 
-<!-- 🌟 全域注入樣式：強制蓋過白底問題 -->
+<!-- 🌟 全域輸入格樣式相容 -->
 <style>
 .custom-turnover-dialog {
   background-color: #1e293b !important;
   border: 1px solid #334155 !important;
   border-radius: 10px !important;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.7) !important;
 }
 
 .custom-turnover-dialog .el-dialog__header {
   background-color: #0f172a !important;
   border-bottom: 1px solid #334155 !important;
-  padding: 16px 20px !important;
 }
 
 .custom-turnover-dialog .el-dialog__title {
   color: #38bdf8 !important;
   font-weight: bold !important;
-  font-size: 16px !important;
-}
-
-.custom-turnover-dialog .el-dialog__headerbtn .el-dialog__close {
-  color: #94a3b8 !important;
 }
 
 .custom-turnover-dialog .el-dialog__body {
   background-color: #1e293b !important;
   color: #ffffff !important;
-  padding: 24px 30px !important;
 }
 
 .custom-turnover-dialog .el-dialog__footer {
   background-color: #0f172a !important;
   border-top: 1px solid #334155 !important;
-  padding: 12px 20px !important;
 }
 
-/* 🌟 格子部分（輸入框、計數器、下拉選單）：維持純白底深黑字 */
-.custom-turnover-dialog .el-input__inner,
-.custom-turnover-dialog .el-input-number .el-input__inner {
+.quick-filter-bar .el-input__inner {
   background-color: #ffffff !important;
   color: #000000 !important;
   font-weight: bold !important;
-  border: 1px solid #cbd5e1 !important;
-}
-
-/* 計數器 (+ / -) 按鈕：保持清晰灰底深色字 */
-.custom-turnover-dialog .el-input-number__decrease,
-.custom-turnover-dialog .el-input-number__increase {
-  background-color: #e2e8f0 !important;
-  color: #0f172a !important;
-  border-color: #cbd5e1 !important;
-}
-.custom-turnover-dialog .el-input-number__decrease:hover,
-.custom-turnover-dialog .el-input-number__increase:hover {
-  background-color: #cbd5e1 !important;
-  color: #2563eb !important;
+  padding: 0 4px !important;
 }
 </style>
