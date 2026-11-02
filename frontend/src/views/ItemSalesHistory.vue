@@ -10,7 +10,7 @@
           placeholder="搜尋商品編號 / 商品名稱 / 供應商"
           size="small"
           clearable
-          style="width: 280px;"
+          style="width: 260px;"
           @keyup.enter="handleSearch"
           @clear="handleSearch"
         />
@@ -20,10 +20,17 @@
           placeholder="篩選 PM"
           size="small"
           clearable
-          style="width: 140px;"
+          style="width: 120px;"
           @keyup.enter="handleSearch"
           @clear="handleSearch"
         />
+
+        <el-select v-model="tagFilter" placeholder="商品屬性" size="small" clearable style="width: 120px;" @change="handleSearch">
+          <el-option label="📦 主商品" value="主商品" />
+          <el-option label="🎁 贈品" value="贈品" />
+          <el-option label="🏷️ 樣品" value="樣品" />
+          <el-option label="📦 耗材" value="耗材" />
+        </el-select>
 
         <el-checkbox v-model="filterZeroSales" label="🚨 90日零銷量" @change="handleSearch" />
         <el-checkbox v-model="filterOutOfStock" label="📦 庫存售罄 (總庫存=0)" @change="handleSearch" />
@@ -54,9 +61,43 @@
         height="calc(100vh - 180px)"
         class="dark-table"
       >
-        <el-table-column prop="item_id" label="商品編號" width="150" align="center" sortable>
+        <!-- 商品編號 (點選開啟快速標記) -->
+        <el-table-column prop="item_id" label="商品編號" width="165" align="center" sortable fixed="left">
           <template #default="scope">
-            <span class="font-bold text-blue">{{ scope.row.item_id }}</span>
+            <span class="font-bold text-blue clickable-link" @click="openQuickTagModal(scope.row)">
+              {{ scope.row.item_id }} 🏷️
+            </span>
+          </template>
+        </el-table-column>
+
+        <!-- 🌟 商品屬性 (下拉即時切換) -->
+        <el-table-column prop="item_tag" label="商品屬性" width="125" align="center" sortable>
+          <template #default="scope">
+            <el-select 
+              v-model="scope.row.item_tag" 
+              size="mini" 
+              class="tag-select"
+              :class="getTagClass(scope.row.item_tag)"
+              @change="saveItemAttr(scope.row)"
+            >
+              <el-option label="📦 主商品" value="主商品" />
+              <el-option label="🎁 贈品" value="贈品" />
+              <el-option label="🏷️ 樣品" value="樣品" />
+              <el-option label="📦 耗材" value="耗材" />
+            </el-select>
+          </template>
+        </el-table-column>
+
+        <!-- 🌟 自訂備註 (失焦或按 Enter 自動儲存) -->
+        <el-table-column prop="remark" label="自訂備註" min-width="170">
+          <template #default="scope">
+            <el-input 
+              v-model="scope.row.remark" 
+              size="mini" 
+              placeholder="輸入備註..." 
+              @blur="saveItemAttr(scope.row)"
+              @keyup.enter.native="$event.target.blur()"
+            />
           </template>
         </el-table-column>
 
@@ -128,6 +169,50 @@
         />
       </div>
     </div>
+
+    <!-- 🌟 點選商品 ID 彈出的快速標記對話盒 -->
+    <el-dialog 
+      v-model="showQuickTagModal" 
+      title="🏷️ 商品屬性與備註標記" 
+      width="460px"
+      append-to-body
+      class="custom-tag-dialog"
+    >
+      <div v-if="activeItem" class="modal-body-content">
+        <div class="item-info-line">
+          <span class="info-lbl">商品編號：</span>
+          <span class="info-val text-blue">{{ activeItem.item_id }}</span>
+        </div>
+        <div class="item-info-line">
+          <span class="info-lbl">商品名稱：</span>
+          <span class="info-val">{{ activeItem.item_name }}</span>
+        </div>
+        <div class="item-info-line">
+          <span class="info-lbl">商品屬性：</span>
+          <el-radio-group v-model="modalTag" size="small">
+            <el-radio-button label="主商品">📦 主商品</el-radio-button>
+            <el-radio-button label="贈品">🎁 贈品</el-radio-button>
+            <el-radio-button label="樣品">🏷️ 樣品</el-radio-button>
+            <el-radio-button label="耗材">📦 耗材</el-radio-button>
+          </el-radio-group>
+        </div>
+        <div class="item-info-line column">
+          <span class="info-lbl">永久備註說明：</span>
+          <el-input 
+            v-model="modalRemark" 
+            type="textarea" 
+            :rows="3" 
+            placeholder="請輸入屬性說明，如滿額活動搭配、非賣品等..."
+          />
+        </div>
+      </div>
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button size="small" @click="showQuickTagModal = false">取消</el-button>
+          <el-button type="primary" size="small" @click="saveModalTag">💾 儲存標記</el-button>
+        </span>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -143,12 +228,19 @@ export default {
       loading: false,
       keyword: '',
       pmFilter: '',
+      tagFilter: '',
       filterZeroSales: false,
       filterOutOfStock: false,
       tableData: [],
       currentPage: 1,
       pageSize: 500,
-      totalRows: 0
+      totalRows: 0,
+
+      // 快速標記 Modal
+      showQuickTagModal: false,
+      activeItem: null,
+      modalTag: '主商品',
+      modalRemark: ''
     }
   },
   mounted() {
@@ -158,6 +250,13 @@ export default {
     formatNumber(val) {
       if (!val && val !== 0) return '0';
       return Number(val).toLocaleString();
+    },
+
+    getTagClass(tag) {
+      if (tag === '贈品') return 'tag-gift';
+      if (tag === '樣品') return 'tag-sample';
+      if (tag === '耗材') return 'tag-consumable';
+      return '';
     },
 
     handleSearch() {
@@ -184,6 +283,7 @@ export default {
           pageSize: this.pageSize,
           keyword: this.keyword,
           pm: this.pmFilter,
+          tag: this.tagFilter,
           filterZeroSales: this.filterZeroSales,
           filterOutOfStock: this.filterOutOfStock
         };
@@ -202,17 +302,61 @@ export default {
       }
     },
 
+    // 🌟 點擊表格內下拉或失焦即時儲存
+    async saveItemAttr(row) {
+      try {
+        const res = await axios.post('/api/item-sales-history/update-tag-remark', {
+          item_id: row.item_id,
+          item_tag: row.item_tag,
+          remark: row.remark
+        });
+        if (res.data?.success) {
+          ElMessage.success(res.data.message);
+        }
+      } catch (e) {
+        ElMessage.error('儲存失敗：' + (e.response?.data?.message || e.message));
+      }
+    },
+
+    // 🌟 點選商品編號開啟彈窗
+    openQuickTagModal(row) {
+      this.activeItem = row;
+      this.modalTag = row.item_tag || '主商品';
+      this.modalRemark = row.remark || '';
+      this.showQuickTagModal = true;
+    },
+
+    // 🌟 彈窗確定儲存
+    async saveModalTag() {
+      if (!this.activeItem) return;
+      try {
+        const res = await axios.post('/api/item-sales-history/update-tag-remark', {
+          item_id: this.activeItem.item_id,
+          item_tag: this.modalTag,
+          remark: this.modalRemark
+        });
+        if (res.data?.success) {
+          this.activeItem.item_tag = this.modalTag;
+          this.activeItem.remark = this.modalRemark;
+          ElMessage.success(res.data.message);
+          this.showQuickTagModal = false;
+        }
+      } catch (e) {
+        ElMessage.error('儲存失敗：' + (e.response?.data?.message || e.message));
+      }
+    },
+
     async exportExcel() {
       if (!this.totalRows) return ElMessage.warning('無可匯出的資料！');
 
       const loadingMsg = ElMessage.info({ message: '⚡ 正在打包歷史銷量總表資料...', duration: 0 });
       try {
-        // 拉取當前查詢條件下的全量資料 (最多 30 萬筆)
         const params = {
           page: 1,
           pageSize: 300000,
           keyword: this.keyword,
           pm: this.pmFilter,
+          tag: this.tagFilter,
           filterZeroSales: this.filterZeroSales,
           filterOutOfStock: this.filterOutOfStock
         };
@@ -223,6 +367,8 @@ export default {
         if (res.data?.success && res.data.data) {
           const exportRows = res.data.data.map(r => ({
             '商品編號': r.item_id,
+            '商品屬性': r.item_tag || '主商品',
+            '自訂備註': r.remark || '',
             '商品名稱': r.item_name,
             '所屬PM': r.pm,
             '供應商名稱': r.supplier_name,
@@ -257,6 +403,59 @@ export default {
 .page-title { font-size: 16px; font-weight: bold; color: #38bdf8; }
 .table-container { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 10px; flex: 1; display: flex; flex-direction: column; }
 .pagination-bar { display: flex; justify-content: flex-end; padding-top: 10px; background: #1e293b; }
+
+.clickable-link {
+  cursor: pointer;
+  text-decoration: underline;
+  transition: all 0.2s;
+}
+.clickable-link:hover {
+  color: #38bdf8 !important;
+  text-shadow: 0 0 4px rgba(56, 189, 248, 0.5);
+}
+
+:deep(.tag-gift .el-input__inner) {
+  background-color: rgba(244, 63, 94, 0.2) !important;
+  color: #f43f5e !important;
+  font-weight: bold;
+  border-color: #f43f5e !important;
+}
+
+:deep(.tag-sample .el-input__inner) {
+  background-color: rgba(234, 179, 8, 0.2) !important;
+  color: #eab308 !important;
+  font-weight: bold;
+}
+
+:deep(.tag-consumable .el-input__inner) {
+  background-color: rgba(148, 163, 184, 0.2) !important;
+  color: #94a3b8 !important;
+}
+
+.modal-body-content {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.item-info-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.item-info-line.column {
+  flex-direction: column;
+  align-items: flex-start;
+}
+.info-lbl {
+  font-size: 13px;
+  color: #94a3b8;
+  font-weight: bold;
+}
+.info-val {
+  font-size: 14px;
+  font-weight: bold;
+}
+
 :deep(.dark-table) { background-color: #1e293b !important; color: #f8fafc !important; }
 :deep(.dark-table th.el-table__cell) { background-color: #0f172a !important; color: #38bdf8 !important; border-bottom: 1px solid #334155 !important; }
 :deep(.dark-table td.el-table__cell) { background-color: #1e293b !important; color: #f8fafc !important; border-bottom: 1px solid #334155 !important; }

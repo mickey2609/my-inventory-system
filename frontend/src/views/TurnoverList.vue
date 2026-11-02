@@ -5,7 +5,7 @@
       <div class="title-group">
         <span class="page-title">📈 迴轉率分析清單</span>
         
-        <!-- 🌟 圖1：加入雙庫模式 -->
+        <!-- 雙庫切換 -->
         <el-radio-group v-model="warehouseType" size="small" @change="handleFilterChange">
           <el-radio-button label="15">📦 15庫 (自動化倉)</el-radio-button>
           <el-radio-button label="80">🔍 80庫 (人工倉)</el-radio-button>
@@ -16,7 +16,6 @@
       </div>
 
       <div class="controls-group">
-        <!-- ⚙️ 筆數上限與進階設定按鈕 -->
         <el-button 
           v-if="isSysAdmin"
           type="warning" 
@@ -49,9 +48,8 @@
       </div>
     </div>
 
-    <!-- 🌟 圖3 + 圖2：級距勾選列 + 庫齡、迴轉、銷量、板數外顯控制列 -->
+    <!-- 級距勾選與快篩列 -->
     <div class="quick-filter-bar">
-      <!-- 左側：級距改為勾選 (支援全選與多選) -->
       <div class="tier-checkbox-group">
         <span class="filter-lbl">級距篩選：</span>
         <el-checkbox 
@@ -71,78 +69,39 @@
         </el-checkbox-group>
       </div>
 
-      <!-- 右側：將圖2的庫齡、迴轉、銷量、板數直接擺上來 -->
+      <!-- 右側門檻與過濾控制項 -->
       <div class="inputs-inline-group">
-        <!-- 庫齡門檻 -->
+        <el-checkbox v-model="excludeGifts" class="dark-chk text-yellow" @change="handleFilterChange">
+          🚫 排除贈品
+        </el-checkbox>
+
         <div class="inline-item">
           <span class="inline-lbl">庫齡 ≥</span>
-          <el-input-number 
-            v-model="minAge" 
-            :min="0" 
-            :max="99999" 
-            size="mini" 
-            controls-position="right"
-            style="width: 85px;" 
-            @change="handleFilterChange"
-          />
+          <el-input-number v-model="minAge" :min="0" :max="99999" size="mini" controls-position="right" style="width: 85px;" @change="handleFilterChange" />
           <span class="unit-lbl">天</span>
         </div>
 
-        <!-- 迴轉月門檻 -->
         <div class="inline-item">
           <span class="inline-lbl">迴轉 ≥</span>
-          <el-input-number 
-            v-model="minTurnover" 
-            :min="0" 
-            :max="99999" 
-            size="mini" 
-            controls-position="right"
-            style="width: 85px;" 
-            @change="handleFilterChange"
-          />
+          <el-input-number v-model="minTurnover" :min="0" :max="99999" size="mini" controls-position="right" style="width: 85px;" @change="handleFilterChange" />
           <span class="unit-lbl">月</span>
         </div>
 
-        <!-- 月銷量範圍 -->
         <div class="inline-item">
           <span class="inline-lbl">月銷</span>
-          <el-input-number 
-            v-model="minMonthlySales" 
-            :min="0" 
-            placeholder="下限" 
-            size="mini" 
-            controls-position="right"
-            style="width: 75px;" 
-            @change="handleFilterChange"
-          />
+          <el-input-number v-model="minMonthlySales" :min="0" placeholder="下限" size="mini" controls-position="right" style="width: 75px;" @change="handleFilterChange" />
           <span class="split-lbl">~</span>
-          <el-input-number 
-            v-model="maxMonthlySales" 
-            :min="0" 
-            placeholder="上限" 
-            size="mini" 
-            controls-position="right"
-            style="width: 75px;" 
-            @change="handleFilterChange"
-          />
+          <el-input-number v-model="maxMonthlySales" :min="0" placeholder="上限" size="mini" controls-position="right" style="width: 75px;" @change="handleFilterChange" />
         </div>
 
-        <!-- 板數門檻 -->
         <div class="inline-item">
           <span class="inline-lbl">板數 ≥</span>
-          <el-input-number 
-            v-model="minPallets" 
-            :min="0" 
-            size="mini" 
-            controls-position="right"
-            style="width: 80px;" 
-            @change="handleFilterChange"
-          />
+          <el-input-number v-model="minPallets" :min="0" size="mini" controls-position="right" style="width: 80px;" @change="handleFilterChange" />
         </div>
       </div>
     </div>
 
-    <!-- 2. 總計摘要與級距統計面板 -->
+    <!-- 總計摘要面板 -->
     <div class="summary-overview-card" v-loading="loading">
       <div class="summary-header">
         【摘要】{{ warehouseLabel }} 門檻：迴轉(月) ≥ {{ minTurnover }} | 庫齡 ≥ {{ minAge }} 天 | 
@@ -150,10 +109,8 @@
           月銷量：{{ minMonthlySales !== null ? '≥ ' + minMonthlySales : '' }} {{ (minMonthlySales !== null && maxMonthlySales !== null) ? '且' : '' }} {{ maxMonthlySales !== null ? '≤ ' + maxMonthlySales : '' }} | 
         </span>
         <span v-if="minPallets > 0">板數 ≥ {{ minPallets }} | </span>
+        <span v-if="excludeGifts" class="text-orange">[已排除贈品] | </span>
         筆數 Top {{ summary.limitCount || limitCount }}
-        <span v-if="warehouseType === '15'">(排除 80U/80Z 儲位，同 ID 去重)</span>
-        <span v-else-if="warehouseType === '80'">(人工倉統計，同 ID 去重)</span>
-        <span v-else>(雙庫合併加總，同 ID 去重)</span>
       </div>
 
       <div class="summary-totals-grid">
@@ -188,7 +145,7 @@
       </div>
     </div>
 
-    <!-- 3. 迴轉率數據表格與分頁 -->
+    <!-- 數據表格 -->
     <div class="data-table-card" v-loading="loading">
       <el-table 
         :data="tableData" 
@@ -198,7 +155,46 @@
         class="dark-table"
         height="calc(100vh - 430px)"
       >
-        <el-table-column prop="item_id" label="商品ID" width="210" fixed="left" sortable />
+        <!-- 商品ID (點選可開啟標記) -->
+        <el-table-column prop="item_id" label="商品ID" width="180" fixed="left" sortable>
+          <template #default="scope">
+            <span class="font-bold text-blue clickable-link" @click="openQuickTagModal(scope.row)">
+              {{ scope.row.item_id }} 🏷️
+            </span>
+          </template>
+        </el-table-column>
+
+        <!-- 商品屬性 -->
+        <el-table-column prop="item_tag" label="商品屬性" width="115" align="center" sortable>
+          <template #default="scope">
+            <el-select 
+              v-model="scope.row.item_tag" 
+              size="mini" 
+              class="tag-select"
+              :class="getTagClass(scope.row.item_tag)"
+              @change="saveItemAttr(scope.row)"
+            >
+              <el-option label="📦 主商品" value="主商品" />
+              <el-option label="🎁 贈品" value="贈品" />
+              <el-option label="🏷️ 樣品" value="樣品" />
+              <el-option label="📦 耗材" value="耗材" />
+            </el-select>
+          </template>
+        </el-table-column>
+
+        <!-- 自訂備註 -->
+        <el-table-column prop="remark" label="自訂備註" min-width="150" show-overflow-tooltip>
+          <template #default="scope">
+            <el-input 
+              v-model="scope.row.remark" 
+              size="mini" 
+              placeholder="備註..." 
+              @blur="saveItemAttr(scope.row)"
+              @keyup.enter.native="$event.target.blur()"
+            />
+          </template>
+        </el-table-column>
+
         <el-table-column prop="item_name" label="商品名稱" min-width="200" show-overflow-tooltip />
         <el-table-column prop="borrow_proc" label="借/採" width="75" align="center" />
         <el-table-column prop="total_qty" label="加總庫存數" width="105" align="right" sortable>
@@ -229,7 +225,7 @@
         </el-table-column>
       </el-table>
 
-      <!-- 底部分頁導覽列 -->
+      <!-- 分頁列 -->
       <div class="pagination-footer">
         <el-pagination
           background
@@ -242,7 +238,51 @@
       </div>
     </div>
 
-    <!-- 4. ⚙️ 進階參數設定對話盒 (上限筆數與排序) -->
+    <!-- 點選商品 ID 快速標記 Modal -->
+    <el-dialog 
+      v-model="showQuickTagModal" 
+      title="🏷️ 商品屬性與備註標記" 
+      width="460px"
+      append-to-body
+      class="custom-turnover-dialog"
+    >
+      <div v-if="activeItem" class="modal-body-content">
+        <div class="item-info-line">
+          <span class="info-lbl">商品編號：</span>
+          <span class="info-val text-blue">{{ activeItem.item_id }}</span>
+        </div>
+        <div class="item-info-line">
+          <span class="info-lbl">商品名稱：</span>
+          <span class="info-val">{{ activeItem.item_name }}</span>
+        </div>
+        <div class="item-info-line">
+          <span class="info-lbl">商品屬性：</span>
+          <el-radio-group v-model="modalTag" size="small">
+            <el-radio-button label="主商品">📦 主商品</el-radio-button>
+            <el-radio-button label="贈品">🎁 贈品</el-radio-button>
+            <el-radio-button label="樣品">🏷️ 樣品</el-radio-button>
+            <el-radio-button label="耗材">📦 耗材</el-radio-button>
+          </el-radio-group>
+        </div>
+        <div class="item-info-line column">
+          <span class="info-lbl">永久備註說明：</span>
+          <el-input 
+            v-model="modalRemark" 
+            type="textarea" 
+            :rows="3" 
+            placeholder="請輸入屬性說明，如滿額活動搭配、非賣品等..."
+          />
+        </div>
+      </div>
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button size="small" class="dialog-cancel-btn" @click="showQuickTagModal = false">取消</el-button>
+          <el-button type="primary" size="small" @click="saveModalTag">💾 儲存標記</el-button>
+        </span>
+      </template>
+    </el-dialog>
+
+    <!-- 進階參數 Dialog -->
     <el-dialog 
       v-model="showParamDialog" 
       title="⚙️ 迴轉率進階參數設定" 
@@ -299,7 +339,7 @@ export default {
       loading: false,
       exporting: false,
       showParamDialog: false,
-      warehouseType: '15', // 15, 80, all
+      warehouseType: '15',
       minTurnover: 0,
       minAge: 0,
       minMonthlySales: null,
@@ -308,8 +348,8 @@ export default {
       limitCount: 500,
       sortBy: 'pallets',
       sortOrder: 'desc',
-      
-      // 🌟 勾選模式狀態
+      excludeGifts: false,
+
       checkAllTiers: true,
       isIndeterminate: false,
       selectedTiers: [...ALL_TIER_KEYS],
@@ -321,7 +361,13 @@ export default {
       summary: { minTurnover: 0, minAge: 0, limitCount: 500, totalItems: 0, totalPcs: 0, totalVolume: 0, totalPallets: 0 },
       tiers: [],
       tableData: [],
-      exportFullData: []
+      exportFullData: [],
+
+      showQuickTagModal: false,
+      activeItem: null,
+      modalTag: '主商品',
+      modalRemark: '',
+      attrMap: {}
     }
   },
   computed: {
@@ -346,40 +392,37 @@ export default {
       if (isNaN(num)) return val;
       return num.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
     },
-
-    // 🌟 全選級距變更
+    getTagClass(tag) {
+      if (tag === '贈品') return 'tag-gift';
+      if (tag === '樣品') return 'tag-sample';
+      if (tag === '耗材') return 'tag-consumable';
+      return '';
+    },
     handleCheckAllChange(val) {
       this.selectedTiers = val ? [...ALL_TIER_KEYS] : [];
       this.isIndeterminate = false;
       this.handleFilterChange();
     },
-
-    // 🌟 單選級距勾選變更
     handleTierGroupChange(value) {
       const checkedCount = value.length;
       this.checkAllTiers = checkedCount === ALL_TIER_KEYS.length;
       this.isIndeterminate = checkedCount > 0 && checkedCount < ALL_TIER_KEYS.length;
       this.handleFilterChange();
     },
-
     handleFilterChange() {
       this.currentPage = 1;
       this.$nextTick(() => {
         this.fetchTurnoverData();
       });
     },
-
     applyParamSettings() {
       this.showParamDialog = false;
       this.handleFilterChange();
     },
-
     handlePageChange(page) {
       this.currentPage = page;
       this.fetchTurnoverData();
     },
-
-    // 判定單筆資料所屬級距
     getItemTierKey(item) {
       const t = Number(item.turnover_month);
       if (t === 99999) return 'y99999';
@@ -390,30 +433,71 @@ export default {
       return 'y_under_1';
     },
 
+    openQuickTagModal(row) {
+      this.activeItem = row;
+      this.modalTag = row.item_tag || '主商品';
+      this.modalRemark = row.remark || '';
+      this.showQuickTagModal = true;
+    },
+
+    async saveModalTag() {
+      if (!this.activeItem) return;
+      try {
+        const res = await axios.post('/api/item-sales-history/update-tag-remark', {
+          item_id: this.activeItem.item_id,
+          item_tag: this.modalTag,
+          remark: this.modalRemark
+        });
+        if (res.data?.success) {
+          this.activeItem.item_tag = this.modalTag;
+          this.activeItem.remark = this.modalRemark;
+          this.attrMap[this.activeItem.item_id] = { item_tag: this.modalTag, remark: this.modalRemark };
+          ElMessage.success(res.data.message);
+          this.showQuickTagModal = false;
+        }
+      } catch (e) {
+        ElMessage.error('儲存失敗：' + (e.response?.data?.message || e.message));
+      }
+    },
+
+    async saveItemAttr(row) {
+      try {
+        const res = await axios.post('/api/item-sales-history/update-tag-remark', {
+          item_id: row.item_id,
+          item_tag: row.item_tag,
+          remark: row.remark
+        });
+        if (res.data?.success) {
+          this.attrMap[row.item_id] = { item_tag: row.item_tag, remark: row.remark };
+          ElMessage.success(res.data.message);
+        }
+      } catch (e) {
+        ElMessage.error('儲存失敗：' + (e.response?.data?.message || e.message));
+      }
+    },
+
     async fetchTurnoverData() {
       this.loading = true;
       this.updateReportTime();
 
       try {
+        // 先拉取最新的標籤與備註對照表
+        const attrRes = await axios.get('/api/item-sales-history/list?pageSize=50000').catch(() => null);
+        if (attrRes?.data?.success && attrRes.data.data) {
+          const m = {};
+          attrRes.data.data.forEach(r => {
+            m[r.item_id] = { item_tag: r.item_tag || '主商品', remark: r.remark || '' };
+          });
+          this.attrMap = m;
+        }
+
         let rawList = [];
         let exportList = [];
 
-        // 🌟 判斷是否為「雙庫合併」模式
         if (this.warehouseType === 'all') {
-          const p15 = new URLSearchParams({
-            minTurnover: this.minTurnover,
-            minAge: this.minAge,
-            limit: this.limitCount,
-            sortOrder: this.sortOrder
-          });
-          const p80 = new URLSearchParams({
-            minTurnover: this.minTurnover,
-            minAge: this.minAge,
-            limit: this.limitCount,
-            sortOrder: this.sortOrder
-          });
+          const p15 = new URLSearchParams({ minTurnover: this.minTurnover, minAge: this.minAge, limit: this.limitCount, sortOrder: this.sortOrder });
+          const p80 = new URLSearchParams({ minTurnover: this.minTurnover, minAge: this.minAge, limit: this.limitCount, sortOrder: this.sortOrder });
 
-          // 同時請求 15 庫與 80 庫
           const [res15, res80] = await Promise.all([
             axios.get(`/api/turnover15/search?${p15.toString()}`).catch(() => ({ data: { success: false } })),
             axios.get(`/api/turnover80/search?${p80.toString()}`).catch(() => ({ data: { success: false } }))
@@ -422,7 +506,6 @@ export default {
           const list15 = (res15.data?.success && res15.data.data) ? res15.data.data : [];
           const list80 = (res80.data?.success && res80.data.data) ? res80.data.data : [];
 
-          // 雙庫合併去重加總 (依 item_id)
           const mergedMap = new Map();
           [...list15, ...list80].forEach(item => {
             if (!mergedMap.has(item.item_id)) {
@@ -440,7 +523,6 @@ export default {
           rawList = Array.from(mergedMap.values());
           exportList = rawList;
         } else {
-          // 單庫查詢模式
           const apiEndpoint = this.warehouseType === '80' ? '/api/turnover80/search' : '/api/turnover15/search';
           const params = new URLSearchParams({
             minTurnover: this.minTurnover,
@@ -459,19 +541,26 @@ export default {
           }
         }
 
-        // 🌟 本地即時過濾：庫齡、月銷、板數、級距勾選
+        // 綁定最新屬性與備註
+        rawList.forEach(item => {
+          const meta = this.attrMap[item.item_id];
+          item.item_tag = meta ? meta.item_tag : '主商品';
+          item.remark = meta ? meta.remark : '';
+        });
+
+        // 條件篩選
         const filterFn = (item) => {
           const age = Number(item.max_age) || 0;
           const sales = Number(item.monthly_sales) || 0;
           const pallets = Number(item.pallets) || 0;
 
+          if (this.excludeGifts && item.item_tag === '贈品') return false;
           if (this.minAge > 0 && age < this.minAge) return false;
           if (this.minTurnover > 0 && Number(item.turnover_month) < this.minTurnover) return false;
           if (this.minMonthlySales !== null && sales < this.minMonthlySales) return false;
           if (this.maxMonthlySales !== null && sales > this.maxMonthlySales) return false;
           if (this.minPallets > 0 && pallets < this.minPallets) return false;
 
-          // 級距勾選判定
           const tKey = this.getItemTierKey(item);
           if (!this.selectedTiers.includes(tKey)) return false;
 
@@ -480,20 +569,17 @@ export default {
 
         const filtered = rawList.filter(filterFn);
 
-        // 依選定欄位排序
         filtered.sort((a, b) => {
           const valA = Number(a[this.sortBy]) || 0;
           const valB = Number(b[this.sortBy]) || 0;
           return this.sortOrder === 'asc' ? valA - valB : valB - valA;
         });
 
-        // 限制 Top N
         const limitedRows = filtered.slice(0, this.limitCount);
         this.tableData = limitedRows;
         this.exportFullData = exportList.filter(filterFn).slice(0, this.limitCount);
         this.totalRows = limitedRows.length;
 
-        // 動態重算 4 大 KPI 總計與各級距統計
         this.recalculateSummaryAndTiers(limitedRows);
 
       } catch (e) {
@@ -503,7 +589,6 @@ export default {
       }
     },
 
-    // 重新統計上方卡片與級距表
     recalculateSummaryAndTiers(rows) {
       let totalPcs = 0;
       let totalVol = 0;
@@ -568,11 +653,11 @@ export default {
         });
 
         aoa.push([]);
-        aoa.push(['商品ID', '商品名稱', '借/採', '加總庫存數', '最長庫齡', '區編', '區名', '總才數', '迴轉(月)', '月銷量', '板數']);
+        aoa.push(['商品ID', '商品屬性', '自訂備註', '商品名稱', '借/採', '加總庫存數', '最長庫齡', '區編', '區名', '總才數', '迴轉(月)', '月銷量', '板數']);
 
         exportList.forEach(r => {
           aoa.push([
-            r.item_id, r.item_name, r.borrow_proc, r.total_qty, r.max_age,
+            r.item_id, r.item_tag || '主商品', r.remark || '', r.item_name, r.borrow_proc, r.total_qty, r.max_age,
             r.zone_id, r.zone_name, r.total_cubic_feet, r.turnover_month, r.monthly_sales, r.pallets
           ]);
         });
@@ -592,187 +677,40 @@ export default {
 </script>
 
 <style scoped>
-.turnover-page {
-  padding: 12px 16px;
-  height: calc(100vh - 52px);
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  overflow: hidden;
-}
+.turnover-page { padding: 12px 16px; height: calc(100vh - 52px); box-sizing: border-box; display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
+.top-filter-bar { display: flex; justify-content: space-between; align-items: center; background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 8px 16px; flex-shrink: 0; }
+.title-group { display: flex; align-items: center; gap: 14px; }
+.page-title { font-size: 15px; font-weight: bold; color: #38bdf8; }
+.report-time { font-size: 12px; color: #94a3b8; }
+.controls-group { display: flex; align-items: center; gap: 10px; }
 
-.top-filter-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  background: #1e293b;
-  border: 1px solid #334155;
-  border-radius: 8px;
-  padding: 8px 16px;
-  flex-shrink: 0;
-}
+.quick-filter-bar { display: flex; justify-content: space-between; align-items: center; background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 6px 14px; flex-shrink: 0; gap: 12px; flex-wrap: wrap; }
+.tier-checkbox-group { display: flex; align-items: center; gap: 10px; }
+.filter-lbl { font-size: 12px; font-weight: bold; color: #38bdf8; }
+.tier-chk-inner { display: flex; align-items: center; gap: 12px; }
 
-.title-group {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
+:deep(.dark-chk .el-checkbox__label) { color: #cbd5e1 !important; font-size: 12px; }
+:deep(.dark-chk.is-checked .el-checkbox__label) { color: #38bdf8 !important; font-weight: bold; }
+:deep(.dark-chk.text-red.is-checked .el-checkbox__label) { color: #f43f5e !important; }
+:deep(.dark-chk.text-yellow.is-checked .el-checkbox__label) { color: #fbbf24 !important; }
 
-.page-title {
-  font-size: 15px;
-  font-weight: bold;
-  color: #38bdf8;
-}
+.inputs-inline-group { display: flex; align-items: center; gap: 12px; }
+.inline-item { display: flex; align-items: center; gap: 4px; background: #1e293b; padding: 2px 6px; border-radius: 4px; border: 1px solid #334155; }
+.inline-lbl { font-size: 12px; color: #94a3b8; font-weight: bold; white-space: nowrap; }
+.unit-lbl, .split-lbl { font-size: 11px; color: #64748b; }
 
-.report-time {
-  font-size: 12px;
-  color: #94a3b8;
-}
-
-.controls-group {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-/* 🌟 圖3 + 圖2 外顯控制列樣式 */
-.quick-filter-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  background: #0f172a;
-  border: 1px solid #334155;
-  border-radius: 8px;
-  padding: 6px 14px;
-  flex-shrink: 0;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.tier-checkbox-group {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.filter-lbl {
-  font-size: 12px;
-  font-weight: bold;
-  color: #38bdf8;
-}
-
-.tier-chk-inner {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-:deep(.dark-chk .el-checkbox__label) {
-  color: #cbd5e1 !important;
-  font-size: 12px;
-}
-:deep(.dark-chk.is-checked .el-checkbox__label) {
-  color: #38bdf8 !important;
-  font-weight: bold;
-}
-:deep(.dark-chk.text-red.is-checked .el-checkbox__label) {
-  color: #f43f5e !important;
-}
-
-.inputs-inline-group {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.inline-item {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  background: #1e293b;
-  padding: 2px 6px;
-  border-radius: 4px;
-  border: 1px solid #334155;
-}
-
-.inline-lbl {
-  font-size: 12px;
-  color: #94a3b8;
-  font-weight: bold;
-  white-space: nowrap;
-}
-
-.unit-lbl, .split-lbl {
-  font-size: 11px;
-  color: #64748b;
-}
-
-.summary-overview-card {
-  background: #1e293b;
-  border: 1px solid #334155;
-  border-radius: 8px;
-  padding: 8px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
-.summary-header {
-  background: #312e81;
-  color: #c7d2fe;
-  padding: 4px 10px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: bold;
-}
-
-.summary-totals-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
-}
-
-.total-box {
-  background: #0f172a;
-  border: 1px solid #334155;
-  border-radius: 6px;
-  padding: 4px 10px;
-  display: flex;
-  flex-direction: column;
-}
-
+.summary-overview-card { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 8px 14px; display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+.summary-header { background: #312e81; color: #c7d2fe; padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: bold; }
+.summary-totals-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.total-box { background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 4px 10px; display: flex; flex-direction: column; }
 .total-box .lbl { font-size: 11px; color: #94a3b8; }
 .total-box .val { font-size: 15px; font-weight: bold; margin-top: 1px; }
 
-.tier-table-wrapper {
-  overflow-x: auto;
-}
-
-.tier-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
-  background: #0f172a;
-}
-
-.tier-table th, .tier-table td {
-  border: 1px solid #334155;
-  padding: 4px 8px;
-}
-
-.tier-table th {
-  background: #1e293b;
-  color: #38bdf8;
-  font-weight: bold;
-  text-align: center;
-}
-
-.tier-table tr.highlight-滞銷 td {
-  background: rgba(244, 63, 94, 0.1);
-  color: #f43f5e;
-}
+.tier-table-wrapper { overflow-x: auto; }
+.tier-table { width: 100%; border-collapse: collapse; font-size: 12px; background: #0f172a; }
+.tier-table th, .tier-table td { border: 1px solid #334155; padding: 4px 8px; }
+.tier-table th { background: #1e293b; color: #38bdf8; font-weight: bold; text-align: center; }
+.tier-table tr.highlight-滞銷 td { background: rgba(244, 63, 94, 0.1); color: #f43f5e; }
 
 .text-right { text-align: right; }
 .text-blue { color: #38bdf8; }
@@ -782,97 +720,12 @@ export default {
 .text-red { color: #f43f5e !important; }
 .font-bold { font-weight: bold; }
 
-.tag-stagnant {
-  background: #f43f5e;
-  color: #ffffff;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-weight: bold;
-  font-size: 11px;
-}
+.clickable-link { cursor: pointer; text-decoration: underline; transition: all 0.2s; }
+.clickable-link:hover { color: #38bdf8 !important; text-shadow: 0 0 4px rgba(56, 189, 248, 0.5); }
 
-.data-table-card {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
+:deep(.tag-gift .el-input__inner) { background-color: rgba(244, 63, 94, 0.2) !important; color: #f43f5e !important; font-weight: bold; border-color: #f43f5e !important; }
+:deep(.tag-sample .el-input__inner) { background-color: rgba(234, 179, 8, 0.2) !important; color: #eab308 !important; font-weight: bold; }
+:deep(.tag-consumable .el-input__inner) { background-color: rgba(148, 163, 184, 0.2) !important; color: #94a3b8 !important; }
 
-.pagination-footer {
-  display: flex;
-  justify-content: flex-end;
-  background: #1e293b;
-  padding: 4px 10px;
-  border-radius: 6px;
-  border: 1px solid #334155;
-}
-
-.dialog-body {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  padding: 10px 0;
-}
-
-.param-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.param-label {
-  width: 120px;
-  text-align: right;
-  font-size: 13px;
-  color: #ffffff !important;
-  font-weight: bold;
-}
-
-.param-tip {
-  font-size: 12px;
-  color: #93c5fd !important;
-}
-
-.dialog-cancel-btn {
-  background-color: #334155 !important;
-  border-color: #475569 !important;
-  color: #f1f5f9 !important;
-}
-</style>
-
-<!-- 🌟 全域輸入格樣式相容 -->
-<style>
-.custom-turnover-dialog {
-  background-color: #1e293b !important;
-  border: 1px solid #334155 !important;
-  border-radius: 10px !important;
-}
-
-.custom-turnover-dialog .el-dialog__header {
-  background-color: #0f172a !important;
-  border-bottom: 1px solid #334155 !important;
-}
-
-.custom-turnover-dialog .el-dialog__title {
-  color: #38bdf8 !important;
-  font-weight: bold !important;
-}
-
-.custom-turnover-dialog .el-dialog__body {
-  background-color: #1e293b !important;
-  color: #ffffff !important;
-}
-
-.custom-turnover-dialog .el-dialog__footer {
-  background-color: #0f172a !important;
-  border-top: 1px solid #334155 !important;
-}
-
-.quick-filter-bar .el-input__inner {
-  background-color: #ffffff !important;
-  color: #000000 !important;
-  font-weight: bold !important;
-  padding: 0 4px !important;
-}
-</style>
+.tag-stagnant { background: #f43f5e; color: #ffffff; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 11px; }
+.data-

@@ -130,182 +130,177 @@ module.exports = function(db) {
 
       const validInvCondition = `WHERE IFNULL(qty, 0) > 0`;
 
-      db.all(`SELECT item_id, is_gift, remark FROM item_custom_notes`, [], (errNotes, notesRows) => {
-        db.all(`SELECT item_id, total_stock_qty, stock_qty_80, sales_90d, monthly_sales, pm, supplier_name FROM item_sales_history`, [], (errHist, histRows) => {
-          db.all(`SELECT item_id, MAX(age) AS max_age, SUM(qty) AS inv_qty, MAX(turn_days_total) AS turn_days, MAX(pm) AS inv_pm, MAX(supplier_name) AS inv_supplier FROM inventory ${validInvCondition} GROUP BY item_id`, [], (err80, inv80Rows) => {
-            db.all(`SELECT item_id, MAX(age) AS max_age, SUM(qty) AS inv_qty, MAX(turn_days_total) AS turn_days, MAX(pm) AS inv_pm, MAX(supplier_name) AS inv_supplier FROM inventory_15 ${validInvCondition} GROUP BY item_id`, [], (err15, inv15Rows) => {
-              
-              const notesMap = new Map();
-              (notesRows || []).forEach(n => {
-                const k = normalizeKey(n.item_id);
-                if (k) notesMap.set(k, { is_gift: Number(n.is_gift) === 1, remark: n.remark || '' });
-              });
+      // 🌟 直接從 item_sales_history 抓取 item_tag 與 remark
+      db.all(`SELECT item_id, total_stock_qty, stock_qty_80, sales_90d, monthly_sales, pm, supplier_name, IFNULL(item_tag, '主商品') as item_tag, IFNULL(remark, '') as remark FROM item_sales_history`, [], (errHist, histRows) => {
+        db.all(`SELECT item_id, MAX(age) AS max_age, SUM(qty) AS inv_qty, MAX(turn_days_total) AS turn_days, MAX(pm) AS inv_pm, MAX(supplier_name) AS inv_supplier FROM inventory ${validInvCondition} GROUP BY item_id`, [], (err80, inv80Rows) => {
+          db.all(`SELECT item_id, MAX(age) AS max_age, SUM(qty) AS inv_qty, MAX(turn_days_total) AS turn_days, MAX(pm) AS inv_pm, MAX(supplier_name) AS inv_supplier FROM inventory_15 ${validInvCondition} GROUP BY item_id`, [], (err15, inv15Rows) => {
+            
+            const invAgeMap = new Map();
+            const mergeInvRow = (row) => {
+              const k = normalizeKey(row.item_id);
+              if (!k) return;
+              const age = Number(row.max_age) || 0;
+              const qty = Number(row.inv_qty) || 0;
+              const turn = Number(row.turn_days) || 0;
+              const pm = row.inv_pm || '';
+              const supplier = row.inv_supplier || '';
 
-              const invAgeMap = new Map();
-              const mergeInvRow = (row) => {
-                const k = normalizeKey(row.item_id);
-                if (!k) return;
-                const age = Number(row.max_age) || 0;
-                const qty = Number(row.inv_qty) || 0;
-                const turn = Number(row.turn_days) || 0;
-                const pm = row.inv_pm || '';
-                const supplier = row.inv_supplier || '';
+              if (invAgeMap.has(k)) {
+                const exist = invAgeMap.get(k);
+                exist.age = Math.max(exist.age, age);
+                exist.inv_qty += qty;
+                exist.turn_days = Math.max(exist.turn_days, turn);
+                if (!exist.pm && pm) exist.pm = pm;
+                if (!exist.supplier && supplier) exist.supplier = supplier;
+              } else {
+                invAgeMap.set(k, { age, inv_qty: qty, turn_days: turn, pm, supplier });
+              }
+            };
 
-                if (invAgeMap.has(k)) {
-                  const exist = invAgeMap.get(k);
-                  exist.age = Math.max(exist.age, age);
-                  exist.inv_qty += qty;
-                  exist.turn_days = Math.max(exist.turn_days, turn);
-                  if (!exist.pm && pm) exist.pm = pm;
-                  if (!exist.supplier && supplier) exist.supplier = supplier;
+            (inv80Rows || []).forEach(mergeInvRow);
+            (inv15Rows || []).forEach(mergeInvRow);
+
+            const histMap = new Map();
+            (histRows || []).forEach(h => {
+              const k = normalizeKey(h.item_id);
+              if (k) {
+                histMap.set(k, {
+                  stock_qty: Number(h.total_stock_qty || h.stock_qty_80 || 0),
+                  sales_90d: Number(h.sales_90d || 0),
+                  monthly_sales: Number(h.monthly_sales || 0),
+                  pm: h.pm || '未指定PM',
+                  supplier_name: h.supplier_name || '未知供應商',
+                  item_tag: h.item_tag || '主商品',
+                  remark: h.remark || ''
+                });
+              }
+            });
+
+            const abnormalRows = [];
+            let totalPcs = 0;
+            let totalCubicFeet = 0;
+            const pmSet = new Set();
+
+            inboundRows.forEach(r => {
+              const key = normalizeKey(r.item_id);
+              const hist = histMap.get(key);
+              const invInfo = invAgeMap.get(key) || { age: 0, inv_qty: 0, turn_days: 0, pm: '', supplier: '' };
+
+              const isGift = (hist && hist.item_tag === '贈品');
+              const customRemark = (hist && hist.remark) || '';
+              const isHistoryRecorded = !!hist;
+              const stockQty = Math.max(hist ? hist.stock_qty : 0, invInfo.inv_qty);
+              const sales90 = hist ? hist.sales_90d : 0;
+              const monthlySales = hist ? hist.monthly_sales : 0;
+              const actualAge = invInfo.age;
+              const pm = invInfo.pm || (hist ? hist.pm : '未指定PM') || '未指定PM';
+              const supplier = invInfo.supplier || (hist ? hist.supplier_name : '未知供應商') || '未知供應商';
+
+              // 庫齡門檻篩選
+              if (minAgeThreshold > 0 && actualAge < minAgeThreshold) {
+                return;
+              }
+
+              const importQty = Number(r.import_qty) || 0;
+              const dailyTotalImportQty = dailyTotalImportMap.get(key) || importQty;
+              const len = Number(r.length) || 0;
+              const w = Number(r.width) || 0;
+              const h = Number(r.height) || 0;
+
+              const singleCf = (len > 0 && w > 0 && h > 0) ? ((len * w * h) / 28317) : 0;
+              const importCubicFeet = parseFloat((singleCf * importQty).toFixed(2));
+
+              const isNewItem = (!isHistoryRecorded && sales90 === 0 && actualAge === 0 && !isGift);
+
+              let turnMonths = 0;
+              if (!isNewItem && !isGift) {
+                if (monthlySales > 0) {
+                  turnMonths = parseFloat((dailyTotalImportQty / monthlySales).toFixed(1));
                 } else {
-                  invAgeMap.set(k, { age, inv_qty: qty, turn_days: turn, pm, supplier });
+                  turnMonths = 99999;
                 }
-              };
+              }
 
-              (inv80Rows || []).forEach(mergeInvRow);
-              (inv15Rows || []).forEach(mergeInvRow);
+              const levelInfo = getTurnoverLevelInfo(turnMonths, isNewItem, isGift);
 
-              const histMap = new Map();
-              (histRows || []).forEach(h => {
-                const k = normalizeKey(h.item_id);
-                if (k) {
-                  histMap.set(k, {
-                    stock_qty: Number(h.total_stock_qty || h.stock_qty_80 || 0),
-                    sales_90d: Number(h.sales_90d || 0),
-                    monthly_sales: Number(h.monthly_sales || 0),
-                    pm: h.pm || '未指定PM',
-                    supplier_name: h.supplier_name || '未知供應商'
-                  });
-                }
-              });
+              const tags = [];
+              if (isGift) {
+                tags.push({ text: '🎁 贈品採購', type: 'info' });
+              } else if (isNewItem) {
+                tags.push({ text: '✨ 首次建檔新品', type: 'success' });
+              } else {
+                if (isHistoryRecorded && stockQty === 0 && sales90 === 0) tags.push({ text: '📦 斷貨重進舊品', type: 'warning' });
+                if (sales90 === 0 && importQty > 0 && isHistoryRecorded) tags.push({ text: '🚨 90日零銷量進貨', type: 'danger' });
+                else if (actualAge >= 180) tags.push({ text: '🚨 高庫齡滯銷進貨', type: 'danger' });
 
-              const abnormalRows = [];
-              let totalPcs = 0;
-              let totalCubicFeet = 0;
-              const pmSet = new Set();
+                if (turnMonths > 6) tags.push({ text: `⚠️ 迴轉月數過高 (${turnMonths >= 99999 ? '99999個月' : turnMonths + '個月'})`, type: 'warning' });
+                if (sales90 > 0 && dailyTotalImportQty >= (sales90 * 2)) tags.push({ text: `⚠️ 爆量驗收 (進貨>90日銷量2倍)`, type: 'warning' });
+              }
 
-              inboundRows.forEach(r => {
-                const key = normalizeKey(r.item_id);
-                const noteInfo = notesMap.get(key) || { is_gift: false, remark: '' };
-                const hist = histMap.get(key);
-                const invInfo = invAgeMap.get(key) || { age: 0, inv_qty: 0, turn_days: 0, pm: '', supplier: '' };
+              const allowGift = ruleList.includes('gift') || ruleList.includes('all');
+              if (isGift && !allowGift) return;
 
-                const isGift = !!noteInfo.is_gift;
-                const isHistoryRecorded = !!hist;
-                const stockQty = Math.max(hist ? hist.stock_qty : 0, invInfo.inv_qty);
-                const sales90 = hist ? hist.sales_90d : 0;
-                const monthlySales = hist ? hist.monthly_sales : 0;
-                const actualAge = invInfo.age;
-                const pm = invInfo.pm || (hist ? hist.pm : '未指定PM') || '未指定PM';
-                const supplier = invInfo.supplier || (hist ? hist.supplier_name : '未知供應商') || '未知供應商';
+              const allowNewItem = ruleList.includes('new_item') || ruleList.includes('all');
+              if (isNewItem && !allowNewItem) return;
 
-                // 庫齡門檻篩選
-                if (minAgeThreshold > 0 && actualAge < minAgeThreshold) {
-                  return;
-                }
+              let isMatchRule = false;
+              if (ruleList.includes('all') || ruleList.length === 0) {
+                isMatchRule = tags.length > 0;
+              } else {
+                if (ruleList.includes('zero_sales') && tags.some(t => t.text.includes('零銷量') || t.text.includes('滯銷'))) isMatchRule = true;
+                if (ruleList.includes('high_turnover') && tags.some(t => t.text.includes('迴轉月數過高'))) isMatchRule = true;
+                if (ruleList.includes('over_import') && tags.some(t => t.text.includes('爆量驗收') || t.text.includes('超量驗收'))) isMatchRule = true;
+                if (ruleList.includes('gift') && isGift) isMatchRule = true;
+                if (ruleList.includes('new_item') && isNewItem) isMatchRule = true;
+              }
 
-                const importQty = Number(r.import_qty) || 0;
-                const dailyTotalImportQty = dailyTotalImportMap.get(key) || importQty;
-                const len = Number(r.length) || 0;
-                const w = Number(r.width) || 0;
-                const h = Number(r.height) || 0;
+              let isMatchLevel = false;
+              if (levelList.includes('all') || levelList.length === 0 || levelList.length === 8) {
+                isMatchLevel = true;
+              } else {
+                isMatchLevel = levelList.includes(levelInfo.code);
+              }
 
-                const singleCf = (len > 0 && w > 0 && h > 0) ? ((len * w * h) / 28317) : 0;
-                const importCubicFeet = parseFloat((singleCf * importQty).toFixed(2));
+              if (isMatchRule && isMatchLevel) {
+                abnormalRows.push({
+                  warehouse: r.warehouse,
+                  rec_date: r.rec_date,
+                  rec_time: r.rec_time,
+                  po_no: r.po_no,
+                  batch_no: r.batch_no,
+                  item_id: r.item_id,
+                  item_name: r.item_name || '-',
+                  import_qty: importQty,
+                  daily_total_import_qty: dailyTotalImportQty,
+                  current_stock_qty: stockQty,
+                  import_cubic_feet: importCubicFeet,
+                  age: actualAge,
+                  monthly_sales: monthlySales,
+                  sales_90d: sales90,
+                  turn_days_total: (isNewItem || isGift) ? '-' : turnMonths,
+                  turnover_level: levelInfo.label,
+                  pm,
+                  supplier_name: supplier,
+                  is_gift: isGift,
+                  custom_remark: customRemark,
+                  tags
+                });
 
-                const isNewItem = (!isHistoryRecorded && sales90 === 0 && actualAge === 0 && !isGift);
+                totalPcs += importQty;
+                totalCubicFeet += importCubicFeet;
+                if (pm && pm !== '未指定PM') pmSet.add(pm);
+              }
+            });
 
-                let turnMonths = 0;
-                if (!isNewItem && !isGift) {
-                  if (monthlySales > 0) {
-                    turnMonths = parseFloat((dailyTotalImportQty / monthlySales).toFixed(1));
-                  } else {
-                    turnMonths = 99999;
-                  }
-                }
-
-                const levelInfo = getTurnoverLevelInfo(turnMonths, isNewItem, isGift);
-
-                const tags = [];
-                if (isGift) {
-                  tags.push({ text: '🎁 贈品採購', type: 'info' });
-                } else if (isNewItem) {
-                  tags.push({ text: '✨ 首次建檔新品', type: 'success' });
-                } else {
-                  if (isHistoryRecorded && stockQty === 0 && sales90 === 0) tags.push({ text: '📦 斷貨重進舊品', type: 'warning' });
-                  if (sales90 === 0 && importQty > 0 && isHistoryRecorded) tags.push({ text: '🚨 90日零銷量進貨', type: 'danger' });
-                  else if (actualAge >= 180) tags.push({ text: '🚨 高庫齡滯銷進貨', type: 'danger' });
-
-                  if (turnMonths > 6) tags.push({ text: `⚠️ 迴轉月數過高 (${turnMonths >= 99999 ? '99999個月' : turnMonths + '個月'})`, type: 'warning' });
-                  if (sales90 > 0 && dailyTotalImportQty >= (sales90 * 2)) tags.push({ text: `⚠️ 爆量驗收 (進貨>90日銷量2倍)`, type: 'warning' });
-                }
-
-                const allowGift = ruleList.includes('gift') || ruleList.includes('all');
-                if (isGift && !allowGift) return;
-
-                const allowNewItem = ruleList.includes('new_item') || ruleList.includes('all');
-                if (isNewItem && !allowNewItem) return;
-
-                let isMatchRule = false;
-                if (ruleList.includes('all') || ruleList.length === 0) {
-                  isMatchRule = tags.length > 0;
-                } else {
-                  if (ruleList.includes('zero_sales') && tags.some(t => t.text.includes('零銷量') || t.text.includes('滯銷'))) isMatchRule = true;
-                  if (ruleList.includes('high_turnover') && tags.some(t => t.text.includes('迴轉月數過高'))) isMatchRule = true;
-                  if (ruleList.includes('over_import') && tags.some(t => t.text.includes('爆量驗收') || t.text.includes('超量驗收'))) isMatchRule = true;
-                  if (ruleList.includes('gift') && isGift) isMatchRule = true;
-                  if (ruleList.includes('new_item') && isNewItem) isMatchRule = true;
-                }
-
-                let isMatchLevel = false;
-                if (levelList.includes('all') || levelList.length === 0 || levelList.length === 8) {
-                  isMatchLevel = true;
-                } else {
-                  isMatchLevel = levelList.includes(levelInfo.code);
-                }
-
-                if (isMatchRule && isMatchLevel) {
-                  abnormalRows.push({
-                    warehouse: r.warehouse,
-                    rec_date: r.rec_date,
-                    rec_time: r.rec_time,
-                    po_no: r.po_no,
-                    batch_no: r.batch_no,
-                    item_id: r.item_id,
-                    item_name: r.item_name || '-',
-                    import_qty: importQty,
-                    daily_total_import_qty: dailyTotalImportQty,
-                    current_stock_qty: stockQty,
-                    import_cubic_feet: importCubicFeet,
-                    age: actualAge,
-                    monthly_sales: monthlySales,
-                    sales_90d: sales90,
-                    turn_days_total: (isNewItem || isGift) ? '-' : turnMonths,
-                    turnover_level: levelInfo.label,
-                    pm,
-                    supplier_name: supplier,
-                    is_gift: isGift,
-                    custom_remark: noteInfo.remark,
-                    tags
-                  });
-
-                  totalPcs += importQty;
-                  totalCubicFeet += importCubicFeet;
-                  if (pm && pm !== '未指定PM') pmSet.add(pm);
-                }
-              });
-
-              res.json({
-                success: true,
-                summary: {
-                  totalCount: abnormalRows.length,
-                  totalPcs,
-                  totalCubicFeet: parseFloat(totalCubicFeet.toFixed(2)),
-                  pmCount: pmSet.size
-                },
-                data: abnormalRows
-              });
+            res.json({
+              success: true,
+              summary: {
+                totalCount: abnormalRows.length,
+                totalPcs,
+                totalCubicFeet: parseFloat(totalCubicFeet.toFixed(2)),
+                pmCount: pmSet.size
+              },
+              data: abnormalRows
             });
           });
         });
@@ -369,25 +364,26 @@ module.exports = function(db) {
     });
   });
 
-  // 5. 儲存備註
+  // 5. 儲存備註 (同步寫入 item_sales_history，維持雙向相容)
   router.post('/save-note', (req, res) => {
     const { itemId, isGift, remark, updatedBy } = req.body;
     if (!itemId) return res.status(400).json({ success: false, message: '請提供商品編號' });
 
     const key = normalizeKey(itemId);
+    const itemTag = isGift ? '贈品' : '主商品';
+
     const sql = `
-      INSERT INTO item_custom_notes (item_id, is_gift, remark, updated_by, updated_at)
-      VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+      INSERT INTO item_sales_history (item_id, item_tag, remark, updated_at)
+      VALUES (?, ?, ?, DATETIME('now', 'localtime'))
       ON CONFLICT(item_id) DO UPDATE SET
-        is_gift = EXCLUDED.is_gift,
-        remark = EXCLUDED.remark,
-        updated_by = EXCLUDED.updated_by,
-        updated_at = CURRENT_TIMESTAMP
+        item_tag = excluded.item_tag,
+        remark = excluded.remark,
+        updated_at = DATETIME('now', 'localtime')
     `;
 
-    db.run(sql, [key, isGift ? 1 : 0, remark || '', updatedBy || '系統管理員'], function(err) {
+    db.run(sql, [key, itemTag, remark || ''], function(err) {
       if (err) return res.status(500).json({ success: false, message: '儲存備註失敗：' + err.message });
-      res.json({ success: true, message: `🎉 商品 ${key} 備註與贈品狀態已成功儲存！` });
+      res.json({ success: true, message: `🎉 商品 ${key} 屬性與備註已成功永久儲存！` });
     });
   });
 
@@ -433,7 +429,7 @@ module.exports = function(db) {
     });
   });
 
-  // 7. 補結算快照 API
+  // 7. 補結算快照 API (同步完整改為 item_sales_history)
   router.post('/generate-history-snapshot', (req, res) => {
     const { startDate, endDate } = req.body;
     let inSql = `
@@ -460,135 +456,132 @@ module.exports = function(db) {
         dailyTotalImportMap.set(k, (dailyTotalImportMap.get(k) || 0) + qty);
       });
 
-      db.all(`SELECT item_id, is_gift FROM item_custom_notes`, [], (errN, notesRows) => {
-        db.all(`SELECT item_id, total_stock_qty, stock_qty_80, sales_90d, monthly_sales, pm, supplier_name FROM item_sales_history`, [], (errH, histRows) => {
-          db.all(`SELECT item_id, MAX(age) AS max_age, SUM(qty) AS inv_qty, MAX(turn_days_total) AS turn_days, MAX(pm) AS inv_pm, MAX(supplier_name) AS inv_supplier FROM inventory ${validInvCondition} GROUP BY item_id`, [], (err80, inv80Rows) => {
-            db.all(`SELECT item_id, MAX(age) AS max_age, SUM(qty) AS inv_qty, MAX(turn_days_total) AS turn_days, MAX(pm) AS inv_pm, MAX(supplier_name) AS inv_supplier FROM inventory_15 ${validInvCondition} GROUP BY item_id`, [], (err15, inv15Rows) => {
-              
-              const notesMap = new Map();
-              (notesRows || []).forEach(n => notesMap.set(normalizeKey(n.item_id), Number(n.is_gift) === 1));
+      db.all(`SELECT item_id, total_stock_qty, stock_qty_80, sales_90d, monthly_sales, pm, supplier_name, IFNULL(item_tag, '主商品') as item_tag, IFNULL(remark, '') as remark FROM item_sales_history`, [], (errH, histRows) => {
+        db.all(`SELECT item_id, MAX(age) AS max_age, SUM(qty) AS inv_qty, MAX(turn_days_total) AS turn_days, MAX(pm) AS inv_pm, MAX(supplier_name) AS inv_supplier FROM inventory ${validInvCondition} GROUP BY item_id`, [], (err80, inv80Rows) => {
+          db.all(`SELECT item_id, MAX(age) AS max_age, SUM(qty) AS inv_qty, MAX(turn_days_total) AS turn_days, MAX(pm) AS inv_pm, MAX(supplier_name) AS inv_supplier FROM inventory_15 ${validInvCondition} GROUP BY item_id`, [], (err15, inv15Rows) => {
+            
+            const invAgeMap = new Map();
+            const mergeInvRow = (row) => {
+              const k = normalizeKey(row.item_id);
+              if (!k) return;
+              const age = Number(row.max_age) || 0;
+              const qty = Number(row.inv_qty) || 0;
+              const turn = Number(row.turn_days) || 0;
+              const pm = row.inv_pm || '';
+              const supplier = row.inv_supplier || '';
 
-              const invAgeMap = new Map();
-              const mergeInvRow = (row) => {
-                const k = normalizeKey(row.item_id);
-                if (!k) return;
-                const age = Number(row.max_age) || 0;
-                const qty = Number(row.inv_qty) || 0;
-                const turn = Number(row.turn_days) || 0;
-                const pm = row.inv_pm || '';
-                const supplier = row.inv_supplier || '';
+              if (invAgeMap.has(k)) {
+                const exist = invAgeMap.get(k);
+                exist.age = Math.max(exist.age, age);
+                exist.inv_qty += qty;
+                exist.turn_days = Math.max(exist.turn_days, turn);
+                if (!exist.pm && pm) exist.pm = pm;
+                if (!exist.supplier && supplier) exist.supplier = supplier;
+              } else {
+                invAgeMap.set(k, { age, inv_qty: qty, turn_days: turn, pm, supplier });
+              }
+            };
 
-                if (invAgeMap.has(k)) {
-                  const exist = invAgeMap.get(k);
-                  exist.age = Math.max(exist.age, age);
-                  exist.inv_qty += qty;
-                  exist.turn_days = Math.max(exist.turn_days, turn);
-                  if (!exist.pm && pm) exist.pm = pm;
-                  if (!exist.supplier && supplier) exist.supplier = supplier;
-                } else {
-                  invAgeMap.set(k, { age, inv_qty: qty, turn_days: turn, pm, supplier });
+            (inv80Rows || []).forEach(mergeInvRow);
+            (inv15Rows || []).forEach(mergeInvRow);
+
+            const histMap = new Map();
+            (histRows || []).forEach(h => {
+              histMap.set(normalizeKey(h.item_id), {
+                stock_qty: Number(h.total_stock_qty || h.stock_qty_80 || 0),
+                sales_90d: Number(h.sales_90d || 0),
+                monthly_sales: Number(h.monthly_sales || 0),
+                pm: h.pm || '未指定PM',
+                supplier_name: h.supplier_name || '未知供應商',
+                item_tag: h.item_tag || '主商品',
+                remark: h.remark || ''
+              });
+            });
+
+            db.serialize(() => {
+              db.run('BEGIN TRANSACTION');
+              const snapshotStmt = db.prepare(`
+                INSERT INTO abnormal_purchase_history (
+                  snapshot_date, warehouse, rec_date, rec_time, po_no, batch_no,
+                  item_id, item_name, import_qty, length, width, height,
+                  import_cubic_feet, stock_qty, monthly_sales, sales_90d,
+                  turn_months, turnover_level, age, supplier_name, pm, abnormal_tags
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(warehouse, po_no, batch_no, item_id, rec_date) DO UPDATE SET
+                  snapshot_date = EXCLUDED.snapshot_date,
+                  import_qty = EXCLUDED.import_qty, stock_qty = EXCLUDED.stock_qty,
+                  monthly_sales = EXCLUDED.monthly_sales, sales_90d = EXCLUDED.sales_90d,
+                  turn_months = EXCLUDED.turn_months, turnover_level = EXCLUDED.turnover_level,
+                  age = EXCLUDED.age, abnormal_tags = EXCLUDED.abnormal_tags
+              `);
+
+              let snapCount = 0;
+              inboundRows.forEach(r => {
+                const key = normalizeKey(r.item_id);
+                const hist = histMap.get(key);
+                const invInfo = invAgeMap.get(key) || { age: 0, inv_qty: 0, turn_days: 0, pm: '', supplier: '' };
+
+                const isGift = (hist && hist.item_tag === '贈品');
+                const isHistoryRecorded = !!hist;
+                const stockQty = Math.max(hist ? hist.stock_qty : 0, invInfo.inv_qty);
+                const sales90 = hist ? hist.sales_90d : 0;
+                const monthlySales = hist ? hist.monthly_sales : 0;
+                const actualAge = invInfo.age;
+                const pm = invInfo.pm || (hist ? hist.pm : '未指定PM') || '未指定PM';
+                const supplier = invInfo.supplier || (hist ? hist.supplier_name : '未知供應商') || '未知供應商';
+
+                const importQty = Number(r.import_qty) || 0;
+                const dailyTotalImportQty = dailyTotalImportMap.get(key) || importQty;
+                const len = Number(r.length) || 0;
+                const w = Number(r.width) || 0;
+                const h = Number(r.height) || 0;
+
+                const singleCf = (len > 0 && w > 0 && h > 0) ? ((len * w * h) / 28317) : 0;
+                const importCubicFeet = parseFloat((singleCf * importQty).toFixed(2));
+
+                const isNewItem = (!isHistoryRecorded && sales90 === 0 && actualAge === 0 && !isGift);
+
+                let turnMonths = 0;
+                if (!isNewItem && !isGift) {
+                  if (monthlySales > 0) {
+                    turnMonths = parseFloat((dailyTotalImportQty / monthlySales).toFixed(1));
+                  } else {
+                    turnMonths = 99999;
+                  }
                 }
-              };
 
-              (inv80Rows || []).forEach(mergeInvRow);
-              (inv15Rows || []).forEach(mergeInvRow);
+                const levelInfo = getTurnoverLevelInfo(turnMonths, isNewItem, isGift);
 
-              const histMap = new Map();
-              (histRows || []).forEach(h => {
-                histMap.set(normalizeKey(h.item_id), {
-                  stock_qty: Number(h.total_stock_qty || h.stock_qty_80 || 0),
-                  sales_90d: Number(h.sales_90d || 0),
-                  monthly_sales: Number(h.monthly_sales || 0),
-                  pm: h.pm || '未指定PM',
-                  supplier_name: h.supplier_name || '未知供應商'
-                });
+                const tags = [];
+                if (isGift) {
+                  tags.push({ text: '🎁 贈品採購', type: 'info' });
+                } else if (isNewItem) {
+                  tags.push({ text: '✨ 首次建檔新品', type: 'success' });
+                } else {
+                  if (isHistoryRecorded && stockQty === 0 && sales90 === 0) tags.push({ text: '📦 斷貨重進舊品', type: 'warning' });
+                  if (sales90 === 0 && importQty > 0 && isHistoryRecorded) tags.push({ text: '🚨 90日零銷量進貨', type: 'danger' });
+                  else if (actualAge >= 180) tags.push({ text: '🚨 高庫齡滯銷進貨', type: 'danger' });
+
+                  if (turnMonths > 6) tags.push({ text: `⚠️ 迴轉月數過高 (${turnMonths >= 99999 ? '99999個月' : turnMonths + '個月'})`, type: 'warning' });
+                  if (sales90 > 0 && dailyTotalImportQty >= (sales90 * 2)) tags.push({ text: `⚠️ 爆量驗收 (進貨>90日銷量2倍)`, type: 'warning' });
+                }
+
+                if (tags.length > 0) {
+                  snapshotStmt.run(
+                    r.rec_date, r.warehouse, r.rec_date, r.rec_time, r.po_no, r.batch_no,
+                    r.item_id, r.item_name, importQty, len, w, h,
+                    importCubicFeet, stockQty, monthlySales, sales90,
+                    turnMonths, levelInfo.label, actualAge, supplier, pm,
+                    JSON.stringify(tags)
+                  );
+                  snapCount++;
+                }
               });
 
-              db.serialize(() => {
-                db.run('BEGIN TRANSACTION');
-                const snapshotStmt = db.prepare(`
-                  INSERT INTO abnormal_purchase_history (
-                    snapshot_date, warehouse, rec_date, rec_time, po_no, batch_no,
-                    item_id, item_name, import_qty, length, width, height,
-                    import_cubic_feet, stock_qty, monthly_sales, sales_90d,
-                    turn_months, turnover_level, age, supplier_name, pm, abnormal_tags
-                  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                  ON CONFLICT(warehouse, po_no, batch_no, item_id, rec_date) DO UPDATE SET
-                    snapshot_date = EXCLUDED.snapshot_date,
-                    import_qty = EXCLUDED.import_qty, stock_qty = EXCLUDED.stock_qty,
-                    monthly_sales = EXCLUDED.monthly_sales, sales_90d = EXCLUDED.sales_90d,
-                    turn_months = EXCLUDED.turn_months, turnover_level = EXCLUDED.turnover_level,
-                    age = EXCLUDED.age, abnormal_tags = EXCLUDED.abnormal_tags
-                `);
-
-                let snapCount = 0;
-                inboundRows.forEach(r => {
-                  const key = normalizeKey(r.item_id);
-                  const isGift = notesMap.get(key) || false;
-                  const hist = histMap.get(key);
-                  const invInfo = invAgeMap.get(key) || { age: 0, inv_qty: 0, turn_days: 0, pm: '', supplier: '' };
-
-                  const isHistoryRecorded = !!hist;
-                  const stockQty = Math.max(hist ? hist.stock_qty : 0, invInfo.inv_qty);
-                  const sales90 = hist ? hist.sales_90d : 0;
-                  const monthlySales = hist ? hist.monthly_sales : 0;
-                  const actualAge = invInfo.age;
-                  const pm = invInfo.pm || (hist ? hist.pm : '未指定PM') || '未指定PM';
-                  const supplier = invInfo.supplier || (hist ? hist.supplier_name : '未知供應商') || '未知供應商';
-
-                  const importQty = Number(r.import_qty) || 0;
-                  const dailyTotalImportQty = dailyTotalImportMap.get(key) || importQty;
-                  const len = Number(r.length) || 0;
-                  const w = Number(r.width) || 0;
-                  const h = Number(r.height) || 0;
-
-                  const singleCf = (len > 0 && w > 0 && h > 0) ? ((len * w * h) / 28317) : 0;
-                  const importCubicFeet = parseFloat((singleCf * importQty).toFixed(2));
-
-                  const isNewItem = (!isHistoryRecorded && sales90 === 0 && actualAge === 0 && !isGift);
-
-                  let turnMonths = 0;
-                  if (!isNewItem && !isGift) {
-                    if (monthlySales > 0) {
-                      turnMonths = parseFloat((dailyTotalImportQty / monthlySales).toFixed(1));
-                    } else {
-                      turnMonths = 99999;
-                    }
-                  }
-
-                  const levelInfo = getTurnoverLevelInfo(turnMonths, isNewItem, isGift);
-
-                  const tags = [];
-                  if (isGift) {
-                    tags.push({ text: '🎁 贈品採購', type: 'info' });
-                  } else if (isNewItem) {
-                    tags.push({ text: '✨ 首次建檔新品', type: 'success' });
-                  } else {
-                    if (isHistoryRecorded && stockQty === 0 && sales90 === 0) tags.push({ text: '📦 斷貨重進舊品', type: 'warning' });
-                    if (sales90 === 0 && importQty > 0 && isHistoryRecorded) tags.push({ text: '🚨 90日零銷量進貨', type: 'danger' });
-                    else if (actualAge >= 180) tags.push({ text: '🚨 高庫齡滯銷進貨', type: 'danger' });
-
-                    if (turnMonths > 6) tags.push({ text: `⚠️ 迴轉月數過高 (${turnMonths >= 99999 ? '99999個月' : turnMonths + '個月'})`, type: 'warning' });
-                    if (sales90 > 0 && dailyTotalImportQty >= (sales90 * 2)) tags.push({ text: `⚠️ 爆量驗收 (進貨>90日銷量2倍)`, type: 'warning' });
-                  }
-
-                  if (tags.length > 0) {
-                    snapshotStmt.run(
-                      r.rec_date, r.warehouse, r.rec_date, r.rec_time, r.po_no, r.batch_no,
-                      r.item_id, r.item_name, importQty, len, w, h,
-                      importCubicFeet, stockQty, monthlySales, sales90,
-                      turnMonths, levelInfo.label, actualAge, supplier, pm,
-                      JSON.stringify(tags)
-                    );
-                    snapCount++;
-                  }
-                });
-
-                snapshotStmt.finalize();
-                db.run('COMMIT', (commitErr) => {
-                  if (commitErr) return res.status(500).json({ success: false, message: '快照寫入失敗: ' + commitErr.message });
-                  res.json({ success: true, count: snapCount, message: `🎉 成功完成歷史進貨快照結算，共歸檔 ${snapCount} 筆異常紀錄！` });
-                });
+              snapshotStmt.finalize();
+              db.run('COMMIT', (commitErr) => {
+                if (commitErr) return res.status(500).json({ success: false, message: '快照寫入失敗: ' + commitErr.message });
+                res.json({ success: true, count: snapCount, message: `🎉 成功完成歷史進貨快照結算，共歸檔 ${snapCount} 筆異常紀錄！` });
               });
             });
           });
