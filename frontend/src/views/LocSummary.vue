@@ -571,7 +571,7 @@
             </div>
           </el-tab-pane>
 
-          <!-- 頁籤 6：🗓 儲位 7 大 KPI 歷史快照管理清單 -->
+          <!-- 頁籤 6：🗓 儲位 7 大 KPI 歷史快照管理清單[cite: 12] -->
           <el-tab-pane label="🗓️ 儲位 7 大 KPI 歷史快照管理清單" name="history_manager">
             <div class="history-page-wrapper">
               <div class="history-page-header">
@@ -620,6 +620,22 @@
                         <el-table-column prop="health_rate" label="類型健康度" width="110" align="right">
                           <template #default="sub"><span class="text-cyan font-bold">{{ sub.row.health_rate }}%</span></template>
                         </el-table-column>
+                        
+                        <!-- 🌟 新增：與前一次儲位格差異欄位 -->
+                        <el-table-column label="與前一次儲位格差異" min-width="160" align="center">
+                          <template #default="sub">
+                            <span v-if="sub.row.diff_grid > 0" class="diff-tag text-red font-bold">
+                              +{{ formatNumber(sub.row.diff_grid) }} 格 🔺
+                            </span>
+                            <span v-else-if="sub.row.diff_grid < 0" class="diff-tag text-green font-bold">
+                              {{ formatNumber(sub.row.diff_grid) }} 格 🔻
+                            </span>
+                            <span v-else-if="sub.row.diff_grid === 0" class="text-gray">
+                              0 格
+                            </span>
+                            <span v-else class="text-gray">-</span>
+                          </template>
+                        </el-table-column>
                       </el-table>
                     </div>
                   </template>
@@ -663,7 +679,7 @@
       </div>
     </div>
 
-    <!-- ⚙ 儲位定義 Modal -->
+    <!-- ⚙ 儲位定義 Modal[cite: 12] -->
     <el-dialog
       title="⚙️ 儲位定義參數與權限設定"
       v-model="showConfigDialog"
@@ -1075,11 +1091,43 @@ export default {
       return d;
     },
 
+    // 🌟 抓取歷史快照並精確計算「與前一次儲位格差異」
     async fetchHistoryList() {
       try {
         const res = await axios.get('/api/location-stats/history');
         if (res.data && res.data.success) {
-          this.historyList = res.data.data || [];
+          const list = res.data.data || [];
+
+          // 核心邏輯：list 已是按照 record_date DESC (由新到舊) 排序
+          // 當前索引 i 的前一次快照就是索引 i + 1
+          for (let i = 0; i < list.length; i++) {
+            const curItem = list[i];
+            const prevItem = list[i + 1]; // 前一次歷史快照
+
+            // 建立前一次快照中各 loc_type 的使用格數 Map
+            const prevTypeMap = new Map();
+            if (prevItem && Array.isArray(prevItem.type_details)) {
+              prevItem.type_details.forEach(td => {
+                if (td.loc_type) {
+                  prevTypeMap.set(td.loc_type, Number(td.used_grid) || 0);
+                }
+              });
+            }
+
+            // 對當前快照的每一項計算 diff_grid
+            if (Array.isArray(curItem.type_details)) {
+              curItem.type_details.forEach(td => {
+                const curUsed = Number(td.used_grid) || 0;
+                if (prevItem && prevTypeMap.has(td.loc_type)) {
+                  td.diff_grid = curUsed - prevTypeMap.get(td.loc_type);
+                } else {
+                  td.diff_grid = null; // 首次快照或無前次資料
+                }
+              });
+            }
+          }
+
+          this.historyList = list;
         }
       } catch (e) {
         console.error('抓取歷史快照失敗:', e.message);
@@ -1460,7 +1508,16 @@ export default {
 .text-green { color: #4ade80; }
 .text-orange { color: #fbbf24; }
 .text-cyan { color: #22d3ee; }
+.text-red { color: #f87171 !important; }
+.text-gray { color: #94a3b8 !important; }
 .font-bold { font-weight: bold; }
+
+.diff-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+}
 
 .stat-card.highlight-health {
   background: rgba(34, 211, 238, 0.1);
