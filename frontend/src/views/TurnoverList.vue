@@ -728,4 +728,27 @@ export default {
 :deep(.tag-consumable .el-input__inner) { background-color: rgba(148, 163, 184, 0.2) !important; color: #94a3b8 !important; }
 
 .tag-stagnant { background: #f43f5e; color: #ffffff; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 11px; }
-.data-
+.data-table-card { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; }
+.pagination-footer { display: flex; justify-content: flex-end; background: #1e293b; padding: 4px 10px; border-radius: 6px; border: 1px solid #334155; }
+
+.modal-body-content { display: flex; flex-direction: column; gap: 14px; }
+.item-info-line { display: flex; align-items: center; gap: 8px; }
+.item-info-line.column { flex-direction: column; align-items: flex-start; }
+.info-lbl { font-size: 13px; color: #94a3b8; font-weight: bold; }
+.info-val { font-size: 14px; font-weight: bold; }
+
+.dialog-body { display: flex; flex-direction: column; gap: 16px; padding: 10px 0; }
+.param-row { display: flex; align-items: center; gap: 10px; }
+.param-label { width: 120px; text-align: right; font-size: 13px; color: #ffffff !important; font-weight: bold; }
+.param-tip { font-size: 12px; color: #93c5fd !important; }
+.dialog-cancel-btn { background-color: #334155 !important; border-color: #475569 !important; color: #f1f5f9 !important; }
+</style>
+
+<style>
+.custom-turnover-dialog { background-color: #1e293b !important; border: 1px solid #334155 !important; border-radius: 10px !important; }
+.custom-turnover-dialog .el-dialog__header { background-color: #0f172a !important; border-bottom: 1px solid #334155 !important; }
+.custom-turnover-dialog .el-dialog__title { color: #38bdf8 !important; font-weight: bold !important; }
+.custom-turnover-dialog .el-dialog__body { background-color: #1e293b !important; color: #ffffff !important; }
+.custom-turnover-dialog .el-dialog__footer { background-color: #0f172a !important; border-top: 1px solid #334155 !important; }
+.quick-filter-bar .el-input__inner { background-color: #ffffff !important; color: #000000 !important; font-weight: bold !important; padding: 0 4px !important; }
+</style>
