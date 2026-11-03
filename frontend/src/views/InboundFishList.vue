@@ -69,7 +69,7 @@
           🔄 重新整理
         </el-button>
 
-        <!-- 🔒 僅系統管理員 (SysAdmin) 可見與執行刪除 -->
+        <!-- 🔒 僅系統管理員可見與執行刪除 -->
         <el-button
           v-if="checkSysAdmin"
           type="danger"
@@ -210,7 +210,14 @@
                 <td class="text-right">{{ formatPercent(h.recPoPct) }}</td>
                 <td class="text-right">{{ formatNumber(h.recPoCount) }}</td>
                 <td class="text-right font-bold text-blue">{{ formatNumber(h.recPoPcs) }}</td>
-                <td class="text-right font-bold" :class="{ 'text-red': h.unputPoCount > 0 }">
+                
+                <!-- 🌟 點擊跳出時段專屬未上架明細 -->
+                <td 
+                  class="text-right font-bold" 
+                  :class="{ 'text-red clickable-cell': h.unputPoCount > 0 }"
+                  @click="h.unputPoCount > 0 ? openHourPendingDetails(idx, h.hourStr) : null"
+                  :title="h.unputPoCount > 0 ? `點擊查看 ${h.hourStr} 時段 ${h.unputPoCount} 筆未上架明細` : ''"
+                >
                   {{ formatNumber(h.unputPoCount) }}
                 </td>
 
@@ -227,7 +234,14 @@
                 <td class="text-right">{{ formatPercent(h.recBatPct) }}</td>
                 <td class="text-right">{{ formatNumber(h.recBatCount) }}</td>
                 <td class="text-right font-bold text-blue">{{ formatNumber(h.recBatPcs) }}</td>
-                <td class="text-right font-bold" :class="{ 'text-red': h.unputBatCount > 0 }">
+                
+                <!-- 🌟 點擊跳出時段專屬未上架明細 -->
+                <td 
+                  class="text-right font-bold" 
+                  :class="{ 'text-red clickable-cell': h.unputBatCount > 0 }"
+                  @click="h.unputBatCount > 0 ? openHourPendingDetails(idx, h.hourStr) : null"
+                  :title="h.unputBatCount > 0 ? `點擊查看 ${h.hourStr} 時段 ${h.unputBatCount} 筆未上架明細` : ''"
+                >
                   {{ formatNumber(h.unputBatCount) }}
                 </td>
                 <td class="text-right font-bold">{{ formatRatio(h.recBatCount, h.recPoCount) }}</td>
@@ -249,7 +263,9 @@
                 <td class="text-right font-bold">100.00%</td>
                 <td class="text-right font-bold">{{ formatNumber(summaryTotal.recPoCount) }}</td>
                 <td class="text-right font-bold text-blue">{{ formatNumber(summaryTotal.recPoPcs) }}</td>
-                <td class="text-right font-bold text-red">{{ formatNumber(summaryTotal.unputPoCount) }}</td>
+                <td class="text-right font-bold text-red clickable-cell" @click="openPendingDialog" title="點擊查看全日未上架明細">
+                  {{ formatNumber(summaryTotal.unputPoCount) }}
+                </td>
 
                 <td></td>
                 <td class="text-right font-bold">100.00%</td>
@@ -264,7 +280,9 @@
                 <td class="text-right font-bold">100.00%</td>
                 <td class="text-right font-bold">{{ formatNumber(summaryTotal.recBatCount) }}</td>
                 <td class="text-right font-bold text-blue">{{ formatNumber(summaryTotal.recBatPcs) }}</td>
-                <td class="text-right font-bold text-red">{{ formatNumber(summaryTotal.unputBatCount) }}</td>
+                <td class="text-right font-bold text-red clickable-cell" @click="openPendingDialog" title="點擊查看全日未上架明細">
+                  {{ formatNumber(summaryTotal.unputBatCount) }}
+                </td>
                 <td class="text-right font-bold">{{ formatRatio(summaryTotal.recBatCount, summaryTotal.recPoCount) }}</td>
                 <td></td>
                 <td class="text-right font-bold">100.00%</td>
@@ -516,14 +534,14 @@
       </div>
     </el-dialog>
 
-    <!-- 7. 未上架彈窗 -->
+    <!-- 🌟 7. 未上架彈窗 (升級為 96vw 寬度、86vh 高度滿版大介面) -->
     <el-dialog 
       v-model="showPendingDialog" 
       title="⚠️ 尚未上架明細監控與更正處置" 
-      width="92%" 
-      top="4vh"
+      width="96vw" 
+      top="2vh"
       append-to-body 
-      custom-class="dark-dialog large-pending-dialog"
+      custom-class="dark-dialog huge-pending-dialog"
     >
       <div class="pending-dialog-body">
         <div class="pending-summary-sidebar">
@@ -533,8 +551,8 @@
               v-for="item in pendingSummary"
               :key="item.rec_date"
               class="date-item"
-              :class="{ active: selectedPendingDate === item.rec_date }"
-              @click="loadPendingDetails(item.rec_date)"
+              :class="{ active: selectedPendingDate === item.rec_date && selectedHourFilter === null }"
+              @click="loadPendingDetails(item.rec_date, null)"
             >
               <span class="d-text">{{ item.rec_date }}</span>
               <span class="d-badge">{{ item.pending_count }} 筆</span>
@@ -544,7 +562,24 @@
 
         <div class="pending-details-content" v-loading="loadingDetails">
           <div class="content-header" v-if="selectedPendingDate">
-            <span class="detail-title">🔍 <strong>{{ selectedPendingDate }}</strong> 未上架明細 ({{ currentDetailsList.length }} 筆)</span>
+            <div class="title-with-tag">
+              <span class="detail-title">
+                🔍 <strong>{{ selectedPendingDate }}</strong> 
+                <span v-if="selectedHourFilter !== null" class="hour-filter-tag">
+                  [{{ selectedHourStr }} 時段]
+                </span>
+                未上架明細 ({{ filteredDetailsList.length }} 筆)
+              </span>
+              <el-button 
+                v-if="selectedHourFilter !== null" 
+                size="mini" 
+                type="info" 
+                plain
+                @click="clearHourFilter"
+              >
+                顯示當日全部 ({{ currentDetailsList.length }} 筆)
+              </el-button>
+            </div>
             
             <div class="btn-group">
               <el-button
@@ -553,7 +588,7 @@
                 plain
                 @click="toggleSelectAllPage"
               >
-                ☑️ 全選當頁 ({{ currentDetailsList.length }} 筆)
+                ☑️ 全選當前清單 ({{ filteredDetailsList.length }} 筆)
               </el-button>
 
               <el-button
@@ -577,22 +612,22 @@
 
           <el-table
             ref="pendingTable"
-            :data="currentDetailsList"
+            :data="filteredDetailsList"
             border
             stripe
             size="small"
-            height="460px"
+            height="calc(86vh - 150px)"
             class="dark-table"
             @selection-change="handleSelectionChange"
           >
-            <el-table-column type="selection" width="45" align="center" />
-            <el-table-column prop="rec_date" label="驗收日期" width="105" align="center" />
-            <el-table-column prop="rec_time" label="驗收時間" width="85" align="center" />
-            <el-table-column prop="po_no" label="進貨單號" width="150" align="center" />
-            <el-table-column prop="batch_no" label="驗收批號" width="150" align="center" />
+            <el-table-column type="selection" width="48" align="center" fixed="left" />
+            <el-table-column prop="rec_date" label="驗收日期" width="110" align="center" sortable />
+            <el-table-column prop="rec_time" label="驗收時間" width="95" align="center" sortable />
+            <el-table-column prop="po_no" label="進貨單號" width="165" align="center" sortable />
+            <el-table-column prop="batch_no" label="驗收批號" width="160" align="center" sortable />
 
-            <!-- 🌟 新增：商品ID (位於商品名稱左邊，支援點選複製) -->
-            <el-table-column prop="item_id" label="商品ID" width="180" align="center" sortable>
+            <!-- 🌟 商品ID：點擊快速複製 -->
+            <el-table-column prop="item_id" label="商品ID" width="190" align="center" sortable>
               <template #default="scope">
                 <span class="font-bold text-blue clickable-id" @click="copyItemId(scope.row.item_id)" title="點擊可複製商品ID">
                   {{ scope.row.item_id }}
@@ -600,14 +635,14 @@
               </template>
             </el-table-column>
 
-            <el-table-column prop="item_name" label="商品名稱" min-width="220" show-overflow-tooltip />
-            <el-table-column prop="qty" label="數量" width="70" align="right">
+            <el-table-column prop="item_name" label="商品名稱" min-width="260" show-overflow-tooltip sortable />
+            <el-table-column prop="qty" label="數量" width="85" align="right" sortable>
               <template #default="scope">
                 <span class="font-bold text-blue">{{ scope.row.qty }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="remark" label="收貨備註" min-width="160" show-overflow-tooltip />
-            <el-table-column label="處置" width="90" align="center" fixed="right">
+            <el-table-column prop="remark" label="收貨備註" min-width="180" show-overflow-tooltip />
+            <el-table-column label="處置" width="95" align="center" fixed="right">
               <template #default="scope">
                 <el-button type="danger" size="mini" plain @click="openResolveDialog([scope.row])">
                   🛠️ 銷案
@@ -620,7 +655,7 @@
     </el-dialog>
 
     <!-- 8. 更正銷案 Modal -->
-    <el-dialog v-model="showResolveModal" title="🛠️ 銷案/更正未上架記錄" width="420px" append-to-body custom-class="dark-dialog">
+    <el-dialog v-model="showResolveModal" title="🛠️ 銷案/更正未上架記錄" width="440px" append-to-body custom-class="dark-dialog">
       <div class="resolve-form">
         <p>準備更正 <strong>{{ targetResolveItems.length }}</strong> 筆未上架項目：</p>
         
@@ -706,6 +741,10 @@ export default {
       currentDetailsList: [],
       selectedDetailRows: [],
       loadingDetails: false,
+
+      // 🌟 時段篩選狀態
+      selectedHourFilter: null,
+      selectedHourStr: '',
 
       showUploadCardModal: false,
       isCardHover: false,
@@ -821,6 +860,18 @@ export default {
       tot.recCubicFeet = parseFloat(tot.recCubicFeet.toFixed(2));
       const putRate = tot.recPcs > 0 ? ((tot.putPcs / tot.recPcs) * 100).toFixed(2) + '%' : '0.00%';
       return { ...tot, putRate };
+    },
+
+    // 🌟 根據選定時段動態篩選明細
+    filteredDetailsList() {
+      if (this.selectedHourFilter === null) {
+        return this.currentDetailsList;
+      }
+      return this.currentDetailsList.filter(r => {
+        if (!r.rec_time) return false;
+        const hour = parseInt(r.rec_time.split(':')[0], 10);
+        return hour === this.selectedHourFilter;
+      });
     }
   },
   mounted() {
@@ -862,7 +913,6 @@ export default {
       return '雙庫合計';
     },
 
-    // 🌟 複製商品 ID 函式
     copyItemId(id) {
       if (!id) return;
       if (navigator.clipboard && window.isSecureContext) {
@@ -884,7 +934,7 @@ export default {
         document.execCommand('copy');
         ElMessage.success(`📋 已成功複製商品ID：${text}`);
       } catch (err) {
-        ElMessage.error('複製失敗，請手動複製');
+        ElMessage.error('複製失敗');
       }
       document.body.removeChild(input);
     },
@@ -1152,9 +1202,9 @@ export default {
         if (res.data?.success) {
           this.pendingSummary = res.data.pendingSummary || [];
           this.totalPendingCount = this.pendingSummary.reduce((sum, item) => sum + item.pending_count, 0);
-          if (this.pendingSummary.length > 0) {
+          if (this.pendingSummary.length > 0 && !this.selectedPendingDate) {
             this.selectedPendingDate = this.pendingSummary[0].rec_date;
-            this.loadPendingDetails(this.selectedPendingDate);
+            this.loadPendingDetails(this.selectedPendingDate, null);
           }
         }
       } catch (e) {
@@ -1162,13 +1212,38 @@ export default {
       }
     },
 
+    // 🌟 一般打開彈窗（顯示全日）
     openPendingDialog() {
+      this.selectedHourFilter = null;
+      this.selectedHourStr = '';
       this.fetchPendingSummary();
+      if (this.targetDate) {
+        this.selectedPendingDate = this.targetDate;
+        this.loadPendingDetails(this.targetDate, null);
+      }
       this.showPendingDialog = true;
     },
 
-    async loadPendingDetails(recDate) {
+    // 🌟 點擊特定時段的未上架數字穿透
+    openHourPendingDetails(hourIndex, hourLabel) {
+      this.selectedHourFilter = hourIndex;
+      this.selectedHourStr = hourLabel;
+      this.selectedPendingDate = this.targetDate;
+      this.fetchPendingSummary();
+      this.loadPendingDetails(this.targetDate, hourIndex);
+      this.showPendingDialog = true;
+    },
+
+    clearHourFilter() {
+      this.selectedHourFilter = null;
+      this.selectedHourStr = '';
+    },
+
+    async loadPendingDetails(recDate, hourFilter = null) {
       this.selectedPendingDate = recDate;
+      if (hourFilter !== undefined) {
+        this.selectedHourFilter = hourFilter;
+      }
       this.loadingDetails = true;
       try {
         const res = await axios.get('/api/inbound/pending-details', { params: { recDate } });
@@ -1191,11 +1266,11 @@ export default {
 
     toggleSelectAllPage() {
       if (!this.$refs.pendingTable) return;
-      const isAllSelected = this.selectedDetailRows.length === this.currentDetailsList.length;
+      const isAllSelected = this.selectedDetailRows.length === this.filteredDetailsList.length;
       if (isAllSelected) {
         this.$refs.pendingTable.clearSelection();
       } else {
-        this.currentDetailsList.forEach(row => {
+        this.filteredDetailsList.forEach(row => {
           this.$refs.pendingTable.toggleRowSelection(row, true);
         });
       }
@@ -1464,12 +1539,23 @@ export default {
   font-weight: bold;
 }
 
+/* 🌟 可點擊單元格樣式 */
+.clickable-cell {
+  cursor: pointer;
+  text-decoration: underline;
+  transition: all 0.2s;
+}
+.clickable-cell:hover {
+  color: #f87171 !important;
+  text-shadow: 0 0 6px rgba(239, 68, 68, 0.6);
+  transform: scale(1.08);
+}
+
 .clickable-id {
   cursor: pointer;
   color: #38bdf8;
   transition: all 0.2s;
 }
-
 .clickable-id:hover {
   text-decoration: underline;
   color: #60a5fa;
@@ -1538,25 +1624,32 @@ export default {
   pointer-events: none;
 }
 
-:deep(.el-dialog.dark-dialog.large-pending-dialog) {
+/* 🌟 85%~90% 螢幕滿版未上架彈窗 */
+:deep(.el-dialog.dark-dialog.huge-pending-dialog) {
   background-color: #1e293b !important;
   color: #f8fafc !important;
   border: 1px solid #334155 !important;
-  border-radius: 8px !important;
-  margin-bottom: 20px !important;
+  border-radius: 10px !important;
+  height: 94vh !important;
+  display: flex !important;
+  flex-direction: column !important;
+  margin-bottom: 0 !important;
 }
 
-:deep(.large-pending-dialog .el-dialog__header) {
+:deep(.huge-pending-dialog .el-dialog__header) {
   background-color: #0f172a !important;
   border-bottom: 1px solid #334155 !important;
-  padding: 14px 20px !important;
+  padding: 12px 20px !important;
   margin-right: 0 !important;
+  flex-shrink: 0 !important;
 }
 
-:deep(.large-pending-dialog .el-dialog__body) {
+:deep(.huge-pending-dialog .el-dialog__body) {
   background-color: #1e293b !important;
-  padding: 16px !important;
+  padding: 12px 18px !important;
   color: #f8fafc !important;
+  flex: 1 !important;
+  overflow: hidden !important;
 }
 
 :deep(.dark-dialog .el-dialog__title) {
@@ -1587,14 +1680,17 @@ export default {
   gap: 16px;
   background-color: #1e293b;
   width: 100%;
+  height: 100%;
   box-sizing: border-box;
 }
 
 .pending-summary-sidebar {
-  width: 220px;
+  width: 230px;
   flex-shrink: 0;
   border-right: 1px solid #334155;
   padding-right: 12px;
+  display: flex;
+  flex-direction: column;
 }
 
 .sidebar-title {
@@ -1605,7 +1701,7 @@ export default {
 }
 
 .date-list {
-  max-height: 460px;
+  flex: 1;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -1616,7 +1712,7 @@ export default {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 12px;
+  padding: 10px 14px;
   background: #0f172a;
   border: 1px solid #334155;
   border-radius: 6px;
@@ -1624,6 +1720,7 @@ export default {
   font-size: 13px;
   color: #f8fafc !important;
   font-weight: 500;
+  transition: all 0.2s;
 }
 
 .date-item:hover {
@@ -1651,19 +1748,37 @@ export default {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
+  height: 100%;
 }
 
 .content-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-shrink: 0;
+}
+
+.title-with-tag {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .detail-title {
-  font-size: 13px;
+  font-size: 14px;
   color: #f8fafc;
+}
+
+.hour-filter-tag {
+  background: #b91c1c;
+  color: #fef2f2;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: bold;
+  font-size: 12px;
+  margin: 0 4px;
 }
 
 .resolve-form {
