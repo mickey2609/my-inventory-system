@@ -193,7 +193,7 @@
           <template #default="scope"><span class="text-cyan font-bold">{{ formatNumber(scope.row.pallets, 2) }}</span></template>
         </el-table-column>
 
-        <!-- 🌟 純文字標籤：商品屬性 -->
+        <!-- 純文字標籤：商品屬性 -->
         <el-table-column prop="item_tag" label="商品屬性" width="110" align="center" sortable fixed="right">
           <template #default="scope">
             <span class="tag-badge" :class="getTagBadgeClass(scope.row.item_tag)">
@@ -202,7 +202,7 @@
           </template>
         </el-table-column>
 
-        <!-- 🌟 純文字顯示：自訂備註 -->
+        <!-- 純文字顯示：自訂備註 -->
         <el-table-column prop="remark" label="自訂備註" min-width="150" show-overflow-tooltip fixed="right">
           <template #default="scope">
             <span :class="scope.row.remark ? 'text-light' : 'text-gray'">
@@ -234,9 +234,19 @@
       class="custom-turnover-dialog"
     >
       <div v-if="activeItem" class="modal-body-content">
+        <!-- 🌟 商品編號列：加入複製按鈕 -->
         <div class="item-info-line">
           <span class="info-lbl">商品編號：</span>
           <span class="info-val text-blue">{{ activeItem.item_id }}</span>
+          <el-button 
+            size="mini" 
+            type="primary" 
+            plain 
+            class="copy-btn"
+            @click="copyItemId(activeItem.item_id)"
+          >
+            📋 複製ID
+          </el-button>
         </div>
         <div class="item-info-line">
           <span class="info-lbl">商品名稱：</span>
@@ -425,6 +435,33 @@ export default {
       if (t > 60 && t <= 120) return 'y_5_10';
       if (t > 120) return 'y_over_10';
       return 'y_under_1';
+    },
+
+    // 🌟 一鍵複製商品編號
+    copyItemId(id) {
+      if (!id) return;
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(id).then(() => {
+          ElMessage.success(`📋 已成功複製商品編號：${id}`);
+        }).catch(() => {
+          this.fallbackCopy(id);
+        });
+      } else {
+        this.fallbackCopy(id);
+      }
+    },
+    fallbackCopy(text) {
+      const input = document.createElement('textarea');
+      input.value = text;
+      document.body.appendChild(input);
+      input.select();
+      try {
+        document.execCommand('copy');
+        ElMessage.success(`📋 已成功複製商品編號：${text}`);
+      } catch (err) {
+        ElMessage.error('複製失敗，請手動選取複製');
+      }
+      document.body.removeChild(input);
     },
 
     openQuickTagModal(row) {
@@ -699,7 +736,12 @@ export default {
 .clickable-link { cursor: pointer; text-decoration: underline; transition: all 0.2s; }
 .clickable-link:hover { color: #38bdf8 !important; text-shadow: 0 0 4px rgba(56, 189, 248, 0.5); }
 
-/* 🌟 純文字標籤樣式 */
+.copy-btn {
+  margin-left: 10px;
+  padding: 3px 8px;
+  font-size: 11px;
+}
+
 .tag-badge {
   display: inline-block;
   padding: 2px 8px;
@@ -707,25 +749,10 @@ export default {
   font-size: 12px;
   font-weight: bold;
 }
-.badge-main {
-  color: #94a3b8;
-  background: rgba(148, 163, 184, 0.1);
-}
-.badge-gift {
-  color: #f43f5e;
-  background: rgba(244, 63, 94, 0.15);
-  border: 1px solid rgba(244, 63, 94, 0.3);
-}
-.badge-sample {
-  color: #eab308;
-  background: rgba(234, 179, 8, 0.15);
-  border: 1px solid rgba(234, 179, 8, 0.3);
-}
-.badge-consumable {
-  color: #38bdf8;
-  background: rgba(56, 189, 248, 0.15);
-  border: 1px solid rgba(56, 189, 248, 0.3);
-}
+.badge-main { color: #94a3b8; background: rgba(148, 163, 184, 0.1); }
+.badge-gift { color: #f43f5e; background: rgba(244, 63, 94, 0.15); border: 1px solid rgba(244, 63, 94, 0.3); }
+.badge-sample { color: #eab308; background: rgba(234, 179, 8, 0.15); border: 1px solid rgba(234, 179, 8, 0.3); }
+.badge-consumable { color: #38bdf8; background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.3); }
 
 .text-light { color: #f1f5f9; }
 

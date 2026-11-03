@@ -124,7 +124,7 @@
           </template>
         </el-table-column>
 
-        <!-- 🌟 純文字標籤：商品屬性 -->
+        <!-- 純文字標籤：商品屬性 -->
         <el-table-column prop="item_tag" label="商品屬性" width="110" align="center" sortable fixed="right">
           <template #default="scope">
             <span class="tag-badge" :class="getTagBadgeClass(scope.row.item_tag)">
@@ -133,7 +133,7 @@
           </template>
         </el-table-column>
 
-        <!-- 🌟 純文字顯示：自訂備註 -->
+        <!-- 純文字顯示：自訂備註 -->
         <el-table-column prop="remark" label="自訂備註" min-width="160" show-overflow-tooltip fixed="right">
           <template #default="scope">
             <span :class="scope.row.remark ? 'text-light' : 'text-gray'">
@@ -166,9 +166,19 @@
       class="custom-tag-dialog"
     >
       <div v-if="activeItem" class="modal-body-content">
+        <!-- 🌟 商品編號列：加入複製按鈕 -->
         <div class="item-info-line">
           <span class="info-lbl">商品編號：</span>
           <span class="info-val text-blue">{{ activeItem.item_id }}</span>
+          <el-button 
+            size="mini" 
+            type="primary" 
+            plain 
+            class="copy-btn"
+            @click="copyItemId(activeItem.item_id)"
+          >
+            📋 複製ID
+          </el-button>
         </div>
         <div class="item-info-line">
           <span class="info-lbl">商品名稱：</span>
@@ -267,6 +277,33 @@ export default {
     handleCurrentChange(val) {
       this.currentPage = val;
       this.fetchHistoryData();
+    },
+
+    // 🌟 一鍵複製商品編號
+    copyItemId(id) {
+      if (!id) return;
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(id).then(() => {
+          ElMessage.success(`📋 已成功複製商品編號：${id}`);
+        }).catch(() => {
+          this.fallbackCopy(id);
+        });
+      } else {
+        this.fallbackCopy(id);
+      }
+    },
+    fallbackCopy(text) {
+      const input = document.createElement('textarea');
+      input.value = text;
+      document.body.appendChild(input);
+      input.select();
+      try {
+        document.execCommand('copy');
+        ElMessage.success(`📋 已成功複製商品編號：${text}`);
+      } catch (err) {
+        ElMessage.error('複製失敗，請手動選取複製');
+      }
+      document.body.removeChild(input);
     },
 
     async fetchHistoryData() {
@@ -390,7 +427,12 @@ export default {
   text-shadow: 0 0 4px rgba(56, 189, 248, 0.5);
 }
 
-/* 🌟 純文字標籤樣式 */
+.copy-btn {
+  margin-left: 10px;
+  padding: 3px 8px;
+  font-size: 11px;
+}
+
 .tag-badge {
   display: inline-block;
   padding: 2px 8px;
