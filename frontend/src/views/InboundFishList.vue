@@ -69,7 +69,7 @@
           🔄 重新整理
         </el-button>
 
-        <!-- 🔒 嚴格限制：僅「系統管理員 (SysAdmin)」可看見與執行刪除 -->
+        <!-- 🔒 僅系統管理員 (SysAdmin) 可見與執行刪除 -->
         <el-button
           v-if="checkSysAdmin"
           type="danger"
@@ -80,7 +80,7 @@
           🗑️ 刪除進貨資料
         </el-button>
 
-        <!-- 🔓 開放：一般管理員 (Admin) 與 系統管理員 (SysAdmin) 均可進行小卡投放匯入 -->
+        <!-- 🔓 一般管理員與系統管理員均可匯入 -->
         <el-button
           v-if="checkAdmin"
           type="success"
@@ -590,6 +590,16 @@
             <el-table-column prop="rec_time" label="驗收時間" width="85" align="center" />
             <el-table-column prop="po_no" label="進貨單號" width="150" align="center" />
             <el-table-column prop="batch_no" label="驗收批號" width="150" align="center" />
+
+            <!-- 🌟 新增：商品ID (位於商品名稱左邊，支援點選複製) -->
+            <el-table-column prop="item_id" label="商品ID" width="180" align="center" sortable>
+              <template #default="scope">
+                <span class="font-bold text-blue clickable-id" @click="copyItemId(scope.row.item_id)" title="點擊可複製商品ID">
+                  {{ scope.row.item_id }}
+                </span>
+              </template>
+            </el-table-column>
+
             <el-table-column prop="item_name" label="商品名稱" min-width="220" show-overflow-tooltip />
             <el-table-column prop="qty" label="數量" width="70" align="right">
               <template #default="scope">
@@ -727,7 +737,6 @@ export default {
     }
   },
   computed: {
-    // 🔒 僅系統管理員可以使用與看到刪除
     checkSysAdmin() {
       if (this.isSysAdmin) return true;
       try {
@@ -740,7 +749,6 @@ export default {
       const username = localStorage.getItem('currentUser') || localStorage.getItem('username') || '';
       return username === 'admin' || username === '系統管理員';
     },
-    // 🔓 一般管理員與系統管理員均可匯入
     checkAdmin() {
       if (this.isSysAdmin || this.isAdmin) return true;
       try {
@@ -852,6 +860,33 @@ export default {
       if (wh === '80') return '80 庫';
       if (wh === '15') return '15 庫';
       return '雙庫合計';
+    },
+
+    // 🌟 複製商品 ID 函式
+    copyItemId(id) {
+      if (!id) return;
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(id).then(() => {
+          ElMessage.success(`📋 已成功複製商品ID：${id}`);
+        }).catch(() => {
+          this.fallbackCopy(id);
+        });
+      } else {
+        this.fallbackCopy(id);
+      }
+    },
+    fallbackCopy(text) {
+      const input = document.createElement('textarea');
+      input.value = text;
+      document.body.appendChild(input);
+      input.select();
+      try {
+        document.execCommand('copy');
+        ElMessage.success(`📋 已成功複製商品ID：${text}`);
+      } catch (err) {
+        ElMessage.error('複製失敗，請手動複製');
+      }
+      document.body.removeChild(input);
     },
 
     globalBlockDrop(e) {
@@ -1427,6 +1462,17 @@ export default {
 .text-yellow {
   color: #fef08a !important;
   font-weight: bold;
+}
+
+.clickable-id {
+  cursor: pointer;
+  color: #38bdf8;
+  transition: all 0.2s;
+}
+
+.clickable-id:hover {
+  text-decoration: underline;
+  color: #60a5fa;
 }
 
 /* 投放小卡風格 */
