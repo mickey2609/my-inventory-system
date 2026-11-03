@@ -53,51 +53,12 @@ module.exports = function(db) {
 
     db.run(`ALTER TABLE inbound_details ADD COLUMN is_resolved INTEGER DEFAULT 0`, () => {});
     db.run(`ALTER TABLE inbound_details ADD COLUMN resolve_reason TEXT`, () => {});
-    // 為高頻查詢欄位建立索引，大幅提升查詢效能
     db.run(`CREATE INDEX IF NOT EXISTS idx_inbound_rec_date ON inbound_details (rec_date)`, () => {});
     db.run(`CREATE INDEX IF NOT EXISTS idx_inbound_item_id ON inbound_details (item_id)`, () => {});
+    db.run(`CREATE INDEX IF NOT EXISTS idx_inbound_batch_no ON inbound_details (batch_no)`, () => {});
   });
 
-  // 清空地端所有進貨明細 API
-  router.post('/clear-inbound-data', (req, res) => {
-    db.run('DELETE FROM inbound_details', (err) => {
-      if (err) return res.status(500).json({ success: false, message: '清空失敗：' + err.message });
-      res.json({ success: true, message: '🎉 已成功清空地端所有進貨明細資料！' });
-    });
-  });
-
-  // 依驗收日期刪除 API
-  router.post('/delete-by-date', (req, res) => {
-    const { startDate, endDate, warehouse } = req.body;
-
-    if (!startDate) {
-      return res.status(400).json({ success: false, message: '請提供欲刪除的日期！' });
-    }
-
-    let sql = `DELETE FROM inbound_details WHERE 1=1`;
-    const params = [];
-
-    const targetEnd = endDate || startDate;
-    sql += ` AND rec_date >= ? AND rec_date <= ?`;
-    params.push(startDate, targetEnd);
-
-    if (warehouse && warehouse !== 'all') {
-      sql += ` AND warehouse = ?`;
-      params.push(warehouse);
-    }
-
-    db.run(sql, params, function(err) {
-      if (err) return res.status(500).json({ success: false, message: '刪除資料失敗：' + err.message });
-      const whLabel = warehouse && warehouse !== 'all' ? `${warehouse} 庫` : '雙庫';
-      res.json({ 
-        success: true, 
-        count: this.changes, 
-        message: `🗑️ 成功刪除 ${whLabel} 於驗收日期 ${startDate} ${endDate ? '~ ' + endDate : ''} 共 ${this.changes} 筆進貨明細資料！` 
-      });
-    });
-  });
-
-  // 1. 匯入 API (低記憶體流式分批處理，絕不觸發 OOM 崩潰)
+  // 1. 匯入 API
   router.post('/import-json', async (req, res) => {
     const items = req.body.items || req.body;
     const fileName = req.body.fileName || 'latest_inbound.csv';
@@ -317,9 +278,10 @@ module.exports = function(db) {
     });
   });
 
-  // 5. 魚群分析 API (支援單號、批號、以及板貨 vs 散貨聚合計算)
+  // 5. 單日魚群分析 API (支援 threshold 門檻參數，預設 30 才)
   router.get('/fish-analysis', (req, res) => {
     const { targetDate, warehouse, remarks } = req.query;
+    const threshold = parseFloat(req.query.threshold) || 30; // 🌟 支援自訂每板才數
 
     if (!targetDate) {
       return res.status(400).json({ success: false, message: '請指定 targetDate (YYYY-MM-DD)' });
@@ -344,7 +306,6 @@ module.exports = function(db) {
 
       const filteredRows = rows.filter(r => {
         if (!remarkList.length) return true;
-
         const rem = (r.remark || '').trim();
         let matched = false;
 
@@ -355,7 +316,6 @@ module.exports = function(db) {
         return matched;
       });
 
-      // 初始化 24 個時段統計容器
       const hourlyData = Array.from({ length: 24 }, (_, h) => ({
         hour: h,
         hourStr: `${String(h).padStart(2, '0')}:00 ~ ${String(h + 1).padStart(2, '0')}:00`,
@@ -368,7 +328,6 @@ module.exports = function(db) {
         putPoPcs: 0,
         recBatSet: new Set(),
         putBatSet: new Set(),
-        // 板貨 / 散貨時段聚合
         palletBatchCount: 0,
         palletVolume: 0,
         palletPallets: 0,
@@ -379,7 +338,6 @@ module.exports = function(db) {
         palletRate: '0.00%'
       }));
 
-      // 按驗收批號聚合才數：Map<batch_no, { hour, volume, qty, po_no, isPut }>
       const batchMap = new Map();
 
       filteredRows.forEach(r => {
@@ -387,13 +345,11 @@ module.exports = function(db) {
         const len = Number(r.length) || 0;
         const w = Number(r.width) || 0;
         const h = Number(r.height) || 0;
-        // 才數計算分母 27000
         const pieceCubicFeet = (len > 0 && w > 0 && h > 0) ? ((len * w * h) / 27000) : 0;
         const lineVolume = pieceCubicFeet * qty;
 
         const isPut = (r.put_date && r.put_date.trim() !== '' && r.put_date.includes('-')) || r.is_resolved === 1;
 
-        // 當日驗收統計
         if (r.rec_date === targetDate && r.rec_time) {
           const hStr = r.rec_time.split(':')[0];
           const recHour = parseInt(hStr, 10);
@@ -404,7 +360,6 @@ module.exports = function(db) {
               const bNo = r.batch_no.trim();
               hStat.recBatSet.add(bNo);
 
-              // 記錄進批號 Map 供板/散判定
               if (!batchMap.has(bNo)) {
                 batchMap.set(bNo, {
                   hour: recHour,
@@ -429,7 +384,6 @@ module.exports = function(db) {
           }
         }
 
-        // 當日上架統計
         if (r.put_date === targetDate && r.put_time) {
           const hStr = r.put_time.split(':')[0];
           const putHour = parseInt(hStr, 10);
@@ -442,12 +396,11 @@ module.exports = function(db) {
         }
       });
 
-      // 依批號總才數劃分：>= 30才為板貨 (1批=1板)，< 30才為散貨
       batchMap.forEach((info) => {
         const hStat = hourlyData[info.hour];
         const vol = parseFloat(info.volume.toFixed(2));
 
-        if (vol >= 30) {
+        if (vol >= threshold) {
           hStat.palletBatchCount += 1;
           hStat.palletVolume += vol;
           hStat.palletPallets += 1;
@@ -457,12 +410,11 @@ module.exports = function(db) {
         }
       });
 
-      // 計算散貨折算板數、總板數與板貨率
       let dayPalletBat = 0, dayPalletVol = 0, dayPalletPlt = 0;
       let dayLooseBat = 0, dayLooseVol = 0, dayLoosePlt = 0;
 
       const hourlyStats = hourlyData.map(d => {
-        const loosePallets = parseFloat((d.looseVolume / 30).toFixed(2));
+        const loosePallets = parseFloat((d.looseVolume / threshold).toFixed(2));
         const totalPallets = parseFloat((d.palletPallets + loosePallets).toFixed(2));
         const palletRate = totalPallets > 0 ? ((d.palletPallets / totalPallets) * 100).toFixed(2) + '%' : '0.00%';
 
@@ -476,6 +428,7 @@ module.exports = function(db) {
 
         return {
           hourStr: d.hourStr,
+          hour: d.hour,
           recPoCount: d.recPoSet.size,
           recPoPcs: d.recPoPcs,
           unputPoCount: d.unputPoSet.size,
@@ -485,7 +438,6 @@ module.exports = function(db) {
           putPoPcs: d.putPoPcs,
           recBatCount: d.recBatSet.size,
           putBatCount: d.putBatSet.size,
-          // 板貨 vs 散貨指標
           palletBatchCount: d.palletBatchCount,
           palletVolume: parseFloat(d.palletVolume.toFixed(2)),
           palletPallets: d.palletPallets,
@@ -503,6 +455,7 @@ module.exports = function(db) {
 
       res.json({
         success: true,
+        threshold,
         totalFiltered: filteredRows.length,
         hourlyStats,
         cargoSummary: {
@@ -521,9 +474,10 @@ module.exports = function(db) {
     });
   });
 
-  // 6. 每月每日總表 API
+  // 6. 每月每日總表 API (加入板貨 / 散貨統計)
   router.get('/monthly-summary', (req, res) => {
     const { month, warehouse, remarks } = req.query;
+    const threshold = parseFloat(req.query.threshold) || 30;
 
     if (!month) {
       return res.status(400).json({ success: false, message: '請提供查詢月份 (YYYY-MM)' });
@@ -557,6 +511,7 @@ module.exports = function(db) {
       });
 
       const daysInMonthMap = {};
+      const dayBatchMap = {}; // date -> batch_no -> volume
 
       filteredRows.forEach(r => {
         if (r.rec_date && r.rec_date.startsWith(month)) {
@@ -573,8 +528,17 @@ module.exports = function(db) {
               putPoSet: new Set(),
               putBatSet: new Set(),
               putPcs: 0,
-              recPutMatchedPcs: 0
+              recPutMatchedPcs: 0,
+              palletBatchCount: 0,
+              palletVolume: 0,
+              palletPallets: 0,
+              looseBatchCount: 0,
+              looseVolume: 0,
+              loosePallets: 0,
+              totalPallets: 0,
+              palletRate: '0.00%'
             };
+            dayBatchMap[d] = new Map();
           }
 
           if (r.po_no) daysInMonthMap[d].recPoSet.add(r.po_no.trim());
@@ -585,9 +549,17 @@ module.exports = function(db) {
           const length = r.length || 0;
           const width = r.width || 0;
           const height = r.height || 0;
+          let lineVolume = 0;
           if (length > 0 && width > 0 && height > 0 && qty > 0) {
             const singleCf = (length * width * height) / 27000;
-            daysInMonthMap[d].recCubicFeet += (singleCf * qty);
+            lineVolume = singleCf * qty;
+            daysInMonthMap[d].recCubicFeet += lineVolume;
+          }
+
+          if (r.batch_no) {
+            const bNo = r.batch_no.trim();
+            const curVol = dayBatchMap[d].get(bNo) || 0;
+            dayBatchMap[d].set(bNo, curVol + lineVolume);
           }
 
           const isPut = (r.put_date && r.put_date.trim() !== '' && r.put_date.includes('-')) || r.is_resolved === 1;
@@ -613,8 +585,17 @@ module.exports = function(db) {
               putPoSet: new Set(),
               putBatSet: new Set(),
               putPcs: 0,
-              recPutMatchedPcs: 0
+              recPutMatchedPcs: 0,
+              palletBatchCount: 0,
+              palletVolume: 0,
+              palletPallets: 0,
+              looseBatchCount: 0,
+              looseVolume: 0,
+              loosePallets: 0,
+              totalPallets: 0,
+              palletRate: '0.00%'
             };
+            dayBatchMap[d] = new Map();
           }
           if (r.po_no) daysInMonthMap[d].putPoSet.add(r.po_no.trim());
           if (r.batch_no) daysInMonthMap[d].putBatSet.add(r.batch_no.trim());
@@ -622,10 +603,41 @@ module.exports = function(db) {
         }
       });
 
+      // 聚合每日板貨與散貨
+      Object.keys(dayBatchMap).forEach(d => {
+        const map = dayBatchMap[d];
+        const dayStat = daysInMonthMap[d];
+        map.forEach((vol) => {
+          const v = parseFloat(vol.toFixed(2));
+          if (v >= threshold) {
+            dayStat.palletBatchCount += 1;
+            dayStat.palletVolume += v;
+            dayStat.palletPallets += 1;
+          } else {
+            dayStat.looseBatchCount += 1;
+            dayStat.looseVolume += v;
+          }
+        });
+        dayStat.loosePallets = parseFloat((dayStat.looseVolume / threshold).toFixed(2));
+        dayStat.totalPallets = parseFloat((dayStat.palletPallets + dayStat.loosePallets).toFixed(2));
+        dayStat.palletRate = dayStat.totalPallets > 0 ? ((dayStat.palletPallets / dayStat.totalPallets) * 100).toFixed(2) + '%' : '0.00%';
+      });
+
+      let mPalletBat = 0, mPalletVol = 0, mPalletPlt = 0;
+      let mLooseBat = 0, mLooseVol = 0, mLoosePlt = 0;
+
       const dailyList = Object.keys(daysInMonthMap).sort().map(d => {
         const item = daysInMonthMap[d];
         const putRateVal = item.recPcs > 0 ? (item.recPutMatchedPcs / item.recPcs) * 100 : 0;
-        
+
+        mPalletBat += item.palletBatchCount;
+        mPalletVol += item.palletVolume;
+        mPalletPlt += item.palletPallets;
+
+        mLooseBat += item.looseBatchCount;
+        mLooseVol += item.looseVolume;
+        mLoosePlt += item.loosePallets;
+
         return {
           date: item.date,
           recPoCount: item.recPoSet.size,
@@ -637,21 +649,47 @@ module.exports = function(db) {
           putPoCount: item.putPoSet.size,
           putBatCount: item.putBatSet.size,
           putPcs: item.putPcs,
-          putRate: Math.min(100, putRateVal).toFixed(2) + '%'
+          putRate: Math.min(100, putRateVal).toFixed(2) + '%',
+          palletBatchCount: item.palletBatchCount,
+          palletVolume: parseFloat(item.palletVolume.toFixed(2)),
+          palletPallets: item.palletPallets,
+          looseBatchCount: item.looseBatchCount,
+          looseVolume: parseFloat(item.looseVolume.toFixed(2)),
+          loosePallets: item.loosePallets,
+          totalPallets: item.totalPallets,
+          palletRate: item.palletRate
         };
       });
+
+      const mTotalPallets = parseFloat((mPalletPlt + mLoosePlt).toFixed(2));
+      const mPalletRate = mTotalPallets > 0 ? ((mPalletPlt / mTotalPallets) * 100).toFixed(2) : '0.00';
+      const mLooseRate = mTotalPallets > 0 ? (100 - parseFloat(mPalletRate)).toFixed(2) : '0.00';
 
       res.json({
         success: true,
         month,
-        dailyList
+        threshold,
+        dailyList,
+        cargoSummary: {
+          totalVolume: parseFloat((mPalletVol + mLooseVol).toFixed(2)),
+          totalPallets: mTotalPallets,
+          palletBatchCount: mPalletBat,
+          palletVolume: parseFloat(mPalletVol.toFixed(2)),
+          palletPallets: mPalletPlt,
+          palletRate: mPalletRate + '%',
+          looseBatchCount: mLooseBat,
+          looseVolume: parseFloat(mLooseVol.toFixed(2)),
+          loosePallets: parseFloat(mLoosePlt.toFixed(2)),
+          looseRate: mLooseRate + '%'
+        }
       });
     });
   });
 
-  // 7. 年度每月總表 API
+  // 7. 年度每月總表 API (加入板貨 / 散貨統計)
   router.get('/yearly-summary', (req, res) => {
     const { year, warehouse, remarks } = req.query;
+    const threshold = parseFloat(req.query.threshold) || 30;
 
     if (!year) {
       return res.status(400).json({ success: false, message: '請提供查詢年份 (YYYY)' });
@@ -685,6 +723,8 @@ module.exports = function(db) {
       });
 
       const monthsMap = {};
+      const monthBatchMap = {};
+
       for (let m = 1; m <= 12; m++) {
         const mStr = `${year}-${String(m).padStart(2, '0')}`;
         monthsMap[mStr] = {
@@ -698,8 +738,17 @@ module.exports = function(db) {
           putPoSet: new Set(),
           putBatSet: new Set(),
           putPcs: 0,
-          recPutMatchedPcs: 0
+          recPutMatchedPcs: 0,
+          palletBatchCount: 0,
+          palletVolume: 0,
+          palletPallets: 0,
+          looseBatchCount: 0,
+          looseVolume: 0,
+          loosePallets: 0,
+          totalPallets: 0,
+          palletRate: '0.00%'
         };
+        monthBatchMap[mStr] = new Map();
       }
 
       filteredRows.forEach(r => {
@@ -714,9 +763,17 @@ module.exports = function(db) {
             const length = r.length || 0;
             const width = r.width || 0;
             const height = r.height || 0;
+            let lineVolume = 0;
             if (length > 0 && width > 0 && height > 0 && qty > 0) {
               const singleCf = (length * width * height) / 27000;
-              monthsMap[mStr].recCubicFeet += (singleCf * qty);
+              lineVolume = singleCf * qty;
+              monthsMap[mStr].recCubicFeet += lineVolume;
+            }
+
+            if (r.batch_no) {
+              const bNo = r.batch_no.trim();
+              const curVol = monthBatchMap[mStr].get(bNo) || 0;
+              monthBatchMap[mStr].set(bNo, curVol + lineVolume);
             }
 
             const isPut = (r.put_date && r.put_date.trim() !== '' && r.put_date.includes('-')) || r.is_resolved === 1;
@@ -739,9 +796,39 @@ module.exports = function(db) {
         }
       });
 
+      Object.keys(monthBatchMap).forEach(mStr => {
+        const map = monthBatchMap[mStr];
+        const mStat = monthsMap[mStr];
+        map.forEach((vol) => {
+          const v = parseFloat(vol.toFixed(2));
+          if (v >= threshold) {
+            mStat.palletBatchCount += 1;
+            mStat.palletVolume += v;
+            mStat.palletPallets += 1;
+          } else {
+            mStat.looseBatchCount += 1;
+            mStat.looseVolume += v;
+          }
+        });
+        mStat.loosePallets = parseFloat((mStat.looseVolume / threshold).toFixed(2));
+        mStat.totalPallets = parseFloat((mStat.palletPallets + mStat.loosePallets).toFixed(2));
+        mStat.palletRate = mStat.totalPallets > 0 ? ((mStat.palletPallets / mStat.totalPallets) * 100).toFixed(2) + '%' : '0.00%';
+      });
+
+      let yPalletBat = 0, yPalletVol = 0, yPalletPlt = 0;
+      let yLooseBat = 0, yLooseVol = 0, yLoosePlt = 0;
+
       const monthlyList = Object.keys(monthsMap).sort().map(m => {
         const item = monthsMap[m];
         const putRateVal = item.recPcs > 0 ? (item.recPutMatchedPcs / item.recPcs) * 100 : 0;
+
+        yPalletBat += item.palletBatchCount;
+        yPalletVol += item.palletVolume;
+        yPalletPlt += item.palletPallets;
+
+        yLooseBat += item.looseBatchCount;
+        yLooseVol += item.looseVolume;
+        yLoosePlt += item.loosePallets;
 
         return {
           month: item.month,
@@ -754,19 +841,146 @@ module.exports = function(db) {
           putPoCount: item.putPoSet.size,
           putBatCount: item.putBatSet.size,
           putPcs: item.putPcs,
-          putRate: Math.min(100, putRateVal).toFixed(2) + '%'
+          putRate: Math.min(100, putRateVal).toFixed(2) + '%',
+          palletBatchCount: item.palletBatchCount,
+          palletVolume: parseFloat(item.palletVolume.toFixed(2)),
+          palletPallets: item.palletPallets,
+          looseBatchCount: item.looseBatchCount,
+          looseVolume: parseFloat(item.looseVolume.toFixed(2)),
+          loosePallets: item.loosePallets,
+          totalPallets: item.totalPallets,
+          palletRate: item.palletRate
         };
       });
+
+      const yTotalPallets = parseFloat((yPalletPlt + yLoosePlt).toFixed(2));
+      const yPalletRate = yTotalPallets > 0 ? ((yPalletPlt / yTotalPallets) * 100).toFixed(2) : '0.00';
+      const yLooseRate = yTotalPallets > 0 ? (100 - parseFloat(yPalletRate)).toFixed(2) : '0.00';
 
       res.json({
         success: true,
         year,
-        monthlyList
+        threshold,
+        monthlyList,
+        cargoSummary: {
+          totalVolume: parseFloat((yPalletVol + yLooseVol).toFixed(2)),
+          totalPallets: yTotalPallets,
+          palletBatchCount: yPalletBat,
+          palletVolume: parseFloat(yPalletVol.toFixed(2)),
+          palletPallets: yPalletPlt,
+          palletRate: yPalletRate + '%',
+          looseBatchCount: yLooseBat,
+          looseVolume: parseFloat(yLooseVol.toFixed(2)),
+          loosePallets: parseFloat(yLoosePlt.toFixed(2)),
+          looseRate: yLooseRate + '%'
+        }
       });
     });
   });
 
-  // 8. 依日期區間一鍵批次銷案 API
+  // 🌟 8. 點選批數穿透：查詢板貨或散貨的商品品項明細 API
+  router.get('/cargo-details', (req, res) => {
+    const { targetDate, targetMonth, targetYear, hour, type, threshold: qThreshold, warehouse, remarks } = req.query;
+    const threshold = parseFloat(qThreshold) || 30;
+
+    let sql = `SELECT * FROM inbound_details WHERE 1=1`;
+    const params = [];
+
+    if (targetDate) {
+      sql += ` AND rec_date = ?`;
+      params.push(targetDate);
+    } else if (targetMonth) {
+      sql += ` AND rec_date LIKE ?`;
+      params.push(`${targetMonth}%`);
+    } else if (targetYear) {
+      sql += ` AND rec_date LIKE ?`;
+      params.push(`${targetYear}%`);
+    }
+
+    if (warehouse && warehouse !== 'all') {
+      sql += ` AND warehouse = ?`;
+      params.push(warehouse);
+    }
+
+    db.all(sql, params, (err, rows) => {
+      if (err) return res.status(500).json({ success: false, message: err.message });
+
+      rows = rows || [];
+      const remarkList = Array.isArray(remarks) ? remarks : (remarks || '').split(',').map(s => s.trim()).filter(Boolean);
+
+      const filtered = rows.filter(r => {
+        if (!remarkList.length) return true;
+        const rem = (r.remark || '').trim();
+        let matched = false;
+        if (remarkList.includes('15') && (rem.includes('15庫') || rem.includes('原15庫'))) matched = true;
+        if (remarkList.includes('empty') && rem === '') matched = true;
+        if (remarkList.includes('abnormal') && rem !== '' && !rem.includes('15庫')) matched = true;
+        return matched;
+      });
+
+      // 依批號計算總才數
+      const batchVolumeMap = new Map();
+      filtered.forEach(r => {
+        const qty = Number(r.qty) || 0;
+        const len = Number(r.length) || 0;
+        const w = Number(r.width) || 0;
+        const h = Number(r.height) || 0;
+        const cf = (len > 0 && w > 0 && h > 0) ? ((len * w * h) / 27000) * qty : 0;
+        const bNo = r.batch_no || 'UNKNOWN';
+        batchVolumeMap.set(bNo, (batchVolumeMap.get(bNo) || 0) + cf);
+      });
+
+      // 挑出符合條件之明細
+      const resultRows = [];
+      filtered.forEach(r => {
+        if (hour !== undefined && hour !== null && hour !== '') {
+          const rHour = r.rec_time ? parseInt(r.rec_time.split(':')[0], 10) : -1;
+          if (rHour !== parseInt(hour, 10)) return;
+        }
+
+        const bNo = r.batch_no || 'UNKNOWN';
+        const totalBatVol = batchVolumeMap.get(bNo) || 0;
+
+        const isPallet = (totalBatVol >= threshold);
+        if (type === 'pallet' && !isPallet) return;
+        if (type === 'loose' && isPallet) return;
+
+        const qty = Number(r.qty) || 0;
+        const len = Number(r.length) || 0;
+        const w = Number(r.width) || 0;
+        const h = Number(r.height) || 0;
+        const lineCf = (len > 0 && w > 0 && h > 0) ? ((len * w * h) / 27000) * qty : 0;
+
+        resultRows.push({
+          rec_date: r.rec_date,
+          rec_time: r.rec_time,
+          warehouse: r.warehouse,
+          po_no: r.po_no,
+          batch_no: r.batch_no,
+          item_id: r.item_id,
+          item_name: r.item_name,
+          qty: qty,
+          length: len,
+          width: w,
+          height: h,
+          line_volume: parseFloat(lineCf.toFixed(2)),
+          batch_total_volume: parseFloat(totalBatVol.toFixed(2)),
+          remark: r.remark || '',
+          cargo_type: isPallet ? '板貨' : '散貨'
+        });
+      });
+
+      res.json({
+        success: true,
+        type,
+        threshold,
+        count: resultRows.length,
+        data: resultRows
+      });
+    });
+  });
+
+  // 9. 依日期區間批次銷案 API
   router.post('/batch-resolve-range', (req, res) => {
     const { startDate, endDate, reason, customPutDate } = req.body;
 
