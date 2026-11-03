@@ -10,7 +10,7 @@
           placeholder="搜尋商品編號 / 商品名稱 / 供應商"
           size="small"
           clearable
-          style="width: 260px;"
+          style="width: 240px;"
           @keyup.enter="handleSearch"
           @clear="handleSearch"
         />
@@ -20,12 +20,12 @@
           placeholder="篩選 PM"
           size="small"
           clearable
-          style="width: 120px;"
+          style="width: 110px;"
           @keyup.enter="handleSearch"
           @clear="handleSearch"
         />
 
-        <el-select v-model="tagFilter" placeholder="商品屬性" size="small" clearable style="width: 120px;" @change="handleSearch">
+        <el-select v-model="tagFilter" placeholder="商品屬性" size="small" clearable style="width: 115px;" @change="handleSearch">
           <el-option label="📦 主商品" value="主商品" />
           <el-option label="🎁 贈品" value="贈品" />
           <el-option label="🏷️ 樣品" value="樣品" />
@@ -41,6 +41,17 @@
       </div>
 
       <div class="action-group">
+        <!-- 🌟 批次調整屬性按鈕 -->
+        <el-button 
+          type="warning" 
+          size="small" 
+          icon="el-icon-edit"
+          :disabled="selectedRows.length === 0"
+          @click="openBatchTagModal"
+        >
+          ⚡ 批次調整屬性 {{ selectedRows.length > 0 ? `(${selectedRows.length})` : '' }}
+        </el-button>
+
         <el-button type="info" size="small" icon="el-icon-refresh" :loading="loading" @click="fetchHistoryData">
           🔄 重新整理
         </el-button>
@@ -54,14 +65,28 @@
     <!-- 2. 明細表格 -->
     <div class="table-container" v-loading="loading">
       <el-table
+        ref="multipleTable"
         :data="tableData"
         border
         stripe
         size="small"
         height="calc(100vh - 180px)"
         class="dark-table"
+        @selection-change="handleSelectionChange"
       >
-        <!-- 商品編號 (點選開啟快速標記) -->
+        <!-- 🌟 批次勾選列 -->
+        <el-table-column type="selection" width="48" align="center" fixed="left" />
+
+        <!-- 🌟 1. 商品屬性：移至商品編號的左邊 -->
+        <el-table-column prop="item_tag" label="商品屬性" width="115" align="center" sortable fixed="left">
+          <template #default="scope">
+            <span class="tag-badge" :class="getTagBadgeClass(scope.row.item_tag)">
+              {{ formatTagText(scope.row.item_tag) }}
+            </span>
+          </template>
+        </el-table-column>
+
+        <!-- 🌟 2. 商品編號：點選開啟單筆標記彈窗 -->
         <el-table-column prop="item_id" label="商品編號" width="165" align="center" sortable fixed="left">
           <template #default="scope">
             <span class="font-bold text-blue clickable-link" @click="openQuickTagModal(scope.row)">
@@ -124,16 +149,7 @@
           </template>
         </el-table-column>
 
-        <!-- 純文字標籤：商品屬性 -->
-        <el-table-column prop="item_tag" label="商品屬性" width="110" align="center" sortable fixed="right">
-          <template #default="scope">
-            <span class="tag-badge" :class="getTagBadgeClass(scope.row.item_tag)">
-              {{ formatTagText(scope.row.item_tag) }}
-            </span>
-          </template>
-        </el-table-column>
-
-        <!-- 純文字顯示：自訂備註 -->
+        <!-- 自訂備註 (保留在後方檢視) -->
         <el-table-column prop="remark" label="自訂備註" min-width="160" show-overflow-tooltip fixed="right">
           <template #default="scope">
             <span :class="scope.row.remark ? 'text-light' : 'text-gray'">
@@ -157,7 +173,7 @@
       </div>
     </div>
 
-    <!-- 點選商品 ID 彈出的快速標記對話盒 -->
+    <!-- 3. 單筆點選商品 ID 快速標記 Modal -->
     <el-dialog 
       v-model="showQuickTagModal" 
       title="🏷️ 商品屬性與備註標記" 
@@ -166,7 +182,6 @@
       class="custom-tag-dialog"
     >
       <div v-if="activeItem" class="modal-body-content">
-        <!-- 🌟 商品編號列：加入複製按鈕 -->
         <div class="item-info-line">
           <span class="info-lbl">商品編號：</span>
           <span class="info-val text-blue">{{ activeItem.item_id }}</span>
@@ -210,6 +225,47 @@
         </span>
       </template>
     </el-dialog>
+
+    <!-- 🌟 4. 批次調整商品屬性 Modal -->
+    <el-dialog 
+      v-model="showBatchModal" 
+      title="⚡ 批次調整商品屬性" 
+      width="480px"
+      append-to-body
+      class="custom-tag-dialog"
+    >
+      <div class="modal-body-content">
+        <div class="batch-alert">
+          💡 目前已選取 <strong class="text-orange">{{ selectedRows.length }}</strong> 筆商品，將整批套用以下設定：
+        </div>
+        <div class="item-info-line">
+          <span class="info-lbl">統一設定屬性：</span>
+          <el-radio-group v-model="batchTag" size="small">
+            <el-radio-button label="主商品">📦 主商品</el-radio-button>
+            <el-radio-button label="贈品">🎁 贈品</el-radio-button>
+            <el-radio-button label="樣品">🏷️ 樣品</el-radio-button>
+            <el-radio-button label="耗材">📦 耗材</el-radio-button>
+          </el-radio-group>
+        </div>
+        <div class="item-info-line column">
+          <span class="info-lbl">統一附加備註 (選填，若空白則保留原備註)：</span>
+          <el-input 
+            v-model="batchRemark" 
+            type="textarea" 
+            :rows="3" 
+            placeholder="若輸入內容將會覆蓋所選商品的備註；若留空則維持原備註不變。"
+          />
+        </div>
+      </div>
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button size="small" @click="showBatchModal = false">取消</el-button>
+          <el-button type="warning" size="small" :loading="batchSaving" @click="executeBatchUpdate">
+            ⚡ 確認批次套用 ({{ selectedRows.length }} 筆)
+          </el-button>
+        </span>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -233,6 +289,14 @@ export default {
       pageSize: 500,
       totalRows: 0,
 
+      // 批次選取狀態
+      selectedRows: [],
+      showBatchModal: false,
+      batchTag: '贈品',
+      batchRemark: '',
+      batchSaving: false,
+
+      // 單筆標記 Modal
       showQuickTagModal: false,
       activeItem: null,
       modalTag: '主商品',
@@ -263,6 +327,10 @@ export default {
       return 'badge-main';
     },
 
+    handleSelectionChange(val) {
+      this.selectedRows = val;
+    },
+
     handleSearch() {
       this.currentPage = 1;
       this.fetchHistoryData();
@@ -279,7 +347,6 @@ export default {
       this.fetchHistoryData();
     },
 
-    // 🌟 一鍵複製商品編號
     copyItemId(id) {
       if (!id) return;
       if (navigator.clipboard && window.isSecureContext) {
@@ -359,6 +426,46 @@ export default {
       }
     },
 
+    // 🌟 打開批次設定 Modal
+    openBatchTagModal() {
+      if (this.selectedRows.length === 0) return ElMessage.warning('請先勾選欲調整屬性的商品');
+      this.batchTag = '贈品';
+      this.batchRemark = '';
+      this.showBatchModal = true;
+    },
+
+    // 🌟 執行批次更新
+    async executeBatchUpdate() {
+      if (this.selectedRows.length === 0) return;
+      this.batchSaving = true;
+
+      const ids = this.selectedRows.map(r => r.item_id);
+      try {
+        const res = await axios.post('/api/item-sales-history/batch-update-tag-remark', {
+          item_ids: ids,
+          item_tag: this.batchTag,
+          remark: this.batchRemark
+        });
+
+        if (res.data?.success) {
+          ElMessage.success(res.data.message);
+          // 本地即時更新選取項目狀態
+          this.selectedRows.forEach(row => {
+            row.item_tag = this.batchTag;
+            if (this.batchRemark) row.remark = this.batchRemark;
+          });
+          this.showBatchModal = false;
+          if (this.$refs.multipleTable) this.$refs.multipleTable.clearSelection();
+        } else {
+          ElMessage.error(res.data?.message || '批次更新失敗');
+        }
+      } catch (e) {
+        ElMessage.error('批次更新錯誤：' + (e.response?.data?.message || e.message));
+      } finally {
+        this.batchSaving = false;
+      }
+    },
+
     async exportExcel() {
       if (!this.totalRows) return ElMessage.warning('無可匯出的資料！');
 
@@ -379,6 +486,7 @@ export default {
 
         if (res.data?.success && res.data.data) {
           const exportRows = res.data.data.map(r => ({
+            '商品屬性': r.item_tag || '主商品',
             '商品編號': r.item_id,
             '商品名稱': r.item_name,
             '所屬PM': r.pm,
@@ -390,7 +498,6 @@ export default {
             '(近)90日銷量': r.sales_90d,
             '最後庫存檔日期': r.last_record_date,
             '最後進貨驗收日期': r.last_inbound_date,
-            '商品屬性': r.item_tag || '主商品',
             '自訂備註': r.remark || ''
           }));
 
@@ -431,6 +538,16 @@ export default {
   margin-left: 10px;
   padding: 3px 8px;
   font-size: 11px;
+}
+
+.batch-alert {
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid #f59e0b;
+  color: #fcd34d;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  margin-bottom: 4px;
 }
 
 .tag-badge {
