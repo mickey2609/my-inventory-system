@@ -193,34 +193,21 @@
           <template #default="scope"><span class="text-cyan font-bold">{{ formatNumber(scope.row.pallets, 2) }}</span></template>
         </el-table-column>
 
-        <!-- 🌟 移到最後面：商品屬性 -->
-        <el-table-column prop="item_tag" label="商品屬性" width="115" align="center" sortable fixed="right">
+        <!-- 🌟 純文字標籤：商品屬性 -->
+        <el-table-column prop="item_tag" label="商品屬性" width="110" align="center" sortable fixed="right">
           <template #default="scope">
-            <el-select 
-              v-model="scope.row.item_tag" 
-              size="mini" 
-              class="tag-select"
-              :class="getTagClass(scope.row.item_tag)"
-              @change="saveItemAttr(scope.row)"
-            >
-              <el-option label="📦 主商品" value="主商品" />
-              <el-option label="🎁 贈品" value="贈品" />
-              <el-option label="🏷️ 樣品" value="樣品" />
-              <el-option label="📦 耗材" value="耗材" />
-            </el-select>
+            <span class="tag-badge" :class="getTagBadgeClass(scope.row.item_tag)">
+              {{ formatTagText(scope.row.item_tag) }}
+            </span>
           </template>
         </el-table-column>
 
-        <!-- 🌟 移到最後面：自訂備註 -->
+        <!-- 🌟 純文字顯示：自訂備註 -->
         <el-table-column prop="remark" label="自訂備註" min-width="150" show-overflow-tooltip fixed="right">
           <template #default="scope">
-            <el-input 
-              v-model="scope.row.remark" 
-              size="mini" 
-              placeholder="備註..." 
-              @blur="saveItemAttr(scope.row)"
-              @keyup.enter.native="$event.target.blur()"
-            />
+            <span :class="scope.row.remark ? 'text-light' : 'text-gray'">
+              {{ scope.row.remark || '-' }}
+            </span>
           </template>
         </el-table-column>
       </el-table>
@@ -392,11 +379,18 @@ export default {
       if (isNaN(num)) return val;
       return num.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
     },
-    getTagClass(tag) {
-      if (tag === '贈品') return 'tag-gift';
-      if (tag === '樣品') return 'tag-sample';
-      if (tag === '耗材') return 'tag-consumable';
-      return '';
+    formatTagText(tag) {
+      if (!tag || tag === '主商品') return '📦 主商品';
+      if (tag === '贈品') return '🎁 贈品';
+      if (tag === '樣品') return '🏷️ 樣品';
+      if (tag === '耗材') return '📦 耗材';
+      return tag;
+    },
+    getTagBadgeClass(tag) {
+      if (tag === '贈品') return 'badge-gift';
+      if (tag === '樣品') return 'badge-sample';
+      if (tag === '耗材') return 'badge-consumable';
+      return 'badge-main';
     },
     handleCheckAllChange(val) {
       this.selectedTiers = val ? [...ALL_TIER_KEYS] : [];
@@ -454,22 +448,6 @@ export default {
           this.attrMap[this.activeItem.item_id] = { item_tag: this.modalTag, remark: this.modalRemark };
           ElMessage.success(res.data.message);
           this.showQuickTagModal = false;
-        }
-      } catch (e) {
-        ElMessage.error('儲存失敗：' + (e.response?.data?.message || e.message));
-      }
-    },
-
-    async saveItemAttr(row) {
-      try {
-        const res = await axios.post('/api/item-sales-history/update-tag-remark', {
-          item_id: row.item_id,
-          item_tag: row.item_tag,
-          remark: row.remark
-        });
-        if (res.data?.success) {
-          this.attrMap[row.item_id] = { item_tag: row.item_tag, remark: row.remark };
-          ElMessage.success(res.data.message);
         }
       } catch (e) {
         ElMessage.error('儲存失敗：' + (e.response?.data?.message || e.message));
@@ -721,9 +699,35 @@ export default {
 .clickable-link { cursor: pointer; text-decoration: underline; transition: all 0.2s; }
 .clickable-link:hover { color: #38bdf8 !important; text-shadow: 0 0 4px rgba(56, 189, 248, 0.5); }
 
-:deep(.tag-gift .el-input__inner) { background-color: rgba(244, 63, 94, 0.2) !important; color: #f43f5e !important; font-weight: bold; border-color: #f43f5e !important; }
-:deep(.tag-sample .el-input__inner) { background-color: rgba(234, 179, 8, 0.2) !important; color: #eab308 !important; font-weight: bold; }
-:deep(.tag-consumable .el-input__inner) { background-color: rgba(148, 163, 184, 0.2) !important; color: #94a3b8 !important; }
+/* 🌟 純文字標籤樣式 */
+.tag-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: bold;
+}
+.badge-main {
+  color: #94a3b8;
+  background: rgba(148, 163, 184, 0.1);
+}
+.badge-gift {
+  color: #f43f5e;
+  background: rgba(244, 63, 94, 0.15);
+  border: 1px solid rgba(244, 63, 94, 0.3);
+}
+.badge-sample {
+  color: #eab308;
+  background: rgba(234, 179, 8, 0.15);
+  border: 1px solid rgba(234, 179, 8, 0.3);
+}
+.badge-consumable {
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.15);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+}
+
+.text-light { color: #f1f5f9; }
 
 .tag-stagnant { background: #f43f5e; color: #ffffff; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 11px; }
 .data-table-card { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; }
