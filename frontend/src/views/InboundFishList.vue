@@ -532,7 +532,7 @@
       </div>
     </el-dialog>
 
-    <!-- 7. 未上架彈窗 (96vw 寬、86vh 高滿版介面)[cite: 26] -->
+    <!-- 🌟 7. 未上架彈窗 (去除側欄，全面釋放寬度給明細表格) -->
     <el-dialog 
       v-model="showPendingDialog" 
       title="⚠️ 尚未上架明細監控與更正處置" 
@@ -541,32 +541,38 @@
       append-to-body 
       custom-class="dark-dialog huge-pending-dialog"
     >
-      <div class="pending-dialog-body">
-        <div class="pending-summary-sidebar">
-          <p class="sidebar-title">📅 選擇驗收日期：</p>
-          <div class="date-list">
-            <div
-              v-for="item in pendingSummary"
-              :key="item.rec_date"
-              class="date-item"
-              :class="{ active: selectedPendingDate === item.rec_date && selectedHourFilter === null }"
-              @click="loadPendingDetails(item.rec_date, null)"
-            >
-              <span class="d-text">{{ item.rec_date }}</span>
-              <span class="d-badge">{{ item.pending_count }} 筆</span>
-            </div>
-          </div>
-        </div>
-
+      <div class="pending-dialog-body single-column">
         <div class="pending-details-content" v-loading="loadingDetails">
-          <div class="content-header" v-if="selectedPendingDate">
+          <!-- 頂部操作與過濾列（整合日期下拉） -->
+          <div class="content-header">
             <div class="title-with-tag">
-              <span class="detail-title">
-                🔍 <strong>{{ selectedPendingDate }}</strong> 
-                <span v-if="selectedHourFilter !== null" class="hour-filter-tag">
-                  [{{ selectedHourStr }} 時段]
-                </span>
-                未上架明細 ({{ filteredDetailsList.length }} 筆)
+              <!-- 🌟 驗收日期下拉選單 -->
+              <span class="control-label">📅 驗收日期：</span>
+              <el-select
+                v-model="selectedPendingDate"
+                size="small"
+                style="width: 200px;"
+                @change="onPendingDateSelectChange"
+              >
+                <el-option
+                  v-for="item in pendingSummary"
+                  :key="item.rec_date"
+                  :label="`${item.rec_date} (${item.pending_count} 筆)`"
+                  :value="item.rec_date"
+                >
+                  <span style="float: left">{{ item.rec_date }}</span>
+                  <span style="float: right; color: #fbbf24; font-weight: bold; font-size: 12px">
+                    {{ item.pending_count }} 筆
+                  </span>
+                </el-option>
+              </el-select>
+
+              <span v-if="selectedHourFilter !== null" class="hour-filter-tag">
+                [{{ selectedHourStr }} 時段]
+              </span>
+
+              <span class="detail-count-text">
+                共 <strong>{{ filteredDetailsList.length }}</strong> 筆明細
               </span>
 
               <!-- 頂部快捷庫別過濾 -->
@@ -576,9 +582,9 @@
                 <el-radio-button label="15">🔍 15庫</el-radio-button>
               </el-radio-group>
 
-              <!-- 🌟 AI 異常件篩選按鈕群 -->
+              <!-- AI 異常件篩選按鈕群 -->
               <el-radio-group v-model="aiFilterStatus" size="mini" class="ai-filter-radio">
-                <el-radio-button label="all">🤖 全部 ({{ currentDetailsList.length }})</el-radio-button>
+                <el-radio-button label="all">全部 ({{ currentDetailsList.length }})</el-radio-button>
                 <el-radio-button label="abnormal">
                   🚨 僅看異常件 ({{ abnormalCount }})
                 </el-radio-button>
@@ -625,13 +631,14 @@
             </div>
           </div>
 
+          <!-- 明細表格（享受 100% 寬度） -->
           <el-table
             ref="pendingTable"
             :data="filteredDetailsList"
             border
             stripe
             size="small"
-            height="calc(86vh - 150px)"
+            height="calc(86vh - 130px)"
             class="dark-table"
             @selection-change="handleSelectionChange"
           >
@@ -680,7 +687,7 @@
               </template>
             </el-table-column>
 
-            <!-- 🌟 AI 異常判斷欄位 -->
+            <!-- AI 異常判斷欄位 -->
             <el-table-column label="AI 異常判斷" width="140" align="center" sortable :sort-method="(a, b) => (analyzeRemark(a.remark).isAbnormal ? 1 : 0) - (analyzeRemark(b.remark).isAbnormal ? 1 : 0)">
               <template #default="scope">
                 <el-tooltip :content="analyzeRemark(scope.row.remark).reason" placement="top" :disabled="!analyzeRemark(scope.row.remark).reason">
@@ -695,7 +702,7 @@
             </el-table-column>
 
             <!-- 收貨備註 -->
-            <el-table-column prop="remark" label="收貨備註" min-width="200" show-overflow-tooltip>
+            <el-table-column prop="remark" label="收貨備註" min-width="220" show-overflow-tooltip>
               <template #default="scope">
                 <span :class="analyzeRemark(scope.row.remark).isAbnormal ? 'text-red font-bold' : 'text-gray'">
                   {{ scope.row.remark || '-' }}
@@ -924,12 +931,10 @@ export default {
       return { ...tot, putRate };
     },
 
-    // 計算當前明細中的異常件總數
     abnormalCount() {
       return this.currentDetailsList.filter(r => this.analyzeRemark(r.remark).isAbnormal).length;
     },
 
-    // 🌟 綜合時段、庫別、AI 狀態進行多維度過濾
     filteredDetailsList() {
       let list = this.currentDetailsList;
 
@@ -993,7 +998,7 @@ export default {
       return '雙庫合計';
     },
 
-    // 🌟 AI 智慧備註文字特徵診斷核心
+    // 🌟 AI 智慧備註文字特徵診斷核心 (已加入正常品判定)
     analyzeRemark(rawRemark) {
       if (!rawRemark) {
         return { isAbnormal: false, label: '⚪ 正常件', reason: '收貨備註為空' };
@@ -1004,11 +1009,18 @@ export default {
         return { isAbnormal: false, label: '⚪ 正常件', reason: '無特別註記' };
       }
 
-      // 常規庫存調撥標記（非異常件）
-      const normalKeywords = ['(原15庫)', '原15庫', '15庫', '(同步)', '同步', '正常調撥'];
+      // 🌟 常規作業與調撥白名單（非異常件）
+      const normalKeywords = [
+        '(原15庫)', '原15庫', '15庫',
+        '(原82庫)', '原82庫', '82庫',
+        '(同步)', '同步',
+        '(書)驗入時立即收貨', '驗入時立即收貨',
+        '正常調撥'
+      ];
+      
       const isOnlyTransfer = normalKeywords.some(k => str === k || str === `(${k})`);
       if (isOnlyTransfer) {
-        return { isAbnormal: false, label: '📦 調撥正常', reason: '為常規庫存調撥註記' };
+        return { isAbnormal: false, label: '📦 作業正常', reason: '為常規庫存調撥或正常收貨備註' };
       }
 
       // 1. 數量異常特徵 (含廠商手改、數量Q問、短少溢收)
@@ -1031,8 +1043,9 @@ export default {
         return { isAbnormal: true, label: '🚨 單據異常', reason: `檢測到進貨單據缺失或不符字樣：${str}` };
       }
 
-      // 5. 其餘非空白且非單純調撥的文字說明，一律提示為待確認異常件
-      if (str.replace(/\(原15庫\)|原15庫|\(同步\)/g, '').trim().length > 0) {
+      // 5. 其餘非空白且排除正常調撥字眼後的文字
+      const cleaned = str.replace(/\(原15庫\)|原15庫|\(原82庫\)|原82庫|82庫|\(同步\)|\(書\)驗入時立即收貨|驗入時立即收貨/g, '').trim();
+      if (cleaned.length > 0) {
         return { isAbnormal: true, label: '⚠️ 特殊備註', reason: `包含需人工確認之自訂註記：${str}` };
       }
 
@@ -1369,6 +1382,10 @@ export default {
     clearHourFilter() {
       this.selectedHourFilter = null;
       this.selectedHourStr = '';
+    },
+
+    onPendingDateSelectChange(val) {
+      this.loadPendingDetails(val, null);
     },
 
     async loadPendingDetails(recDate, hourFilter = null) {
@@ -1715,7 +1732,7 @@ export default {
   border: 1px solid rgba(34, 197, 94, 0.3);
 }
 
-/* 🌟 AI 狀態徽章樣式 */
+/* AI 狀態徽章樣式 */
 .ai-status-badge {
   display: inline-block;
   padding: 2px 8px;
@@ -1849,81 +1866,19 @@ export default {
   border-bottom: 1px solid #334155 !important;
 }
 
-.pending-dialog-body {
-  display: flex;
-  gap: 16px;
-  background-color: #1e293b;
+/* 🌟 單欄彈窗本體（無側欄模式） */
+.pending-dialog-body.single-column {
+  display: block;
   width: 100%;
   height: 100%;
   box-sizing: border-box;
 }
 
-.pending-summary-sidebar {
-  width: 230px;
-  flex-shrink: 0;
-  border-right: 1px solid #334155;
-  padding-right: 12px;
-  display: flex;
-  flex-direction: column;
-}
-
-.sidebar-title {
-  margin: 0 0 10px 0;
-  font-size: 13px;
-  color: #38bdf8;
-  font-weight: bold;
-}
-
-.date-list {
-  flex: 1;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.date-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 14px;
-  background: #0f172a;
-  border: 1px solid #334155;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 13px;
-  color: #f8fafc !important;
-  font-weight: 500;
-  transition: all 0.2s;
-}
-
-.date-item:hover {
-  border-color: #38bdf8;
-  background: rgba(56, 189, 248, 0.2);
-}
-
-.date-item.active {
-  border-color: #38bdf8;
-  background: #0284c7 !important;
-  color: #ffffff !important;
-  font-weight: bold;
-}
-
-.d-badge {
-  color: #fbbf24;
-  font-weight: bold;
-}
-
-.date-item.active .d-badge {
-  color: #fef08a;
-}
-
 .pending-details-content {
-  flex: 1;
+  width: 100%;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-width: 0;
   height: 100%;
 }
 
@@ -1932,17 +1887,28 @@ export default {
   justify-content: space-between;
   align-items: center;
   flex-shrink: 0;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .title-with-tag {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
 }
 
-.detail-title {
-  font-size: 14px;
-  color: #f8fafc;
+.control-label {
+  font-size: 13px;
+  color: #38bdf8;
+  font-weight: bold;
+  white-space: nowrap;
+}
+
+.detail-count-text {
+  font-size: 13px;
+  color: #cbd5e1;
+  margin-left: 2px;
 }
 
 .hour-filter-tag {
@@ -1952,7 +1918,6 @@ export default {
   border-radius: 4px;
   font-weight: bold;
   font-size: 12px;
-  margin: 0 4px;
 }
 
 .pending-wh-radio, .ai-filter-radio {
