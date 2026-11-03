@@ -532,7 +532,7 @@
       </div>
     </el-dialog>
 
-    <!-- 7. 未上架彈窗 (96vw 寬、86vh 高滿版介面) -->
+    <!-- 7. 未上架彈窗 (96vw 寬、86vh 高滿版介面)[cite: 26] -->
     <el-dialog 
       v-model="showPendingDialog" 
       title="⚠️ 尚未上架明細監控與更正處置" 
@@ -569,11 +569,20 @@
                 未上架明細 ({{ filteredDetailsList.length }} 筆)
               </span>
 
-              <!-- 🌟 頂部快捷庫別過濾 -->
+              <!-- 頂部快捷庫別過濾 -->
               <el-radio-group v-model="pendingWhFilter" size="mini" class="pending-wh-radio">
                 <el-radio-button label="all">全部庫別</el-radio-button>
                 <el-radio-button label="80">📦 80庫</el-radio-button>
                 <el-radio-button label="15">🔍 15庫</el-radio-button>
+              </el-radio-group>
+
+              <!-- 🌟 AI 異常件篩選按鈕群 -->
+              <el-radio-group v-model="aiFilterStatus" size="mini" class="ai-filter-radio">
+                <el-radio-button label="all">🤖 全部 ({{ currentDetailsList.length }})</el-radio-button>
+                <el-radio-button label="abnormal">
+                  🚨 僅看異常件 ({{ abnormalCount }})
+                </el-radio-button>
+                <el-radio-button label="normal">⚪ 僅看正常件</el-radio-button>
               </el-radio-group>
 
               <el-button 
@@ -630,11 +639,11 @@
             <el-table-column prop="rec_date" label="驗收日期" width="105" align="center" sortable />
             <el-table-column prop="rec_time" label="驗收時間" width="90" align="center" sortable />
 
-            <!-- 🌟 庫別欄位：位於驗收時間右邊，支援標題下拉篩選與排序 -->
+            <!-- 庫別欄位 -->
             <el-table-column 
               prop="warehouse" 
               label="庫別" 
-              width="90" 
+              width="85" 
               align="center" 
               sortable
               :filters="[
@@ -664,12 +673,36 @@
             </el-table-column>
 
             <el-table-column prop="item_name" label="商品名稱" min-width="260" show-overflow-tooltip sortable />
+            
             <el-table-column prop="qty" label="數量" width="85" align="right" sortable>
               <template #default="scope">
                 <span class="font-bold text-blue">{{ scope.row.qty }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="remark" label="收貨備註" min-width="180" show-overflow-tooltip />
+
+            <!-- 🌟 AI 異常判斷欄位 -->
+            <el-table-column label="AI 異常判斷" width="140" align="center" sortable :sort-method="(a, b) => (analyzeRemark(a.remark).isAbnormal ? 1 : 0) - (analyzeRemark(b.remark).isAbnormal ? 1 : 0)">
+              <template #default="scope">
+                <el-tooltip :content="analyzeRemark(scope.row.remark).reason" placement="top" :disabled="!analyzeRemark(scope.row.remark).reason">
+                  <span 
+                    class="ai-status-badge"
+                    :class="analyzeRemark(scope.row.remark).isAbnormal ? 'ai-abnormal' : 'ai-normal'"
+                  >
+                    {{ analyzeRemark(scope.row.remark).label }}
+                  </span>
+                </el-tooltip>
+              </template>
+            </el-table-column>
+
+            <!-- 收貨備註 -->
+            <el-table-column prop="remark" label="收貨備註" min-width="200" show-overflow-tooltip>
+              <template #default="scope">
+                <span :class="analyzeRemark(scope.row.remark).isAbnormal ? 'text-red font-bold' : 'text-gray'">
+                  {{ scope.row.remark || '-' }}
+                </span>
+              </template>
+            </el-table-column>
+
             <el-table-column label="處置" width="95" align="center" fixed="right">
               <template #default="scope">
                 <el-button type="danger" size="mini" plain @click="openResolveDialog([scope.row])">
@@ -773,6 +806,7 @@ export default {
       selectedHourFilter: null,
       selectedHourStr: '',
       pendingWhFilter: 'all', // 'all', '80', '15'
+      aiFilterStatus: 'all',  // 'all', 'abnormal', 'normal'
 
       showUploadCardModal: false,
       isCardHover: false,
@@ -890,7 +924,12 @@ export default {
       return { ...tot, putRate };
     },
 
-    // 🌟 綜合時段與頂部庫別過濾
+    // 計算當前明細中的異常件總數
+    abnormalCount() {
+      return this.currentDetailsList.filter(r => this.analyzeRemark(r.remark).isAbnormal).length;
+    },
+
+    // 🌟 綜合時段、庫別、AI 狀態進行多維度過濾
     filteredDetailsList() {
       let list = this.currentDetailsList;
 
@@ -904,6 +943,12 @@ export default {
 
       if (this.pendingWhFilter !== 'all') {
         list = list.filter(r => String(r.warehouse) === this.pendingWhFilter);
+      }
+
+      if (this.aiFilterStatus === 'abnormal') {
+        list = list.filter(r => this.analyzeRemark(r.remark).isAbnormal);
+      } else if (this.aiFilterStatus === 'normal') {
+        list = list.filter(r => !this.analyzeRemark(r.remark).isAbnormal);
       }
 
       return list;
@@ -948,7 +993,52 @@ export default {
       return '雙庫合計';
     },
 
-    // 🌟 表格內庫別篩選過濾器
+    // 🌟 AI 智慧備註文字特徵診斷核心
+    analyzeRemark(rawRemark) {
+      if (!rawRemark) {
+        return { isAbnormal: false, label: '⚪ 正常件', reason: '收貨備註為空' };
+      }
+
+      const str = String(rawRemark).trim();
+      if (!str || str === '-' || str === '無') {
+        return { isAbnormal: false, label: '⚪ 正常件', reason: '無特別註記' };
+      }
+
+      // 常規庫存調撥標記（非異常件）
+      const normalKeywords = ['(原15庫)', '原15庫', '15庫', '(同步)', '同步', '正常調撥'];
+      const isOnlyTransfer = normalKeywords.some(k => str === k || str === `(${k})`);
+      if (isOnlyTransfer) {
+        return { isAbnormal: false, label: '📦 調撥正常', reason: '為常規庫存調撥註記' };
+      }
+
+      // 1. 數量異常特徵 (含廠商手改、數量Q問、短少溢收)
+      if (/手改|多驗|少驗|短少|溢收|數量問題|Q問|待回覆|待回|二聯單|聯單|差異/i.test(str)) {
+        return { isAbnormal: true, label: '🚨 數量爭議', reason: `檢測到數量手改或問單字樣：${str}` };
+      }
+
+      // 2. 包裝與商品外觀受損特徵
+      if (/凹損|破損|受潮|污損|破箱|外箱破|包裝|盒損|壓損|瑕疵/i.test(str)) {
+        return { isAbnormal: true, label: '🚨 外觀破損', reason: `檢測到外觀或包裝異常字樣：${str}` };
+      }
+
+      // 3. 效期與品質問題
+      if (/即期|過期|效期|壞|故障|質檢|檢驗不合/i.test(str)) {
+        return { isAbnormal: true, label: '🚨 效期品檢', reason: `檢測到商品效期或品管異常字樣：${str}` };
+      }
+
+      // 4. 單據發票爭議
+      if (/發票|無單|未附|缺單|單據不符/i.test(str)) {
+        return { isAbnormal: true, label: '🚨 單據異常', reason: `檢測到進貨單據缺失或不符字樣：${str}` };
+      }
+
+      // 5. 其餘非空白且非單純調撥的文字說明，一律提示為待確認異常件
+      if (str.replace(/\(原15庫\)|原15庫|\(同步\)/g, '').trim().length > 0) {
+        return { isAbnormal: true, label: '⚠️ 特殊備註', reason: `包含需人工確認之自訂註記：${str}` };
+      }
+
+      return { isAbnormal: false, label: '⚪ 正常件', reason: '' };
+    },
+
     filterWarehouseColumn(value, row) {
       return String(row.warehouse) === String(value);
     },
@@ -1256,6 +1346,7 @@ export default {
       this.selectedHourFilter = null;
       this.selectedHourStr = '';
       this.pendingWhFilter = 'all';
+      this.aiFilterStatus = 'all';
       this.fetchPendingSummary();
       if (this.targetDate) {
         this.selectedPendingDate = this.targetDate;
@@ -1269,6 +1360,7 @@ export default {
       this.selectedHourStr = hourLabel;
       this.selectedPendingDate = this.targetDate;
       this.pendingWhFilter = 'all';
+      this.aiFilterStatus = 'all';
       this.fetchPendingSummary();
       this.loadPendingDetails(this.targetDate, hourIndex);
       this.showPendingDialog = true;
@@ -1579,6 +1671,10 @@ export default {
   font-weight: bold;
 }
 
+.text-gray {
+  color: #94a3b8 !important;
+}
+
 .clickable-cell {
   cursor: pointer;
   text-decoration: underline;
@@ -1600,7 +1696,7 @@ export default {
   color: #60a5fa;
 }
 
-/* 🌟 庫別專用徽章標籤 */
+/* 庫別徽章 */
 .wh-badge {
   display: inline-block;
   padding: 2px 8px;
@@ -1617,6 +1713,26 @@ export default {
   background: rgba(34, 197, 94, 0.15);
   color: #4ade80;
   border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+/* 🌟 AI 狀態徽章樣式 */
+.ai-status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: bold;
+}
+.ai-normal {
+  background: rgba(148, 163, 184, 0.1);
+  color: #94a3b8;
+  border: 1px solid #475569;
+}
+.ai-abnormal {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.2);
 }
 
 /* 投放小卡風格 */
@@ -1682,7 +1798,7 @@ export default {
   pointer-events: none;
 }
 
-/* 85%~90% 螢幕滿版未上架彈窗 */
+/* 85%~90% 滿版未上架彈窗[cite: 26] */
 :deep(.el-dialog.dark-dialog.huge-pending-dialog) {
   background-color: #1e293b !important;
   color: #f8fafc !important;
@@ -1821,7 +1937,7 @@ export default {
 .title-with-tag {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .detail-title {
@@ -1839,8 +1955,8 @@ export default {
   margin: 0 4px;
 }
 
-.pending-wh-radio {
-  margin-left: 6px;
+.pending-wh-radio, .ai-filter-radio {
+  margin-left: 4px;
 }
 
 .resolve-form {
