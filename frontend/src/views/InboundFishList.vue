@@ -328,7 +328,7 @@
           </tfoot>
         </table>
 
-        <!-- 🌟 模式 4：單日時段「板貨 vs 散貨分析」表格 (改為時段總批號數、總才數、總板數) -->
+        <!-- 🌟 模式 4：單日時段「板貨 vs 散貨分析」表格 (在板貨率旁邊加散貨率) -->
         <table class="vba-style-table" v-else>
           <colgroup>
             <col style="width: 70px;" />
@@ -349,6 +349,7 @@
             <col style="width: 90px;" />
             <col style="width: 85px;" />
             <col style="width: 75px;" />
+            <col style="width: 75px;" />
           </colgroup>
 
           <thead>
@@ -356,7 +357,8 @@
               <th class="col-time" rowspan="2">時間<br>時段</th>
               <th colspan="5" class="group-green-header">📦 板貨統計 (單批 ≥ {{ palletThreshold }}才)</th>
               <th colspan="5" class="group-orange-header">🧩 散貨統計 (單批 &lt; {{ palletThreshold }}才)</th>
-              <th colspan="4" class="group-blue-header">📊 時段總批號數、總才數、總板數</th>
+              <!-- 🌟 表頭 colspan 擴充為 5 -->
+              <th colspan="5" class="group-blue-header">📊 時段總批號數、總才數、總板數</th>
             </tr>
             <tr class="header-sub">
               <!-- 板貨子表頭 -->
@@ -373,11 +375,13 @@
               <th>散貨才數</th>
               <th class="text-orange font-bold">折合板數</th>
 
-              <!-- 🌟 合計子表頭 -->
+              <!-- 合計子表頭 (含板貨率與散貨率) -->
               <th class="text-blue font-bold">時段總批號數</th>
               <th class="text-yellow font-bold">時段總才數</th>
               <th class="text-cyan font-bold">時段總板數</th>
-              <th class="text-yellow font-bold">板貨率 (%)</th>
+              <th class="text-green font-bold">板貨率 (%)</th>
+              <!-- 🌟 1. 新增散貨率 (%) 欄位 -->
+              <th class="text-orange font-bold">散貨率 (%)</th>
             </tr>
           </thead>
 
@@ -413,11 +417,13 @@
               <td class="text-right">{{ formatNumber(h.looseVolume, 2) }}</td>
               <td class="text-right font-bold text-orange">{{ formatNumber(h.loosePallets, 2) }}</td>
 
-              <!-- 🌟 時段總批號數、總才數、總板數 -->
+              <!-- 時段總批號數、總才數、總板數 -->
               <td class="text-right font-bold text-blue">{{ formatNumber(h.palletBatchCount + h.looseBatchCount) }}</td>
               <td class="text-right font-bold text-yellow">{{ formatNumber(h.palletVolume + h.looseVolume, 2) }}</td>
               <td class="text-right font-bold text-cyan">{{ formatNumber(h.totalPallets, 2) }}</td>
-              <td class="text-right font-bold text-yellow">{{ h.palletRate }}</td>
+              <td class="text-right font-bold text-green">{{ h.palletRate }}</td>
+              <!-- 🌟 1. 呈現散貨率數值 -->
+              <td class="text-right font-bold text-orange">{{ formatPercent(h.totalPallets > 0 ? h.loosePallets / h.totalPallets : 0) }}</td>
             </tr>
           </tbody>
 
@@ -448,11 +454,12 @@
               <td class="text-right font-bold">{{ formatNumber(cargoSummary.looseVolume, 2) }}</td>
               <td class="text-right font-bold text-orange">{{ formatNumber(cargoSummary.loosePallets, 2) }}</td>
 
-              <!-- 🌟 全日總批號數、總才數、總板數 -->
               <td class="text-right font-bold text-blue">{{ formatNumber(cargoSummary.palletBatchCount + cargoSummary.looseBatchCount) }}</td>
               <td class="text-right font-bold text-yellow">{{ formatNumber(cargoSummary.totalVolume, 2) }}</td>
               <td class="text-right font-bold text-cyan">{{ formatNumber(cargoSummary.totalPallets, 2) }}</td>
-              <td class="text-right font-bold text-yellow">{{ cargoSummary.palletRate }}</td>
+              <td class="text-right font-bold text-green">{{ cargoSummary.palletRate }}</td>
+              <!-- 🌟 全日總計散貨率 -->
+              <td class="text-right font-bold text-orange">{{ cargoSummary.looseRate }}</td>
             </tr>
           </tfoot>
         </table>
@@ -529,14 +536,14 @@
           </tfoot>
         </table>
 
-        <!-- 模式 B：每月每日「板貨 vs 散貨分析」總表 (改為當日總批號數、總才數、總板數) -->
+        <!-- 模式 B：每月每日「板貨 vs 散貨分析」總表 (🌟 2. 已拿掉最後一欄板貨率) -->
         <table class="vba-style-table" v-else>
           <thead>
             <tr class="header-main">
               <th style="width: 110px;" rowspan="2">驗收日期</th>
               <th colspan="4" class="group-green-header">📦 板貨每日統計 (單批 ≥ {{ palletThreshold }}才)</th>
               <th colspan="4" class="group-orange-header">🧩 散貨每日統計 (單批 &lt; {{ palletThreshold }}才)</th>
-              <th colspan="4" class="group-blue-header">📊 當日總批號數、總才數、總板數</th>
+              <th colspan="3" class="group-blue-header">📊 當日總批號數、總才數、總板數</th>
             </tr>
             <tr class="header-sub">
               <th style="width: 100px;">板貨批數 🔍</th>
@@ -549,11 +556,9 @@
               <th style="width: 110px;" class="text-orange font-bold">折合板數</th>
               <th style="width: 90px;">板數占比</th>
 
-              <!-- 🌟 當日總批號數、總才數、總板數 -->
-              <th style="width: 100px;" class="text-blue font-bold">當日總批號數</th>
-              <th style="width: 110px;" class="text-yellow font-bold">當日總才數</th>
-              <th style="width: 110px;" class="text-cyan font-bold">當日總板數</th>
-              <th style="width: 90px;">板貨率 (%)</th>
+              <th style="width: 110px;" class="text-blue font-bold">當日總批號數</th>
+              <th style="width: 120px;" class="text-yellow font-bold">當日總才數</th>
+              <th style="width: 120px;" class="text-cyan font-bold">當日總板數</th>
             </tr>
           </thead>
 
@@ -583,11 +588,9 @@
               <td class="text-right font-bold text-orange">{{ formatNumber(day.loosePallets, 2) }}</td>
               <td class="text-right">{{ formatPercent(day.totalPallets > 0 ? day.loosePallets / day.totalPallets : 0) }}</td>
 
-              <!-- 🌟 當日總批號數、總才數、總板數 -->
               <td class="text-right font-bold text-blue">{{ formatNumber(day.palletBatchCount + day.looseBatchCount) }}</td>
               <td class="text-right font-bold text-yellow">{{ formatNumber(day.palletVolume + day.looseVolume, 2) }}</td>
               <td class="text-right font-bold text-cyan">{{ formatNumber(day.totalPallets, 2) }}</td>
-              <td class="text-right font-bold text-yellow">{{ day.palletRate }}</td>
             </tr>
           </tbody>
 
@@ -608,11 +611,9 @@
               <td class="text-right font-bold text-orange">{{ formatNumber(cargoSummary.loosePallets, 2) }}</td>
               <td class="text-right font-bold">{{ cargoSummary.looseRate }}</td>
 
-              <!-- 🌟 全月總批號數、總才數、總板數 -->
               <td class="text-right font-bold text-blue">{{ formatNumber(cargoSummary.palletBatchCount + cargoSummary.looseBatchCount) }}</td>
               <td class="text-right font-bold text-yellow">{{ formatNumber(cargoSummary.totalVolume, 2) }}</td>
               <td class="text-right font-bold text-cyan">{{ formatNumber(cargoSummary.totalPallets, 2) }}</td>
-              <td class="text-right font-bold text-yellow">{{ cargoSummary.palletRate }}</td>
             </tr>
           </tfoot>
         </table>
@@ -689,14 +690,14 @@
           </tfoot>
         </table>
 
-        <!-- 模式 B：年度每月「板貨 vs 散貨分析」總表 (改為當月總批號數、總才數、總板數) -->
+        <!-- 模式 B：年度每月「板貨 vs 散貨分析」總表 (🌟 3. 已拿掉最後一欄板貨率) -->
         <table class="vba-style-table" v-else>
           <thead>
             <tr class="header-main">
               <th style="width: 110px;" rowspan="2">驗收月份</th>
               <th colspan="4" class="group-green-header">📦 板貨每月統計 (單批 ≥ {{ palletThreshold }}才)</th>
               <th colspan="4" class="group-orange-header">🧩 散貨每月統計 (單批 &lt; {{ palletThreshold }}才)</th>
-              <th colspan="4" class="group-blue-header">📊 當月總批號數、總才數、總板數</th>
+              <th colspan="3" class="group-blue-header">📊 當月總批號數、總才數、總板數</th>
             </tr>
             <tr class="header-sub">
               <th style="width: 100px;">板貨批數 🔍</th>
@@ -709,11 +710,9 @@
               <th style="width: 110px;" class="text-orange font-bold">折合板數</th>
               <th style="width: 90px;">板數占比</th>
 
-              <!-- 🌟 當月總批號數、總才數、總板數 -->
-              <th style="width: 105px;" class="text-blue font-bold">當月總批號數</th>
-              <th style="width: 115px;" class="text-yellow font-bold">當月總才數</th>
-              <th style="width: 115px;" class="text-cyan font-bold">當月總板數</th>
-              <th style="width: 90px;">板貨率 (%)</th>
+              <th style="width: 110px;" class="text-blue font-bold">當月總批號數</th>
+              <th style="width: 120px;" class="text-yellow font-bold">當月總才數</th>
+              <th style="width: 120px;" class="text-cyan font-bold">當月總板數</th>
             </tr>
           </thead>
 
@@ -743,11 +742,9 @@
               <td class="text-right font-bold text-orange">{{ formatNumber(m.loosePallets, 2) }}</td>
               <td class="text-right">{{ formatPercent(m.totalPallets > 0 ? m.loosePallets / m.totalPallets : 0) }}</td>
 
-              <!-- 🌟 當月總批號數、總才數、總板數 -->
               <td class="text-right font-bold text-blue">{{ formatNumber(m.palletBatchCount + m.looseBatchCount) }}</td>
               <td class="text-right font-bold text-yellow">{{ formatNumber(m.palletVolume + m.looseVolume, 2) }}</td>
               <td class="text-right font-bold text-cyan">{{ formatNumber(m.totalPallets, 2) }}</td>
-              <td class="text-right font-bold text-yellow">{{ m.palletRate }}</td>
             </tr>
           </tbody>
 
@@ -768,11 +765,9 @@
               <td class="text-right font-bold text-orange">{{ formatNumber(cargoSummary.loosePallets, 2) }}</td>
               <td class="text-right font-bold">{{ cargoSummary.looseRate }}</td>
 
-              <!-- 🌟 全年總批號數、總才數、總板數 -->
               <td class="text-right font-bold text-blue">{{ formatNumber(cargoSummary.palletBatchCount + cargoSummary.looseBatchCount) }}</td>
               <td class="text-right font-bold text-yellow">{{ formatNumber(cargoSummary.totalVolume, 2) }}</td>
               <td class="text-right font-bold text-cyan">{{ formatNumber(cargoSummary.totalPallets, 2) }}</td>
-              <td class="text-right font-bold text-yellow">{{ cargoSummary.palletRate }}</td>
             </tr>
           </tfoot>
         </table>
@@ -857,7 +852,7 @@
       </div>
     </el-dialog>
 
-    <!-- 6. 專屬互動式檔案拖曳投放小卡 Modal (整合最高管理者門檻設定) -->
+    <!-- 6. 專屬互動式檔案拖曳投放小卡 Modal -->
     <el-dialog
       v-model="showUploadCardModal"
       title="📥 匯入 進貨驗收與新品上架單據"
