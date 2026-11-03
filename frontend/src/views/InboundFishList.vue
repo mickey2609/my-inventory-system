@@ -92,7 +92,7 @@
       </div>
     </div>
 
-    <!-- 2. 板貨 vs 散貨 KPI 概覽卡 (單日 / 每月 / 年度模式皆可直觀檢視) -->
+    <!-- 2. 板貨 vs 散貨 KPI 概覽卡 -->
     <div class="cargo-kpi-card">
       <div class="kpi-box main-kpi">
         <div class="kpi-title">總進貨預估板數 (27000才基準)</div>
@@ -130,7 +130,7 @@
       </div>
     </div>
 
-    <!-- 3. 控制卡片 (包含參數設定每板才數與維度切換) -->
+    <!-- 3. 控制卡片 (維持簡潔，門檻已移入匯入小卡) -->
     <div class="filter-card">
       <div class="filter-item">
         <span class="filter-label">🏷️ 收貨備註魚群條件：</span>
@@ -139,21 +139,6 @@
           <el-checkbox label="15">📦 (原15庫)</el-checkbox>
           <el-checkbox label="abnormal">⚠️ 異常件 (其他文字說明)</el-checkbox>
         </el-checkbox-group>
-
-        <!-- 🌟 參數設定：每板才數門檻 (預設 30) -->
-        <div class="threshold-input-wrapper">
-          <span class="threshold-lbl">⚙️ 每板才數門檻：</span>
-          <el-input-number 
-            v-model="palletThreshold" 
-            :min="1" 
-            :max="999" 
-            size="mini" 
-            controls-position="right"
-            style="width: 80px;"
-            @change="handleThresholdChange"
-          />
-          <span class="threshold-unit">才/板</span>
-        </div>
       </div>
 
       <div class="filter-item view-switcher">
@@ -343,28 +328,52 @@
           </tfoot>
         </table>
 
-        <!-- 模式 4：單日時段「板貨 vs 散貨分析」表格 (支援點擊批數穿透品項) -->
+        <!-- 🌟 模式 4：單日時段「板貨 vs 散貨分析」表格 (加入板貨圖形與散貨圖形長條圖) -->
         <table class="vba-style-table" v-else>
+          <colgroup>
+            <col style="width: 70px;" />
+            <!-- 板貨群組 -->
+            <col class="col-bar-group" />
+            <col style="width: 68px;" />
+            <col style="width: 72px;" />
+            <col style="width: 80px;" />
+            <col style="width: 70px;" />
+            <!-- 散貨群組 -->
+            <col class="col-bar-group" />
+            <col style="width: 68px;" />
+            <col style="width: 72px;" />
+            <col style="width: 80px;" />
+            <col style="width: 70px;" />
+            <!-- 匯總群組 -->
+            <col style="width: 85px;" />
+            <col style="width: 80px;" />
+          </colgroup>
+
           <thead>
             <tr class="header-main">
-              <th class="col-time" rowspan="2" style="width: 80px;">時間<br>時段</th>
-              <th colspan="4" class="group-green-header">📦 板貨統計 (單批 ≥ {{ palletThreshold }}才)</th>
-              <th colspan="4" class="group-orange-header">🧩 散貨統計 (單批 &lt; {{ palletThreshold }}才)</th>
+              <th class="col-time" rowspan="2">時間<br>時段</th>
+              <th colspan="5" class="group-green-header">📦 板貨統計 (單批 ≥ {{ palletThreshold }}才)</th>
+              <th colspan="5" class="group-orange-header">🧩 散貨統計 (單批 &lt; {{ palletThreshold }}才)</th>
               <th colspan="2" class="group-blue-header">📊 預估合計與結構</th>
             </tr>
             <tr class="header-sub">
-              <th style="width: 100px;">板貨批數 🔍</th>
-              <th style="width: 110px;">板貨總才數</th>
-              <th style="width: 110px;" class="text-green font-bold">板貨板數</th>
-              <th style="width: 90px;">板數占比</th>
+              <!-- 板貨子表頭 -->
+              <th class="col-bar-title">板貨圖形</th>
+              <th>批數占比</th>
+              <th>板貨批數 🔍</th>
+              <th>板貨才數</th>
+              <th class="text-green font-bold">板貨板數</th>
 
-              <th style="width: 100px;">散貨批數 🔍</th>
-              <th style="width: 110px;">散貨總才數</th>
-              <th style="width: 110px;" class="text-orange font-bold">折合板數</th>
-              <th style="width: 90px;">板數占比</th>
+              <!-- 散貨子表頭 -->
+              <th class="col-bar-title">散貨圖形</th>
+              <th>批數占比</th>
+              <th>散貨批數 🔍</th>
+              <th>散貨才數</th>
+              <th class="text-orange font-bold">折合板數</th>
 
-              <th style="width: 110px;" class="text-cyan font-bold">時段總板數</th>
-              <th style="width: 100px;" class="text-yellow font-bold">板貨率 (%)</th>
+              <!-- 合計子表頭 -->
+              <th class="text-cyan font-bold">時段總板數</th>
+              <th class="text-yellow font-bold">板貨率 (%)</th>
             </tr>
           </thead>
 
@@ -372,10 +381,12 @@
             <tr v-for="(h, idx) in hourlyStats" :key="idx" :class="{ 'row-zebra': idx % 2 === 1 }">
               <td class="col-time font-bold">{{ h.hourStr }}</td>
 
-              <!-- 🌟 點選板貨批數穿透 -->
+              <!-- 🌟 板貨圖形與占比 -->
+              <td class="col-bar-cell"><div class="bar-fill green-bar" :style="{ width: getBarWidth(cargoSummary.palletBatchCount > 0 ? h.palletBatchCount / cargoSummary.palletBatchCount : 0) }"></div></td>
+              <td class="text-right">{{ formatPercent(cargoSummary.palletBatchCount > 0 ? h.palletBatchCount / cargoSummary.palletBatchCount : 0) }}</td>
               <td 
-                class="text-right font-bold" 
-                :class="{ 'clickable-drill': h.palletBatchCount > 0 }"
+                class="text-right font-bold clickable-drill" 
+                :class="{ 'text-green': h.palletBatchCount > 0 }"
                 @click="h.palletBatchCount > 0 ? openCargoDrillModal({ type: 'pallet', hour: h.hour, title: `${h.hourStr} 板貨品項明細` }) : null"
                 :title="h.palletBatchCount > 0 ? `點擊穿透查看 ${h.palletBatchCount} 筆板貨驗收品項明細` : ''"
               >
@@ -383,12 +394,13 @@
               </td>
               <td class="text-right">{{ formatNumber(h.palletVolume, 2) }}</td>
               <td class="text-right font-bold text-green">{{ formatNumber(h.palletPallets) }}</td>
-              <td class="text-right">{{ formatPercent(h.totalPallets > 0 ? h.palletPallets / h.totalPallets : 0) }}</td>
 
-              <!-- 🌟 點選散貨批數穿透 -->
+              <!-- 🌟 散貨圖形與占比 -->
+              <td class="col-bar-cell"><div class="bar-fill orange-bar" :style="{ width: getBarWidth(cargoSummary.looseBatchCount > 0 ? h.looseBatchCount / cargoSummary.looseBatchCount : 0) }"></div></td>
+              <td class="text-right">{{ formatPercent(cargoSummary.looseBatchCount > 0 ? h.looseBatchCount / cargoSummary.looseBatchCount : 0) }}</td>
               <td 
-                class="text-right font-bold" 
-                :class="{ 'clickable-drill': h.looseBatchCount > 0 }"
+                class="text-right font-bold clickable-drill" 
+                :class="{ 'text-orange': h.looseBatchCount > 0 }"
                 @click="h.looseBatchCount > 0 ? openCargoDrillModal({ type: 'loose', hour: h.hour, title: `${h.hourStr} 散貨品項明細` }) : null"
                 :title="h.looseBatchCount > 0 ? `點擊穿透查看 ${h.looseBatchCount} 筆散貨驗收品項明細` : ''"
               >
@@ -396,8 +408,8 @@
               </td>
               <td class="text-right">{{ formatNumber(h.looseVolume, 2) }}</td>
               <td class="text-right font-bold text-orange">{{ formatNumber(h.loosePallets, 2) }}</td>
-              <td class="text-right">{{ formatPercent(h.totalPallets > 0 ? h.loosePallets / h.totalPallets : 0) }}</td>
 
+              <!-- 匯總欄位 -->
               <td class="text-right font-bold text-cyan">{{ formatNumber(h.totalPallets, 2) }}</td>
               <td class="text-right font-bold text-yellow">{{ h.palletRate }}</td>
             </tr>
@@ -406,6 +418,8 @@
           <tfoot>
             <tr class="row-summary">
               <td class="col-time font-bold">全日總計</td>
+              <td></td>
+              <td class="text-right font-bold">100.00%</td>
               <td 
                 class="text-right font-bold text-green clickable-drill" 
                 @click="cargoSummary.palletBatchCount > 0 ? openCargoDrillModal({ type: 'pallet', title: '當日全量 板貨品項明細' }) : null"
@@ -415,8 +429,9 @@
               </td>
               <td class="text-right font-bold">{{ formatNumber(cargoSummary.palletVolume, 2) }}</td>
               <td class="text-right font-bold text-green">{{ formatNumber(cargoSummary.palletPallets) }}</td>
-              <td class="text-right font-bold">{{ cargoSummary.palletRate }}</td>
 
+              <td></td>
+              <td class="text-right font-bold">100.00%</td>
               <td 
                 class="text-right font-bold text-orange clickable-drill" 
                 @click="cargoSummary.looseBatchCount > 0 ? openCargoDrillModal({ type: 'loose', title: '當日全量 散貨品項明細' }) : null"
@@ -426,7 +441,6 @@
               </td>
               <td class="text-right font-bold">{{ formatNumber(cargoSummary.looseVolume, 2) }}</td>
               <td class="text-right font-bold text-orange">{{ formatNumber(cargoSummary.loosePallets, 2) }}</td>
-              <td class="text-right font-bold">{{ cargoSummary.looseRate }}</td>
 
               <td class="text-right font-bold text-cyan">{{ formatNumber(cargoSummary.totalPallets, 2) }}</td>
               <td class="text-right font-bold text-yellow">{{ cargoSummary.palletRate }}</td>
@@ -738,7 +752,7 @@
       </div>
     </div>
 
-    <!-- 🌟 5. 點選批數穿透：板貨 / 散貨品項明細 Dialog -->
+    <!-- 5. 點選批數穿透：板貨 / 散貨品項明細 Dialog -->
     <el-dialog
       v-model="showCargoDrillModal"
       :title="cargoDrillTitle"
@@ -816,14 +830,31 @@
       </div>
     </el-dialog>
 
-    <!-- 6. 專屬互動式檔案拖曳投放小卡 Modal -->
+    <!-- 6. 專屬互動式檔案拖曳投放小卡 Modal (🌟 整合最高管理者門檻設定) -->
     <el-dialog
       v-model="showUploadCardModal"
       title="📥 匯入 進貨驗收與新品上架單據"
-      width="540px"
+      width="560px"
       append-to-body
       custom-class="dark-dialog upload-card-dialog"
     >
+      <!-- 🌟 最高管理者專屬：板數才數門檻設定 -->
+      <div v-if="checkSysAdmin" class="admin-threshold-setting">
+        <span class="setting-title">⚙️ 最高管理者設定 - 批號板貨折算門檻：</span>
+        <div class="setting-control">
+          <el-input-number 
+            v-model="palletThreshold" 
+            :min="1" 
+            :max="999" 
+            size="small" 
+            controls-position="right"
+            style="width: 100px;"
+            @change="savePalletThreshold"
+          />
+          <span class="setting-unit">才/板 (預設 30 才)</span>
+        </div>
+      </div>
+
       <div
         class="drop-card-box"
         :class="{ 'drop-card-active': isCardHover }"
@@ -1167,13 +1198,13 @@ export default {
       targetYear: new Date().getFullYear().toString(),
       warehouse: 'all',
       selectedRemarks: ['empty', '15', 'abnormal'],
-      activeViewTab: 'cargo', // 預設進來切換至板貨 vs 散貨分析
+      activeViewTab: 'cargo', // 預設使用板貨 vs 散貨分析
       hourlyStats: [],
       monthlyDailyList: [],
       yearlyMonthlyList: [],
 
-      // 🌟 參數設定：每板才數門檻 (預設 30)
-      palletThreshold: 30,
+      // 🌟 門檻參數 (預設 30 才，自動從 localStorage 讀取)
+      palletThreshold: Number(localStorage.getItem('inbound_pallet_threshold')) || 30,
 
       // 板貨 vs 散貨 KPI 統計
       cargoSummary: {
@@ -1189,7 +1220,7 @@ export default {
         looseRate: '0.00%'
       },
 
-      // 🌟 批數穿透品項明細 Modal 狀態
+      // 穿透品項明細 Modal
       showCargoDrillModal: false,
       cargoDrillTitle: '📦 批號品項明細',
       drillList: [],
@@ -1353,7 +1384,6 @@ export default {
       return list;
     },
 
-    // 穿透明細加總
     drillTotalQty() {
       return this.drillList.reduce((sum, r) => sum + (Number(r.qty) || 0), 0);
     },
@@ -1402,20 +1432,16 @@ export default {
       return '雙庫合計';
     },
 
-    // 門檻數值改變時重新抓取計算
-    handleThresholdChange() {
-      if (this.analysisMode === 'daily') {
-        this.fetchFishData();
-      } else if (this.analysisMode === 'monthly') {
-        this.fetchMonthlySummary();
-      } else {
-        this.fetchYearlySummary();
-      }
+    // 🌟 最高管理者在小卡中調整門檻後儲存並重新載入
+    savePalletThreshold() {
+      localStorage.setItem('inbound_pallet_threshold', String(this.palletThreshold));
+      ElMessage.success(`⚙️ 已更新每板才數門檻為 ${this.palletThreshold} 才/板！`);
+      this.refreshAllData();
     },
 
-    // 🌟 點選批數穿透品項明細
+    // 🌟 點選批數穿透查看品項明細
     async openCargoDrillModal(options) {
-      this.cargoDrillTitle = options.title || '📦 品項明細';
+      this.cargoDrillTitle = options.title || '📦 批號品項明細';
       this.showCargoDrillModal = true;
       this.loadingDrill = true;
       this.drillList = [];
@@ -2014,7 +2040,7 @@ export default {
   color: #38bdf8;
 }
 
-/* 🌟 板貨 vs 散貨 KPI 概覽卡 */
+/* 板貨 vs 散貨 KPI 概覽卡 */
 .cargo-kpi-card {
   display: grid;
   grid-template-columns: 1.2fr 1.5fr 1.8fr 1.5fr;
@@ -2144,27 +2170,6 @@ export default {
   font-weight: bold;
 }
 
-/* 🌟 門檻參數調整器 */
-.threshold-input-wrapper {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  background: #0f172a;
-  padding: 2px 8px;
-  border-radius: 6px;
-  border: 1px solid #334155;
-  margin-left: 12px;
-}
-.threshold-lbl {
-  font-size: 12px;
-  color: #38bdf8;
-  font-weight: bold;
-}
-.threshold-unit {
-  font-size: 12px;
-  color: #94a3b8;
-}
-
 .table-container {
   height: fit-content;
   background: #1e293b;
@@ -2272,6 +2277,7 @@ export default {
 
 .blue-bar { background: #38bdf8; }
 .green-bar { background: #22c55e; }
+.orange-bar { background: #f59e0b; }
 
 .row-zebra td {
   background: rgba(255, 255, 255, 0.03);
@@ -2300,7 +2306,7 @@ export default {
   transform: scale(1.08);
 }
 
-/* 🌟 批數可穿透點擊效果 */
+/* 🌟 批數穿透點擊效果 */
 .clickable-drill {
   cursor: pointer;
   color: #38bdf8 !important;
@@ -2310,7 +2316,7 @@ export default {
 .clickable-drill:hover {
   color: #60a5fa !important;
   text-shadow: 0 0 6px rgba(56, 189, 248, 0.8);
-  transform: scale(1.1);
+  transform: scale(1.08);
 }
 
 .clickable-id {
@@ -2375,6 +2381,32 @@ export default {
   border: 1px solid #334155;
   font-size: 13px;
   color: #cbd5e1;
+}
+
+/* 🌟 最高管理者在小卡中的門檻設定 */
+.admin-threshold-setting {
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 10px 16px;
+  margin-bottom: 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.setting-title {
+  font-size: 13px;
+  font-weight: bold;
+  color: #38bdf8;
+}
+.setting-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.setting-unit {
+  font-size: 12px;
+  color: #94a3b8;
 }
 
 .drop-card-box {
