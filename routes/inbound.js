@@ -58,7 +58,7 @@ module.exports = function(db) {
     db.run(`CREATE INDEX IF NOT EXISTS idx_inbound_item_id ON inbound_details (item_id)`, () => {});
   });
 
-  // 清空地端所有進貨明細 API[cite: 20]
+  // 清空地端所有進貨明細 API
   router.post('/clear-inbound-data', (req, res) => {
     db.run('DELETE FROM inbound_details', (err) => {
       if (err) return res.status(500).json({ success: false, message: '清空失敗：' + err.message });
@@ -66,7 +66,7 @@ module.exports = function(db) {
     });
   });
 
-  // 依驗收日期刪除 API[cite: 20]
+  // 依驗收日期刪除 API
   router.post('/delete-by-date', (req, res) => {
     const { startDate, endDate, warehouse } = req.body;
 
@@ -97,7 +97,7 @@ module.exports = function(db) {
     });
   });
 
-  // 1. 匯入 API (低記憶體流式分批處理，絕不觸發 OOM 崩潰)[cite: 20]
+  // 1. 匯入 API (低記憶體流式分批處理，絕不觸發 OOM 崩潰)
   router.post('/import-json', async (req, res) => {
     const items = req.body.items || req.body;
     const fileName = req.body.fileName || 'latest_inbound.csv';
@@ -214,7 +214,7 @@ module.exports = function(db) {
     }
   });
 
-  // 2. 未上架摘要統計[cite: 20]
+  // 2. 未上架摘要統計
   router.get('/pending-putaway', (req, res) => {
     const sql = `
       SELECT 
@@ -236,7 +236,7 @@ module.exports = function(db) {
     });
   });
 
-  // 3. 未上架明細 API[cite: 20]
+  // 3. 未上架明細 API
   router.get('/pending-details', (req, res) => {
     let { recDate } = req.query;
 
@@ -283,7 +283,7 @@ module.exports = function(db) {
     }
   });
 
-  // 4. 更正銷案 API[cite: 20]
+  // 4. 更正銷案 API
   router.post('/update-pending-status', (req, res) => {
     const { keys, reason, customPutDate } = req.body;
 
@@ -317,17 +317,19 @@ module.exports = function(db) {
     });
   });
 
-  // 5. 魚群分析 API[cite: 20]
+  // 5. 魚群分析 API (支援單號、批號、以及板貨 vs 散貨聚合計算)
   router.get('/fish-analysis', (req, res) => {
     const { targetDate, warehouse, remarks } = req.query;
+
+    if (!targetDate) {
+      return res.status(400).json({ success: false, message: '請指定 targetDate (YYYY-MM-DD)' });
+    }
 
     let sql = `SELECT * FROM inbound_details WHERE 1=1`;
     const params = [];
 
-    if (targetDate) {
-      sql += ` AND (rec_date = ? OR put_date = ?)`;
-      params.push(targetDate, targetDate);
-    }
+    sql += ` AND (rec_date = ? OR put_date = ?)`;
+    params.push(targetDate, targetDate);
 
     if (warehouse && warehouse !== 'all') {
       sql += ` AND warehouse = ?`;
@@ -353,7 +355,9 @@ module.exports = function(db) {
         return matched;
       });
 
+      // 初始化 24 個時段統計容器
       const hourlyData = Array.from({ length: 24 }, (_, h) => ({
+        hour: h,
         hourStr: `${String(h).padStart(2, '0')}:00 ~ ${String(h + 1).padStart(2, '0')}:00`,
         recPoSet: new Set(),
         recPoPcs: 0,
@@ -363,73 +367,161 @@ module.exports = function(db) {
         putPoSet: new Set(),
         putPoPcs: 0,
         recBatSet: new Set(),
-        putBatSet: new Set()
+        putBatSet: new Set(),
+        // 板貨 / 散貨時段聚合
+        palletBatchCount: 0,
+        palletVolume: 0,
+        palletPallets: 0,
+        looseBatchCount: 0,
+        looseVolume: 0,
+        loosePallets: 0,
+        totalPallets: 0,
+        palletRate: '0.00%'
       }));
 
+      // 按驗收批號聚合才數：Map<batch_no, { hour, volume, qty, po_no, isPut }>
+      const batchMap = new Map();
+
       filteredRows.forEach(r => {
+        const qty = Number(r.qty) || 0;
+        const len = Number(r.length) || 0;
+        const w = Number(r.width) || 0;
+        const h = Number(r.height) || 0;
+        // 才數計算分母 27000
+        const pieceCubicFeet = (len > 0 && w > 0 && h > 0) ? ((len * w * h) / 27000) : 0;
+        const lineVolume = pieceCubicFeet * qty;
+
+        const isPut = (r.put_date && r.put_date.trim() !== '' && r.put_date.includes('-')) || r.is_resolved === 1;
+
+        // 當日驗收統計
         if (r.rec_date === targetDate && r.rec_time) {
           const hStr = r.rec_time.split(':')[0];
-          const h = parseInt(hStr, 10);
-          if (!isNaN(h) && h >= 0 && h < 24) {
-            if (r.po_no && r.po_no.trim() !== '') {
-              hourlyData[h].recPoSet.add(r.po_no.trim());
-            }
+          const recHour = parseInt(hStr, 10);
+          if (!isNaN(recHour) && recHour >= 0 && recHour < 24) {
+            const hStat = hourlyData[recHour];
+            if (r.po_no && r.po_no.trim() !== '') hStat.recPoSet.add(r.po_no.trim());
             if (r.batch_no && r.batch_no.trim() !== '') {
-              hourlyData[h].recBatSet.add(r.batch_no.trim());
-            }
-            hourlyData[h].recPoPcs += (r.qty || 0);
+              const bNo = r.batch_no.trim();
+              hStat.recBatSet.add(bNo);
 
-            const isPut = r.put_date && r.put_date.trim() !== '' && r.put_date.includes('-');
-            const isResolved = r.is_resolved === 1;
-            if (!isPut && !isResolved) {
-              if (r.po_no && r.po_no.trim() !== '') {
-                hourlyData[h].unputPoSet.add(r.po_no.trim());
+              // 記錄進批號 Map 供板/散判定
+              if (!batchMap.has(bNo)) {
+                batchMap.set(bNo, {
+                  hour: recHour,
+                  volume: 0,
+                  qty: 0,
+                  po_no: r.po_no,
+                  isPut: isPut
+                });
               }
-              if (r.batch_no && r.batch_no.trim() !== '') {
-                hourlyData[h].unputBatSet.add(r.batch_no.trim());
-              }
-              hourlyData[h].unputCount += 1;
+              const b = batchMap.get(bNo);
+              b.volume += lineVolume;
+              b.qty += qty;
+              if (!b.isPut && isPut) b.isPut = true;
+            }
+            hStat.recPoPcs += qty;
+
+            if (!isPut) {
+              if (r.po_no && r.po_no.trim() !== '') hStat.unputPoSet.add(r.po_no.trim());
+              if (r.batch_no && r.batch_no.trim() !== '') hStat.unputBatSet.add(r.batch_no.trim());
+              hStat.unputCount += 1;
             }
           }
         }
 
+        // 當日上架統計
         if (r.put_date === targetDate && r.put_time) {
           const hStr = r.put_time.split(':')[0];
-          const h = parseInt(hStr, 10);
-          if (!isNaN(h) && h >= 0 && h < 24) {
-            if (r.po_no && r.po_no.trim() !== '') {
-              hourlyData[h].putPoSet.add(r.po_no.trim());
-            }
-            if (r.batch_no && r.batch_no.trim() !== '') {
-              hourlyData[h].putBatSet.add(r.batch_no.trim());
-            }
-            hourlyData[h].putPoPcs += (r.qty || 0);
+          const putHour = parseInt(hStr, 10);
+          if (!isNaN(putHour) && putHour >= 0 && putHour < 24) {
+            const hStat = hourlyData[putHour];
+            if (r.po_no && r.po_no.trim() !== '') hStat.putPoSet.add(r.po_no.trim());
+            if (r.batch_no && r.batch_no.trim() !== '') hStat.putBatSet.add(r.batch_no.trim());
+            hStat.putPoPcs += qty;
           }
         }
       });
 
-      const hourlyStats = hourlyData.map(d => ({
-        hourStr: d.hourStr,
-        recPoCount: d.recPoSet.size,
-        recPoPcs: d.recPoPcs,
-        unputPoCount: d.unputPoSet.size,
-        unputBatCount: d.unputBatSet.size,
-        unputCount: d.unputCount,
-        putPoCount: d.putPoSet.size,
-        putPoPcs: d.putPoPcs,
-        recBatCount: d.recBatSet.size,
-        putBatCount: d.putBatSet.size
-      }));
+      // 依批號總才數劃分：>= 30才為板貨 (1批=1板)，< 30才為散貨
+      batchMap.forEach((info) => {
+        const hStat = hourlyData[info.hour];
+        const vol = parseFloat(info.volume.toFixed(2));
+
+        if (vol >= 30) {
+          hStat.palletBatchCount += 1;
+          hStat.palletVolume += vol;
+          hStat.palletPallets += 1;
+        } else {
+          hStat.looseBatchCount += 1;
+          hStat.looseVolume += vol;
+        }
+      });
+
+      // 計算散貨折算板數、總板數與板貨率
+      let dayPalletBat = 0, dayPalletVol = 0, dayPalletPlt = 0;
+      let dayLooseBat = 0, dayLooseVol = 0, dayLoosePlt = 0;
+
+      const hourlyStats = hourlyData.map(d => {
+        const loosePallets = parseFloat((d.looseVolume / 30).toFixed(2));
+        const totalPallets = parseFloat((d.palletPallets + loosePallets).toFixed(2));
+        const palletRate = totalPallets > 0 ? ((d.palletPallets / totalPallets) * 100).toFixed(2) + '%' : '0.00%';
+
+        dayPalletBat += d.palletBatchCount;
+        dayPalletVol += d.palletVolume;
+        dayPalletPlt += d.palletPallets;
+
+        dayLooseBat += d.looseBatchCount;
+        dayLooseVol += d.looseVolume;
+        dayLoosePlt += loosePallets;
+
+        return {
+          hourStr: d.hourStr,
+          recPoCount: d.recPoSet.size,
+          recPoPcs: d.recPoPcs,
+          unputPoCount: d.unputPoSet.size,
+          unputBatCount: d.unputBatSet.size,
+          unputCount: d.unputCount,
+          putPoCount: d.putPoSet.size,
+          putPoPcs: d.putPoPcs,
+          recBatCount: d.recBatSet.size,
+          putBatCount: d.putBatSet.size,
+          // 板貨 vs 散貨指標
+          palletBatchCount: d.palletBatchCount,
+          palletVolume: parseFloat(d.palletVolume.toFixed(2)),
+          palletPallets: d.palletPallets,
+          looseBatchCount: d.looseBatchCount,
+          looseVolume: parseFloat(d.looseVolume.toFixed(2)),
+          loosePallets: loosePallets,
+          totalPallets: totalPallets,
+          palletRate: palletRate
+        };
+      });
+
+      const dayTotalPallets = parseFloat((dayPalletPlt + dayLoosePlt).toFixed(2));
+      const dayPalletRate = dayTotalPallets > 0 ? ((dayPalletPlt / dayTotalPallets) * 100).toFixed(2) : '0.00';
+      const dayLooseRate = dayTotalPallets > 0 ? (100 - parseFloat(dayPalletRate)).toFixed(2) : '0.00';
 
       res.json({
         success: true,
         totalFiltered: filteredRows.length,
-        hourlyStats
+        hourlyStats,
+        cargoSummary: {
+          totalVolume: parseFloat((dayPalletVol + dayLooseVol).toFixed(2)),
+          totalPallets: dayTotalPallets,
+          palletBatchCount: dayPalletBat,
+          palletVolume: parseFloat(dayPalletVol.toFixed(2)),
+          palletPallets: dayPalletPlt,
+          palletRate: dayPalletRate + '%',
+          looseBatchCount: dayLooseBat,
+          looseVolume: parseFloat(dayLooseVol.toFixed(2)),
+          loosePallets: parseFloat(dayLoosePlt.toFixed(2)),
+          looseRate: dayLooseRate + '%'
+        }
       });
     });
   });
 
-  // 6. 每月每日總表 API[cite: 20]
+  // 6. 每月每日總表 API
   router.get('/monthly-summary', (req, res) => {
     const { month, warehouse, remarks } = req.query;
 
@@ -557,7 +649,7 @@ module.exports = function(db) {
     });
   });
 
-  // 7. 年度每月總表 API[cite: 20]
+  // 7. 年度每月總表 API
   router.get('/yearly-summary', (req, res) => {
     const { year, warehouse, remarks } = req.query;
 
@@ -674,7 +766,7 @@ module.exports = function(db) {
     });
   });
 
-  // 8. 依日期區間一鍵批次銷案 API[cite: 20]
+  // 8. 依日期區間一鍵批次銷案 API
   router.post('/batch-resolve-range', (req, res) => {
     const { startDate, endDate, reason, customPutDate } = req.body;
 

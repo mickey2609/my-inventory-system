@@ -69,7 +69,6 @@
           🔄 重新整理
         </el-button>
 
-        <!-- 🔒 僅系統管理員可見與執行刪除 -->
         <el-button
           v-if="checkSysAdmin"
           type="danger"
@@ -80,7 +79,6 @@
           🗑️ 刪除進貨資料
         </el-button>
 
-        <!-- 🔓 一般管理員與系統管理員均可匯入 -->
         <el-button
           v-if="checkAdmin"
           type="success"
@@ -94,7 +92,46 @@
       </div>
     </div>
 
-    <!-- 2. 控制卡片 -->
+    <!-- 🌟 2. 方案 B：板貨 vs 散貨 KPI 概覽卡 (單日模式下常駐呈現) -->
+    <div class="cargo-kpi-card" v-if="analysisMode === 'daily'">
+      <div class="kpi-box main-kpi">
+        <div class="kpi-title">總進貨預估板數 (27000才基準)</div>
+        <div class="kpi-value text-cyan">{{ formatNumber(cargoSummary.totalPallets, 2) }} <span class="unit">板</span></div>
+        <div class="kpi-sub">總驗收才數：{{ formatNumber(cargoSummary.totalVolume, 2) }} 才</div>
+      </div>
+
+      <div class="kpi-box pallet-kpi">
+        <div class="kpi-header-row">
+          <span class="badge pallet-badge">📦 板貨 (≥30才/批)</span>
+          <span class="kpi-rate text-green">{{ cargoSummary.palletRate }}</span>
+        </div>
+        <div class="kpi-value text-green">{{ formatNumber(cargoSummary.palletPallets) }} <span class="unit">板</span></div>
+        <div class="kpi-sub">共 {{ formatNumber(cargoSummary.palletBatchCount) }} 批 | {{ formatNumber(cargoSummary.palletVolume, 2) }} 才</div>
+      </div>
+
+      <div class="kpi-box loose-kpi">
+        <div class="kpi-header-row">
+          <span class="badge loose-badge">🧩 散貨 (&lt;30才/批)</span>
+          <span class="kpi-rate text-orange">{{ cargoSummary.looseRate }}</span>
+        </div>
+        <div class="kpi-value text-orange">{{ formatNumber(cargoSummary.loosePallets, 2) }} <span class="unit">板</span></div>
+        <div class="kpi-sub">共 {{ formatNumber(cargoSummary.looseBatchCount) }} 批 | {{ formatNumber(cargoSummary.looseVolume, 2) }} 才 (每滿30才折1板)</div>
+      </div>
+
+      <!-- 比例進度條 -->
+      <div class="kpi-progress-col">
+        <div class="progress-label">
+          <span>板貨 {{ cargoSummary.palletRate }}</span>
+          <span>散貨 {{ cargoSummary.looseRate }}</span>
+        </div>
+        <div class="custom-progress-bar">
+          <div class="bar-part green-part" :style="{ width: cargoSummary.palletRate }"></div>
+          <div class="bar-part orange-part" :style="{ width: cargoSummary.looseRate }"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. 控制卡片 (整合方案 A 檢視維度) -->
     <div class="filter-card">
       <div class="filter-item">
         <span class="filter-label">🏷️ 收貨備註魚群條件：</span>
@@ -111,21 +148,24 @@
           <el-radio-button label="po">📋 依進貨單號分析</el-radio-button>
           <el-radio-button label="batch">🏷️ 依驗收批號分析</el-radio-button>
           <el-radio-button label="both">📊 雙檢視對照 (完整)</el-radio-button>
+          <!-- 🌟 方案 A：第 4 種維度切換 -->
+          <el-radio-button label="cargo">📦 板貨 vs 散貨分析</el-radio-button>
         </el-radio-group>
       </div>
     </div>
 
-    <!-- 3.1 單日分析表格區塊 -->
+    <!-- 4.1 單日分析表格區塊 -->
     <div class="table-container" v-loading="loading" v-if="analysisMode === 'daily'">
       <div class="sheet-title">
         倉庫 進貨驗收與新品上架分析 - {{ formatDateTitle(targetDate) }} ({{ getWarehouseLabel(warehouse) }})
         <span class="mode-tag">
-          [{{ activeViewTab === 'po' ? '進貨單號模式' : (activeViewTab === 'batch' ? '驗收批號模式' : '雙視圖模式') }}]
+          [{{ activeViewTab === 'po' ? '進貨單號模式' : (activeViewTab === 'batch' ? '驗收批號模式' : (activeViewTab === 'both' ? '雙視圖模式' : '板貨 vs 散貨分析模式')) }}]
         </span>
       </div>
 
       <div class="table-scroll-wrapper">
-        <table class="vba-style-table">
+        <!-- 🌟 模式 1, 2, 3：原本單號/批號表格 -->
+        <table class="vba-style-table" v-if="activeViewTab !== 'cargo'">
           <colgroup>
             <col style="width: 70px;" />
             <template v-if="activeViewTab === 'po' || activeViewTab === 'both'">
@@ -210,7 +250,6 @@
                 <td class="text-right">{{ formatPercent(h.recPoPct) }}</td>
                 <td class="text-right">{{ formatNumber(h.recPoCount) }}</td>
                 <td class="text-right font-bold text-blue">{{ formatNumber(h.recPoPcs) }}</td>
-                
                 <td 
                   class="text-right font-bold" 
                   :class="{ 'text-red clickable-cell': h.unputPoCount > 0 }"
@@ -233,7 +272,6 @@
                 <td class="text-right">{{ formatPercent(h.recBatPct) }}</td>
                 <td class="text-right">{{ formatNumber(h.recBatCount) }}</td>
                 <td class="text-right font-bold text-blue">{{ formatNumber(h.recBatPcs) }}</td>
-                
                 <td 
                   class="text-right font-bold" 
                   :class="{ 'text-red clickable-cell': h.unputBatCount > 0 }"
@@ -291,10 +329,76 @@
             </tr>
           </tfoot>
         </table>
+
+        <!-- 🌟 方案 A 專屬表格：板貨 vs 散貨分析模式 -->
+        <table class="vba-style-table" v-else>
+          <thead>
+            <tr class="header-main">
+              <th class="col-time" rowspan="2" style="width: 80px;">時間<br>時段</th>
+              <th colspan="4" class="group-green-header">📦 板貨統計 (單批 ≥ 30才)</th>
+              <th colspan="4" class="group-orange-header">🧩 散貨統計 (單批 &lt; 30才)</th>
+              <th colspan="2" class="group-blue-header">📊 預估合計與結構</th>
+            </tr>
+            <tr class="header-sub">
+              <th style="width: 100px;">板貨批數</th>
+              <th style="width: 110px;">板貨總才數</th>
+              <th style="width: 110px;" class="text-green font-bold">板貨板數</th>
+              <th style="width: 90px;">板數占比</th>
+
+              <th style="width: 100px;">散貨批數</th>
+              <th style="width: 110px;">散貨總才數</th>
+              <th style="width: 110px;" class="text-orange font-bold">折合板數</th>
+              <th style="width: 90px;">板數占比</th>
+
+              <th style="width: 110px;" class="text-cyan font-bold">時段總板數</th>
+              <th style="width: 100px;" class="text-yellow font-bold">板貨率 (%)</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            <tr v-for="(h, idx) in hourlyStats" :key="idx" :class="{ 'row-zebra': idx % 2 === 1 }">
+              <td class="col-time font-bold">{{ h.hourStr }}</td>
+
+              <!-- 板貨欄位 -->
+              <td class="text-right">{{ formatNumber(h.palletBatchCount) }}</td>
+              <td class="text-right">{{ formatNumber(h.palletVolume, 2) }}</td>
+              <td class="text-right font-bold text-green">{{ formatNumber(h.palletPallets) }}</td>
+              <td class="text-right">{{ formatPercent(h.totalPallets > 0 ? h.palletPallets / h.totalPallets : 0) }}</td>
+
+              <!-- 散貨欄位 -->
+              <td class="text-right">{{ formatNumber(h.looseBatchCount) }}</td>
+              <td class="text-right">{{ formatNumber(h.looseVolume, 2) }}</td>
+              <td class="text-right font-bold text-orange">{{ formatNumber(h.loosePallets, 2) }}</td>
+              <td class="text-right">{{ formatPercent(h.totalPallets > 0 ? h.loosePallets / h.totalPallets : 0) }}</td>
+
+              <!-- 合計 -->
+              <td class="text-right font-bold text-cyan">{{ formatNumber(h.totalPallets, 2) }}</td>
+              <td class="text-right font-bold text-yellow">{{ h.palletRate }}</td>
+            </tr>
+          </tbody>
+
+          <tfoot>
+            <tr class="row-summary">
+              <td class="col-time font-bold">全日總計</td>
+              <td class="text-right font-bold">{{ formatNumber(cargoSummary.palletBatchCount) }}</td>
+              <td class="text-right font-bold">{{ formatNumber(cargoSummary.palletVolume, 2) }}</td>
+              <td class="text-right font-bold text-green">{{ formatNumber(cargoSummary.palletPallets) }}</td>
+              <td class="text-right font-bold">{{ cargoSummary.palletRate }}</td>
+
+              <td class="text-right font-bold">{{ formatNumber(cargoSummary.looseBatchCount) }}</td>
+              <td class="text-right font-bold">{{ formatNumber(cargoSummary.looseVolume, 2) }}</td>
+              <td class="text-right font-bold text-orange">{{ formatNumber(cargoSummary.loosePallets, 2) }}</td>
+              <td class="text-right font-bold">{{ cargoSummary.looseRate }}</td>
+
+              <td class="text-right font-bold text-cyan">{{ formatNumber(cargoSummary.totalPallets, 2) }}</td>
+              <td class="text-right font-bold text-yellow">{{ cargoSummary.palletRate }}</td>
+            </tr>
+          </tfoot>
+        </table>
       </div>
     </div>
 
-    <!-- 3.2 每月每日總表區塊 -->
+    <!-- 4.2 每月每日總表區塊 -->
     <div class="table-container" v-loading="loadingMonthly" v-else-if="analysisMode === 'monthly'">
       <div class="sheet-title">
         🗓️ 倉庫 進貨驗收與新品上架 - {{ targetMonth }} 月份每日總表 ({{ getWarehouseLabel(warehouse) }})
@@ -365,7 +469,7 @@
       </div>
     </div>
 
-    <!-- 3.3 年度每月總表區塊 -->
+    <!-- 4.3 年度每月總表區塊 -->
     <div class="table-container" v-loading="loadingYearly" v-else>
       <div class="sheet-title">
         📊 倉庫 進貨驗收與新品上架 - {{ targetYear }} 年度每月總表 ({{ getWarehouseLabel(warehouse) }})
@@ -436,7 +540,7 @@
       </div>
     </div>
 
-    <!-- 4. 專屬互動式檔案拖曳投放小卡 Modal -->
+    <!-- 5. 專屬互動式檔案拖曳投放小卡 Modal -->
     <el-dialog
       v-model="showUploadCardModal"
       title="📥 匯入 進貨驗收與新品上架單據"
@@ -464,12 +568,12 @@
         </div>
 
         <div class="security-badge">
-          🛡️ 系統自動相容 M,N,O 欄位長寬高才數計算，跳過標頭註記與總計筆數
+          🛡️ 系統自動以 27000 才數計算長寬高體積，跳過標頭註記與總計筆數
         </div>
       </div>
     </el-dialog>
 
-    <!-- 5. 逐日/區間 批次刪除進貨明細 Modal -->
+    <!-- 6. 逐日/區間 批次刪除進貨明細 Modal -->
     <el-dialog
       v-model="showDeleteModal"
       title="🗑️ 逐日 / 批次刪除地端進貨明細"
@@ -508,7 +612,7 @@
       </template>
     </el-dialog>
 
-    <!-- 6. CSV / Excel 上傳進度條 Modal -->
+    <!-- 7. CSV / Excel 上傳進度條 Modal -->
     <el-dialog
       v-model="showUploadProgressModal"
       title="⚡ 正在寫入與覆蓋更新進貨明細資料..."
@@ -532,7 +636,7 @@
       </div>
     </el-dialog>
 
-    <!-- 7. 未上架彈窗 (頂部日期下拉、全寬表格) -->
+    <!-- 8. 未上架彈窗 (全寬表格、最早日期優先) -->
     <el-dialog 
       v-model="showPendingDialog" 
       title="⚠️ 尚未上架明細監控與更正處置" 
@@ -543,10 +647,8 @@
     >
       <div class="pending-dialog-body single-column">
         <div class="pending-details-content" v-loading="loadingDetails">
-          <!-- 頂部操作與過濾列（整合日期下拉） -->
           <div class="content-header">
             <div class="title-with-tag">
-              <!-- 🌟 驗收日期下拉選單：預設顯示最早驗收日期 -->
               <span class="control-label">📅 驗收日期：</span>
               <el-select
                 v-model="selectedPendingDate"
@@ -575,14 +677,12 @@
                 共 <strong>{{ filteredDetailsList.length }}</strong> 筆明細
               </span>
 
-              <!-- 頂部快捷庫別過濾 -->
               <el-radio-group v-model="pendingWhFilter" size="mini" class="pending-wh-radio">
                 <el-radio-button label="all">全部庫別</el-radio-button>
                 <el-radio-button label="80">📦 80庫</el-radio-button>
                 <el-radio-button label="15">🔍 15庫</el-radio-button>
               </el-radio-group>
 
-              <!-- AI 異常件篩選按鈕群 -->
               <el-radio-group v-model="aiFilterStatus" size="mini" class="ai-filter-radio">
                 <el-radio-button label="all">全部 ({{ currentDetailsList.length }})</el-radio-button>
                 <el-radio-button label="abnormal">
@@ -631,7 +731,6 @@
             </div>
           </div>
 
-          <!-- 明細表格（享受 100% 寬度） -->
           <el-table
             ref="pendingTable"
             :data="filteredDetailsList"
@@ -646,7 +745,6 @@
             <el-table-column prop="rec_date" label="驗收日期" width="105" align="center" sortable />
             <el-table-column prop="rec_time" label="驗收時間" width="90" align="center" sortable />
 
-            <!-- 庫別欄位 -->
             <el-table-column 
               prop="warehouse" 
               label="庫別" 
@@ -670,7 +768,6 @@
             <el-table-column prop="po_no" label="進貨單號" width="165" align="center" sortable />
             <el-table-column prop="batch_no" label="驗收批號" width="160" align="center" sortable />
 
-            <!-- 商品ID：點擊快速複製 -->
             <el-table-column prop="item_id" label="商品ID" width="190" align="center" sortable>
               <template #default="scope">
                 <span class="font-bold text-blue clickable-id" @click="copyItemId(scope.row.item_id)" title="點擊可複製商品ID">
@@ -687,7 +784,6 @@
               </template>
             </el-table-column>
 
-            <!-- AI 異常判斷欄位 -->
             <el-table-column label="AI 異常判斷" width="140" align="center" sortable :sort-method="(a, b) => (analyzeRemark(a.remark).isAbnormal ? 1 : 0) - (analyzeRemark(b.remark).isAbnormal ? 1 : 0)">
               <template #default="scope">
                 <el-tooltip :content="analyzeRemark(scope.row.remark).reason" placement="top" :disabled="!analyzeRemark(scope.row.remark).reason">
@@ -701,7 +797,6 @@
               </template>
             </el-table-column>
 
-            <!-- 收貨備註 -->
             <el-table-column prop="remark" label="收貨備註" min-width="220" show-overflow-tooltip>
               <template #default="scope">
                 <span :class="analyzeRemark(scope.row.remark).isAbnormal ? 'text-red font-bold' : 'text-gray'">
@@ -722,7 +817,7 @@
       </div>
     </el-dialog>
 
-    <!-- 8. 更正銷案 Modal -->
+    <!-- 9. 更正銷案 Modal -->
     <el-dialog v-model="showResolveModal" title="🛠️ 銷案/更正未上架記錄" width="440px" append-to-body custom-class="dark-dialog">
       <div class="resolve-form">
         <p>準備更正 <strong>{{ targetResolveItems.length }}</strong> 筆未上架項目：</p>
@@ -747,7 +842,7 @@
       </template>
     </el-dialog>
 
-    <!-- 9. 日期區間一鍵銷案 Modal -->
+    <!-- 10. 日期區間一鍵銷案 Modal -->
     <el-dialog v-model="showRangeResolveModal" title="🗓️ 依日期區間一鍵批次銷案" width="460px" append-to-body custom-class="dark-dialog">
       <div class="resolve-form">
         <p style="color: #fbbf24;">⚠️ 將會把指定日期範圍內**所有未上架項目**一次全數銷案！</p>
@@ -800,6 +895,20 @@ export default {
       hourlyStats: [],
       monthlyDailyList: [],
       yearlyMonthlyList: [],
+
+      // 🌟 板貨 vs 散貨 KPI 統計資料
+      cargoSummary: {
+        totalVolume: 0,
+        totalPallets: 0,
+        palletBatchCount: 0,
+        palletVolume: 0,
+        palletPallets: 0,
+        palletRate: '0.00%',
+        looseBatchCount: 0,
+        looseVolume: 0,
+        loosePallets: 0,
+        looseRate: '0.00%'
+      },
 
       showPendingDialog: false,
       pendingSummary: [],
@@ -971,9 +1080,11 @@ export default {
     window.removeEventListener('drop', this.globalBlockDrop, false);
   },
   methods: {
-    formatNumber(val) {
-      if (!val) return '0';
-      return Number(val).toLocaleString();
+    formatNumber(val, decimals = 0) {
+      if (val === null || val === undefined || val === '') return '0';
+      const num = Number(val);
+      if (isNaN(num)) return val;
+      return num.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
     },
     formatPercent(val) {
       if (!val) return '0.00%';
@@ -998,7 +1109,6 @@ export default {
       return '雙庫合計';
     },
 
-    // 🌟 正常品白名單
     analyzeRemark(rawRemark) {
       if (!rawRemark) {
         return { isAbnormal: false, label: '⚪ 正常件', reason: '收貨備註為空' };
@@ -1285,6 +1395,11 @@ export default {
               putBatPct: totPutBat > 0 ? (r.putBatCount / totPutBat) : 0
             };
           });
+
+          // 綁定板貨與散貨 KPI 統計
+          if (res.data.cargoSummary) {
+            this.cargoSummary = res.data.cargoSummary;
+          }
         }
       } catch (e) {
         ElMessage.error('載入魚群資料失敗：' + e.message);
@@ -1333,20 +1448,16 @@ export default {
       }
     },
 
-    // 🌟 核心：拉取統計後，按日期由舊到新排序，並預設選擇最早的日期
     async fetchPendingSummary() {
       try {
         const res = await axios.get('/api/inbound/pending-putaway');
         if (res.data?.success) {
           let list = res.data.pendingSummary || [];
-          
-          // 🌟 依日期升冪排序（最早日期排在第 1 個）
           list.sort((a, b) => a.rec_date.localeCompare(b.rec_date));
 
           this.pendingSummary = list;
           this.totalPendingCount = list.reduce((sum, item) => sum + item.pending_count, 0);
 
-          // 🌟 預設選取「最早驗收日期」
           if (list.length > 0) {
             this.selectedPendingDate = list[0].rec_date;
             this.loadPendingDetails(this.selectedPendingDate, null);
@@ -1357,14 +1468,12 @@ export default {
       }
     },
 
-    // 🌟 打開彈窗：優先顯示「最早驗收日期」
     openPendingDialog() {
       this.selectedHourFilter = null;
       this.selectedHourStr = '';
       this.pendingWhFilter = 'all';
       this.aiFilterStatus = 'all';
 
-      // 檢查是否已有排序好的清單，直接選第 1 筆（即最早日期）
       if (this.pendingSummary && this.pendingSummary.length > 0) {
         this.selectedPendingDate = this.pendingSummary[0].rec_date;
         this.loadPendingDetails(this.selectedPendingDate, null);
@@ -1548,6 +1657,112 @@ export default {
   color: #38bdf8;
 }
 
+/* 🌟 板貨 vs 散貨 KPI 概覽卡 */
+.cargo-kpi-card {
+  display: grid;
+  grid-template-columns: 1.2fr 1.5fr 1.8fr 1.5fr;
+  gap: 12px;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+
+.kpi-box {
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.kpi-title {
+  font-size: 12px;
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+.kpi-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.badge {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: bold;
+}
+.pallet-badge {
+  background: rgba(34, 197, 94, 0.2);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.4);
+}
+.loose-badge {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+.kpi-rate {
+  font-size: 13px;
+  font-weight: bold;
+}
+
+.kpi-value {
+  font-size: 20px;
+  font-weight: bold;
+  margin: 3px 0 2px 0;
+}
+
+.kpi-value .unit {
+  font-size: 12px;
+  font-weight: normal;
+  color: #94a3b8;
+}
+
+.kpi-sub {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.kpi-progress-col {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+
+.progress-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: bold;
+  color: #cbd5e1;
+}
+
+.custom-progress-bar {
+  display: flex;
+  height: 12px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #334155;
+}
+
+.bar-part {
+  height: 100%;
+  transition: width 0.3s ease;
+}
+.green-part { background: #22c55e; }
+.orange-part { background: #f59e0b; }
+
 .filter-card {
   background: #1e293b;
   padding: 8px 16px;
@@ -1655,6 +1870,11 @@ export default {
   color: #bbf7d0;
 }
 
+.group-orange-header {
+  background: #78350f;
+  color: #fed7aa;
+}
+
 .col-ratio-header {
   background: #854d0e;
   color: #fef08a;
@@ -1684,19 +1904,12 @@ export default {
   font-weight: bold;
 }
 
-.text-red {
-  color: #ef4444 !important;
-  font-weight: bold;
-}
-
-.text-yellow {
-  color: #fef08a !important;
-  font-weight: bold;
-}
-
-.text-gray {
-  color: #94a3b8 !important;
-}
+.text-red { color: #ef4444 !important; font-weight: bold; }
+.text-yellow { color: #fef08a !important; font-weight: bold; }
+.text-green { color: #4ade80 !important; }
+.text-cyan { color: #38bdf8 !important; }
+.text-orange { color: #fbbf24 !important; }
+.text-gray { color: #94a3b8 !important; }
 
 .clickable-cell {
   cursor: pointer;
@@ -1774,50 +1987,14 @@ export default {
   transform: translateY(-2px);
 }
 
-.drop-icon-wrapper {
-  margin-bottom: 12px;
-}
+.drop-icon-wrapper { margin-bottom: 12px; }
+.drop-cloud-icon { font-size: 56px; color: #38bdf8; pointer-events: none; }
+.drop-text-primary { font-size: 15px; font-weight: bold; color: #f8fafc; pointer-events: none; }
+.highlight-text { color: #38bdf8; }
+.drop-text-secondary { font-size: 13px; color: #94a3b8; margin-top: 6px; pointer-events: none; }
+.security-badge { display: inline-block; margin-top: 18px; padding: 4px 12px; background: #1e3a8a; color: #bfdbfe; font-size: 11px; border-radius: 20px; pointer-events: none; }
 
-.drop-cloud-icon {
-  font-size: 56px;
-  color: #38bdf8;
-  pointer-events: none;
-}
-
-.drop-card-box:hover .drop-cloud-icon {
-  color: #22c55e;
-  transform: scale(1.08);
-}
-
-.drop-text-primary {
-  font-size: 15px;
-  font-weight: bold;
-  color: #f8fafc;
-  pointer-events: none;
-}
-
-.highlight-text {
-  color: #38bdf8;
-}
-
-.drop-text-secondary {
-  font-size: 13px;
-  color: #94a3b8;
-  margin-top: 6px;
-  pointer-events: none;
-}
-
-.security-badge {
-  display: inline-block;
-  margin-top: 18px;
-  padding: 4px 12px;
-  background: #1e3a8a;
-  color: #bfdbfe;
-  font-size: 11px;
-  border-radius: 20px;
-  pointer-events: none;
-}
-
+/* 85%~90% 滿版未上架彈窗 */
 :deep(.el-dialog.dark-dialog.huge-pending-dialog) {
   background-color: #1e293b !important;
   color: #f8fafc !important;
@@ -1934,8 +2111,5 @@ export default {
 
 .text-center { text-align: center; }
 .text-right { text-align: right; }
-.text-blue { color: #38bdf8; }
-.text-green { color: #4ade80; }
-.text-orange { color: #fbbf24; }
 .font-bold { font-weight: bold; }
 </style>
