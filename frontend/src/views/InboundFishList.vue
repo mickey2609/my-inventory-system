@@ -532,7 +532,7 @@
       </div>
     </el-dialog>
 
-    <!-- 🌟 7. 未上架彈窗 (去除側欄，全面釋放寬度給明細表格) -->
+    <!-- 7. 未上架彈窗 (頂部日期下拉、全寬表格) -->
     <el-dialog 
       v-model="showPendingDialog" 
       title="⚠️ 尚未上架明細監控與更正處置" 
@@ -546,7 +546,7 @@
           <!-- 頂部操作與過濾列（整合日期下拉） -->
           <div class="content-header">
             <div class="title-with-tag">
-              <!-- 🌟 驗收日期下拉選單 -->
+              <!-- 🌟 驗收日期下拉選單：預設顯示最早驗收日期 -->
               <span class="control-label">📅 驗收日期：</span>
               <el-select
                 v-model="selectedPendingDate"
@@ -812,8 +812,8 @@ export default {
 
       selectedHourFilter: null,
       selectedHourStr: '',
-      pendingWhFilter: 'all', // 'all', '80', '15'
-      aiFilterStatus: 'all',  // 'all', 'abnormal', 'normal'
+      pendingWhFilter: 'all',
+      aiFilterStatus: 'all',
 
       showUploadCardModal: false,
       isCardHover: false,
@@ -998,7 +998,7 @@ export default {
       return '雙庫合計';
     },
 
-    // 🌟 AI 智慧備註文字特徵診斷核心 (已加入正常品判定)
+    // 🌟 正常品白名單
     analyzeRemark(rawRemark) {
       if (!rawRemark) {
         return { isAbnormal: false, label: '⚪ 正常件', reason: '收貨備註為空' };
@@ -1009,7 +1009,6 @@ export default {
         return { isAbnormal: false, label: '⚪ 正常件', reason: '無特別註記' };
       }
 
-      // 🌟 常規作業與調撥白名單（非異常件）
       const normalKeywords = [
         '(原15庫)', '原15庫', '15庫',
         '(原82庫)', '原82庫', '82庫',
@@ -1023,27 +1022,22 @@ export default {
         return { isAbnormal: false, label: '📦 作業正常', reason: '為常規庫存調撥或正常收貨備註' };
       }
 
-      // 1. 數量異常特徵 (含廠商手改、數量Q問、短少溢收)
       if (/手改|多驗|少驗|短少|溢收|數量問題|Q問|待回覆|待回|二聯單|聯單|差異/i.test(str)) {
         return { isAbnormal: true, label: '🚨 數量爭議', reason: `檢測到數量手改或問單字樣：${str}` };
       }
 
-      // 2. 包裝與商品外觀受損特徵
       if (/凹損|破損|受潮|污損|破箱|外箱破|包裝|盒損|壓損|瑕疵/i.test(str)) {
         return { isAbnormal: true, label: '🚨 外觀破損', reason: `檢測到外觀或包裝異常字樣：${str}` };
       }
 
-      // 3. 效期與品質問題
       if (/即期|過期|效期|壞|故障|質檢|檢驗不合/i.test(str)) {
         return { isAbnormal: true, label: '🚨 效期品檢', reason: `檢測到商品效期或品管異常字樣：${str}` };
       }
 
-      // 4. 單據發票爭議
       if (/發票|無單|未附|缺單|單據不符/i.test(str)) {
         return { isAbnormal: true, label: '🚨 單據異常', reason: `檢測到進貨單據缺失或不符字樣：${str}` };
       }
 
-      // 5. 其餘非空白且排除正常調撥字眼後的文字
       const cleaned = str.replace(/\(原15庫\)|原15庫|\(原82庫\)|原82庫|82庫|\(同步\)|\(書\)驗入時立即收貨|驗入時立即收貨/g, '').trim();
       if (cleaned.length > 0) {
         return { isAbnormal: true, label: '⚠️ 特殊備註', reason: `包含需人工確認之自訂註記：${str}` };
@@ -1339,14 +1333,22 @@ export default {
       }
     },
 
+    // 🌟 核心：拉取統計後，按日期由舊到新排序，並預設選擇最早的日期
     async fetchPendingSummary() {
       try {
         const res = await axios.get('/api/inbound/pending-putaway');
         if (res.data?.success) {
-          this.pendingSummary = res.data.pendingSummary || [];
-          this.totalPendingCount = this.pendingSummary.reduce((sum, item) => sum + item.pending_count, 0);
-          if (this.pendingSummary.length > 0 && !this.selectedPendingDate) {
-            this.selectedPendingDate = this.pendingSummary[0].rec_date;
+          let list = res.data.pendingSummary || [];
+          
+          // 🌟 依日期升冪排序（最早日期排在第 1 個）
+          list.sort((a, b) => a.rec_date.localeCompare(b.rec_date));
+
+          this.pendingSummary = list;
+          this.totalPendingCount = list.reduce((sum, item) => sum + item.pending_count, 0);
+
+          // 🌟 預設選取「最早驗收日期」
+          if (list.length > 0) {
+            this.selectedPendingDate = list[0].rec_date;
             this.loadPendingDetails(this.selectedPendingDate, null);
           }
         }
@@ -1355,15 +1357,19 @@ export default {
       }
     },
 
+    // 🌟 打開彈窗：優先顯示「最早驗收日期」
     openPendingDialog() {
       this.selectedHourFilter = null;
       this.selectedHourStr = '';
       this.pendingWhFilter = 'all';
       this.aiFilterStatus = 'all';
-      this.fetchPendingSummary();
-      if (this.targetDate) {
-        this.selectedPendingDate = this.targetDate;
-        this.loadPendingDetails(this.targetDate, null);
+
+      // 檢查是否已有排序好的清單，直接選第 1 筆（即最早日期）
+      if (this.pendingSummary && this.pendingSummary.length > 0) {
+        this.selectedPendingDate = this.pendingSummary[0].rec_date;
+        this.loadPendingDetails(this.selectedPendingDate, null);
+      } else {
+        this.fetchPendingSummary();
       }
       this.showPendingDialog = true;
     },
@@ -1713,7 +1719,6 @@ export default {
   color: #60a5fa;
 }
 
-/* 庫別徽章 */
 .wh-badge {
   display: inline-block;
   padding: 2px 8px;
@@ -1732,7 +1737,6 @@ export default {
   border: 1px solid rgba(34, 197, 94, 0.3);
 }
 
-/* AI 狀態徽章樣式 */
 .ai-status-badge {
   display: inline-block;
   padding: 2px 8px;
@@ -1752,7 +1756,6 @@ export default {
   box-shadow: 0 0 8px rgba(239, 68, 68, 0.2);
 }
 
-/* 投放小卡風格 */
 .drop-card-box {
   background: #0f172a;
   border: 2px dashed #38bdf8;
@@ -1815,7 +1818,6 @@ export default {
   pointer-events: none;
 }
 
-/* 85%~90% 滿版未上架彈窗[cite: 26] */
 :deep(.el-dialog.dark-dialog.huge-pending-dialog) {
   background-color: #1e293b !important;
   color: #f8fafc !important;
@@ -1866,7 +1868,6 @@ export default {
   border-bottom: 1px solid #334155 !important;
 }
 
-/* 🌟 單欄彈窗本體（無側欄模式） */
 .pending-dialog-body.single-column {
   display: block;
   width: 100%;
