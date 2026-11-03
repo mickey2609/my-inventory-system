@@ -23,6 +23,8 @@ module.exports = function(db) {
         last_inbound_date TEXT,
         item_tag TEXT DEFAULT '主商品',
         remark TEXT DEFAULT '',
+        is_confirmed INTEGER DEFAULT 0,
+        confirmed_at TEXT,
         updated_at TEXT
       );
     `);
@@ -30,15 +32,18 @@ module.exports = function(db) {
     // 自動擴充欄位（相容舊表）
     db.run(`ALTER TABLE item_sales_history ADD COLUMN item_tag TEXT DEFAULT '主商品'`, () => {});
     db.run(`ALTER TABLE item_sales_history ADD COLUMN remark TEXT DEFAULT ''`, () => {});
+    db.run(`ALTER TABLE item_sales_history ADD COLUMN is_confirmed INTEGER DEFAULT 0`, () => {});
+    db.run(`ALTER TABLE item_sales_history ADD COLUMN confirmed_at TEXT`, () => {});
 
     db.run(`CREATE INDEX IF NOT EXISTS idx_ish_sales_90d ON item_sales_history(sales_90d);`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_ish_pm ON item_sales_history(pm);`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_ish_last_date ON item_sales_history(last_record_date);`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_ish_item_tag ON item_sales_history(item_tag);`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_ish_confirmed ON item_sales_history(is_confirmed);`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_inbound_details_item_id ON inbound_details(item_id);`);
   });
 
-  // [POST] 🌟 單筆更新商品屬性與自訂備註 (永久儲存)
+  // [POST] 🌟 單筆更新商品屬性與自訂備註 (自動標記為已確認)
   router.post('/update-tag-remark', (req, res) => {
     const { item_id, item_tag, remark } = req.body;
     if (!item_id) {
@@ -49,11 +54,13 @@ module.exports = function(db) {
     const cleanRemark = remark || '';
 
     const sql = `
-      INSERT INTO item_sales_history (item_id, item_tag, remark, updated_at)
-      VALUES (?, ?, ?, DATETIME('now', 'localtime'))
+      INSERT INTO item_sales_history (item_id, item_tag, remark, is_confirmed, confirmed_at, updated_at)
+      VALUES (?, ?, ?, 1, DATETIME('now', 'localtime'), DATETIME('now', 'localtime'))
       ON CONFLICT(item_id) DO UPDATE SET
         item_tag = excluded.item_tag,
         remark = excluded.remark,
+        is_confirmed = 1,
+        confirmed_at = DATETIME('now', 'localtime'),
         updated_at = DATETIME('now', 'localtime')
     `;
 
@@ -61,12 +68,12 @@ module.exports = function(db) {
       if (err) return res.status(500).json({ success: false, message: '更新商品屬性失敗: ' + err.message });
       res.json({
         success: true,
-        message: `🎉 商品 ${item_id} 屬性已成功更新為 [${cleanTag}]！`
+        message: `🎉 商品 ${item_id} 已成功審核並標記為 [${cleanTag}]！`
       });
     });
   });
 
-  // [POST] 🌟 批次更新商品屬性與自訂備註 (支援大量更新)
+  // [POST] 🌟 批次更新商品屬性與自訂備註 (自動標記為已確認)
   router.post('/batch-update-tag-remark', (req, res) => {
     const { item_ids, item_tag, remark } = req.body;
     if (!Array.isArray(item_ids) || item_ids.length === 0) {
@@ -79,11 +86,13 @@ module.exports = function(db) {
     db.serialize(() => {
       db.run('BEGIN TRANSACTION');
       const stmt = db.prepare(`
-        INSERT INTO item_sales_history (item_id, item_tag, remark, updated_at)
-        VALUES (?, ?, ?, DATETIME('now', 'localtime'))
+        INSERT INTO item_sales_history (item_id, item_tag, remark, is_confirmed, confirmed_at, updated_at)
+        VALUES (?, ?, ?, 1, DATETIME('now', 'localtime'), DATETIME('now', 'localtime'))
         ON CONFLICT(item_id) DO UPDATE SET
           item_tag = excluded.item_tag,
           remark = CASE WHEN ? != '' THEN excluded.remark ELSE item_sales_history.remark END,
+          is_confirmed = 1,
+          confirmed_at = DATETIME('now', 'localtime'),
           updated_at = DATETIME('now', 'localtime')
       `);
 
@@ -99,7 +108,44 @@ module.exports = function(db) {
         }
         res.json({
           success: true,
-          message: `🎉 成功完成 ${item_ids.length} 筆商品屬性批次更新為 [${cleanTag}]！`
+          message: `🎉 成功完成 ${item_ids.length} 筆商品屬性審核並更新為 [${cleanTag}]！`
+        });
+      });
+    });
+  });
+
+  // [POST] 🌟 批次一鍵確認為「主商品」
+  router.post('/batch-confirm-main', (req, res) => {
+    const { item_ids } = req.body;
+    if (!Array.isArray(item_ids) || item_ids.length === 0) {
+      return res.status(400).json({ success: false, message: '請至少選擇一筆商品' });
+    }
+
+    db.serialize(() => {
+      db.run('BEGIN TRANSACTION');
+      const stmt = db.prepare(`
+        INSERT INTO item_sales_history (item_id, item_tag, is_confirmed, confirmed_at, updated_at)
+        VALUES (?, '主商品', 1, DATETIME('now', 'localtime'), DATETIME('now', 'localtime'))
+        ON CONFLICT(item_id) DO UPDATE SET
+          item_tag = '主商品',
+          is_confirmed = 1,
+          confirmed_at = DATETIME('now', 'localtime'),
+          updated_at = DATETIME('now', 'localtime')
+      `);
+
+      for (const id of item_ids) {
+        stmt.run(id);
+      }
+
+      stmt.finalize();
+      db.run('COMMIT', (err) => {
+        if (err) {
+          db.run('ROLLBACK');
+          return res.status(500).json({ success: false, message: '確認失敗: ' + err.message });
+        }
+        res.json({
+          success: true,
+          message: `🎉 成功將 ${item_ids.length} 筆商品確認為 [主商品]！`
         });
       });
     });
@@ -154,6 +200,7 @@ module.exports = function(db) {
     const keyword = (req.query.keyword || '').trim();
     const pm = (req.query.pm || '').trim();
     const tag = (req.query.tag || '').trim();
+    const confirmStatus = (req.query.confirmStatus || '').trim(); // '0':未確認, '1':已確認, '':全部
     const filterZeroSales = req.query.filterZeroSales === 'true';
     const filterOutOfStock = req.query.filterOutOfStock === 'true';
 
@@ -173,6 +220,13 @@ module.exports = function(db) {
     if (tag) {
       whereConditions.push(`item_tag = ?`);
       bindings.push(tag);
+    }
+
+    // 🌟 審核確認狀態過濾
+    if (confirmStatus === '0') {
+      whereConditions.push(`IFNULL(is_confirmed, 0) = 0`);
+    } else if (confirmStatus === '1') {
+      whereConditions.push(`IFNULL(is_confirmed, 0) = 1`);
     }
 
     if (filterZeroSales) {
@@ -201,6 +255,8 @@ module.exports = function(db) {
           monthly_sales, sales_90d, last_record_date, last_inbound_date,
           IFNULL(item_tag, '主商品') as item_tag,
           IFNULL(remark, '') as remark,
+          IFNULL(is_confirmed, 0) as is_confirmed,
+          confirmed_at,
           updated_at
         FROM item_sales_history 
         ${whereClause} 
@@ -255,53 +311,6 @@ module.exports = function(db) {
       res.json({
         success: true,
         message: `🎉 成功完成進貨驗收日期同步！共更新 ${this.changes} 筆商品。`
-      });
-    });
-  });
-
-  // 🔍 [GET] /api/item-sales-history/find-tables - 查詢資料庫所有表名與結構
-  router.get('/find-tables', (req, res) => {
-    db.all("SELECT name, sql FROM sqlite_master WHERE type='table' ORDER BY name ASC", [], (err, tables) => {
-      if (err) return res.status(500).json({ success: false, error: err.message });
-      res.json({
-        success: true,
-        table_count: tables ? tables.length : 0,
-        tables: (tables || []).map(t => ({ name: t.name, schema: t.sql }))
-      });
-    });
-  });
-
-  // 🔍 [GET] /api/item-sales-history/peek-inbound - 查看進貨明細表最新 5 筆內容
-  router.get('/peek-inbound', (req, res) => {
-    db.all("SELECT * FROM inbound_details ORDER BY rowid DESC LIMIT 5", [], (err, rows) => {
-      if (err) return res.status(500).json({ success: false, error: err.message });
-      res.json({
-        success: true,
-        count: rows ? rows.length : 0,
-        sample_rows: rows || []
-      });
-    });
-  });
-
-  // 🔍 [GET] /api/item-sales-history/debug-inbound
-  router.get('/debug-inbound', (req, res) => {
-    const rawItemId = (req.query.item_id || 'DMAGV0-A900GHNYH-000').trim();
-    const cleanItemId = rawItemId.split('-')[0];
-
-    const checkSql = `
-      SELECT * FROM inbound_details 
-      WHERE item_id LIKE ? OR item_id LIKE ? OR item_id = ?
-      LIMIT 20
-    `;
-
-    db.all(checkSql, [`%${cleanItemId}%`, `%${rawItemId}%`, rawItemId], (err, rows) => {
-      if (err) return res.status(500).json({ success: false, error: err.message });
-      
-      res.json({
-        success: true,
-        queried_item_id: rawItemId,
-        match_count: rows ? rows.length : 0,
-        matched_records: rows || []
       });
     });
   });

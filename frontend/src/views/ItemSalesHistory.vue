@@ -10,7 +10,7 @@
           placeholder="搜尋商品編號 / 商品名稱 / 供應商"
           size="small"
           clearable
-          style="width: 240px;"
+          style="width: 230px;"
           @keyup.enter="handleSearch"
           @clear="handleSearch"
         />
@@ -20,16 +20,23 @@
           placeholder="篩選 PM"
           size="small"
           clearable
-          style="width: 110px;"
+          style="width: 105px;"
           @keyup.enter="handleSearch"
           @clear="handleSearch"
         />
 
-        <el-select v-model="tagFilter" placeholder="商品屬性" size="small" clearable style="width: 115px;" @change="handleSearch">
+        <el-select v-model="tagFilter" placeholder="商品屬性" size="small" clearable style="width: 110px;" @change="handleSearch">
           <el-option label="📦 主商品" value="主商品" />
           <el-option label="🎁 贈品" value="贈品" />
           <el-option label="🏷️ 樣品" value="樣品" />
           <el-option label="📦 耗材" value="耗材" />
+        </el-select>
+
+        <!-- 🌟 審核狀態篩選器 -->
+        <el-select v-model="confirmStatus" placeholder="審核狀態" size="small" style="width: 120px;" @change="handleSearch">
+          <el-option label="🌐 全部狀態" value="" />
+          <el-option label="⚪ 待確認 (未審)" value="0" />
+          <el-option label="✅ 已確認 (已審)" value="1" />
         </el-select>
 
         <el-checkbox v-model="filterZeroSales" label="🚨 90日零銷量" @change="handleSearch" />
@@ -41,6 +48,17 @@
       </div>
 
       <div class="action-group">
+        <!-- 🌟 一鍵確認為主商品按鈕 -->
+        <el-button 
+          type="info" 
+          size="small" 
+          icon="el-icon-check"
+          :disabled="selectedRows.length === 0"
+          @click="batchConfirmAsMain"
+        >
+          ✅ 一鍵確認為主商品 {{ selectedRows.length > 0 ? `(${selectedRows.length})` : '' }}
+        </el-button>
+
         <!-- 🌟 批次調整屬性按鈕 -->
         <el-button 
           type="warning" 
@@ -74,10 +92,22 @@
         class="dark-table"
         @selection-change="handleSelectionChange"
       >
-        <!-- 🌟 批次勾選列 -->
+        <!-- 批次勾選列 -->
         <el-table-column type="selection" width="48" align="center" fixed="left" />
 
-        <!-- 🌟 1. 商品屬性：移至商品編號的左邊 -->
+        <!-- 🌟 1. 審核狀態 -->
+        <el-table-column prop="is_confirmed" label="審核狀態" width="95" align="center" sortable fixed="left">
+          <template #default="scope">
+            <span v-if="scope.row.is_confirmed === 1" class="confirm-badge confirmed" :title="`確認時間：${scope.row.confirmed_at || '-'}`">
+              ✅ 已確認
+            </span>
+            <span v-else class="confirm-badge unconfirmed">
+              ⚪ 待確認
+            </span>
+          </template>
+        </el-table-column>
+
+        <!-- 🌟 2. 商品屬性：位於商品編號左側 -->
         <el-table-column prop="item_tag" label="商品屬性" width="115" align="center" sortable fixed="left">
           <template #default="scope">
             <span class="tag-badge" :class="getTagBadgeClass(scope.row.item_tag)">
@@ -86,7 +116,7 @@
           </template>
         </el-table-column>
 
-        <!-- 🌟 2. 商品編號：點選開啟單筆標記彈窗 -->
+        <!-- 🌟 3. 商品編號：點選開啟單筆標記彈窗 -->
         <el-table-column prop="item_id" label="商品編號" width="165" align="center" sortable fixed="left">
           <template #default="scope">
             <span class="font-bold text-blue clickable-link" @click="openQuickTagModal(scope.row)">
@@ -149,7 +179,7 @@
           </template>
         </el-table-column>
 
-        <!-- 自訂備註 (保留在後方檢視) -->
+        <!-- 自訂備註 -->
         <el-table-column prop="remark" label="自訂備註" min-width="160" show-overflow-tooltip fixed="right">
           <template #default="scope">
             <span :class="scope.row.remark ? 'text-light' : 'text-gray'">
@@ -200,6 +230,12 @@
           <span class="info-val">{{ activeItem.item_name }}</span>
         </div>
         <div class="item-info-line">
+          <span class="info-lbl">審核狀態：</span>
+          <span :class="activeItem.is_confirmed === 1 ? 'text-green font-bold' : 'text-orange font-bold'">
+            {{ activeItem.is_confirmed === 1 ? '✅ 已人工確認' : '⚪ 尚未審查 (系統預設)' }}
+          </span>
+        </div>
+        <div class="item-info-line">
           <span class="info-lbl">商品屬性：</span>
           <el-radio-group v-model="modalTag" size="small">
             <el-radio-button label="主商品">📦 主商品</el-radio-button>
@@ -221,12 +257,12 @@
       <template #footer>
         <span class="dialog-footer">
           <el-button size="small" @click="showQuickTagModal = false">取消</el-button>
-          <el-button type="primary" size="small" @click="saveModalTag">💾 儲存標記</el-button>
+          <el-button type="primary" size="small" @click="saveModalTag">💾 儲存並標記為已確認</el-button>
         </span>
       </template>
     </el-dialog>
 
-    <!-- 🌟 4. 批次調整商品屬性 Modal -->
+    <!-- 4. 批次調整商品屬性 Modal -->
     <el-dialog 
       v-model="showBatchModal" 
       title="⚡ 批次調整商品屬性" 
@@ -236,7 +272,7 @@
     >
       <div class="modal-body-content">
         <div class="batch-alert">
-          💡 目前已選取 <strong class="text-orange">{{ selectedRows.length }}</strong> 筆商品，將整批套用以下設定：
+          💡 目前已選取 <strong class="text-orange">{{ selectedRows.length }}</strong> 筆商品，完成後將自動蓋章為【已確認】狀態：
         </div>
         <div class="item-info-line">
           <span class="info-lbl">統一設定屬性：</span>
@@ -282,6 +318,7 @@ export default {
       keyword: '',
       pmFilter: '',
       tagFilter: '',
+      confirmStatus: '', // '':全部, '0':未確認, '1':已確認
       filterZeroSales: false,
       filterOutOfStock: false,
       tableData: [],
@@ -382,6 +419,7 @@ export default {
           keyword: this.keyword,
           pm: this.pmFilter,
           tag: this.tagFilter,
+          confirmStatus: this.confirmStatus,
           filterZeroSales: this.filterZeroSales,
           filterOutOfStock: this.filterOutOfStock
         };
@@ -418,15 +456,22 @@ export default {
         if (res.data?.success) {
           this.activeItem.item_tag = this.modalTag;
           this.activeItem.remark = this.modalRemark;
+          this.activeItem.is_confirmed = 1;
+
           ElMessage.success(res.data.message);
           this.showQuickTagModal = false;
+
+          // 若處於「待確認」檢視模式，該筆立即淡出清單，避免重工
+          if (this.confirmStatus === '0') {
+            this.tableData = this.tableData.filter(r => r.item_id !== this.activeItem.item_id);
+            this.totalRows = Math.max(0, this.totalRows - 1);
+          }
         }
       } catch (e) {
         ElMessage.error('儲存失敗：' + (e.response?.data?.message || e.message));
       }
     },
 
-    // 🌟 打開批次設定 Modal
     openBatchTagModal() {
       if (this.selectedRows.length === 0) return ElMessage.warning('請先勾選欲調整屬性的商品');
       this.batchTag = '贈品';
@@ -434,7 +479,6 @@ export default {
       this.showBatchModal = true;
     },
 
-    // 🌟 執行批次更新
     async executeBatchUpdate() {
       if (this.selectedRows.length === 0) return;
       this.batchSaving = true;
@@ -449,12 +493,20 @@ export default {
 
         if (res.data?.success) {
           ElMessage.success(res.data.message);
-          // 本地即時更新選取項目狀態
           this.selectedRows.forEach(row => {
             row.item_tag = this.batchTag;
+            row.is_confirmed = 1;
             if (this.batchRemark) row.remark = this.batchRemark;
           });
           this.showBatchModal = false;
+
+          // 若在「待確認」模式，已審核之項目全數移出清單
+          if (this.confirmStatus === '0') {
+            const idSet = new Set(ids);
+            this.tableData = this.tableData.filter(r => !idSet.has(r.item_id));
+            this.totalRows = Math.max(0, this.totalRows - ids.length);
+          }
+
           if (this.$refs.multipleTable) this.$refs.multipleTable.clearSelection();
         } else {
           ElMessage.error(res.data?.message || '批次更新失敗');
@@ -463,6 +515,34 @@ export default {
         ElMessage.error('批次更新錯誤：' + (e.response?.data?.message || e.message));
       } finally {
         this.batchSaving = false;
+      }
+    },
+
+    // 🌟 一鍵確認為「主商品」放行
+    async batchConfirmAsMain() {
+      if (this.selectedRows.length === 0) return;
+      const ids = this.selectedRows.map(r => r.item_id);
+
+      try {
+        const res = await axios.post('/api/item-sales-history/batch-confirm-main', { item_ids: ids });
+        if (res.data?.success) {
+          ElMessage.success(res.data.message);
+          this.selectedRows.forEach(row => {
+            row.item_tag = '主商品';
+            row.is_confirmed = 1;
+          });
+
+          // 若在「待確認」模式，直接移出
+          if (this.confirmStatus === '0') {
+            const idSet = new Set(ids);
+            this.tableData = this.tableData.filter(r => !idSet.has(r.item_id));
+            this.totalRows = Math.max(0, this.totalRows - ids.length);
+          }
+
+          if (this.$refs.multipleTable) this.$refs.multipleTable.clearSelection();
+        }
+      } catch (e) {
+        ElMessage.error('確認失敗：' + (e.response?.data?.message || e.message));
       }
     },
 
@@ -477,6 +557,7 @@ export default {
           keyword: this.keyword,
           pm: this.pmFilter,
           tag: this.tagFilter,
+          confirmStatus: this.confirmStatus,
           filterZeroSales: this.filterZeroSales,
           filterOutOfStock: this.filterOutOfStock
         };
@@ -486,6 +567,7 @@ export default {
 
         if (res.data?.success && res.data.data) {
           const exportRows = res.data.data.map(r => ({
+            '審核狀態': r.is_confirmed === 1 ? '已確認' : '待確認',
             '商品屬性': r.item_tag || '主商品',
             '商品編號': r.item_id,
             '商品名稱': r.item_name,
@@ -498,6 +580,7 @@ export default {
             '(近)90日銷量': r.sales_90d,
             '最後庫存檔日期': r.last_record_date,
             '最後進貨驗收日期': r.last_inbound_date,
+            '確認時間': r.confirmed_at || '',
             '自訂備註': r.remark || ''
           }));
 
@@ -519,7 +602,7 @@ export default {
 <style scoped>
 .item-sales-history-page { padding: 16px; height: calc(100vh - 52px); box-sizing: border-box; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
 .top-bar { display: flex; justify-content: space-between; align-items: center; background: #1e293b; padding: 10px 16px; border-radius: 8px; border: 1px solid #334155; }
-.title-group, .action-group { display: flex; align-items: center; gap: 12px; }
+.title-group, .action-group { display: flex; align-items: center; gap: 10px; }
 .page-title { font-size: 16px; font-weight: bold; color: #38bdf8; }
 .table-container { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 10px; flex: 1; display: flex; flex-direction: column; }
 .pagination-bar { display: flex; justify-content: flex-end; padding-top: 10px; background: #1e293b; }
@@ -548,6 +631,25 @@ export default {
   border-radius: 6px;
   font-size: 13px;
   margin-bottom: 4px;
+}
+
+/* 🌟 確認狀態徽章樣式 */
+.confirm-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: bold;
+}
+.confirm-badge.confirmed {
+  color: #4ade80;
+  background: rgba(74, 222, 128, 0.15);
+  border: 1px solid rgba(74, 222, 128, 0.3);
+}
+.confirm-badge.unconfirmed {
+  color: #94a3b8;
+  background: rgba(148, 163, 184, 0.1);
+  border: 1px dashed #475569;
 }
 
 .tag-badge {
