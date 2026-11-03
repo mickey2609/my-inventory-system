@@ -211,7 +211,6 @@
                 <td class="text-right">{{ formatNumber(h.recPoCount) }}</td>
                 <td class="text-right font-bold text-blue">{{ formatNumber(h.recPoPcs) }}</td>
                 
-                <!-- 🌟 點擊跳出時段專屬未上架明細 -->
                 <td 
                   class="text-right font-bold" 
                   :class="{ 'text-red clickable-cell': h.unputPoCount > 0 }"
@@ -235,7 +234,6 @@
                 <td class="text-right">{{ formatNumber(h.recBatCount) }}</td>
                 <td class="text-right font-bold text-blue">{{ formatNumber(h.recBatPcs) }}</td>
                 
-                <!-- 🌟 點擊跳出時段專屬未上架明細 -->
                 <td 
                   class="text-right font-bold" 
                   :class="{ 'text-red clickable-cell': h.unputBatCount > 0 }"
@@ -534,7 +532,7 @@
       </div>
     </el-dialog>
 
-    <!-- 🌟 7. 未上架彈窗 (升級為 96vw 寬度、86vh 高度滿版大介面) -->
+    <!-- 7. 未上架彈窗 (96vw 寬、86vh 高滿版介面) -->
     <el-dialog 
       v-model="showPendingDialog" 
       title="⚠️ 尚未上架明細監控與更正處置" 
@@ -570,6 +568,14 @@
                 </span>
                 未上架明細 ({{ filteredDetailsList.length }} 筆)
               </span>
+
+              <!-- 🌟 頂部快捷庫別過濾 -->
+              <el-radio-group v-model="pendingWhFilter" size="mini" class="pending-wh-radio">
+                <el-radio-button label="all">全部庫別</el-radio-button>
+                <el-radio-button label="80">📦 80庫</el-radio-button>
+                <el-radio-button label="15">🔍 15庫</el-radio-button>
+              </el-radio-group>
+
               <el-button 
                 v-if="selectedHourFilter !== null" 
                 size="mini" 
@@ -621,12 +627,34 @@
             @selection-change="handleSelectionChange"
           >
             <el-table-column type="selection" width="48" align="center" fixed="left" />
-            <el-table-column prop="rec_date" label="驗收日期" width="110" align="center" sortable />
-            <el-table-column prop="rec_time" label="驗收時間" width="95" align="center" sortable />
+            <el-table-column prop="rec_date" label="驗收日期" width="105" align="center" sortable />
+            <el-table-column prop="rec_time" label="驗收時間" width="90" align="center" sortable />
+
+            <!-- 🌟 庫別欄位：位於驗收時間右邊，支援標題下拉篩選與排序 -->
+            <el-table-column 
+              prop="warehouse" 
+              label="庫別" 
+              width="90" 
+              align="center" 
+              sortable
+              :filters="[
+                { text: '80 庫 (人工)', value: '80' },
+                { text: '15 庫 (自動)', value: '15' }
+              ]"
+              :filter-method="filterWarehouseColumn"
+              filter-placement="bottom-end"
+            >
+              <template #default="scope">
+                <span class="wh-badge" :class="scope.row.warehouse === '15' ? 'wh-15' : 'wh-80'">
+                  {{ scope.row.warehouse === '15' ? '15庫' : '80庫' }}
+                </span>
+              </template>
+            </el-table-column>
+
             <el-table-column prop="po_no" label="進貨單號" width="165" align="center" sortable />
             <el-table-column prop="batch_no" label="驗收批號" width="160" align="center" sortable />
 
-            <!-- 🌟 商品ID：點擊快速複製 -->
+            <!-- 商品ID：點擊快速複製 -->
             <el-table-column prop="item_id" label="商品ID" width="190" align="center" sortable>
               <template #default="scope">
                 <span class="font-bold text-blue clickable-id" @click="copyItemId(scope.row.item_id)" title="點擊可複製商品ID">
@@ -742,9 +770,9 @@ export default {
       selectedDetailRows: [],
       loadingDetails: false,
 
-      // 🌟 時段篩選狀態
       selectedHourFilter: null,
       selectedHourStr: '',
+      pendingWhFilter: 'all', // 'all', '80', '15'
 
       showUploadCardModal: false,
       isCardHover: false,
@@ -862,16 +890,23 @@ export default {
       return { ...tot, putRate };
     },
 
-    // 🌟 根據選定時段動態篩選明細
+    // 🌟 綜合時段與頂部庫別過濾
     filteredDetailsList() {
-      if (this.selectedHourFilter === null) {
-        return this.currentDetailsList;
+      let list = this.currentDetailsList;
+
+      if (this.selectedHourFilter !== null) {
+        list = list.filter(r => {
+          if (!r.rec_time) return false;
+          const hour = parseInt(r.rec_time.split(':')[0], 10);
+          return hour === this.selectedHourFilter;
+        });
       }
-      return this.currentDetailsList.filter(r => {
-        if (!r.rec_time) return false;
-        const hour = parseInt(r.rec_time.split(':')[0], 10);
-        return hour === this.selectedHourFilter;
-      });
+
+      if (this.pendingWhFilter !== 'all') {
+        list = list.filter(r => String(r.warehouse) === this.pendingWhFilter);
+      }
+
+      return list;
     }
   },
   mounted() {
@@ -911,6 +946,11 @@ export default {
       if (wh === '80') return '80 庫';
       if (wh === '15') return '15 庫';
       return '雙庫合計';
+    },
+
+    // 🌟 表格內庫別篩選過濾器
+    filterWarehouseColumn(value, row) {
+      return String(row.warehouse) === String(value);
     },
 
     copyItemId(id) {
@@ -1212,10 +1252,10 @@ export default {
       }
     },
 
-    // 🌟 一般打開彈窗（顯示全日）
     openPendingDialog() {
       this.selectedHourFilter = null;
       this.selectedHourStr = '';
+      this.pendingWhFilter = 'all';
       this.fetchPendingSummary();
       if (this.targetDate) {
         this.selectedPendingDate = this.targetDate;
@@ -1224,11 +1264,11 @@ export default {
       this.showPendingDialog = true;
     },
 
-    // 🌟 點擊特定時段的未上架數字穿透
     openHourPendingDetails(hourIndex, hourLabel) {
       this.selectedHourFilter = hourIndex;
       this.selectedHourStr = hourLabel;
       this.selectedPendingDate = this.targetDate;
+      this.pendingWhFilter = 'all';
       this.fetchPendingSummary();
       this.loadPendingDetails(this.targetDate, hourIndex);
       this.showPendingDialog = true;
@@ -1539,7 +1579,6 @@ export default {
   font-weight: bold;
 }
 
-/* 🌟 可點擊單元格樣式 */
 .clickable-cell {
   cursor: pointer;
   text-decoration: underline;
@@ -1559,6 +1598,25 @@ export default {
 .clickable-id:hover {
   text-decoration: underline;
   color: #60a5fa;
+}
+
+/* 🌟 庫別專用徽章標籤 */
+.wh-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: bold;
+  font-size: 11px;
+}
+.wh-80 {
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+}
+.wh-15 {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.3);
 }
 
 /* 投放小卡風格 */
@@ -1624,7 +1682,7 @@ export default {
   pointer-events: none;
 }
 
-/* 🌟 85%~90% 螢幕滿版未上架彈窗 */
+/* 85%~90% 螢幕滿版未上架彈窗 */
 :deep(.el-dialog.dark-dialog.huge-pending-dialog) {
   background-color: #1e293b !important;
   color: #f8fafc !important;
@@ -1779,6 +1837,10 @@ export default {
   font-weight: bold;
   font-size: 12px;
   margin: 0 4px;
+}
+
+.pending-wh-radio {
+  margin-left: 6px;
 }
 
 .resolve-form {
