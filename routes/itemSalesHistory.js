@@ -38,7 +38,7 @@ module.exports = function(db) {
     db.run(`CREATE INDEX IF NOT EXISTS idx_inbound_details_item_id ON inbound_details(item_id);`);
   });
 
-  // [POST] 🌟 更新商品屬性與自訂備註 (永久儲存)
+  // [POST] 🌟 單筆更新商品屬性與自訂備註 (永久儲存)
   router.post('/update-tag-remark', (req, res) => {
     const { item_id, item_tag, remark } = req.body;
     if (!item_id) {
@@ -62,6 +62,45 @@ module.exports = function(db) {
       res.json({
         success: true,
         message: `🎉 商品 ${item_id} 屬性已成功更新為 [${cleanTag}]！`
+      });
+    });
+  });
+
+  // [POST] 🌟 批次更新商品屬性與自訂備註 (支援大量更新)
+  router.post('/batch-update-tag-remark', (req, res) => {
+    const { item_ids, item_tag, remark } = req.body;
+    if (!Array.isArray(item_ids) || item_ids.length === 0) {
+      return res.status(400).json({ success: false, message: '請至少選擇一筆商品' });
+    }
+
+    const cleanTag = item_tag || '主商品';
+    const cleanRemark = remark !== undefined ? remark : '';
+
+    db.serialize(() => {
+      db.run('BEGIN TRANSACTION');
+      const stmt = db.prepare(`
+        INSERT INTO item_sales_history (item_id, item_tag, remark, updated_at)
+        VALUES (?, ?, ?, DATETIME('now', 'localtime'))
+        ON CONFLICT(item_id) DO UPDATE SET
+          item_tag = excluded.item_tag,
+          remark = CASE WHEN ? != '' THEN excluded.remark ELSE item_sales_history.remark END,
+          updated_at = DATETIME('now', 'localtime')
+      `);
+
+      for (const id of item_ids) {
+        stmt.run(id, cleanTag, cleanRemark, cleanRemark);
+      }
+
+      stmt.finalize();
+      db.run('COMMIT', (err) => {
+        if (err) {
+          db.run('ROLLBACK');
+          return res.status(500).json({ success: false, message: '批次更新失敗: ' + err.message });
+        }
+        res.json({
+          success: true,
+          message: `🎉 成功完成 ${item_ids.length} 筆商品屬性批次更新為 [${cleanTag}]！`
+        });
       });
     });
   });
@@ -216,6 +255,53 @@ module.exports = function(db) {
       res.json({
         success: true,
         message: `🎉 成功完成進貨驗收日期同步！共更新 ${this.changes} 筆商品。`
+      });
+    });
+  });
+
+  // 🔍 [GET] /api/item-sales-history/find-tables - 查詢資料庫所有表名與結構
+  router.get('/find-tables', (req, res) => {
+    db.all("SELECT name, sql FROM sqlite_master WHERE type='table' ORDER BY name ASC", [], (err, tables) => {
+      if (err) return res.status(500).json({ success: false, error: err.message });
+      res.json({
+        success: true,
+        table_count: tables ? tables.length : 0,
+        tables: (tables || []).map(t => ({ name: t.name, schema: t.sql }))
+      });
+    });
+  });
+
+  // 🔍 [GET] /api/item-sales-history/peek-inbound - 查看進貨明細表最新 5 筆內容
+  router.get('/peek-inbound', (req, res) => {
+    db.all("SELECT * FROM inbound_details ORDER BY rowid DESC LIMIT 5", [], (err, rows) => {
+      if (err) return res.status(500).json({ success: false, error: err.message });
+      res.json({
+        success: true,
+        count: rows ? rows.length : 0,
+        sample_rows: rows || []
+      });
+    });
+  });
+
+  // 🔍 [GET] /api/item-sales-history/debug-inbound
+  router.get('/debug-inbound', (req, res) => {
+    const rawItemId = (req.query.item_id || 'DMAGV0-A900GHNYH-000').trim();
+    const cleanItemId = rawItemId.split('-')[0];
+
+    const checkSql = `
+      SELECT * FROM inbound_details 
+      WHERE item_id LIKE ? OR item_id LIKE ? OR item_id = ?
+      LIMIT 20
+    `;
+
+    db.all(checkSql, [`%${cleanItemId}%`, `%${rawItemId}%`, rawItemId], (err, rows) => {
+      if (err) return res.status(500).json({ success: false, error: err.message });
+      
+      res.json({
+        success: true,
+        queried_item_id: rawItemId,
+        match_count: rows ? rows.length : 0,
+        matched_records: rows || []
       });
     });
   });
