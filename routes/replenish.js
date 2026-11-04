@@ -230,6 +230,7 @@ module.exports = function(db) {
       rows = rows || [];
 
       const hourlyData = Array.from({ length: 24 }, (_, h) => ({
+        hour: h,
         hourStr: `${String(h).padStart(2, '0')}:00 ~ ${String(h + 1).padStart(2, '0')}:00`,
         genOrderSet: new Set(), genPcs: 0,
         pendingOrderSet: new Set(), pendingPcs: 0,
@@ -269,6 +270,7 @@ module.exports = function(db) {
       });
 
       const hourlyStats = hourlyData.map(d => ({
+        hour: d.hour,
         hourStr: d.hourStr,
         genOrderCount: d.genOrderSet.size, genPcs: d.genPcs,
         pendingOrderCount: d.pendingOrderSet.size, pendingPcs: d.pendingPcs,
@@ -280,14 +282,13 @@ module.exports = function(db) {
     });
   });
 
-  // 🌟 3. 每月總表 API（直接由資料庫聚合未完成單數，保證與時段魚群 135 筆 100% 精準吻合）
+  // 3. 每月總表 API
   router.get('/monthly-summary', (req, res) => {
     const { month, docTypes, reasons } = req.query;
     if (!month) return res.status(400).json({ success: false, message: '請提供查詢月份 (YYYY-MM)' });
 
     const monthPattern = `${month}%`;
 
-    // 步驟 A：直接從資料庫查詢當月各日期的未完成單數（與魚群分析完全相同的條件）
     let pendingSql = `
       SELECT gen_date, COUNT(DISTINCT order_no) AS pending_count
       FROM replenish_details
@@ -307,7 +308,6 @@ module.exports = function(db) {
         if (p.gen_date) pendingMap[p.gen_date] = p.pending_count || 0;
       });
 
-      // 步驟 B：查詢當月總表一般產生與完成資料
       let sql = `SELECT * FROM replenish_details WHERE (gen_date LIKE ? OR finish_date LIKE ?)`;
       const params = [monthPattern, monthPattern];
       sql = applyFilters(sql, params, docTypes, reasons);
@@ -371,7 +371,6 @@ module.exports = function(db) {
             date: item.date,
             genOrderCount: genCount,
             genPcs: item.genPcs,
-            // 🌟 直接帶入對應日期的未完成數量（若為 10-29 則必定為 135）
             pendingOrderCount: pendingMap[item.date] || 0,
             finOrderCount: item.finOrderSet.size,
             finPcs: item.finPcs,
@@ -386,85 +385,108 @@ module.exports = function(db) {
     });
   });
 
-  // 4. 年度總表 API
+  // 4. 年度總表 API（加入月份未完成單數聚合）
   router.get('/yearly-summary', (req, res) => {
     const { year, docTypes, reasons } = req.query;
     if (!year) return res.status(400).json({ success: false, message: '請提供查詢年份 (YYYY)' });
 
-    let sql = `SELECT * FROM replenish_details WHERE (gen_date LIKE ? OR finish_date LIKE ?)`;
     const yearPattern = `${year}%`;
-    const params = [yearPattern, yearPattern];
 
-    sql = applyFilters(sql, params, docTypes, reasons);
+    // 步驟 A：查詢各月份的未完成單數
+    let pendingSql = `
+      SELECT SUBSTR(gen_date, 1, 7) AS month_key, COUNT(DISTINCT order_no) AS pending_count
+      FROM replenish_details
+      WHERE gen_date LIKE ?
+        AND (finish_date IS NULL OR TRIM(finish_date) = '')
+        AND (doc_status IS NULL OR (doc_status != '已刪單' AND doc_status != '已銷案'))
+    `;
+    const pendingParams = [yearPattern];
+    pendingSql = applyFilters(pendingSql, pendingParams, docTypes, reasons);
+    pendingSql += ` GROUP BY SUBSTR(gen_date, 1, 7)`;
 
-    db.all(sql, params, (err, rows) => {
-      if (err) return res.status(500).json({ success: false, message: err.message });
+    db.all(pendingSql, pendingParams, (errPending, pendingRows) => {
+      if (errPending) return res.status(500).json({ success: false, message: errPending.message });
 
-      rows = rows || [];
-      const monthMap = {};
-
-      for (let m = 1; m <= 12; m++) {
-        const mKey = `${year}-${String(m).padStart(2, '0')}`;
-        monthMap[mKey] = {
-          month: mKey,
-          monthLabel: `${String(m).padStart(2, '0')}月`,
-          genOrderSet: new Set(), genPcs: 0,
-          cohortFinOrderSet: new Set(),
-          finOrderSet: new Set(), finPcs: 0,
-          delOrderSet: new Set()
-        };
-      }
-
-      rows.forEach(r => {
-        const orderNo = (r.order_no || '').trim();
-        const status = (r.doc_status || '').trim();
-        const gDate = (r.gen_date || '').trim();
-        const fDate = (r.finish_date || '').trim();
-        const isFinished = !!(fDate && fDate !== '') && status !== '已刪單';
-
-        if (gDate && gDate.startsWith(year)) {
-          const mKey = gDate.substring(0, 7);
-          if (monthMap[mKey]) {
-            if (orderNo) monthMap[mKey].genOrderSet.add(orderNo);
-            monthMap[mKey].genPcs += (r.suggest_qty || 0);
-
-            if (isFinished && orderNo) {
-              monthMap[mKey].cohortFinOrderSet.add(orderNo);
-            }
-          }
-        }
-
-        if (fDate && fDate.startsWith(year)) {
-          const mKey = fDate.substring(0, 7);
-          if (monthMap[mKey]) {
-            if (status !== '已刪單') {
-              if (orderNo) monthMap[mKey].finOrderSet.add(orderNo);
-              monthMap[mKey].finPcs += (r.actual_pcs || 0);
-            } else {
-              if (orderNo) monthMap[mKey].delOrderSet.add(orderNo);
-            }
-          }
-        }
+      const pendingMap = {};
+      (pendingRows || []).forEach(p => {
+        if (p.month_key) pendingMap[p.month_key] = p.pending_count || 0;
       });
 
-      const monthlyList = Object.keys(monthMap).sort().map(m => {
-        const item = monthMap[m];
-        const genCount = item.genOrderSet.size;
-        const cohortFinCount = item.cohortFinOrderSet.size;
-        const rateVal = genCount > 0 ? (cohortFinCount / genCount) * 100 : 0;
+      // 步驟 B：查詢年度總表
+      let sql = `SELECT * FROM replenish_details WHERE (gen_date LIKE ? OR finish_date LIKE ?)`;
+      const params = [yearPattern, yearPattern];
+      sql = applyFilters(sql, params, docTypes, reasons);
 
-        return {
-          month: item.month,
-          monthLabel: item.monthLabel,
-          genOrderCount: genCount, genPcs: item.genPcs,
-          finOrderCount: item.finOrderSet.size, finPcs: item.finPcs,
-          delOrderCount: item.delOrderSet.size,
-          cohortFinOrderCount: cohortFinCount,
-          finishRate: Math.min(100, rateVal).toFixed(2) + '%'
-        };
+      db.all(sql, params, (err, rows) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+
+        rows = rows || [];
+        const monthMap = {};
+
+        for (let m = 1; m <= 12; m++) {
+          const mKey = `${year}-${String(m).padStart(2, '0')}`;
+          monthMap[mKey] = {
+            month: mKey,
+            monthLabel: `${String(m).padStart(2, '0')}月`,
+            genOrderSet: new Set(), genPcs: 0,
+            cohortFinOrderSet: new Set(),
+            finOrderSet: new Set(), finPcs: 0,
+            delOrderSet: new Set()
+          };
+        }
+
+        rows.forEach(r => {
+          const orderNo = (r.order_no || '').trim();
+          const status = (r.doc_status || '').trim();
+          const gDate = (r.gen_date || '').trim();
+          const fDate = (r.finish_date || '').trim();
+          const isFinished = !!(fDate && fDate !== '') && status !== '已刪單';
+
+          if (gDate && gDate.startsWith(year)) {
+            const mKey = gDate.substring(0, 7);
+            if (monthMap[mKey]) {
+              if (orderNo) monthMap[mKey].genOrderSet.add(orderNo);
+              monthMap[mKey].genPcs += (r.suggest_qty || 0);
+
+              if (isFinished && orderNo) {
+                monthMap[mKey].cohortFinOrderSet.add(orderNo);
+              }
+            }
+          }
+
+          if (fDate && fDate.startsWith(year)) {
+            const mKey = fDate.substring(0, 7);
+            if (monthMap[mKey]) {
+              if (status !== '已刪單') {
+                if (orderNo) monthMap[mKey].finOrderSet.add(orderNo);
+                monthMap[mKey].finPcs += (r.actual_pcs || 0);
+              } else {
+                if (orderNo) monthMap[mKey].delOrderSet.add(orderNo);
+              }
+            }
+          }
+        });
+
+        const monthlyList = Object.keys(monthMap).sort().map(m => {
+          const item = monthMap[m];
+          const genCount = item.genOrderSet.size;
+          const cohortFinCount = item.cohortFinOrderSet.size;
+          const rateVal = genCount > 0 ? (cohortFinCount / genCount) * 100 : 0;
+
+          return {
+            month: item.month,
+            monthLabel: item.monthLabel,
+            genOrderCount: genCount, genPcs: item.genPcs,
+            pendingOrderCount: pendingMap[item.month] || 0,
+            finOrderCount: item.finOrderSet.size, finPcs: item.finPcs,
+            delOrderCount: item.delOrderSet.size,
+            cohortFinOrderCount: cohortFinCount,
+            finishRate: Math.min(100, rateVal).toFixed(2) + '%'
+          };
+        });
+
+        res.json({ success: true, year, monthlyList });
       });
-
-      res.json({ success: true, year, monthlyList });
     });
   });
 
@@ -485,16 +507,35 @@ module.exports = function(db) {
     });
   });
 
-  // 6. 未完成明細 API
+  // 🌟 6. 未完成明細 API（增強支援：date, hour, month, year 彈性穿透）
   router.get('/pending-details', (req, res) => {
-    const { targetDate, docTypes, reasons } = req.query;
+    let { targetDate, date, hour, month, year, docTypes, reasons } = req.query;
 
-    let sql = `SELECT * FROM replenish_details WHERE (finish_date IS NULL OR finish_date = '') AND (doc_status IS NULL OR (doc_status != '已刪單' AND doc_status != '已銷案'))`;
+    let sql = `
+      SELECT * 
+      FROM replenish_details 
+      WHERE (finish_date IS NULL OR finish_date = '' OR finish_date = ' ' OR INSTR(finish_date, '-') = 0) 
+        AND (doc_status IS NULL OR (doc_status != '已刪單' AND doc_status != '已銷案'))
+    `;
     const params = [];
 
-    if (targetDate) {
+    const effectiveDate = date || targetDate;
+    if (effectiveDate) {
       sql += ` AND gen_date = ?`;
-      params.push(targetDate);
+      params.push(effectiveDate);
+    } else if (month) {
+      sql += ` AND gen_date LIKE ?`;
+      params.push(`${month}%`);
+    } else if (year) {
+      sql += ` AND gen_date LIKE ?`;
+      params.push(`${year}%`);
+    }
+
+    // 時段穿透 (例如 hour = 0 => 00:00 ~ 01:00)
+    if (hour !== undefined && hour !== null && hour !== '') {
+      const hStr = String(hour).padStart(2, '0');
+      sql += ` AND (gen_time LIKE ? OR gen_time LIKE ?)`;
+      params.push(`${hStr}:%`, `${parseInt(hour, 10)}:%`);
     }
 
     sql = applyFilters(sql, params, docTypes, reasons);

@@ -161,7 +161,7 @@
               <th style="width: 80px;">產生占比</th>
               <th style="width: 80px;">產生筆數</th>
               <th style="width: 90px;">產生PCS</th>
-              <th class="col-pending-header" style="width: 100px;">未完成筆數</th>
+              <th class="col-pending-header" style="width: 100px;">未完成筆數 🔍</th>
               <th class="col-bar-title">完成圖形</th>
               <th style="width: 80px;">完成占比</th>
               <th style="width: 80px;">完成筆數</th>
@@ -178,7 +178,15 @@
               <td class="text-right">{{ formatNumber(h.genOrderCount) }}</td>
               <td class="text-right font-bold text-blue">{{ formatNumber(h.genPcs) }}</td>
 
-              <td class="text-right font-bold text-red">{{ formatNumber(h.pendingOrderCount) }}</td>
+              <!-- 🌟 點擊時段未完成筆數，穿透查看該時段未完成明細 -->
+              <td 
+                class="text-right font-bold" 
+                :class="{ 'text-red clickable-cell': h.pendingOrderCount > 0 }"
+                @click="h.pendingOrderCount > 0 ? drillPending({ type: 'hour', date: targetDate, hour: h.hour, label: `${targetDate} ${h.hourStr} 時段` }) : null"
+                :title="h.pendingOrderCount > 0 ? `點擊穿透查看 ${h.hourStr} 時段 ${h.pendingOrderCount} 筆未完成明細` : ''"
+              >
+                {{ formatNumber(h.pendingOrderCount) }}
+              </td>
 
               <td class="col-bar-cell"><div class="bar-fill green-bar" :style="{ width: getBarWidth(h.finPct) }"></div></td>
               <td class="text-right">{{ formatPercent(h.finPct) }}</td>
@@ -196,7 +204,15 @@
               <td class="text-right font-bold">100.00%</td>
               <td class="text-right font-bold">{{ formatNumber(summaryTotal.genOrderCount) }}</td>
               <td class="text-right font-bold text-blue">{{ formatNumber(summaryTotal.genPcs) }}</td>
-              <td class="text-right font-bold text-red">{{ formatNumber(summaryTotal.pendingOrderCount) }}</td>
+              <!-- 🌟 總計未完成筆數穿透查看全日未完成 -->
+              <td 
+                class="text-right font-bold"
+                :class="{ 'text-red clickable-cell': summaryTotal.pendingOrderCount > 0 }"
+                @click="summaryTotal.pendingOrderCount > 0 ? drillPending({ type: 'date', date: targetDate, label: `${targetDate} 全日` }) : null"
+                :title="summaryTotal.pendingOrderCount > 0 ? `點擊穿透查看全日 ${summaryTotal.pendingOrderCount} 筆未完成明細` : ''"
+              >
+                {{ formatNumber(summaryTotal.pendingOrderCount) }}
+              </td>
               <td></td>
               <td class="text-right font-bold">100.00%</td>
               <td class="text-right font-bold">{{ formatNumber(summaryTotal.finOrderCount) }}</td>
@@ -208,7 +224,7 @@
       </div>
     </div>
 
-    <!-- 3.2 每月每日總表區塊（🌟 產生補貨單匯總已加入「未完成筆數」欄位） -->
+    <!-- 3.2 每月每日總表區塊 -->
     <div class="table-container" v-loading="loadingMonthly" v-else-if="analysisMode === 'monthly'">
       <div class="sheet-title">
         🗓️ 倉庫 實時補貨單 - {{ targetMonth }} 月份每日總表 (80 人工倉)
@@ -227,7 +243,7 @@
             <tr class="header-sub">
               <th style="width: 100px;">產生單數</th>
               <th style="width: 110px;">產生 PCS</th>
-              <th class="col-pending-header" style="width: 100px;">未完成筆數</th>
+              <th class="col-pending-header" style="width: 100px;">未完成筆數 🔍</th>
               <th style="width: 100px;">完成單數</th>
               <th style="width: 110px;">完成 PCS</th>
             </tr>
@@ -238,7 +254,15 @@
               <td class="text-center font-bold">{{ day.date }}</td>
               <td class="text-right">{{ formatNumber(day.genOrderCount) }}</td>
               <td class="text-right font-bold text-blue">{{ formatNumber(day.genPcs) }}</td>
-              <td class="text-right font-bold text-red">{{ formatNumber(day.pendingOrderCount) }}</td>
+              <!-- 🌟 點擊當日未完成筆數，穿透查看該日未完成明細 -->
+              <td 
+                class="text-right font-bold" 
+                :class="{ 'text-red clickable-cell': day.pendingOrderCount > 0 }"
+                @click="day.pendingOrderCount > 0 ? drillPending({ type: 'date', date: day.date, label: `${day.date} 當日` }) : null"
+                :title="day.pendingOrderCount > 0 ? `點擊穿透查看 ${day.date} 當日 ${day.pendingOrderCount} 筆未完成明細` : ''"
+              >
+                {{ formatNumber(day.pendingOrderCount) }}
+              </td>
               
               <td class="text-right">{{ formatNumber(day.finOrderCount) }}</td>
               <td class="text-right font-bold text-green">{{ formatNumber(day.finPcs) }}</td>
@@ -253,7 +277,15 @@
               <td class="text-center font-bold">全月總計</td>
               <td class="text-right font-bold">{{ formatNumber(monthlySummaryTotal.genOrderCount) }}</td>
               <td class="text-right font-bold text-blue">{{ formatNumber(monthlySummaryTotal.genPcs) }}</td>
-              <td class="text-right font-bold text-red">{{ formatNumber(monthlySummaryTotal.pendingOrderCount) }}</td>
+              <!-- 🌟 點擊全月未完成總計，穿透查看當月未完成明細 -->
+              <td 
+                class="text-right font-bold"
+                :class="{ 'text-red clickable-cell': monthlySummaryTotal.pendingOrderCount > 0 }"
+                @click="monthlySummaryTotal.pendingOrderCount > 0 ? drillPending({ type: 'month', month: targetMonth, label: `${targetMonth} 全月` }) : null"
+                :title="monthlySummaryTotal.pendingOrderCount > 0 ? `點擊穿透查看 ${targetMonth} 全月未完成明細` : ''"
+              >
+                {{ formatNumber(monthlySummaryTotal.pendingOrderCount) }}
+              </td>
               
               <td class="text-right font-bold">{{ formatNumber(monthlySummaryTotal.finOrderCount) }}</td>
               <td class="text-right font-bold text-green">{{ formatNumber(monthlySummaryTotal.finPcs) }}</td>
@@ -266,7 +298,7 @@
       </div>
     </div>
 
-    <!-- 3.3 年度每月總表區塊 -->
+    <!-- 3.3 年度每月總表區塊（🌟 產生補貨單匯總已加入「未完成筆數」欄位） -->
     <div class="table-container" v-loading="loadingYearly" v-else-if="analysisMode === 'yearly'">
       <div class="sheet-title">
         📅 倉庫 立即補貨單 - {{ targetYear }} 年度每月總表 (80 人工倉)
@@ -277,16 +309,17 @@
           <thead>
             <tr class="header-main">
               <th style="width: 110px;" rowspan="2">月份</th>
-              <th colspan="2" class="group-blue-header">產生補貨單匯總</th>
+              <th colspan="3" class="group-blue-header">產生補貨單匯總</th>
               <th colspan="2" class="group-green-header">完成補貨單匯總</th>
               <th class="col-ratio-header" rowspan="2" style="width: 100px;">已刪單筆數</th>
               <th class="col-ratio-header" rowspan="2" style="width: 110px;">完成率 (%)</th>
             </tr>
             <tr class="header-sub">
-              <th style="width: 120px;">產生單數</th>
-              <th style="width: 130px;">產生 PCS</th>
-              <th style="width: 120px;">完成單數</th>
-              <th style="width: 130px;">完成 PCS</th>
+              <th style="width: 100px;">產生單數</th>
+              <th style="width: 110px;">產生 PCS</th>
+              <th class="col-pending-header" style="width: 100px;">未完成筆數 🔍</th>
+              <th style="width: 100px;">完成單數</th>
+              <th style="width: 110px;">完成 PCS</th>
             </tr>
           </thead>
 
@@ -295,6 +328,15 @@
               <td class="text-center font-bold">{{ m.monthLabel }} ({{ m.month }})</td>
               <td class="text-right">{{ formatNumber(m.genOrderCount) }}</td>
               <td class="text-right font-bold text-blue">{{ formatNumber(m.genPcs) }}</td>
+              <!-- 🌟 點擊該月份未完成筆數，穿透查看該月未完成明細 -->
+              <td 
+                class="text-right font-bold" 
+                :class="{ 'text-red clickable-cell': m.pendingOrderCount > 0 }"
+                @click="m.pendingOrderCount > 0 ? drillPending({ type: 'month', month: m.month, label: `${m.month} 月度` }) : null"
+                :title="m.pendingOrderCount > 0 ? `點擊穿透查看 ${m.month} 月度 ${m.pendingOrderCount} 筆未完成明細` : ''"
+              >
+                {{ formatNumber(m.pendingOrderCount) }}
+              </td>
               
               <td class="text-right">{{ formatNumber(m.finOrderCount) }}</td>
               <td class="text-right font-bold text-green">{{ formatNumber(m.finPcs) }}</td>
@@ -309,6 +351,15 @@
               <td class="text-center font-bold">全年總計</td>
               <td class="text-right font-bold">{{ formatNumber(yearlySummaryTotal.genOrderCount) }}</td>
               <td class="text-right font-bold text-blue">{{ formatNumber(yearlySummaryTotal.genPcs) }}</td>
+              <!-- 🌟 點擊全年未完成總計，穿透查看全年度未完成明細 -->
+              <td 
+                class="text-right font-bold"
+                :class="{ 'text-red clickable-cell': yearlySummaryTotal.pendingOrderCount > 0 }"
+                @click="yearlySummaryTotal.pendingOrderCount > 0 ? drillPending({ type: 'year', year: targetYear, label: `${targetYear} 全年` }) : null"
+                :title="yearlySummaryTotal.pendingOrderCount > 0 ? `點擊穿透查看 ${targetYear} 全年未完成明細` : ''"
+              >
+                {{ formatNumber(yearlySummaryTotal.pendingOrderCount) }}
+              </td>
               
               <td class="text-right font-bold">{{ formatNumber(yearlySummaryTotal.finOrderCount) }}</td>
               <td class="text-right font-bold text-green">{{ formatNumber(yearlySummaryTotal.finPcs) }}</td>
@@ -321,7 +372,7 @@
       </div>
     </div>
 
-    <!-- 4. 未完成追蹤對話框彈窗 -->
+    <!-- 4. 未完成追蹤對話框彈窗（整合穿透篩選標籤） -->
     <el-dialog
       v-model="showPendingDialog"
       title="⚠️ 尚未補貨完成單據明細監控與更正處置"
@@ -338,7 +389,7 @@
               v-for="d in pendingDateList"
               :key="d.gen_date"
               class="nav-date-item"
-              :class="{ 'active-date': activePendingDate === d.gen_date }"
+              :class="{ 'active-date': activePendingDate === d.gen_date && !drillFilterLabel }"
               @click="selectPendingDate(d.gen_date)"
             >
               <span class="date-str">{{ d.gen_date }}</span>
@@ -352,9 +403,26 @@
 
         <div class="main-monitor-content">
           <div class="monitor-top-toolbar">
-            <span class="current-date-header">
-              🔍 <strong>{{ activePendingDate || '全部日期' }}</strong> 未完成明細 ({{ formatNumber(pendingList.length) }} 筆)
-            </span>
+            <div class="toolbar-left-info">
+              <!-- 🌟 穿透標籤 -->
+              <span v-if="drillFilterLabel" class="drill-tag">
+                🎯 穿透篩選：<strong>[{{ drillFilterLabel }}]</strong>
+              </span>
+
+              <span class="current-date-header">
+                🔍 <strong>{{ drillFilterLabel ? '' : (activePendingDate || '全部日期') }}</strong> 未完成明細 ({{ formatNumber(pendingList.length) }} 筆)
+              </span>
+
+              <el-button
+                v-if="drillFilterLabel"
+                size="mini"
+                type="info"
+                plain
+                @click="clearDrillFilter"
+              >
+                顯示全部未完成
+              </el-button>
+            </div>
 
             <div class="toolbar-btns">
               <el-button size="mini" type="info" @click="toggleSelectAll">
@@ -386,25 +454,25 @@
             @selection-change="handlePendingSelectionChange"
           >
             <el-table-column type="selection" width="45" align="center" />
-            <el-table-column prop="gen_date" label="產生日期" width="100" align="center" />
-            <el-table-column prop="gen_time" label="產生時間" width="85" align="center" />
-            <el-table-column prop="order_no" label="補貨單號" width="150" align="center">
+            <el-table-column prop="gen_date" label="產生日期" width="100" align="center" sortable />
+            <el-table-column prop="gen_time" label="產生時間" width="85" align="center" sortable />
+            <el-table-column prop="order_no" label="補貨單號" width="150" align="center" sortable>
               <template #default="scope">
                 <span class="text-orange font-bold">{{ scope.row.order_no }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="item_id" label="商品編號" width="140" align="center">
+            <el-table-column prop="item_id" label="商品編號" width="140" align="center" sortable>
               <template #default="scope">
                 <span class="text-blue font-bold">{{ scope.row.item_id }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="item_name" label="商品名稱" show-overflow-tooltip />
-            <el-table-column prop="suggest_qty" label="建議數量" width="85" align="right">
+            <el-table-column prop="item_name" label="商品名稱" show-overflow-tooltip sortable />
+            <el-table-column prop="suggest_qty" label="建議數量" width="85" align="right" sortable>
               <template #default="scope">
                 <span class="text-red font-bold">{{ formatNumber(scope.row.suggest_qty) }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="apply_user" label="申請人員" width="90" align="center" />
+            <el-table-column prop="apply_user" label="申請人員" width="90" align="center" sortable />
             <el-table-column prop="remark" label="備註說明" show-overflow-tooltip />
             <el-table-column label="處置" width="90" align="center" fixed="right">
               <template #default="scope">
@@ -603,12 +671,15 @@ export default {
       monthlyDailyList: [],
       yearlyMonthlyList: [],
 
+      // 🌟 未完成追蹤與穿透篩選參數
       showPendingDialog: false,
       pendingDateList: [],
       activePendingDate: '',
       pendingList: [],
       selectedPendingRows: [],
       isAllSelected: false,
+      drillFilterLabel: '',
+      drillFilterParams: null,
 
       showUploadCardModal: false,
       isCardHover: false,
@@ -684,10 +755,11 @@ export default {
       return { ...tot, finishRate };
     },
     yearlySummaryTotal() {
-      const tot = { genOrderCount: 0, genPcs: 0, cohortFinOrderCount: 0, finOrderCount: 0, finPcs: 0, delOrderCount: 0 };
+      const tot = { genOrderCount: 0, genPcs: 0, pendingOrderCount: 0, cohortFinOrderCount: 0, finOrderCount: 0, finPcs: 0, delOrderCount: 0 };
       this.yearlyMonthlyList.forEach(m => {
         tot.genOrderCount += m.genOrderCount || 0;
         tot.genPcs += m.genPcs || 0;
+        tot.pendingOrderCount += m.pendingOrderCount || 0;
         tot.cohortFinOrderCount += m.cohortFinOrderCount || 0;
         tot.finOrderCount += m.finOrderCount || 0;
         tot.finPcs += m.finPcs || 0;
@@ -743,9 +815,66 @@ export default {
       }
     },
 
+    // 🌟 一般開啟未完成追蹤彈窗（無穿透模式）
     async openPendingDialog() {
+      this.drillFilterLabel = '';
+      this.drillFilterParams = null;
       this.showPendingDialog = true;
       await this.fetchPendingDateList();
+    },
+
+    // 🌟 點擊任一表格未完成數字觸發的穿透追蹤
+    drillPending(options) {
+      this.drillFilterLabel = options.label || '';
+      this.drillFilterParams = options;
+      this.showPendingDialog = true;
+      this.fetchPendingDateList();
+      this.loadDrillPendingDetails(options);
+    },
+
+    // 🌟 清除穿透篩選，回歸全量清單
+    clearDrillFilter() {
+      this.drillFilterLabel = '';
+      this.drillFilterParams = null;
+      if (this.pendingDateList.length > 0) {
+        this.activePendingDate = this.pendingDateList[0].gen_date;
+        this.fetchPendingDetails();
+      } else {
+        this.pendingList = [];
+      }
+    },
+
+    // 🌟 載入穿透後的未完成明細
+    async loadDrillPendingDetails(options) {
+      this.loadingPending = true;
+      try {
+        const activeDocTypes = this.selectedDocTypes.includes('all') ? 'all' : this.selectedDocTypes.join(',');
+        const activeReasons = this.selectedReasons.includes('all') ? 'all' : this.selectedReasons.join(',');
+
+        const params = {
+          docTypes: activeDocTypes,
+          reasons: activeReasons
+        };
+
+        if (options.date) params.date = options.date;
+        if (options.month) params.month = options.month;
+        if (options.year) params.year = options.year;
+        if (options.hour !== undefined) params.hour = options.hour;
+
+        const res = await axios.get('/api/replenish/pending-details', { params });
+        if (res.data?.success) {
+          this.pendingList = res.data.pendingList || [];
+          if (options.date) {
+            this.activePendingDate = options.date;
+          }
+        } else {
+          ElMessage.error(res.data?.message || '讀取未完成明細失敗');
+        }
+      } catch (e) {
+        ElMessage.error('載入穿透明細失敗：' + e.message);
+      } finally {
+        this.loadingPending = false;
+      }
     },
 
     async fetchPendingDateList() {
@@ -753,11 +882,9 @@ export default {
         const res = await axios.get('/api/replenish/pending-dates');
         if (res.data?.success) {
           this.pendingDateList = res.data.list || [];
-          if (this.pendingDateList.length > 0) {
+          if (!this.drillFilterLabel && this.pendingDateList.length > 0) {
             this.activePendingDate = this.pendingDateList[0].gen_date;
             this.fetchPendingDetails();
-          } else {
-            this.pendingList = [];
           }
         }
       } catch (e) {
@@ -766,6 +893,8 @@ export default {
     },
 
     selectPendingDate(dStr) {
+      this.drillFilterLabel = '';
+      this.drillFilterParams = null;
       this.activePendingDate = dStr;
       this.fetchPendingDetails();
     },
@@ -806,7 +935,11 @@ export default {
 
         if (res.data?.success) {
           ElMessage.success(res.data.message);
-          this.fetchPendingDateList();
+          if (this.drillFilterParams) {
+            this.loadDrillPendingDetails(this.drillFilterParams);
+          } else {
+            this.fetchPendingDateList();
+          }
           this.refreshAllData();
         }
       } catch (e) {
@@ -837,7 +970,11 @@ export default {
 
           if (res.data?.success) {
             ElMessage.success(res.data.message);
-            this.fetchPendingDateList();
+            if (this.drillFilterParams) {
+              this.loadDrillPendingDetails(this.drillFilterParams);
+            } else {
+              this.fetchPendingDateList();
+            }
             this.refreshAllData();
           }
         }
@@ -932,7 +1069,13 @@ export default {
 
     async refreshAllData() {
       await this.refreshCurrentMode();
-      if (this.showPendingDialog) await this.fetchPendingDateList();
+      if (this.showPendingDialog) {
+        if (this.drillFilterParams) {
+          await this.loadDrillPendingDetails(this.drillFilterParams);
+        } else {
+          await this.fetchPendingDateList();
+        }
+      }
       ElMessage.success('🎉 資料已成功重新整理！');
     },
 
@@ -1012,7 +1155,7 @@ export default {
     resetUploadState() {
       this.isUploading = false;
       this.showUploadProgressModal = false;
-      if (this.$refs.csvFileInput) this.$refs.csvFileInput.value = '';
+      if (this.$refs && this.$refs.csvFileInput) this.$refs.csvFileInput.value = '';
     },
 
     openCloseDialog(row) {
@@ -1037,7 +1180,11 @@ export default {
         if (res.data?.success) {
           ElMessage.success(res.data.message || '補貨單成功銷案！');
           this.showCloseModal = false;
-          this.fetchPendingDateList();
+          if (this.drillFilterParams) {
+            this.loadDrillPendingDetails(this.drillFilterParams);
+          } else {
+            this.fetchPendingDateList();
+          }
         } else {
           ElMessage.error('銷案失敗：' + (res.data?.message || '未知錯誤'));
         }
@@ -1070,7 +1217,7 @@ export default {
           });
 
           this.hourlyStats = rawHourly.map((r, i) => {
-            const hStr = `${String(i).padStart(2, '0')} ~ ${String(i + 1).padStart(2, '0')}`;
+            const hStr = `${String(i).padStart(2, '0')}:00 ~ ${String(i + 1).padStart(2, '0')}:00`;
             return {
               ...r,
               hourStr: hStr,
@@ -1307,6 +1454,18 @@ export default {
 .text-red { color: #f87171; }
 .font-bold { font-weight: bold; }
 
+/* 🌟 穿透下鑽樣式 */
+.clickable-cell {
+  cursor: pointer;
+  text-decoration: underline;
+  transition: all 0.2s ease;
+}
+.clickable-cell:hover {
+  color: #f87171 !important;
+  text-shadow: 0 0 8px rgba(239, 68, 68, 0.7);
+  transform: scale(1.08);
+}
+
 .monitor-container {
   display: flex;
   gap: 15px;
@@ -1391,6 +1550,24 @@ export default {
   padding: 8px 12px;
   border-radius: 6px;
   border: 1px solid #334155;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.toolbar-left-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.drill-tag {
+  background: #b91c1c;
+  color: #fef2f2;
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: bold;
 }
 
 .current-date-header {
