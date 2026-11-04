@@ -178,7 +178,7 @@
               <td class="text-right">{{ formatNumber(h.genOrderCount) }}</td>
               <td class="text-right font-bold text-blue">{{ formatNumber(h.genPcs) }}</td>
 
-              <!-- 🌟 點擊時段未完成筆數，穿透查看該時段未完成明細 -->
+              <!-- 點擊時段未完成筆數，穿透查看該時段未完成明細 -->
               <td 
                 class="text-right font-bold" 
                 :class="{ 'text-red clickable-cell': h.pendingOrderCount > 0 }"
@@ -204,7 +204,6 @@
               <td class="text-right font-bold">100.00%</td>
               <td class="text-right font-bold">{{ formatNumber(summaryTotal.genOrderCount) }}</td>
               <td class="text-right font-bold text-blue">{{ formatNumber(summaryTotal.genPcs) }}</td>
-              <!-- 🌟 總計未完成筆數穿透查看全日未完成 -->
               <td 
                 class="text-right font-bold"
                 :class="{ 'text-red clickable-cell': summaryTotal.pendingOrderCount > 0 }"
@@ -254,7 +253,6 @@
               <td class="text-center font-bold">{{ day.date }}</td>
               <td class="text-right">{{ formatNumber(day.genOrderCount) }}</td>
               <td class="text-right font-bold text-blue">{{ formatNumber(day.genPcs) }}</td>
-              <!-- 🌟 點擊當日未完成筆數，穿透查看該日未完成明細 -->
               <td 
                 class="text-right font-bold" 
                 :class="{ 'text-red clickable-cell': day.pendingOrderCount > 0 }"
@@ -277,7 +275,6 @@
               <td class="text-center font-bold">全月總計</td>
               <td class="text-right font-bold">{{ formatNumber(monthlySummaryTotal.genOrderCount) }}</td>
               <td class="text-right font-bold text-blue">{{ formatNumber(monthlySummaryTotal.genPcs) }}</td>
-              <!-- 🌟 點擊全月未完成總計，穿透查看當月未完成明細 -->
               <td 
                 class="text-right font-bold"
                 :class="{ 'text-red clickable-cell': monthlySummaryTotal.pendingOrderCount > 0 }"
@@ -298,7 +295,7 @@
       </div>
     </div>
 
-    <!-- 3.3 年度每月總表區塊（🌟 產生補貨單匯總已加入「未完成筆數」欄位） -->
+    <!-- 3.3 年度每月總表區塊 -->
     <div class="table-container" v-loading="loadingYearly" v-else-if="analysisMode === 'yearly'">
       <div class="sheet-title">
         📅 倉庫 立即補貨單 - {{ targetYear }} 年度每月總表 (80 人工倉)
@@ -328,7 +325,6 @@
               <td class="text-center font-bold">{{ m.monthLabel }} ({{ m.month }})</td>
               <td class="text-right">{{ formatNumber(m.genOrderCount) }}</td>
               <td class="text-right font-bold text-blue">{{ formatNumber(m.genPcs) }}</td>
-              <!-- 🌟 點擊該月份未完成筆數，穿透查看該月未完成明細 -->
               <td 
                 class="text-right font-bold" 
                 :class="{ 'text-red clickable-cell': m.pendingOrderCount > 0 }"
@@ -351,7 +347,6 @@
               <td class="text-center font-bold">全年總計</td>
               <td class="text-right font-bold">{{ formatNumber(yearlySummaryTotal.genOrderCount) }}</td>
               <td class="text-right font-bold text-blue">{{ formatNumber(yearlySummaryTotal.genPcs) }}</td>
-              <!-- 🌟 點擊全年未完成總計，穿透查看全年度未完成明細 -->
               <td 
                 class="text-right font-bold"
                 :class="{ 'text-red clickable-cell': yearlySummaryTotal.pendingOrderCount > 0 }"
@@ -372,7 +367,7 @@
       </div>
     </div>
 
-    <!-- 4. 未完成追蹤對話框彈窗（整合穿透篩選標籤） -->
+    <!-- 4. 未完成追蹤對話框彈窗（🌟 整合貼 ID 查詢功能） -->
     <el-dialog
       v-model="showPendingDialog"
       title="⚠️ 尚未補貨完成單據明細監控與更正處置"
@@ -404,14 +399,30 @@
         <div class="main-monitor-content">
           <div class="monitor-top-toolbar">
             <div class="toolbar-left-info">
-              <!-- 🌟 穿透標籤 -->
               <span v-if="drillFilterLabel" class="drill-tag">
                 🎯 穿透篩選：<strong>[{{ drillFilterLabel }}]</strong>
               </span>
 
               <span class="current-date-header">
-                🔍 <strong>{{ drillFilterLabel ? '' : (activePendingDate || '全部日期') }}</strong> 未完成明細 ({{ formatNumber(pendingList.length) }} 筆)
+                🔍 <strong>{{ drillFilterLabel ? '' : (activePendingDate || '全部日期') }}</strong> 
+                未完成明細 (共 {{ formatNumber(filteredPendingList.length) }} 筆<span v-if="searchItemId.trim()"> / 原 {{ pendingList.length }} 筆</span>)
               </span>
+
+              <!-- 🌟 貼 ID 查詢輸入框組件 -->
+              <div class="id-search-box">
+                <el-input
+                  v-model="searchItemId"
+                  size="small"
+                  placeholder="貼上商品ID (可貼單筆或多筆，以空格/逗號/換行區隔)"
+                  clearable
+                  prefix-icon="el-icon-search"
+                  style="width: 330px;"
+                >
+                  <template #append v-if="searchItemId.trim()">
+                    <span class="id-count-badge">已比對 {{ filteredPendingList.length }} 筆</span>
+                  </template>
+                </el-input>
+              </div>
 
               <el-button
                 v-if="drillFilterLabel"
@@ -426,7 +437,7 @@
 
             <div class="toolbar-btns">
               <el-button size="mini" type="info" @click="toggleSelectAll">
-                {{ isAllSelected ? '取消全選' : '全選當頁 (' + pendingList.length + ' 筆)' }}
+                {{ isAllSelected ? '取消全選' : '全選當前清單 (' + filteredPendingList.length + ' 筆)' }}
               </el-button>
 
               <el-button
@@ -447,7 +458,7 @@
 
           <el-table
             ref="pendingTable"
-            :data="pendingList"
+            :data="filteredPendingList"
             style="width: 100%; font-size: 12px;"
             height="calc(80vh - 120px)"
             border
@@ -461,11 +472,16 @@
                 <span class="text-orange font-bold">{{ scope.row.order_no }}</span>
               </template>
             </el-table-column>
+            
+            <!-- 🌟 商品編號點擊可複製 -->
             <el-table-column prop="item_id" label="商品編號" width="140" align="center" sortable>
               <template #default="scope">
-                <span class="text-blue font-bold">{{ scope.row.item_id }}</span>
+                <span class="text-blue font-bold clickable-id" @click="copyItemId(scope.row.item_id)" title="點擊可複製商品ID">
+                  {{ scope.row.item_id }}
+                </span>
               </template>
             </el-table-column>
+            
             <el-table-column prop="item_name" label="商品名稱" show-overflow-tooltip sortable />
             <el-table-column prop="suggest_qty" label="建議數量" width="85" align="right" sortable>
               <template #default="scope">
@@ -671,7 +687,7 @@ export default {
       monthlyDailyList: [],
       yearlyMonthlyList: [],
 
-      // 🌟 未完成追蹤與穿透篩選參數
+      // 未完成追蹤與穿透篩選參數
       showPendingDialog: false,
       pendingDateList: [],
       activePendingDate: '',
@@ -680,6 +696,9 @@ export default {
       isAllSelected: false,
       drillFilterLabel: '',
       drillFilterParams: null,
+
+      // 🌟 貼 ID 查詢輸入綁定
+      searchItemId: '',
 
       showUploadCardModal: false,
       isCardHover: false,
@@ -728,6 +747,34 @@ export default {
       const username = localStorage.getItem('currentUser') || localStorage.getItem('username') || '';
       return username === 'admin' || username === '系統管理員';
     },
+
+    // 🌟 貼 ID 智慧篩選過濾後的未完成清單（支援單筆或多筆批次 ID 貼上）
+    filteredPendingList() {
+      if (!this.searchItemId || !this.searchItemId.trim()) {
+        return this.pendingList;
+      }
+
+      // 將貼上的文字依照 空白、逗號、換行 分割成多筆 ID 清單
+      const rawKeywords = this.searchItemId
+        .split(/[\s,，\n\r]+/)
+        .map(s => s.trim().toUpperCase())
+        .filter(Boolean);
+
+      if (rawKeywords.length === 0) {
+        return this.pendingList;
+      }
+
+      // 支援多筆精準比對或單筆模糊搜尋
+      return this.pendingList.filter(row => {
+        const rowId = String(row.item_id || '').trim().toUpperCase();
+        const rowOrderNo = String(row.order_no || '').trim().toUpperCase();
+
+        return rawKeywords.some(keyword => {
+          return rowId === keyword || rowId.includes(keyword) || rowOrderNo === keyword || rowOrderNo.includes(keyword);
+        });
+      });
+    },
+
     summaryTotal() {
       const tot = { genOrderCount: 0, genPcs: 0, pendingOrderCount: 0, finOrderCount: 0, finPcs: 0, delOrderCount: 0 };
       this.hourlyStats.forEach(h => {
@@ -798,6 +845,32 @@ export default {
       return parts.length >= 3 ? `${parts[2]}日` : dStr;
     },
 
+    copyItemId(id) {
+      if (!id) return;
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(id).then(() => {
+          ElMessage.success(`📋 已複製商品編號：${id}`);
+        }).catch(() => {
+          this.fallbackCopy(id);
+        });
+      } else {
+        this.fallbackCopy(id);
+      }
+    },
+    fallbackCopy(text) {
+      const input = document.createElement('textarea');
+      input.value = text;
+      document.body.appendChild(input);
+      input.select();
+      try {
+        document.execCommand('copy');
+        ElMessage.success(`📋 已複製商品編號：${text}`);
+      } catch (err) {
+        ElMessage.error('複製失敗');
+      }
+      document.body.removeChild(input);
+    },
+
     globalBlockDrop(e) {
       e.preventDefault();
     },
@@ -815,27 +888,30 @@ export default {
       }
     },
 
-    // 🌟 一般開啟未完成追蹤彈窗（無穿透模式）
+    // 一般開啟未完成追蹤彈窗（無穿透模式）
     async openPendingDialog() {
       this.drillFilterLabel = '';
       this.drillFilterParams = null;
+      this.searchItemId = '';
       this.showPendingDialog = true;
       await this.fetchPendingDateList();
     },
 
-    // 🌟 點擊任一表格未完成數字觸發的穿透追蹤
+    // 點擊任一表格未完成數字觸發的穿透追蹤
     drillPending(options) {
       this.drillFilterLabel = options.label || '';
       this.drillFilterParams = options;
+      this.searchItemId = '';
       this.showPendingDialog = true;
       this.fetchPendingDateList();
       this.loadDrillPendingDetails(options);
     },
 
-    // 🌟 清除穿透篩選，回歸全量清單
+    // 清除穿透篩選，回歸全量清單
     clearDrillFilter() {
       this.drillFilterLabel = '';
       this.drillFilterParams = null;
+      this.searchItemId = '';
       if (this.pendingDateList.length > 0) {
         this.activePendingDate = this.pendingDateList[0].gen_date;
         this.fetchPendingDetails();
@@ -844,7 +920,7 @@ export default {
       }
     },
 
-    // 🌟 載入穿透後的未完成明細
+    // 載入穿透後的未完成明細
     async loadDrillPendingDetails(options) {
       this.loadingPending = true;
       try {
@@ -895,13 +971,14 @@ export default {
     selectPendingDate(dStr) {
       this.drillFilterLabel = '';
       this.drillFilterParams = null;
+      this.searchItemId = '';
       this.activePendingDate = dStr;
       this.fetchPendingDetails();
     },
 
     handlePendingSelectionChange(val) {
       this.selectedPendingRows = val;
-      this.isAllSelected = (val.length === this.pendingList.length && this.pendingList.length > 0);
+      this.isAllSelected = (val.length === this.filteredPendingList.length && this.filteredPendingList.length > 0);
     },
 
     toggleSelectAll() {
@@ -909,7 +986,9 @@ export default {
         if (this.isAllSelected) {
           this.$refs.pendingTable.clearSelection();
         } else {
-          this.$refs.pendingTable.toggleAllSelection();
+          this.filteredPendingList.forEach(row => {
+            this.$refs.pendingTable.toggleRowSelection(row, true);
+          });
         }
       }
     },
@@ -1217,7 +1296,7 @@ export default {
           });
 
           this.hourlyStats = rawHourly.map((r, i) => {
-            const hStr = `${String(i).padStart(2, '0')}:00 ~ ${String(i + 1).padStart(2, '0')}:00`;
+            const hStr = `${String(i).padStart(2, '0')} ~ ${String(i + 1).padStart(2, '0')}`;
             return {
               ...r,
               hourStr: hStr,
@@ -1454,7 +1533,7 @@ export default {
 .text-red { color: #f87171; }
 .font-bold { font-weight: bold; }
 
-/* 🌟 穿透下鑽樣式 */
+/* 🌟 穿透與商品編號樣式 */
 .clickable-cell {
   cursor: pointer;
   text-decoration: underline;
@@ -1464,6 +1543,16 @@ export default {
   color: #f87171 !important;
   text-shadow: 0 0 8px rgba(239, 68, 68, 0.7);
   transform: scale(1.08);
+}
+
+.clickable-id {
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.clickable-id:hover {
+  text-decoration: underline;
+  color: #60a5fa !important;
+  text-shadow: 0 0 6px rgba(56, 189, 248, 0.6);
 }
 
 .monitor-container {
@@ -1573,6 +1662,18 @@ export default {
 .current-date-header {
   font-size: 14px;
   color: #f8fafc;
+}
+
+/* 🌟 貼 ID 查詢樣式 */
+.id-search-box {
+  display: flex;
+  align-items: center;
+}
+.id-count-badge {
+  color: #38bdf8;
+  font-weight: bold;
+  font-size: 11px;
+  padding-right: 4px;
 }
 
 .toolbar-btns {
