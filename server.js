@@ -1212,7 +1212,7 @@ db.serialize(() => {
   // 基礎系統帳號
   db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions) VALUES ('admin', '系統管理員', 'sys_admin', 'admin', 'all');`);
   db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions) VALUES ('801854', '黃勝鴻', 'sys_admin', '801854', 'all');`);
-  db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions) VALUES ('guest', '訪客 (免登直達)', 'guest', 'guest_direct_no_pwd', 'replenish_fish,transfer_80_15,transfer_15_80', 0);`);
+  db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions, last_active) VALUES ('guest', '訪客 (免登直達)', 'guest', 'guest_direct_no_pwd', 'replenish_fish,transfer_80_15,transfer_15_80', 0);`);
 });
 
 // 為高頻查詢欄位建立索引
