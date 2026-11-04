@@ -94,7 +94,7 @@
 
     <!-- 🌟 2. 動態頂部 KPI 儀表卡：依統計檢視維度給予不同資訊 -->
     
-    <!-- 模式 A：【依進貨單號分析】精準拆解當日 vs 歷史滯留 -->
+    <!-- 模式 A：【單日 - 依進貨單號分析】精準拆解當日件 vs 歷史滯留 -->
     <div class="cargo-kpi-card po-advanced-kpi" v-if="activeViewTab === 'po' && analysisMode === 'daily'">
       <div class="kpi-box main-kpi">
         <div class="kpi-title">進貨單號驗收總量</div>
@@ -153,7 +153,7 @@
       </div>
     </div>
 
-    <!-- 模式 B：【依驗收批號分析】專屬 KPI 卡 -->
+    <!-- 模式 B：【單日 - 依驗收批號分析】專屬 KPI 卡 -->
     <div class="cargo-kpi-card" v-else-if="activeViewTab === 'batch' && analysisMode === 'daily'">
       <div class="kpi-box main-kpi">
         <div class="kpi-title">驗收批號總量</div>
@@ -191,7 +191,7 @@
       </div>
     </div>
 
-    <!-- 模式 C：【常規統計總表】雙維度綜合 KPI 卡 -->
+    <!-- 模式 C1：【單日 - 常規統計總表】雙維度綜合 KPI 卡 -->
     <div class="cargo-kpi-card" v-else-if="activeViewTab === 'both' && analysisMode === 'daily'">
       <div class="kpi-box main-kpi">
         <div class="kpi-title">驗收總單數 / 總批數</div>
@@ -229,7 +229,83 @@
       </div>
     </div>
 
-    <!-- 模式 D：【板貨 vs 散貨分析】板數與才數結構卡 -->
+    <!-- 🌟 模式 C2：【每月每日總表 - 常規統計總表】專屬全月宏觀 KPI 卡 -->
+    <div class="cargo-kpi-card" v-else-if="activeViewTab === 'both' && analysisMode === 'monthly'">
+      <div class="kpi-box main-kpi">
+        <div class="kpi-title">🗓️ {{ targetMonth }} 月份驗收總量</div>
+        <div class="kpi-value text-blue">{{ formatNumber(monthlySummaryTotal.recPoCount) }} <span class="unit">單 (PO)</span></div>
+        <div class="kpi-sub">總件數：{{ formatNumber(monthlySummaryTotal.recPcs) }} PCS | 共 {{ formatNumber(monthlySummaryTotal.recBatCount) }} 批 ({{ formatNumber(monthlySummaryTotal.recCubicFeet, 1) }} 才)</div>
+      </div>
+
+      <div class="kpi-box pallet-kpi">
+        <div class="kpi-header-row">
+          <span class="badge pallet-badge">✅ 全月新品上架總量</span>
+          <span class="kpi-rate text-green">{{ monthlySummaryTotal.putRate }}</span>
+        </div>
+        <div class="kpi-value text-green">{{ formatNumber(monthlySummaryTotal.putPoCount) }} <span class="unit">單</span> / {{ formatNumber(monthlySummaryTotal.putBatCount) }} <span class="unit">批</span></div>
+        <div class="kpi-sub">累計已上架總量：{{ formatNumber(monthlySummaryTotal.putPcs) }} PCS</div>
+      </div>
+
+      <div class="kpi-box loose-kpi">
+        <div class="kpi-header-row">
+          <span class="badge loose-badge" style="color: #f87171; border-color: rgba(239,68,68,0.4); background: rgba(239,68,68,0.15);">⚠️ 當月未上架待處理</span>
+          <span class="kpi-rate text-red">{{ formatPercent(monthlySummaryTotal.recPoCount > 0 ? monthlySummaryTotal.unputPoCount / monthlySummaryTotal.recPoCount : 0) }}</span>
+        </div>
+        <div class="kpi-value text-red">{{ formatNumber(monthlySummaryTotal.unputPoCount) }} <span class="unit">單未上</span></div>
+        <div class="kpi-sub">共 {{ formatNumber(monthlySummaryTotal.unputBatCount) }} 批未完成上架</div>
+      </div>
+
+      <div class="kpi-progress-col">
+        <div class="progress-label">
+          <span>全月 PCS 上架達成率 {{ monthlySummaryTotal.putRate }}</span>
+          <span>未上架 {{ formatPercent(monthlySummaryTotal.recPcs > 0 ? (monthlySummaryTotal.recPcs - monthlySummaryTotal.putPcs) / monthlySummaryTotal.recPcs : 0) }}</span>
+        </div>
+        <div class="custom-progress-bar">
+          <div class="bar-part green-part" :style="{ width: monthlySummaryTotal.putRate }"></div>
+          <div class="bar-part orange-part" style="background: #ef4444;" :style="{ width: formatPercent(monthlySummaryTotal.recPcs > 0 ? Math.max(0, 1 - (monthlySummaryTotal.putPcs / monthlySummaryTotal.recPcs)) : 0) }"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 🌟 模式 C3：【年度每月總表 - 常規統計總表】專屬全年度宏觀 KPI 卡 -->
+    <div class="cargo-kpi-card" v-else-if="activeViewTab === 'both' && analysisMode === 'yearly'">
+      <div class="kpi-box main-kpi">
+        <div class="kpi-title">📊 {{ targetYear }} 年度驗收總量</div>
+        <div class="kpi-value text-blue">{{ formatNumber(yearlySummaryTotal.recPoCount) }} <span class="unit">單 (PO)</span></div>
+        <div class="kpi-sub">總件數：{{ formatNumber(yearlySummaryTotal.recPcs) }} PCS | 共 {{ formatNumber(yearlySummaryTotal.recBatCount) }} 批 ({{ formatNumber(yearlySummaryTotal.recCubicFeet, 1) }} 才)</div>
+      </div>
+
+      <div class="kpi-box pallet-kpi">
+        <div class="kpi-header-row">
+          <span class="badge pallet-badge">✅ 全年度新品上架總量</span>
+          <span class="kpi-rate text-green">{{ yearlySummaryTotal.putRate }}</span>
+        </div>
+        <div class="kpi-value text-green">{{ formatNumber(yearlySummaryTotal.putPoCount) }} <span class="unit">單</span> / {{ formatNumber(yearlySummaryTotal.putBatCount) }} <span class="unit">批</span></div>
+        <div class="kpi-sub">年度累計已上架：{{ formatNumber(yearlySummaryTotal.putPcs) }} PCS</div>
+      </div>
+
+      <div class="kpi-box loose-kpi">
+        <div class="kpi-header-row">
+          <span class="badge loose-badge" style="color: #f87171; border-color: rgba(239,68,68,0.4); background: rgba(239,68,68,0.15);">⚠️ 年度未上架待處理</span>
+          <span class="kpi-rate text-red">{{ formatPercent(yearlySummaryTotal.recPoCount > 0 ? yearlySummaryTotal.unputPoCount / yearlySummaryTotal.recPoCount : 0) }}</span>
+        </div>
+        <div class="kpi-value text-red">{{ formatNumber(yearlySummaryTotal.unputPoCount) }} <span class="unit">單未上</span></div>
+        <div class="kpi-sub">年度累計 {{ formatNumber(yearlySummaryTotal.unputBatCount) }} 批未完成上架</div>
+      </div>
+
+      <div class="kpi-progress-col">
+        <div class="progress-label">
+          <span>全年度 PCS 上架達成率 {{ yearlySummaryTotal.putRate }}</span>
+          <span>未上架 {{ formatPercent(yearlySummaryTotal.recPcs > 0 ? (yearlySummaryTotal.recPcs - yearlySummaryTotal.putPcs) / yearlySummaryTotal.recPcs : 0) }}</span>
+        </div>
+        <div class="custom-progress-bar">
+          <div class="bar-part green-part" :style="{ width: yearlySummaryTotal.putRate }"></div>
+          <div class="bar-part orange-part" style="background: #ef4444;" :style="{ width: formatPercent(yearlySummaryTotal.recPcs > 0 ? Math.max(0, 1 - (yearlySummaryTotal.putPcs / yearlySummaryTotal.recPcs)) : 0) }"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 模式 D：【板貨 vs 散貨分析】板數與才數結構卡（單日、每月、年度通用的板散卡片） -->
     <div class="cargo-kpi-card" v-else>
       <div class="kpi-box main-kpi">
         <div class="kpi-title">總進貨預估板數 (27000才基準)</div>
@@ -1969,7 +2045,6 @@ export default {
           }
         });
         if (res.data?.success) {
-          // 接收拆分後的當日 vs 歷史單據分析
           if (res.data.poAnalysis) {
             this.poData = res.data.poAnalysis;
           }
