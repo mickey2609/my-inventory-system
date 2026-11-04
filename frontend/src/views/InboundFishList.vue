@@ -94,40 +94,61 @@
 
     <!-- 🌟 2. 動態頂部 KPI 儀表卡：依統計檢視維度給予不同資訊 -->
     
-    <!-- 模式 A：【依進貨單號分析】專屬 KPI 卡 -->
-    <div class="cargo-kpi-card" v-if="activeViewTab === 'po' && analysisMode === 'daily'">
+    <!-- 模式 A：【依進貨單號分析】精準拆解當日 vs 歷史滯留 -->
+    <div class="cargo-kpi-card po-advanced-kpi" v-if="activeViewTab === 'po' && analysisMode === 'daily'">
       <div class="kpi-box main-kpi">
         <div class="kpi-title">進貨單號驗收總量</div>
-        <div class="kpi-value text-blue">{{ formatNumber(summaryTotal.recPoCount) }} <span class="unit">單 (PO)</span></div>
-        <div class="kpi-sub">驗收總件數：{{ formatNumber(summaryTotal.recPoPcs) }} PCS</div>
+        <div class="kpi-value text-blue">{{ formatNumber(poData.todayRecPoCount) }} <span class="unit">單 (PO)</span></div>
+        <div class="kpi-sub">驗收總件數：{{ formatNumber(poData.todayRecPcs) }} PCS</div>
       </div>
 
       <div class="kpi-box pallet-kpi">
         <div class="kpi-header-row">
-          <span class="badge pallet-badge">✅ 新品單號已上架</span>
-          <span class="kpi-rate text-green">{{ getPutPoRate }}</span>
+          <span class="badge pallet-badge">✅ 新品單號已上架 (總產能)</span>
+          <span class="kpi-rate text-green" title="當日上架總產能 (佔當日驗收比)">{{ getOverallCapacityRate }}</span>
         </div>
-        <div class="kpi-value text-green">{{ formatNumber(summaryTotal.putPoCount) }} <span class="unit">單</span></div>
-        <div class="kpi-sub">已上架 {{ formatNumber(summaryTotal.putPoPcs) }} PCS</div>
+        <div class="kpi-value text-green">{{ formatNumber(poData.todayPutPoCount) }} <span class="unit">單</span> ({{ formatNumber(poData.todayPutPcs) }} PCS)</div>
+        <div class="kpi-sub-split">
+          <div class="split-line">
+            <span>🔹 當日件已上：<strong>{{ formatNumber(poData.sameDayPutPoCount) }}</strong> 單</span>
+            <span class="text-cyan">即時達成率 {{ getSameDaySlaRate }}</span>
+          </div>
+          <div class="split-line">
+            <span>🔸 前日滯留補上：<strong>{{ formatNumber(poData.prevDayPutPoCount) }}</strong> 單</span>
+            <span class="text-orange">佔產能 {{ getPrevDayClearRate }}</span>
+          </div>
+        </div>
       </div>
 
       <div class="kpi-box loose-kpi">
         <div class="kpi-header-row">
-          <span class="badge loose-badge" style="color: #f87171; border-color: rgba(239,68,68,0.4); background: rgba(239,68,68,0.15);">⚠️ 未上架進貨單</span>
-          <span class="kpi-rate text-red">{{ getUnputPoRate }}</span>
+          <span class="badge loose-badge" style="color: #f87171; border-color: rgba(239,68,68,0.4); background: rgba(239,68,68,0.15);">⚠️ 未上架進貨單 (待消化總量)</span>
+          <span class="kpi-rate text-red" title="當日進貨未上架比例">{{ getTodayUnputRate }}</span>
         </div>
-        <div class="kpi-value text-red">{{ formatNumber(summaryTotal.unputPoCount) }} <span class="unit">單</span></div>
-        <div class="kpi-sub">仍有單據品項尚未完成新品上架</div>
+        <div class="kpi-value text-red">{{ formatNumber(poData.totalUnputPoCount) }} <span class="unit">單</span></div>
+        <div class="kpi-sub-split">
+          <div class="split-line">
+            <span>▫️ 當日驗收未上：<strong>{{ formatNumber(poData.todayUnputPoCount) }}</strong> 單</span>
+            <span class="text-red">當日滯留率 {{ getTodayUnputRate }}</span>
+          </div>
+          <div class="split-line">
+            <span>▫️ 歷史積壓未上：<strong>{{ formatNumber(poData.historyUnputPoCount) }}</strong> 單</span>
+            <span class="text-yellow">佔未上 {{ getHistoryUnputShareRate }}</span>
+          </div>
+        </div>
       </div>
 
       <div class="kpi-progress-col">
         <div class="progress-label">
-          <span>上架達成率 {{ getPutPoRate }}</span>
-          <span>未上架 {{ getUnputPoRate }}</span>
+          <span>當日消化率 {{ getSameDaySlaRate }}</span>
+          <span>當日滯留率 {{ getTodayUnputRate }}</span>
         </div>
         <div class="custom-progress-bar">
-          <div class="bar-part green-part" :style="{ width: getPutPoRate }"></div>
-          <div class="bar-part orange-part" style="background: #ef4444;" :style="{ width: getUnputPoRate }"></div>
+          <div class="bar-part green-part" :style="{ width: getSameDaySlaRate }"></div>
+          <div class="bar-part orange-part" style="background: #ef4444;" :style="{ width: getTodayUnputRate }"></div>
+        </div>
+        <div class="sub-progress-tip">
+          💡 即時達成率反映當日流轉時效，不再受跨日補單影響破百
         </div>
       </div>
     </div>
@@ -448,19 +469,16 @@
         <table class="vba-style-table" v-else>
           <colgroup>
             <col style="width: 70px;" />
-            <!-- 板貨群組 -->
             <col class="col-bar-group" />
             <col style="width: 68px;" />
             <col style="width: 72px;" />
             <col style="width: 80px;" />
             <col style="width: 70px;" />
-            <!-- 散貨群組 -->
             <col class="col-bar-group" />
             <col style="width: 68px;" />
             <col style="width: 72px;" />
             <col style="width: 80px;" />
             <col style="width: 70px;" />
-            <!-- 匯總群組 -->
             <col style="width: 85px;" />
             <col style="width: 90px;" />
             <col style="width: 85px;" />
@@ -582,7 +600,6 @@
       </div>
 
       <div class="table-scroll-wrapper">
-        <!-- 模式 A：常規每日總表 -->
         <table class="vba-style-table" v-if="activeViewTab !== 'cargo'">
           <thead>
             <tr class="header-main">
@@ -642,7 +659,6 @@
           </tfoot>
         </table>
 
-        <!-- 模式 B：每月每日「板貨 vs 散貨分析」總表 -->
         <table class="vba-style-table" v-else>
           <thead>
             <tr class="header-main">
@@ -736,7 +752,6 @@
       </div>
 
       <div class="table-scroll-wrapper">
-        <!-- 模式 A：常規年度每月總表 -->
         <table class="vba-style-table" v-if="activeViewTab !== 'cargo'">
           <thead>
             <tr class="header-main">
@@ -796,7 +811,6 @@
           </tfoot>
         </table>
 
-        <!-- 模式 B：年度每月「板貨 vs 散貨分析」總表 -->
         <table class="vba-style-table" v-else>
           <thead>
             <tr class="header-main">
@@ -958,7 +972,7 @@
       </div>
     </el-dialog>
 
-    <!-- 6. 專屬互動式檔案拖曳投放小卡 Modal (🌟 管理者在此設定全系統統一門檻) -->
+    <!-- 6. 專屬互動式檔案拖曳投放小卡 Modal -->
     <el-dialog
       v-model="showUploadCardModal"
       title="📥 匯入 進貨驗收與新品上架單據"
@@ -1330,8 +1344,25 @@ export default {
       monthlyDailyList: [],
       yearlyMonthlyList: [],
 
-      // 🌟 全系統統一門檻 (預設 30 才，自動從後端資料庫讀取)
+      // 全系統統一門檻 (預設 30 才，自動從後端 SQLite 讀取)
       palletThreshold: 30,
+
+      // 🌟 拆解後的進貨單號詳細指標
+      poData: {
+        todayRecPoCount: 0,
+        todayRecPcs: 0,
+        todayPutPoCount: 0,
+        todayPutPcs: 0,
+        sameDayPutPoCount: 0,
+        sameDayPutPcs: 0,
+        prevDayPutPoCount: 0,
+        prevDayPutPcs: 0,
+        todayUnputPoCount: 0,
+        todayUnputPcs: 0,
+        historyUnputPoCount: 0,
+        historyUnputPcs: 0,
+        totalUnputPoCount: 0
+      },
 
       // 板貨 vs 散貨 KPI 統計
       cargoSummary: {
@@ -1421,7 +1452,33 @@ export default {
       return username === 'admin' || username === '系統管理員';
     },
 
-    // 🌟 單號與批號專屬 KPI 比率
+    // 🌟 1. 真實當日即時達成率（當日驗當日上 / 當日驗收總量，永不爆表）
+    getSameDaySlaRate() {
+      if (!this.poData.todayRecPoCount) return '0.00%';
+      return ((this.poData.sameDayPutPoCount / this.poData.todayRecPoCount) * 100).toFixed(2) + '%';
+    },
+    // 🌟 2. 當日上架總產能佔當日驗收比
+    getOverallCapacityRate() {
+      if (!this.poData.todayRecPoCount) return '0.00%';
+      return ((this.poData.todayPutPoCount / this.poData.todayRecPoCount) * 100).toFixed(2) + '%';
+    },
+    // 🌟 3. 消化歷史積壓佔當日上架產能的比例
+    getPrevDayClearRate() {
+      if (!this.poData.todayPutPoCount) return '0.00%';
+      return ((this.poData.prevDayPutPoCount / this.poData.todayPutPoCount) * 100).toFixed(2) + '%';
+    },
+    // 🌟 4. 當日進貨滯留率（當日驗收未上 / 當日驗收總量）
+    getTodayUnputRate() {
+      if (!this.poData.todayRecPoCount) return '0.00%';
+      return ((this.poData.todayUnputPoCount / this.poData.todayRecPoCount) * 100).toFixed(2) + '%';
+    },
+    // 🌟 5. 歷史積壓佔當前所有未上架單數的比例
+    getHistoryUnputShareRate() {
+      if (!this.poData.totalUnputPoCount) return '0.00%';
+      return ((this.poData.historyUnputPoCount / this.poData.totalUnputPoCount) * 100).toFixed(2) + '%';
+    },
+
+    // 批號與常規模式比率
     getPutPoRate() {
       if (!this.summaryTotal.recPoCount) return '0.00%';
       return ((this.summaryTotal.putPoCount / this.summaryTotal.recPoCount) * 100).toFixed(2) + '%';
@@ -1537,7 +1594,6 @@ export default {
     }
   },
   async mounted() {
-    // 🌟 進入時先讀取全系統統一的門檻才數設定
     await this.fetchGlobalPalletThreshold();
     this.fetchFishData();
     this.fetchPendingSummary();
@@ -1579,7 +1635,6 @@ export default {
       return '雙庫合計';
     },
 
-    // 🌟 從後端資料庫讀取全域統一的門檻設定
     async fetchGlobalPalletThreshold() {
       try {
         const res = await axios.get('/api/inbound/config/pallet-threshold');
@@ -1591,7 +1646,6 @@ export default {
       }
     },
 
-    // 🌟 最高管理者在小卡中調整門檻後，儲存至後端 SQLite 資料庫
     async savePalletThresholdToDb() {
       try {
         const res = await axios.post('/api/inbound/config/pallet-threshold', {
@@ -1915,6 +1969,11 @@ export default {
           }
         });
         if (res.data?.success) {
+          // 接收拆分後的當日 vs 歷史單據分析
+          if (res.data.poAnalysis) {
+            this.poData = res.data.poAnalysis;
+          }
+
           const rawHourly = res.data.hourlyStats || [];
           
           let totRecPo = 0, totPutPo = 0, totRecBat = 0, totPutBat = 0;
@@ -2210,7 +2269,7 @@ export default {
 /* 🌟 動態 KPI 概覽卡 */
 .cargo-kpi-card {
   display: grid;
-  grid-template-columns: 1.2fr 1.5fr 1.8fr 1.5fr;
+  grid-template-columns: 1.2fr 1.6fr 1.6fr 1.4fr;
   gap: 12px;
   background: #1e293b;
   border: 1px solid #334155;
@@ -2263,7 +2322,7 @@ export default {
 }
 
 .kpi-value {
-  font-size: 20px;
+  font-size: 19px;
   font-weight: bold;
   margin: 3px 0 2px 0;
 }
@@ -2277,6 +2336,23 @@ export default {
 .kpi-sub {
   font-size: 11px;
   color: #94a3b8;
+}
+
+/* 🌟 拆分細節樣式 */
+.kpi-sub-split {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 4px;
+  border-top: 1px dashed #334155;
+  padding-top: 4px;
+}
+.split-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: #cbd5e1;
 }
 
 .kpi-progress-col {
@@ -2312,6 +2388,12 @@ export default {
 }
 .green-part { background: #22c55e; }
 .orange-part { background: #f59e0b; }
+
+.sub-progress-tip {
+  font-size: 10px;
+  color: #94a3b8;
+  line-height: 1.3;
+}
 
 .filter-card {
   background: #1e293b;

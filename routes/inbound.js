@@ -316,7 +316,7 @@ module.exports = function(db) {
     });
   });
 
-  // 5. 單日魚群分析 API (支援全系統統一門檻)
+  // 5. 單日魚群分析 API (增強：精準區分當日件 vs 歷史前幾日件之已上架與未上架)
   router.get('/fish-analysis', (req, res) => {
     const { targetDate, warehouse, remarks } = req.query;
 
@@ -325,11 +325,12 @@ module.exports = function(db) {
     }
 
     getSystemThreshold(req.query.threshold, (threshold) => {
-      let sql = `SELECT * FROM inbound_details WHERE 1=1`;
-      const params = [];
-
-      sql += ` AND (rec_date = ? OR put_date = ?)`;
-      params.push(targetDate, targetDate);
+      // 包含當日驗收、當日上架，以及歷史截至當日未上架的資料
+      let sql = `
+        SELECT * FROM inbound_details 
+        WHERE (rec_date = ? OR put_date = ? OR ((put_date IS NULL OR put_date = '' OR put_date = ' ' OR INSTR(put_date, '-') = 0) AND is_resolved = 0))
+      `;
+      const params = [targetDate, targetDate];
 
       if (warehouse && warehouse !== 'all') {
         sql += ` AND warehouse = ?`;
@@ -353,6 +354,22 @@ module.exports = function(db) {
 
           return matched;
         });
+
+        // 🌟 核心拆解指標集合
+        const todayRecPoSet = new Set();
+        let todayRecPcs = 0;
+
+        const todayPutPoSet = new Set();      // 當天總上架 PO
+        let todayPutPcs = 0;
+        const sameDayPutPoSet = new Set();    // 當日驗當日上 PO
+        let sameDayPutPcs = 0;
+        const prevDayPutPoSet = new Set();    // 跨日消化歷史 PO
+        let prevDayPutPcs = 0;
+
+        const todayUnputPoSet = new Set();    // 當日到貨未上架 PO
+        let todayUnputPcs = 0;
+        const historyUnputPoSet = new Set();  // 歷史（前幾日）到貨未上架 PO
+        let historyUnputPcs = 0;
 
         const hourlyData = Array.from({ length: 24 }, (_, h) => ({
           hour: h,
@@ -385,55 +402,80 @@ module.exports = function(db) {
           const h = Number(r.height) || 0;
           const pieceCubicFeet = (len > 0 && w > 0 && h > 0) ? ((len * w * h) / 27000) : 0;
           const lineVolume = pieceCubicFeet * qty;
+          const poNo = (r.po_no || '').trim();
 
           const isPut = (r.put_date && r.put_date.trim() !== '' && r.put_date.includes('-')) || r.is_resolved === 1;
 
-          if (r.rec_date === targetDate && r.rec_time) {
-            const hStr = r.rec_time.split(':')[0];
-            const recHour = parseInt(hStr, 10);
-            if (!isNaN(recHour) && recHour >= 0 && recHour < 24) {
-              const hStat = hourlyData[recHour];
-              if (r.po_no && r.po_no.trim() !== '') hStat.recPoSet.add(r.po_no.trim());
-              if (r.batch_no && r.batch_no.trim() !== '') {
-                const bNo = r.batch_no.trim();
-                hStat.recBatSet.add(bNo);
+          // 1. 當日到貨驗收
+          if (r.rec_date === targetDate) {
+            if (poNo) todayRecPoSet.add(poNo);
+            todayRecPcs += qty;
 
-                if (!batchMap.has(bNo)) {
-                  batchMap.set(bNo, {
-                    hour: recHour,
-                    volume: 0,
-                    qty: 0,
-                    po_no: r.po_no,
-                    isPut: isPut
-                  });
+            if (r.rec_time) {
+              const recHour = parseInt(r.rec_time.split(':')[0], 10);
+              if (!isNaN(recHour) && recHour >= 0 && recHour < 24) {
+                const hStat = hourlyData[recHour];
+                if (poNo) hStat.recPoSet.add(poNo);
+                hStat.recPoPcs += qty;
+
+                if (r.batch_no) {
+                  const bNo = r.batch_no.trim();
+                  hStat.recBatSet.add(bNo);
+                  if (!batchMap.has(bNo)) {
+                    batchMap.set(bNo, { hour: recHour, volume: 0, qty: 0 });
+                  }
+                  const b = batchMap.get(bNo);
+                  b.volume += lineVolume;
+                  b.qty += qty;
                 }
-                const b = batchMap.get(bNo);
-                b.volume += lineVolume;
-                b.qty += qty;
-                if (!b.isPut && isPut) b.isPut = true;
-              }
-              hStat.recPoPcs += qty;
 
-              if (!isPut) {
-                if (r.po_no && r.po_no.trim() !== '') hStat.unputPoSet.add(r.po_no.trim());
-                if (r.batch_no && r.batch_no.trim() !== '') hStat.unputBatSet.add(r.batch_no.trim());
-                hStat.unputCount += 1;
+                if (!isPut) {
+                  if (poNo) hStat.unputPoSet.add(poNo);
+                  if (r.batch_no) hStat.unputBatSet.add(r.batch_no.trim());
+                  hStat.unputCount += 1;
+                }
+              }
+            }
+
+            // 當日未上架
+            if (!isPut) {
+              if (poNo) todayUnputPoSet.add(poNo);
+              todayUnputPcs += qty;
+            }
+          }
+
+          // 2. 當日上架統計 (區分當日件 vs 歷史前幾日件)
+          if (r.put_date === targetDate) {
+            if (poNo) todayPutPoSet.add(poNo);
+            todayPutPcs += qty;
+
+            if (r.rec_date === targetDate) {
+              if (poNo) sameDayPutPoSet.add(poNo);
+              sameDayPutPcs += qty;
+            } else {
+              if (poNo) prevDayPutPoSet.add(poNo);
+              prevDayPutPcs += qty;
+            }
+
+            if (r.put_time) {
+              const putHour = parseInt(r.put_time.split(':')[0], 10);
+              if (!isNaN(putHour) && putHour >= 0 && putHour < 24) {
+                const hStat = hourlyData[putHour];
+                if (poNo) hStat.putPoSet.add(poNo);
+                if (r.batch_no) hStat.putBatSet.add(r.batch_no.trim());
+                hStat.putPoPcs += qty;
               }
             }
           }
 
-          if (r.put_date === targetDate && r.put_time) {
-            const hStr = r.put_time.split(':')[0];
-            const putHour = parseInt(hStr, 10);
-            if (!isNaN(putHour) && putHour >= 0 && putHour < 24) {
-              const hStat = hourlyData[putHour];
-              if (r.po_no && r.po_no.trim() !== '') hStat.putPoSet.add(r.po_no.trim());
-              if (r.batch_no && r.batch_no.trim() !== '') hStat.putBatSet.add(r.batch_no.trim());
-              hStat.putPoPcs += qty;
-            }
+          // 3. 歷史前幾日驗收，截至目前仍未上架
+          if (r.rec_date && r.rec_date < targetDate && !isPut) {
+            if (poNo) historyUnputPoSet.add(poNo);
+            historyUnputPcs += qty;
           }
         });
 
+        // 板貨 / 散貨時段聚合
         batchMap.forEach((info) => {
           const hStat = hourlyData[info.hour];
           const vol = parseFloat(info.volume.toFixed(2));
@@ -496,6 +538,22 @@ module.exports = function(db) {
           threshold,
           totalFiltered: filteredRows.length,
           hourlyStats,
+          // 🌟 完整拆解後的進貨單號指標
+          poAnalysis: {
+            todayRecPoCount: todayRecPoSet.size,
+            todayRecPcs,
+            todayPutPoCount: todayPutPoSet.size,
+            todayPutPcs,
+            sameDayPutPoCount: sameDayPutPoSet.size,
+            sameDayPutPcs,
+            prevDayPutPoCount: prevDayPutPoSet.size,
+            prevDayPutPcs,
+            todayUnputPoCount: todayUnputPoSet.size,
+            todayUnputPcs,
+            historyUnputPoCount: historyUnputPoSet.size,
+            historyUnputPcs,
+            totalUnputPoCount: todayUnputPoSet.size + historyUnputPoSet.size
+          },
           cargoSummary: {
             totalVolume: parseFloat((dayPalletVol + dayLooseVol).toFixed(2)),
             totalPallets: dayTotalPallets,
