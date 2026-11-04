@@ -6,7 +6,7 @@
         <p class="subtitle">庫存儲位管理系統控制台 | 地端高效能資料庫</p>
       </div>
 
-      <!-- 🌟 跑馬燈公告欄 (連結後端資料庫) -->
+      <!-- 跑馬燈公告欄 -->
       <div class="marquee-wrapper">
         <div class="marquee-badge">📢 系統公告</div>
         <div class="marquee-content-box">
@@ -14,7 +14,6 @@
             {{ announcementText || '🎉 歡迎使用庫存儲位管理系統！請確實核對進貨驗收與新品上架資料。' }}
           </div>
         </div>
-        <!-- 系統管理員可點擊編輯 -->
         <button 
           v-if="isSysAdmin" 
           class="edit-announce-btn"
@@ -25,9 +24,55 @@
         </button>
       </div>
 
-      <!-- 🌟 右側區域：掛載「硬體效能監控膠囊」與身分標籤 -->
+      <!-- 🌟 右側區域：方案一（頂部狀態膠囊 + 懸浮/點擊卡片）與身分標籤 -->
       <div class="header-right-zone">
-        <SystemMonitor />
+        <el-popover
+          placement="bottom-end"
+          :width="320"
+          trigger="hover"
+          popper-class="dark-popover"
+        >
+          <template #reference>
+            <div class="sys-chip-container">
+              <span class="sys-chip" :class="getChipClass(sysMetrics.cpu)">
+                <span class="dot">●</span> CPU: {{ sysMetrics.cpu }}%
+              </span>
+              <span class="sys-chip" :class="getChipClass(sysMetrics.mem)">
+                <span class="dot">●</span> RAM: {{ sysMetrics.mem }}%
+              </span>
+            </div>
+          </template>
+
+          <!-- 方案一懸浮卡片內容 -->
+          <div class="popover-content">
+            <div class="popover-title">🖥️ 地端伺服器即時負載</div>
+            
+            <div class="popover-row">
+              <span class="label">⚡ CPU 使用率：</span>
+              <span class="val" :class="getChipClass(sysMetrics.cpu)">{{ sysMetrics.cpu }}%</span>
+            </div>
+            <div class="popover-sub">{{ sysMetrics.cpuCores }} 核心 | {{ sysMetrics.cpuModel }}</div>
+
+            <div class="popover-row" style="margin-top: 8px;">
+              <span class="label">🧠 記憶體 (RAM)：</span>
+              <span class="val" :class="getChipClass(sysMetrics.mem)">{{ sysMetrics.mem }}%</span>
+            </div>
+            <div class="popover-sub">{{ sysMetrics.memUsedGB }} GB / {{ sysMetrics.memTotalGB }} GB (可用 {{ (sysMetrics.memTotalGB - sysMetrics.memUsedGB).toFixed(1) }} GB)</div>
+
+            <div class="popover-row" style="margin-top: 8px;">
+              <span class="label">💾 C: 磁碟空間：</span>
+              <span class="val text-blue">{{ sysMetrics.diskUsePercent }}%</span>
+            </div>
+            <div class="popover-sub">{{ sysMetrics.diskUsedGB }} GB / {{ sysMetrics.diskTotalGB }} GB</div>
+
+            <div class="popover-divider"></div>
+            <div class="popover-footer">
+              <span>⏱️ 連續運行：<strong>{{ formatSysUptime(sysMetrics.uptimeSeconds) }}</strong></span>
+              <el-button size="mini" type="primary" plain @click="fetchSystemMetrics">🔄 刷新</el-button>
+            </div>
+          </div>
+        </el-popover>
+
         <div class="user-status-badge">
           <span class="badge-role">{{ isSysAdmin ? '系統管理員' : '一般使用者' }}</span>
         </div>
@@ -133,7 +178,6 @@
           <div class="action-desc">集貨調撥魚群及未完成追蹤</div>
         </div>
 
-        <!-- 全商品歷史銷量與進貨履歷小卡 -->
         <div v-if="hasPermission('item_sales_history')" class="action-card" @click="openTab('item_sales_history')">
           <div class="action-icon">📈</div>
           <div class="action-title">全商品歷史銷量履歷</div>
@@ -171,13 +215,9 @@
 <script>
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
-import SystemMonitor from '@/components/SystemMonitor.vue' // 🌟 引入監控元件
 
 export default {
   name: 'HomeDashboard',
-  components: {
-    SystemMonitor // 🌟 註冊監控元件
-  },
   props: {
     currentUser: { type: String, default: '' },
     currentUserPermissions: { type: [Array, String], default: 'all' },
@@ -196,7 +236,22 @@ export default {
       announcementText: '',
       showAnnounceModal: false,
       tempAnnouncement: '',
-      savingAnnounce: false
+      savingAnnounce: false,
+
+      // 方案一：硬體監控資料
+      sysTimer: null,
+      sysMetrics: {
+        cpu: 0,
+        mem: 0,
+        memUsedGB: '0',
+        memTotalGB: '0',
+        diskUsedGB: '0',
+        diskTotalGB: '0',
+        diskUsePercent: 0,
+        cpuModel: '系統 CPU',
+        cpuCores: 4,
+        uptimeSeconds: 0
+      }
     }
   },
   computed: {
@@ -232,9 +287,12 @@ export default {
     this.startUptimeTimer();
     this.fetchStats();
     this.fetchAnnouncement();
+    this.fetchSystemMetrics();
+    this.sysTimer = setInterval(this.fetchSystemMetrics, 10000);
   },
   beforeUnmount() {
     if (this.uptimeTimer) clearInterval(this.uptimeTimer);
+    if (this.sysTimer) clearInterval(this.sysTimer);
   },
   methods: {
     openTab(tabKey) {
@@ -303,6 +361,32 @@ export default {
       } finally {
         this.savingAnnounce = false;
       }
+    },
+
+    // 方案一：硬體監控 API 調用與格式化
+    async fetchSystemMetrics() {
+      try {
+        const res = await axios.get('/api/system/metrics');
+        if (res.data?.success && res.data.current) {
+          this.sysMetrics = res.data.current;
+        }
+      } catch (e) {}
+    },
+    getChipClass(val) {
+      if (val >= 85) return 'chip-danger';
+      if (val >= 70) return 'chip-warning';
+      return 'chip-normal';
+    },
+    formatSysUptime(sec) {
+      if (!sec) return '0 分鐘';
+      const d = Math.floor(sec / 86400);
+      const h = Math.floor((sec % 86400) / 3600);
+      const m = Math.floor((sec % 3600) / 60);
+      let str = '';
+      if (d > 0) str += `${d} 天 `;
+      if (h > 0) str += `${h} 小時 `;
+      str += `${m} 分鐘`;
+      return str;
     }
   }
 }
@@ -415,7 +499,7 @@ export default {
   color: #7dd3fc;
 }
 
-/* 🌟 右側膠囊與身分標籤排列 */
+/* 方案一：右側膠囊與身分標籤排列 */
 .header-right-zone {
   display: flex;
   align-items: center;
@@ -423,10 +507,46 @@ export default {
   flex-shrink: 0;
 }
 
-.user-status-badge {
-  flex-shrink: 0;
+.sys-chip-container {
+  display: flex;
+  gap: 6px;
+  cursor: pointer;
+  align-items: center;
+  user-select: none;
+}
+.sys-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: bold;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+.sys-chip:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.2);
+}
+.dot { font-size: 9px; }
+.chip-normal {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.35);
+}
+.chip-warning {
+  background: rgba(234, 179, 8, 0.18);
+  color: #facc15;
+  border: 1px solid rgba(234, 179, 8, 0.4);
+}
+.chip-danger {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.3);
 }
 
+.user-status-badge { flex-shrink: 0; }
 .badge-role {
   background: #334155;
   color: #38bdf8;
@@ -560,5 +680,55 @@ export default {
   .metrics-grid {
     grid-template-columns: repeat(1, 1fr);
   }
+}
+</style>
+
+<!-- 方案一：Popover 懸浮卡樣式 -->
+<style>
+.dark-popover.el-popper {
+  background: #1e293b !important;
+  border: 1px solid #334155 !important;
+  color: #f8fafc !important;
+  border-radius: 8px !important;
+  padding: 14px 16px !important;
+}
+.dark-popover .el-popper__arrow::before {
+  background: #1e293b !important;
+  border-color: #334155 !important;
+}
+.popover-title {
+  font-size: 13px;
+  font-weight: bold;
+  color: #38bdf8;
+  margin-bottom: 10px;
+}
+.popover-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+}
+.popover-row .label {
+  color: #cbd5e1;
+}
+.popover-row .val {
+  font-weight: bold;
+}
+.popover-sub {
+  font-size: 11px;
+  color: #94a3b8;
+  margin-top: 2px;
+}
+.popover-divider {
+  height: 1px;
+  background: #334155;
+  margin: 10px 0;
+}
+.popover-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: #94a3b8;
 }
 </style>
