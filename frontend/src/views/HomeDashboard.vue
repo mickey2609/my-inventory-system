@@ -25,8 +25,12 @@
         </button>
       </div>
 
-      <div class="user-status-badge">
-        <span class="badge-role">{{ isSysAdmin ? '系統管理員' : '一般使用者' }}</span>
+      <!-- 🌟 右側區域：掛載「硬體效能監控膠囊」與身分標籤 -->
+      <div class="header-right-zone">
+        <SystemMonitor />
+        <div class="user-status-badge">
+          <span class="badge-role">{{ isSysAdmin ? '系統管理員' : '一般使用者' }}</span>
+        </div>
       </div>
     </div>
 
@@ -129,7 +133,7 @@
           <div class="action-desc">集貨調撥魚群及未完成追蹤</div>
         </div>
 
-        <!-- 🌟 新增：全商品歷史銷量與進貨履歷小卡 -->
+        <!-- 全商品歷史銷量與進貨履歷小卡 -->
         <div v-if="hasPermission('item_sales_history')" class="action-card" @click="openTab('item_sales_history')">
           <div class="action-icon">📈</div>
           <div class="action-title">全商品歷史銷量履歷</div>
@@ -144,7 +148,7 @@
       </div>
     </div>
 
-    <!-- 🌟 編輯公告彈窗 Modal -->
+    <!-- 編輯公告彈窗 Modal -->
     <el-dialog v-model="showAnnounceModal" title="✏️ 編輯系統跑馬燈公告" width="480px" append-to-body custom-class="dark-dialog">
       <el-form label-width="90px" size="small">
         <el-form-item label="公告事項：">
@@ -167,9 +171,13 @@
 <script>
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
+import SystemMonitor from '@/components/SystemMonitor.vue' // 🌟 引入監控元件
 
 export default {
   name: 'HomeDashboard',
+  components: {
+    SystemMonitor // 🌟 註冊監控元件
+  },
   props: {
     currentUser: { type: String, default: '' },
     currentUserPermissions: { type: [Array, String], default: 'all' },
@@ -347,7 +355,7 @@ export default {
   overflow: hidden;
   height: 36px;
   box-sizing: border-box;
-  max-width: 60%;
+  max-width: 50%;
 }
 
 .marquee-badge {
@@ -405,6 +413,14 @@ export default {
 .edit-announce-btn:hover {
   background: rgba(56, 189, 248, 0.2);
   color: #7dd3fc;
+}
+
+/* 🌟 右側膠囊與身分標籤排列 */
+.header-right-zone {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
 }
 
 .user-status-badge {

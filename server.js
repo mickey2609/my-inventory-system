@@ -82,7 +82,11 @@ app.use('/api/abnormal', abnormalRouter);
 const itemSalesHistoryRouter = require('./routes/itemSalesHistory')(db);
 app.use('/api/item-sales-history', itemSalesHistoryRouter);
 
-// 8. 首頁 Dashboard 統計數據 API
+// 8. 🌟 地端伺服器硬體效能監控 API (無第三方套件依賴)
+const systemMonitorRouter = require('./routes/systemMonitor')();
+app.use('/api/system', systemMonitorRouter);
+
+// 9. 首頁 Dashboard 統計數據 API
 app.get('/api/dashboard/stats', (req, res) => {
   const sql80 = `SELECT COUNT(*) as total_rows FROM inventory`;
   const sql15 = `SELECT COUNT(*) as total_rows FROM inventory_15`;
@@ -125,7 +129,7 @@ app.get('/api/dashboard/stats', (req, res) => {
   });
 });
 
-// 9. 批次匯入/更新帳號 API
+// 10. 批次匯入/更新帳號 API
 app.post('/api/batch-import-users', (req, res) => {
   const users = req.body.users || req.body;
 
@@ -177,7 +181,7 @@ app.post('/api/batch-import-users', (req, res) => {
   });
 });
 
-// 10. 全域跑馬燈公告同步 API
+// 11. 全域跑馬燈公告同步 API
 app.get('/api/announcement', (req, res) => {
   db.get(`SELECT config_value FROM system_config WHERE config_key = 'announcement'`, [], (err, row) => {
     if (err) return res.status(500).json({ success: false, message: err.message });
@@ -201,7 +205,7 @@ app.post('/api/announcement', (req, res) => {
   );
 });
 
-// 11. 登入 API
+// 12. 登入 API
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
 
@@ -784,7 +788,6 @@ app.get('/api/get-users', (req, res) => {
     rows = rows || [];
     const now = Math.floor(Date.now() / 1000);
 
-    // 檢查若無 guest 帳號則注入一筆
     const hasGuest = rows.some(u => u.username === 'guest');
     if (!hasGuest) {
       rows.push({
@@ -1164,7 +1167,7 @@ db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS locations_master (id INTEGER PRIMARY KEY AUTOINCREMENT, floor TEXT, zone TEXT, loc_type TEXT, cubic_feet REAL, grid_count INTEGER, single_cubic_feet REAL);`);
   db.run(`CREATE TABLE IF NOT EXISTS import_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, module_type TEXT, file_name TEXT, row_count INTEGER, imported_at TEXT);`);
   
-  // 🌟 1. 每日不合理進貨快照歷史表 (記錄每天進貨當下的真實快照數據)
+  // 1. 每日不合理進貨快照歷史表
   db.run(`
     CREATE TABLE IF NOT EXISTS abnormal_purchase_history (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1195,7 +1198,7 @@ db.serialize(() => {
     );
   `);
 
-  // 🌟 2. 商品自訂屬性與贈品備註表 (永久記錄手動備註與贈品註記)
+  // 2. 商品自訂屬性與贈品備註表
   db.run(`
     CREATE TABLE IF NOT EXISTS item_custom_notes (
       item_id TEXT PRIMARY KEY,
@@ -1209,16 +1212,14 @@ db.serialize(() => {
   // 基礎系統帳號
   db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions) VALUES ('admin', '系統管理員', 'sys_admin', 'admin', 'all');`);
   db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions) VALUES ('801854', '黃勝鴻', 'sys_admin', '801854', 'all');`);
-  
-  // 🌟 初始化訪客 (免登直達) 帳號，預設開放三大魚群模組
-  db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions, last_active) VALUES ('guest', '訪客 (免登直達)', 'guest', 'guest_direct_no_pwd', 'replenish_fish,transfer_80_15,transfer_15_80', 0);`);
+  db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions) VALUES ('guest', '訪客 (免登直達)', 'guest', 'guest_direct_no_pwd', 'replenish_fish,transfer_80_15,transfer_15_80', 0);`);
 });
 
-  // 🌟 為進貨明細與快照歷史表建立日期索引，秒級檢索
-  db.run(`CREATE INDEX IF NOT EXISTS idx_inbound_rec_date ON inbound_details(rec_date)`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_inbound_item_id ON inbound_details(item_id)`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_abnormal_rec_date ON abnormal_purchase_history(rec_date)`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_abnormal_snapshot_date ON abnormal_purchase_history(snapshot_date)`);
+// 為高頻查詢欄位建立索引
+db.run(`CREATE INDEX IF NOT EXISTS idx_inbound_rec_date ON inbound_details(rec_date)`);
+db.run(`CREATE INDEX IF NOT EXISTS idx_inbound_item_id ON inbound_details(item_id)`);
+db.run(`CREATE INDEX IF NOT EXISTS idx_abnormal_rec_date ON abnormal_purchase_history(rec_date)`);
+db.run(`CREATE INDEX IF NOT EXISTS idx_abnormal_snapshot_date ON abnormal_purchase_history(snapshot_date)`);
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 業務 API 伺服器已成功啟動！(Port: ${PORT})`);
