@@ -26,6 +26,21 @@ module.exports = function(db) {
     return str;
   }
 
+  // 取得全系統統一每板才數門檻輔助函式
+  function getSystemThreshold(queryThreshold, callback) {
+    const parsed = parseFloat(queryThreshold);
+    if (!isNaN(parsed) && parsed > 0) {
+      return callback(parsed);
+    }
+    db.get("SELECT config_value FROM system_config WHERE config_key = 'inbound_pallet_threshold'", [], (err, row) => {
+      if (!err && row && row.config_value) {
+        const val = parseFloat(row.config_value);
+        if (!isNaN(val) && val > 0) return callback(val);
+      }
+      callback(30);
+    });
+  }
+
   db.serialize(() => {
     db.run(`
       CREATE TABLE IF NOT EXISTS inbound_details (
@@ -56,6 +71,29 @@ module.exports = function(db) {
     db.run(`CREATE INDEX IF NOT EXISTS idx_inbound_rec_date ON inbound_details (rec_date)`, () => {});
     db.run(`CREATE INDEX IF NOT EXISTS idx_inbound_item_id ON inbound_details (item_id)`, () => {});
     db.run(`CREATE INDEX IF NOT EXISTS idx_inbound_batch_no ON inbound_details (batch_no)`, () => {});
+  });
+
+  // 🌟 取得全系統統一每板才數門檻 API
+  router.get('/config/pallet-threshold', (req, res) => {
+    db.get("SELECT config_value FROM system_config WHERE config_key = 'inbound_pallet_threshold'", [], (err, row) => {
+      if (err) return res.status(500).json({ success: false, message: err.message });
+      const threshold = row && row.config_value ? parseFloat(row.config_value) : 30;
+      res.json({ success: true, threshold: isNaN(threshold) ? 30 : threshold });
+    });
+  });
+
+  // 🌟 最高管理者更新全系統統一每板才數門檻 API (持久化至 SQLite)
+  router.post('/config/pallet-threshold', (req, res) => {
+    const threshold = parseFloat(req.body.threshold) || 30;
+    db.run(
+      `INSERT INTO system_config (config_key, config_value) VALUES ('inbound_pallet_threshold', ?)
+       ON CONFLICT(config_key) DO UPDATE SET config_value = EXCLUDED.config_value`,
+      [String(threshold)],
+      function(err) {
+        if (err) return res.status(500).json({ success: false, message: '更新全系統門檻失敗：' + err.message });
+        res.json({ success: true, threshold, message: `⚙️ 已成功將全系統統一門檻更新為 ${threshold} 才/板！` });
+      }
+    );
   });
 
   // 1. 匯入 API
@@ -278,467 +316,56 @@ module.exports = function(db) {
     });
   });
 
-  // 5. 單日魚群分析 API (支援 threshold 門檻參數，預設 30 才)
+  // 5. 單日魚群分析 API (支援全系統統一門檻)
   router.get('/fish-analysis', (req, res) => {
     const { targetDate, warehouse, remarks } = req.query;
-    const threshold = parseFloat(req.query.threshold) || 30; // 🌟 支援自訂每板才數
 
     if (!targetDate) {
       return res.status(400).json({ success: false, message: '請指定 targetDate (YYYY-MM-DD)' });
     }
 
-    let sql = `SELECT * FROM inbound_details WHERE 1=1`;
-    const params = [];
+    getSystemThreshold(req.query.threshold, (threshold) => {
+      let sql = `SELECT * FROM inbound_details WHERE 1=1`;
+      const params = [];
 
-    sql += ` AND (rec_date = ? OR put_date = ?)`;
-    params.push(targetDate, targetDate);
+      sql += ` AND (rec_date = ? OR put_date = ?)`;
+      params.push(targetDate, targetDate);
 
-    if (warehouse && warehouse !== 'all') {
-      sql += ` AND warehouse = ?`;
-      params.push(warehouse);
-    }
+      if (warehouse && warehouse !== 'all') {
+        sql += ` AND warehouse = ?`;
+        params.push(warehouse);
+      }
 
-    db.all(sql, params, (err, rows) => {
-      if (err) return res.status(500).json({ success: false, message: err.message });
+      db.all(sql, params, (err, rows) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
 
-      rows = rows || [];
-      const remarkList = Array.isArray(remarks) ? remarks : (remarks || '').split(',').map(s => s.trim()).filter(Boolean);
+        rows = rows || [];
+        const remarkList = Array.isArray(remarks) ? remarks : (remarks || '').split(',').map(s => s.trim()).filter(Boolean);
 
-      const filteredRows = rows.filter(r => {
-        if (!remarkList.length) return true;
-        const rem = (r.remark || '').trim();
-        let matched = false;
+        const filteredRows = rows.filter(r => {
+          if (!remarkList.length) return true;
+          const rem = (r.remark || '').trim();
+          let matched = false;
 
-        if (remarkList.includes('15') && (rem.includes('15庫') || rem.includes('原15庫'))) matched = true;
-        if (remarkList.includes('empty') && rem === '') matched = true;
-        if (remarkList.includes('abnormal') && rem !== '' && !rem.includes('15庫')) matched = true;
+          if (remarkList.includes('15') && (rem.includes('15庫') || rem.includes('原15庫'))) matched = true;
+          if (remarkList.includes('empty') && rem === '') matched = true;
+          if (remarkList.includes('abnormal') && rem !== '' && !rem.includes('15庫')) matched = true;
 
-        return matched;
-      });
-
-      const hourlyData = Array.from({ length: 24 }, (_, h) => ({
-        hour: h,
-        hourStr: `${String(h).padStart(2, '0')}:00 ~ ${String(h + 1).padStart(2, '0')}:00`,
-        recPoSet: new Set(),
-        recPoPcs: 0,
-        unputPoSet: new Set(),
-        unputBatSet: new Set(),
-        unputCount: 0,
-        putPoSet: new Set(),
-        putPoPcs: 0,
-        recBatSet: new Set(),
-        putBatSet: new Set(),
-        palletBatchCount: 0,
-        palletVolume: 0,
-        palletPallets: 0,
-        looseBatchCount: 0,
-        looseVolume: 0,
-        loosePallets: 0,
-        totalPallets: 0,
-        palletRate: '0.00%'
-      }));
-
-      const batchMap = new Map();
-
-      filteredRows.forEach(r => {
-        const qty = Number(r.qty) || 0;
-        const len = Number(r.length) || 0;
-        const w = Number(r.width) || 0;
-        const h = Number(r.height) || 0;
-        const pieceCubicFeet = (len > 0 && w > 0 && h > 0) ? ((len * w * h) / 27000) : 0;
-        const lineVolume = pieceCubicFeet * qty;
-
-        const isPut = (r.put_date && r.put_date.trim() !== '' && r.put_date.includes('-')) || r.is_resolved === 1;
-
-        if (r.rec_date === targetDate && r.rec_time) {
-          const hStr = r.rec_time.split(':')[0];
-          const recHour = parseInt(hStr, 10);
-          if (!isNaN(recHour) && recHour >= 0 && recHour < 24) {
-            const hStat = hourlyData[recHour];
-            if (r.po_no && r.po_no.trim() !== '') hStat.recPoSet.add(r.po_no.trim());
-            if (r.batch_no && r.batch_no.trim() !== '') {
-              const bNo = r.batch_no.trim();
-              hStat.recBatSet.add(bNo);
-
-              if (!batchMap.has(bNo)) {
-                batchMap.set(bNo, {
-                  hour: recHour,
-                  volume: 0,
-                  qty: 0,
-                  po_no: r.po_no,
-                  isPut: isPut
-                });
-              }
-              const b = batchMap.get(bNo);
-              b.volume += lineVolume;
-              b.qty += qty;
-              if (!b.isPut && isPut) b.isPut = true;
-            }
-            hStat.recPoPcs += qty;
-
-            if (!isPut) {
-              if (r.po_no && r.po_no.trim() !== '') hStat.unputPoSet.add(r.po_no.trim());
-              if (r.batch_no && r.batch_no.trim() !== '') hStat.unputBatSet.add(r.batch_no.trim());
-              hStat.unputCount += 1;
-            }
-          }
-        }
-
-        if (r.put_date === targetDate && r.put_time) {
-          const hStr = r.put_time.split(':')[0];
-          const putHour = parseInt(hStr, 10);
-          if (!isNaN(putHour) && putHour >= 0 && putHour < 24) {
-            const hStat = hourlyData[putHour];
-            if (r.po_no && r.po_no.trim() !== '') hStat.putPoSet.add(r.po_no.trim());
-            if (r.batch_no && r.batch_no.trim() !== '') hStat.putBatSet.add(r.batch_no.trim());
-            hStat.putPoPcs += qty;
-          }
-        }
-      });
-
-      batchMap.forEach((info) => {
-        const hStat = hourlyData[info.hour];
-        const vol = parseFloat(info.volume.toFixed(2));
-
-        if (vol >= threshold) {
-          hStat.palletBatchCount += 1;
-          hStat.palletVolume += vol;
-          hStat.palletPallets += 1;
-        } else {
-          hStat.looseBatchCount += 1;
-          hStat.looseVolume += vol;
-        }
-      });
-
-      let dayPalletBat = 0, dayPalletVol = 0, dayPalletPlt = 0;
-      let dayLooseBat = 0, dayLooseVol = 0, dayLoosePlt = 0;
-
-      const hourlyStats = hourlyData.map(d => {
-        const loosePallets = parseFloat((d.looseVolume / threshold).toFixed(2));
-        const totalPallets = parseFloat((d.palletPallets + loosePallets).toFixed(2));
-        const palletRate = totalPallets > 0 ? ((d.palletPallets / totalPallets) * 100).toFixed(2) + '%' : '0.00%';
-
-        dayPalletBat += d.palletBatchCount;
-        dayPalletVol += d.palletVolume;
-        dayPalletPlt += d.palletPallets;
-
-        dayLooseBat += d.looseBatchCount;
-        dayLooseVol += d.looseVolume;
-        dayLoosePlt += loosePallets;
-
-        return {
-          hourStr: d.hourStr,
-          hour: d.hour,
-          recPoCount: d.recPoSet.size,
-          recPoPcs: d.recPoPcs,
-          unputPoCount: d.unputPoSet.size,
-          unputBatCount: d.unputBatSet.size,
-          unputCount: d.unputCount,
-          putPoCount: d.putPoSet.size,
-          putPoPcs: d.putPoPcs,
-          recBatCount: d.recBatSet.size,
-          putBatCount: d.putBatSet.size,
-          palletBatchCount: d.palletBatchCount,
-          palletVolume: parseFloat(d.palletVolume.toFixed(2)),
-          palletPallets: d.palletPallets,
-          looseBatchCount: d.looseBatchCount,
-          looseVolume: parseFloat(d.looseVolume.toFixed(2)),
-          loosePallets: loosePallets,
-          totalPallets: totalPallets,
-          palletRate: palletRate
-        };
-      });
-
-      const dayTotalPallets = parseFloat((dayPalletPlt + dayLoosePlt).toFixed(2));
-      const dayPalletRate = dayTotalPallets > 0 ? ((dayPalletPlt / dayTotalPallets) * 100).toFixed(2) : '0.00';
-      const dayLooseRate = dayTotalPallets > 0 ? (100 - parseFloat(dayPalletRate)).toFixed(2) : '0.00';
-
-      res.json({
-        success: true,
-        threshold,
-        totalFiltered: filteredRows.length,
-        hourlyStats,
-        cargoSummary: {
-          totalVolume: parseFloat((dayPalletVol + dayLooseVol).toFixed(2)),
-          totalPallets: dayTotalPallets,
-          palletBatchCount: dayPalletBat,
-          palletVolume: parseFloat(dayPalletVol.toFixed(2)),
-          palletPallets: dayPalletPlt,
-          palletRate: dayPalletRate + '%',
-          looseBatchCount: dayLooseBat,
-          looseVolume: parseFloat(dayLooseVol.toFixed(2)),
-          loosePallets: parseFloat(dayLoosePlt.toFixed(2)),
-          looseRate: dayLooseRate + '%'
-        }
-      });
-    });
-  });
-
-  // 6. 每月每日總表 API (加入板貨 / 散貨統計)
-  router.get('/monthly-summary', (req, res) => {
-    const { month, warehouse, remarks } = req.query;
-    const threshold = parseFloat(req.query.threshold) || 30;
-
-    if (!month) {
-      return res.status(400).json({ success: false, message: '請提供查詢月份 (YYYY-MM)' });
-    }
-
-    let sql = `SELECT * FROM inbound_details WHERE (rec_date LIKE ? OR put_date LIKE ?)`;
-    const monthPattern = `${month}%`;
-    const params = [monthPattern, monthPattern];
-
-    if (warehouse && warehouse !== 'all') {
-      sql += ` AND warehouse = ?`;
-      params.push(warehouse);
-    }
-
-    db.all(sql, params, (err, rows) => {
-      if (err) return res.status(500).json({ success: false, message: err.message });
-
-      rows = rows || [];
-      const remarkList = Array.isArray(remarks) ? remarks : (remarks || '').split(',').map(s => s.trim()).filter(Boolean);
-
-      const filteredRows = rows.filter(r => {
-        if (!remarkList.length) return true;
-        const rem = (r.remark || '').trim();
-        let matched = false;
-
-        if (remarkList.includes('15') && (rem.includes('15庫') || rem.includes('原15庫'))) matched = true;
-        if (remarkList.includes('empty') && rem === '') matched = true;
-        if (remarkList.includes('abnormal') && rem !== '' && !rem.includes('15庫')) matched = true;
-
-        return matched;
-      });
-
-      const daysInMonthMap = {};
-      const dayBatchMap = {}; // date -> batch_no -> volume
-
-      filteredRows.forEach(r => {
-        if (r.rec_date && r.rec_date.startsWith(month)) {
-          const d = r.rec_date;
-          if (!daysInMonthMap[d]) {
-            daysInMonthMap[d] = {
-              date: d,
-              recPoSet: new Set(),
-              recBatSet: new Set(),
-              unputPoSet: new Set(),
-              unputBatSet: new Set(),
-              recPcs: 0,
-              recCubicFeet: 0,
-              putPoSet: new Set(),
-              putBatSet: new Set(),
-              putPcs: 0,
-              recPutMatchedPcs: 0,
-              palletBatchCount: 0,
-              palletVolume: 0,
-              palletPallets: 0,
-              looseBatchCount: 0,
-              looseVolume: 0,
-              loosePallets: 0,
-              totalPallets: 0,
-              palletRate: '0.00%'
-            };
-            dayBatchMap[d] = new Map();
-          }
-
-          if (r.po_no) daysInMonthMap[d].recPoSet.add(r.po_no.trim());
-          if (r.batch_no) daysInMonthMap[d].recBatSet.add(r.batch_no.trim());
-          const qty = r.qty || 0;
-          daysInMonthMap[d].recPcs += qty;
-
-          const length = r.length || 0;
-          const width = r.width || 0;
-          const height = r.height || 0;
-          let lineVolume = 0;
-          if (length > 0 && width > 0 && height > 0 && qty > 0) {
-            const singleCf = (length * width * height) / 27000;
-            lineVolume = singleCf * qty;
-            daysInMonthMap[d].recCubicFeet += lineVolume;
-          }
-
-          if (r.batch_no) {
-            const bNo = r.batch_no.trim();
-            const curVol = dayBatchMap[d].get(bNo) || 0;
-            dayBatchMap[d].set(bNo, curVol + lineVolume);
-          }
-
-          const isPut = (r.put_date && r.put_date.trim() !== '' && r.put_date.includes('-')) || r.is_resolved === 1;
-          if (isPut) {
-            daysInMonthMap[d].recPutMatchedPcs += qty;
-          } else {
-            if (r.po_no && r.po_no.trim() !== '') daysInMonthMap[d].unputPoSet.add(r.po_no.trim());
-            if (r.batch_no && r.batch_no.trim() !== '') daysInMonthMap[d].unputBatSet.add(r.batch_no.trim());
-          }
-        }
-
-        if (r.put_date && r.put_date.startsWith(month)) {
-          const d = r.put_date;
-          if (!daysInMonthMap[d]) {
-            daysInMonthMap[d] = {
-              date: d,
-              recPoSet: new Set(),
-              recBatSet: new Set(),
-              unputPoSet: new Set(),
-              unputBatSet: new Set(),
-              recPcs: 0,
-              recCubicFeet: 0,
-              putPoSet: new Set(),
-              putBatSet: new Set(),
-              putPcs: 0,
-              recPutMatchedPcs: 0,
-              palletBatchCount: 0,
-              palletVolume: 0,
-              palletPallets: 0,
-              looseBatchCount: 0,
-              looseVolume: 0,
-              loosePallets: 0,
-              totalPallets: 0,
-              palletRate: '0.00%'
-            };
-            dayBatchMap[d] = new Map();
-          }
-          if (r.po_no) daysInMonthMap[d].putPoSet.add(r.po_no.trim());
-          if (r.batch_no) daysInMonthMap[d].putBatSet.add(r.batch_no.trim());
-          daysInMonthMap[d].putPcs += (r.qty || 0);
-        }
-      });
-
-      // 聚合每日板貨與散貨
-      Object.keys(dayBatchMap).forEach(d => {
-        const map = dayBatchMap[d];
-        const dayStat = daysInMonthMap[d];
-        map.forEach((vol) => {
-          const v = parseFloat(vol.toFixed(2));
-          if (v >= threshold) {
-            dayStat.palletBatchCount += 1;
-            dayStat.palletVolume += v;
-            dayStat.palletPallets += 1;
-          } else {
-            dayStat.looseBatchCount += 1;
-            dayStat.looseVolume += v;
-          }
+          return matched;
         });
-        dayStat.loosePallets = parseFloat((dayStat.looseVolume / threshold).toFixed(2));
-        dayStat.totalPallets = parseFloat((dayStat.palletPallets + dayStat.loosePallets).toFixed(2));
-        dayStat.palletRate = dayStat.totalPallets > 0 ? ((dayStat.palletPallets / dayStat.totalPallets) * 100).toFixed(2) + '%' : '0.00%';
-      });
 
-      let mPalletBat = 0, mPalletVol = 0, mPalletPlt = 0;
-      let mLooseBat = 0, mLooseVol = 0, mLoosePlt = 0;
-
-      const dailyList = Object.keys(daysInMonthMap).sort().map(d => {
-        const item = daysInMonthMap[d];
-        const putRateVal = item.recPcs > 0 ? (item.recPutMatchedPcs / item.recPcs) * 100 : 0;
-
-        mPalletBat += item.palletBatchCount;
-        mPalletVol += item.palletVolume;
-        mPalletPlt += item.palletPallets;
-
-        mLooseBat += item.looseBatchCount;
-        mLooseVol += item.looseVolume;
-        mLoosePlt += item.loosePallets;
-
-        return {
-          date: item.date,
-          recPoCount: item.recPoSet.size,
-          unputPoCount: item.unputPoSet.size,
-          recBatCount: item.recBatSet.size,
-          unputBatCount: item.unputBatSet.size,
-          recPcs: item.recPcs,
-          recCubicFeet: parseFloat(item.recCubicFeet.toFixed(2)),
-          putPoCount: item.putPoSet.size,
-          putBatCount: item.putBatSet.size,
-          putPcs: item.putPcs,
-          putRate: Math.min(100, putRateVal).toFixed(2) + '%',
-          palletBatchCount: item.palletBatchCount,
-          palletVolume: parseFloat(item.palletVolume.toFixed(2)),
-          palletPallets: item.palletPallets,
-          looseBatchCount: item.looseBatchCount,
-          looseVolume: parseFloat(item.looseVolume.toFixed(2)),
-          loosePallets: item.loosePallets,
-          totalPallets: item.totalPallets,
-          palletRate: item.palletRate
-        };
-      });
-
-      const mTotalPallets = parseFloat((mPalletPlt + mLoosePlt).toFixed(2));
-      const mPalletRate = mTotalPallets > 0 ? ((mPalletPlt / mTotalPallets) * 100).toFixed(2) : '0.00';
-      const mLooseRate = mTotalPallets > 0 ? (100 - parseFloat(mPalletRate)).toFixed(2) : '0.00';
-
-      res.json({
-        success: true,
-        month,
-        threshold,
-        dailyList,
-        cargoSummary: {
-          totalVolume: parseFloat((mPalletVol + mLooseVol).toFixed(2)),
-          totalPallets: mTotalPallets,
-          palletBatchCount: mPalletBat,
-          palletVolume: parseFloat(mPalletVol.toFixed(2)),
-          palletPallets: mPalletPlt,
-          palletRate: mPalletRate + '%',
-          looseBatchCount: mLooseBat,
-          looseVolume: parseFloat(mLooseVol.toFixed(2)),
-          loosePallets: parseFloat(mLoosePlt.toFixed(2)),
-          looseRate: mLooseRate + '%'
-        }
-      });
-    });
-  });
-
-  // 7. 年度每月總表 API (加入板貨 / 散貨統計)
-  router.get('/yearly-summary', (req, res) => {
-    const { year, warehouse, remarks } = req.query;
-    const threshold = parseFloat(req.query.threshold) || 30;
-
-    if (!year) {
-      return res.status(400).json({ success: false, message: '請提供查詢年份 (YYYY)' });
-    }
-
-    let sql = `SELECT * FROM inbound_details WHERE (rec_date LIKE ? OR put_date LIKE ?)`;
-    const yearPattern = `${year}%`;
-    const params = [yearPattern, yearPattern];
-
-    if (warehouse && warehouse !== 'all') {
-      sql += ` AND warehouse = ?`;
-      params.push(warehouse);
-    }
-
-    db.all(sql, params, (err, rows) => {
-      if (err) return res.status(500).json({ success: false, message: err.message });
-
-      rows = rows || [];
-      const remarkList = Array.isArray(remarks) ? remarks : (remarks || '').split(',').map(s => s.trim()).filter(Boolean);
-
-      const filteredRows = rows.filter(r => {
-        if (!remarkList.length) return true;
-        const rem = (r.remark || '').trim();
-        let matched = false;
-
-        if (remarkList.includes('15') && (rem.includes('15庫') || rem.includes('原15庫'))) matched = true;
-        if (remarkList.includes('empty') && rem === '') matched = true;
-        if (remarkList.includes('abnormal') && rem !== '' && !rem.includes('15庫')) matched = true;
-
-        return matched;
-      });
-
-      const monthsMap = {};
-      const monthBatchMap = {};
-
-      for (let m = 1; m <= 12; m++) {
-        const mStr = `${year}-${String(m).padStart(2, '0')}`;
-        monthsMap[mStr] = {
-          month: mStr,
+        const hourlyData = Array.from({ length: 24 }, (_, h) => ({
+          hour: h,
+          hourStr: `${String(h).padStart(2, '0')}:00 ~ ${String(h + 1).padStart(2, '0')}:00`,
           recPoSet: new Set(),
-          recBatSet: new Set(),
+          recPoPcs: 0,
           unputPoSet: new Set(),
           unputBatSet: new Set(),
-          recPcs: 0,
-          recCubicFeet: 0,
+          unputCount: 0,
           putPoSet: new Set(),
+          putPoPcs: 0,
+          recBatSet: new Set(),
           putBatSet: new Set(),
-          putPcs: 0,
-          recPutMatchedPcs: 0,
           palletBatchCount: 0,
           palletVolume: 0,
           palletPallets: 0,
@@ -747,18 +374,216 @@ module.exports = function(db) {
           loosePallets: 0,
           totalPallets: 0,
           palletRate: '0.00%'
-        };
-        monthBatchMap[mStr] = new Map();
+        }));
+
+        const batchMap = new Map();
+
+        filteredRows.forEach(r => {
+          const qty = Number(r.qty) || 0;
+          const len = Number(r.length) || 0;
+          const w = Number(r.width) || 0;
+          const h = Number(r.height) || 0;
+          const pieceCubicFeet = (len > 0 && w > 0 && h > 0) ? ((len * w * h) / 27000) : 0;
+          const lineVolume = pieceCubicFeet * qty;
+
+          const isPut = (r.put_date && r.put_date.trim() !== '' && r.put_date.includes('-')) || r.is_resolved === 1;
+
+          if (r.rec_date === targetDate && r.rec_time) {
+            const hStr = r.rec_time.split(':')[0];
+            const recHour = parseInt(hStr, 10);
+            if (!isNaN(recHour) && recHour >= 0 && recHour < 24) {
+              const hStat = hourlyData[recHour];
+              if (r.po_no && r.po_no.trim() !== '') hStat.recPoSet.add(r.po_no.trim());
+              if (r.batch_no && r.batch_no.trim() !== '') {
+                const bNo = r.batch_no.trim();
+                hStat.recBatSet.add(bNo);
+
+                if (!batchMap.has(bNo)) {
+                  batchMap.set(bNo, {
+                    hour: recHour,
+                    volume: 0,
+                    qty: 0,
+                    po_no: r.po_no,
+                    isPut: isPut
+                  });
+                }
+                const b = batchMap.get(bNo);
+                b.volume += lineVolume;
+                b.qty += qty;
+                if (!b.isPut && isPut) b.isPut = true;
+              }
+              hStat.recPoPcs += qty;
+
+              if (!isPut) {
+                if (r.po_no && r.po_no.trim() !== '') hStat.unputPoSet.add(r.po_no.trim());
+                if (r.batch_no && r.batch_no.trim() !== '') hStat.unputBatSet.add(r.batch_no.trim());
+                hStat.unputCount += 1;
+              }
+            }
+          }
+
+          if (r.put_date === targetDate && r.put_time) {
+            const hStr = r.put_time.split(':')[0];
+            const putHour = parseInt(hStr, 10);
+            if (!isNaN(putHour) && putHour >= 0 && putHour < 24) {
+              const hStat = hourlyData[putHour];
+              if (r.po_no && r.po_no.trim() !== '') hStat.putPoSet.add(r.po_no.trim());
+              if (r.batch_no && r.batch_no.trim() !== '') hStat.putBatSet.add(r.batch_no.trim());
+              hStat.putPoPcs += qty;
+            }
+          }
+        });
+
+        batchMap.forEach((info) => {
+          const hStat = hourlyData[info.hour];
+          const vol = parseFloat(info.volume.toFixed(2));
+
+          if (vol >= threshold) {
+            hStat.palletBatchCount += 1;
+            hStat.palletVolume += vol;
+            hStat.palletPallets += 1;
+          } else {
+            hStat.looseBatchCount += 1;
+            hStat.looseVolume += vol;
+          }
+        });
+
+        let dayPalletBat = 0, dayPalletVol = 0, dayPalletPlt = 0;
+        let dayLooseBat = 0, dayLooseVol = 0, dayLoosePlt = 0;
+
+        const hourlyStats = hourlyData.map(d => {
+          const loosePallets = parseFloat((d.looseVolume / threshold).toFixed(2));
+          const totalPallets = parseFloat((d.palletPallets + loosePallets).toFixed(2));
+          const palletRate = totalPallets > 0 ? ((d.palletPallets / totalPallets) * 100).toFixed(2) + '%' : '0.00%';
+
+          dayPalletBat += d.palletBatchCount;
+          dayPalletVol += d.palletVolume;
+          dayPalletPlt += d.palletPallets;
+
+          dayLooseBat += d.looseBatchCount;
+          dayLooseVol += d.looseVolume;
+          dayLoosePlt += loosePallets;
+
+          return {
+            hourStr: d.hourStr,
+            hour: d.hour,
+            recPoCount: d.recPoSet.size,
+            recPoPcs: d.recPoPcs,
+            unputPoCount: d.unputPoSet.size,
+            unputBatCount: d.unputBatSet.size,
+            unputCount: d.unputCount,
+            putPoCount: d.putPoSet.size,
+            putPoPcs: d.putPoPcs,
+            recBatCount: d.recBatSet.size,
+            putBatCount: d.putBatSet.size,
+            palletBatchCount: d.palletBatchCount,
+            palletVolume: parseFloat(d.palletVolume.toFixed(2)),
+            palletPallets: d.palletPallets,
+            looseBatchCount: d.looseBatchCount,
+            looseVolume: parseFloat(d.looseVolume.toFixed(2)),
+            loosePallets: loosePallets,
+            totalPallets: totalPallets,
+            palletRate: palletRate
+          };
+        });
+
+        const dayTotalPallets = parseFloat((dayPalletPlt + dayLoosePlt).toFixed(2));
+        const dayPalletRate = dayTotalPallets > 0 ? ((dayPalletPlt / dayTotalPallets) * 100).toFixed(2) : '0.00';
+        const dayLooseRate = dayTotalPallets > 0 ? (100 - parseFloat(dayPalletRate)).toFixed(2) : '0.00';
+
+        res.json({
+          success: true,
+          threshold,
+          totalFiltered: filteredRows.length,
+          hourlyStats,
+          cargoSummary: {
+            totalVolume: parseFloat((dayPalletVol + dayLooseVol).toFixed(2)),
+            totalPallets: dayTotalPallets,
+            palletBatchCount: dayPalletBat,
+            palletVolume: parseFloat(dayPalletVol.toFixed(2)),
+            palletPallets: dayPalletPlt,
+            palletRate: dayPalletRate + '%',
+            looseBatchCount: dayLooseBat,
+            looseVolume: parseFloat(dayLooseVol.toFixed(2)),
+            loosePallets: parseFloat(dayLoosePlt.toFixed(2)),
+            looseRate: dayLooseRate + '%'
+          }
+        });
+      });
+    });
+  });
+
+  // 6. 每月每日總表 API (加入板貨 / 散貨統計)
+  router.get('/monthly-summary', (req, res) => {
+    const { month, warehouse, remarks } = req.query;
+
+    if (!month) {
+      return res.status(400).json({ success: false, message: '請提供查詢月份 (YYYY-MM)' });
+    }
+
+    getSystemThreshold(req.query.threshold, (threshold) => {
+      let sql = `SELECT * FROM inbound_details WHERE (rec_date LIKE ? OR put_date LIKE ?)`;
+      const monthPattern = `${month}%`;
+      const params = [monthPattern, monthPattern];
+
+      if (warehouse && warehouse !== 'all') {
+        sql += ` AND warehouse = ?`;
+        params.push(warehouse);
       }
 
-      filteredRows.forEach(r => {
-        if (r.rec_date && r.rec_date.startsWith(year)) {
-          const mStr = r.rec_date.substring(0, 7);
-          if (monthsMap[mStr]) {
-            if (r.po_no) monthsMap[mStr].recPoSet.add(r.po_no.trim());
-            if (r.batch_no) monthsMap[mStr].recBatSet.add(r.batch_no.trim());
+      db.all(sql, params, (err, rows) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+
+        rows = rows || [];
+        const remarkList = Array.isArray(remarks) ? remarks : (remarks || '').split(',').map(s => s.trim()).filter(Boolean);
+
+        const filteredRows = rows.filter(r => {
+          if (!remarkList.length) return true;
+          const rem = (r.remark || '').trim();
+          let matched = false;
+
+          if (remarkList.includes('15') && (rem.includes('15庫') || rem.includes('原15庫'))) matched = true;
+          if (remarkList.includes('empty') && rem === '') matched = true;
+          if (remarkList.includes('abnormal') && rem !== '' && !rem.includes('15庫')) matched = true;
+
+          return matched;
+        });
+
+        const daysInMonthMap = {};
+        const dayBatchMap = {};
+
+        filteredRows.forEach(r => {
+          if (r.rec_date && r.rec_date.startsWith(month)) {
+            const d = r.rec_date;
+            if (!daysInMonthMap[d]) {
+              daysInMonthMap[d] = {
+                date: d,
+                recPoSet: new Set(),
+                recBatSet: new Set(),
+                unputPoSet: new Set(),
+                unputBatSet: new Set(),
+                recPcs: 0,
+                recCubicFeet: 0,
+                putPoSet: new Set(),
+                putBatSet: new Set(),
+                putPcs: 0,
+                recPutMatchedPcs: 0,
+                palletBatchCount: 0,
+                palletVolume: 0,
+                palletPallets: 0,
+                looseBatchCount: 0,
+                looseVolume: 0,
+                loosePallets: 0,
+                totalPallets: 0,
+                palletRate: '0.00%'
+              };
+              dayBatchMap[d] = new Map();
+            }
+
+            if (r.po_no) daysInMonthMap[d].recPoSet.add(r.po_no.trim());
+            if (r.batch_no) daysInMonthMap[d].recBatSet.add(r.batch_no.trim());
             const qty = r.qty || 0;
-            monthsMap[mStr].recPcs += qty;
+            daysInMonthMap[d].recPcs += qty;
 
             const length = r.length || 0;
             const width = r.width || 0;
@@ -767,215 +592,430 @@ module.exports = function(db) {
             if (length > 0 && width > 0 && height > 0 && qty > 0) {
               const singleCf = (length * width * height) / 27000;
               lineVolume = singleCf * qty;
-              monthsMap[mStr].recCubicFeet += lineVolume;
+              daysInMonthMap[d].recCubicFeet += lineVolume;
             }
 
             if (r.batch_no) {
               const bNo = r.batch_no.trim();
-              const curVol = monthBatchMap[mStr].get(bNo) || 0;
-              monthBatchMap[mStr].set(bNo, curVol + lineVolume);
+              const curVol = dayBatchMap[d].get(bNo) || 0;
+              dayBatchMap[d].set(bNo, curVol + lineVolume);
             }
 
             const isPut = (r.put_date && r.put_date.trim() !== '' && r.put_date.includes('-')) || r.is_resolved === 1;
             if (isPut) {
-              monthsMap[mStr].recPutMatchedPcs += qty;
+              daysInMonthMap[d].recPutMatchedPcs += qty;
             } else {
-              if (r.po_no && r.po_no.trim() !== '') monthsMap[mStr].unputPoSet.add(r.po_no.trim());
-              if (r.batch_no && r.batch_no.trim() !== '') monthsMap[mStr].unputBatSet.add(r.batch_no.trim());
+              if (r.po_no && r.po_no.trim() !== '') daysInMonthMap[d].unputPoSet.add(r.po_no.trim());
+              if (r.batch_no && r.batch_no.trim() !== '') daysInMonthMap[d].unputBatSet.add(r.batch_no.trim());
             }
           }
-        }
 
-        if (r.put_date && r.put_date.startsWith(year)) {
-          const mStr = r.put_date.substring(0, 7);
-          if (monthsMap[mStr]) {
-            if (r.po_no) monthsMap[mStr].putPoSet.add(r.po_no.trim());
-            if (r.batch_no) monthsMap[mStr].putBatSet.add(r.batch_no.trim());
-            monthsMap[mStr].putPcs += (r.qty || 0);
-          }
-        }
-      });
-
-      Object.keys(monthBatchMap).forEach(mStr => {
-        const map = monthBatchMap[mStr];
-        const mStat = monthsMap[mStr];
-        map.forEach((vol) => {
-          const v = parseFloat(vol.toFixed(2));
-          if (v >= threshold) {
-            mStat.palletBatchCount += 1;
-            mStat.palletVolume += v;
-            mStat.palletPallets += 1;
-          } else {
-            mStat.looseBatchCount += 1;
-            mStat.looseVolume += v;
+          if (r.put_date && r.put_date.startsWith(month)) {
+            const d = r.put_date;
+            if (!daysInMonthMap[d]) {
+              daysInMonthMap[d] = {
+                date: d,
+                recPoSet: new Set(),
+                recBatSet: new Set(),
+                unputPoSet: new Set(),
+                unputBatSet: new Set(),
+                recPcs: 0,
+                recCubicFeet: 0,
+                putPoSet: new Set(),
+                putBatSet: new Set(),
+                putPcs: 0,
+                recPutMatchedPcs: 0,
+                palletBatchCount: 0,
+                palletVolume: 0,
+                palletPallets: 0,
+                looseBatchCount: 0,
+                looseVolume: 0,
+                loosePallets: 0,
+                totalPallets: 0,
+                palletRate: '0.00%'
+              };
+              dayBatchMap[d] = new Map();
+            }
+            if (r.po_no) daysInMonthMap[d].putPoSet.add(r.po_no.trim());
+            if (r.batch_no) daysInMonthMap[d].putBatSet.add(r.batch_no.trim());
+            daysInMonthMap[d].putPcs += (r.qty || 0);
           }
         });
-        mStat.loosePallets = parseFloat((mStat.looseVolume / threshold).toFixed(2));
-        mStat.totalPallets = parseFloat((mStat.palletPallets + mStat.loosePallets).toFixed(2));
-        mStat.palletRate = mStat.totalPallets > 0 ? ((mStat.palletPallets / mStat.totalPallets) * 100).toFixed(2) + '%' : '0.00%';
-      });
 
-      let yPalletBat = 0, yPalletVol = 0, yPalletPlt = 0;
-      let yLooseBat = 0, yLooseVol = 0, yLoosePlt = 0;
+        Object.keys(dayBatchMap).forEach(d => {
+          const map = dayBatchMap[d];
+          const dayStat = daysInMonthMap[d];
+          map.forEach((vol) => {
+            const v = parseFloat(vol.toFixed(2));
+            if (v >= threshold) {
+              dayStat.palletBatchCount += 1;
+              dayStat.palletVolume += v;
+              dayStat.palletPallets += 1;
+            } else {
+              dayStat.looseBatchCount += 1;
+              dayStat.looseVolume += v;
+            }
+          });
+          dayStat.loosePallets = parseFloat((dayStat.looseVolume / threshold).toFixed(2));
+          dayStat.totalPallets = parseFloat((dayStat.palletPallets + dayStat.loosePallets).toFixed(2));
+          dayStat.palletRate = dayStat.totalPallets > 0 ? ((dayStat.palletPallets / dayStat.totalPallets) * 100).toFixed(2) + '%' : '0.00%';
+        });
 
-      const monthlyList = Object.keys(monthsMap).sort().map(m => {
-        const item = monthsMap[m];
-        const putRateVal = item.recPcs > 0 ? (item.recPutMatchedPcs / item.recPcs) * 100 : 0;
+        let mPalletBat = 0, mPalletVol = 0, mPalletPlt = 0;
+        let mLooseBat = 0, mLooseVol = 0, mLoosePlt = 0;
 
-        yPalletBat += item.palletBatchCount;
-        yPalletVol += item.palletVolume;
-        yPalletPlt += item.palletPallets;
+        const dailyList = Object.keys(daysInMonthMap).sort().map(d => {
+          const item = daysInMonthMap[d];
+          const putRateVal = item.recPcs > 0 ? (item.recPutMatchedPcs / item.recPcs) * 100 : 0;
 
-        yLooseBat += item.looseBatchCount;
-        yLooseVol += item.looseVolume;
-        yLoosePlt += item.loosePallets;
+          mPalletBat += item.palletBatchCount;
+          mPalletVol += item.palletVolume;
+          mPalletPlt += item.palletPallets;
 
-        return {
-          month: item.month,
-          recPoCount: item.recPoSet.size,
-          unputPoCount: item.unputPoSet.size,
-          recBatCount: item.recBatSet.size,
-          unputBatCount: item.unputBatSet.size,
-          recPcs: item.recPcs,
-          recCubicFeet: parseFloat(item.recCubicFeet.toFixed(2)),
-          putPoCount: item.putPoSet.size,
-          putBatCount: item.putBatSet.size,
-          putPcs: item.putPcs,
-          putRate: Math.min(100, putRateVal).toFixed(2) + '%',
-          palletBatchCount: item.palletBatchCount,
-          palletVolume: parseFloat(item.palletVolume.toFixed(2)),
-          palletPallets: item.palletPallets,
-          looseBatchCount: item.looseBatchCount,
-          looseVolume: parseFloat(item.looseVolume.toFixed(2)),
-          loosePallets: item.loosePallets,
-          totalPallets: item.totalPallets,
-          palletRate: item.palletRate
-        };
-      });
+          mLooseBat += item.looseBatchCount;
+          mLooseVol += item.looseVolume;
+          mLoosePlt += item.loosePallets;
 
-      const yTotalPallets = parseFloat((yPalletPlt + yLoosePlt).toFixed(2));
-      const yPalletRate = yTotalPallets > 0 ? ((yPalletPlt / yTotalPallets) * 100).toFixed(2) : '0.00';
-      const yLooseRate = yTotalPallets > 0 ? (100 - parseFloat(yPalletRate)).toFixed(2) : '0.00';
+          return {
+            date: item.date,
+            recPoCount: item.recPoSet.size,
+            unputPoCount: item.unputPoSet.size,
+            recBatCount: item.recBatSet.size,
+            unputBatCount: item.unputBatSet.size,
+            recPcs: item.recPcs,
+            recCubicFeet: parseFloat(item.recCubicFeet.toFixed(2)),
+            putPoCount: item.putPoSet.size,
+            putBatCount: item.putBatSet.size,
+            putPcs: item.putPcs,
+            putRate: Math.min(100, putRateVal).toFixed(2) + '%',
+            palletBatchCount: item.palletBatchCount,
+            palletVolume: parseFloat(item.palletVolume.toFixed(2)),
+            palletPallets: item.palletPallets,
+            looseBatchCount: item.looseBatchCount,
+            looseVolume: parseFloat(item.looseVolume.toFixed(2)),
+            loosePallets: item.loosePallets,
+            totalPallets: item.totalPallets,
+            palletRate: item.palletRate
+          };
+        });
 
-      res.json({
-        success: true,
-        year,
-        threshold,
-        monthlyList,
-        cargoSummary: {
-          totalVolume: parseFloat((yPalletVol + yLooseVol).toFixed(2)),
-          totalPallets: yTotalPallets,
-          palletBatchCount: yPalletBat,
-          palletVolume: parseFloat(yPalletVol.toFixed(2)),
-          palletPallets: yPalletPlt,
-          palletRate: yPalletRate + '%',
-          looseBatchCount: yLooseBat,
-          looseVolume: parseFloat(yLooseVol.toFixed(2)),
-          loosePallets: parseFloat(yLoosePlt.toFixed(2)),
-          looseRate: yLooseRate + '%'
-        }
+        const mTotalPallets = parseFloat((mPalletPlt + mLoosePlt).toFixed(2));
+        const mPalletRate = mTotalPallets > 0 ? ((mPalletPlt / mTotalPallets) * 100).toFixed(2) : '0.00';
+        const mLooseRate = mTotalPallets > 0 ? (100 - parseFloat(mPalletRate)).toFixed(2) : '0.00';
+
+        res.json({
+          success: true,
+          month,
+          threshold,
+          dailyList,
+          cargoSummary: {
+            totalVolume: parseFloat((mPalletVol + mLooseVol).toFixed(2)),
+            totalPallets: mTotalPallets,
+            palletBatchCount: mPalletBat,
+            palletVolume: parseFloat(mPalletVol.toFixed(2)),
+            palletPallets: mPalletPlt,
+            palletRate: mPalletRate + '%',
+            looseBatchCount: mLooseBat,
+            looseVolume: parseFloat(mLooseVol.toFixed(2)),
+            loosePallets: parseFloat(mLoosePlt.toFixed(2)),
+            looseRate: mLooseRate + '%'
+          }
+        });
       });
     });
   });
 
-  // 🌟 8. 點選批數穿透：查詢板貨或散貨的商品品項明細 API
-  router.get('/cargo-details', (req, res) => {
-    const { targetDate, targetMonth, targetYear, hour, type, threshold: qThreshold, warehouse, remarks } = req.query;
-    const threshold = parseFloat(qThreshold) || 30;
+  // 7. 年度每月總表 API (加入板貨 / 散貨統計)
+  router.get('/yearly-summary', (req, res) => {
+    const { year, warehouse, remarks } = req.query;
 
-    let sql = `SELECT * FROM inbound_details WHERE 1=1`;
-    const params = [];
-
-    if (targetDate) {
-      sql += ` AND rec_date = ?`;
-      params.push(targetDate);
-    } else if (targetMonth) {
-      sql += ` AND rec_date LIKE ?`;
-      params.push(`${targetMonth}%`);
-    } else if (targetYear) {
-      sql += ` AND rec_date LIKE ?`;
-      params.push(`${targetYear}%`);
+    if (!year) {
+      return res.status(400).json({ success: false, message: '請提供查詢年份 (YYYY)' });
     }
 
-    if (warehouse && warehouse !== 'all') {
-      sql += ` AND warehouse = ?`;
-      params.push(warehouse);
-    }
+    getSystemThreshold(req.query.threshold, (threshold) => {
+      let sql = `SELECT * FROM inbound_details WHERE (rec_date LIKE ? OR put_date LIKE ?)`;
+      const yearPattern = `${year}%`;
+      const params = [yearPattern, yearPattern];
 
-    db.all(sql, params, (err, rows) => {
-      if (err) return res.status(500).json({ success: false, message: err.message });
+      if (warehouse && warehouse !== 'all') {
+        sql += ` AND warehouse = ?`;
+        params.push(warehouse);
+      }
 
-      rows = rows || [];
-      const remarkList = Array.isArray(remarks) ? remarks : (remarks || '').split(',').map(s => s.trim()).filter(Boolean);
+      db.all(sql, params, (err, rows) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
 
-      const filtered = rows.filter(r => {
-        if (!remarkList.length) return true;
-        const rem = (r.remark || '').trim();
-        let matched = false;
-        if (remarkList.includes('15') && (rem.includes('15庫') || rem.includes('原15庫'))) matched = true;
-        if (remarkList.includes('empty') && rem === '') matched = true;
-        if (remarkList.includes('abnormal') && rem !== '' && !rem.includes('15庫')) matched = true;
-        return matched;
-      });
+        rows = rows || [];
+        const remarkList = Array.isArray(remarks) ? remarks : (remarks || '').split(',').map(s => s.trim()).filter(Boolean);
 
-      // 依批號計算總才數
-      const batchVolumeMap = new Map();
-      filtered.forEach(r => {
-        const qty = Number(r.qty) || 0;
-        const len = Number(r.length) || 0;
-        const w = Number(r.width) || 0;
-        const h = Number(r.height) || 0;
-        const cf = (len > 0 && w > 0 && h > 0) ? ((len * w * h) / 27000) * qty : 0;
-        const bNo = r.batch_no || 'UNKNOWN';
-        batchVolumeMap.set(bNo, (batchVolumeMap.get(bNo) || 0) + cf);
-      });
+        const filteredRows = rows.filter(r => {
+          if (!remarkList.length) return true;
+          const rem = (r.remark || '').trim();
+          let matched = false;
 
-      // 挑出符合條件之明細
-      const resultRows = [];
-      filtered.forEach(r => {
-        if (hour !== undefined && hour !== null && hour !== '') {
-          const rHour = r.rec_time ? parseInt(r.rec_time.split(':')[0], 10) : -1;
-          if (rHour !== parseInt(hour, 10)) return;
+          if (remarkList.includes('15') && (rem.includes('15庫') || rem.includes('原15庫'))) matched = true;
+          if (remarkList.includes('empty') && rem === '') matched = true;
+          if (remarkList.includes('abnormal') && rem !== '' && !rem.includes('15庫')) matched = true;
+
+          return matched;
+        });
+
+        const monthsMap = {};
+        const monthBatchMap = {};
+
+        for (let m = 1; m <= 12; m++) {
+          const mStr = `${year}-${String(m).padStart(2, '0')}`;
+          monthsMap[mStr] = {
+            month: mStr,
+            recPoSet: new Set(),
+            recBatSet: new Set(),
+            unputPoSet: new Set(),
+            unputBatSet: new Set(),
+            recPcs: 0,
+            recCubicFeet: 0,
+            putPoSet: new Set(),
+            putBatSet: new Set(),
+            putPcs: 0,
+            recPutMatchedPcs: 0,
+            palletBatchCount: 0,
+            palletVolume: 0,
+            palletPallets: 0,
+            looseBatchCount: 0,
+            looseVolume: 0,
+            loosePallets: 0,
+            totalPallets: 0,
+            palletRate: '0.00%'
+          };
+          monthBatchMap[mStr] = new Map();
         }
 
-        const bNo = r.batch_no || 'UNKNOWN';
-        const totalBatVol = batchVolumeMap.get(bNo) || 0;
+        filteredRows.forEach(r => {
+          if (r.rec_date && r.rec_date.startsWith(year)) {
+            const mStr = r.rec_date.substring(0, 7);
+            if (monthsMap[mStr]) {
+              if (r.po_no) monthsMap[mStr].recPoSet.add(r.po_no.trim());
+              if (r.batch_no) monthsMap[mStr].recBatSet.add(r.batch_no.trim());
+              const qty = r.qty || 0;
+              monthsMap[mStr].recPcs += qty;
 
-        const isPallet = (totalBatVol >= threshold);
-        if (type === 'pallet' && !isPallet) return;
-        if (type === 'loose' && isPallet) return;
+              const length = r.length || 0;
+              const width = r.width || 0;
+              const height = r.height || 0;
+              let lineVolume = 0;
+              if (length > 0 && width > 0 && height > 0 && qty > 0) {
+                const singleCf = (length * width * height) / 27000;
+                lineVolume = singleCf * qty;
+                monthsMap[mStr].recCubicFeet += lineVolume;
+              }
 
-        const qty = Number(r.qty) || 0;
-        const len = Number(r.length) || 0;
-        const w = Number(r.width) || 0;
-        const h = Number(r.height) || 0;
-        const lineCf = (len > 0 && w > 0 && h > 0) ? ((len * w * h) / 27000) * qty : 0;
+              if (r.batch_no) {
+                const bNo = r.batch_no.trim();
+                const curVol = monthBatchMap[mStr].get(bNo) || 0;
+                monthBatchMap[mStr].set(bNo, curVol + lineVolume);
+              }
 
-        resultRows.push({
-          rec_date: r.rec_date,
-          rec_time: r.rec_time,
-          warehouse: r.warehouse,
-          po_no: r.po_no,
-          batch_no: r.batch_no,
-          item_id: r.item_id,
-          item_name: r.item_name,
-          qty: qty,
-          length: len,
-          width: w,
-          height: h,
-          line_volume: parseFloat(lineCf.toFixed(2)),
-          batch_total_volume: parseFloat(totalBatVol.toFixed(2)),
-          remark: r.remark || '',
-          cargo_type: isPallet ? '板貨' : '散貨'
+              const isPut = (r.put_date && r.put_date.trim() !== '' && r.put_date.includes('-')) || r.is_resolved === 1;
+              if (isPut) {
+                monthsMap[mStr].recPutMatchedPcs += qty;
+              } else {
+                if (r.po_no && r.po_no.trim() !== '') monthsMap[mStr].unputPoSet.add(r.po_no.trim());
+                if (r.batch_no && r.batch_no.trim() !== '') monthsMap[mStr].unputBatSet.add(r.batch_no.trim());
+              }
+            }
+          }
+
+          if (r.put_date && r.put_date.startsWith(year)) {
+            const mStr = r.put_date.substring(0, 7);
+            if (monthsMap[mStr]) {
+              if (r.po_no) monthsMap[mStr].putPoSet.add(r.po_no.trim());
+              if (r.batch_no) monthsMap[mStr].putBatSet.add(r.batch_no.trim());
+              monthsMap[mStr].putPcs += (r.qty || 0);
+            }
+          }
+        });
+
+        Object.keys(monthBatchMap).forEach(mStr => {
+          const map = monthBatchMap[mStr];
+          const mStat = monthsMap[mStr];
+          map.forEach((vol) => {
+            const v = parseFloat(vol.toFixed(2));
+            if (v >= threshold) {
+              mStat.palletBatchCount += 1;
+              mStat.palletVolume += v;
+              mStat.palletPallets += 1;
+            } else {
+              mStat.looseBatchCount += 1;
+              mStat.looseVolume += v;
+            }
+          });
+          mStat.loosePallets = parseFloat((mStat.looseVolume / threshold).toFixed(2));
+          mStat.totalPallets = parseFloat((mStat.palletPallets + mStat.loosePallets).toFixed(2));
+          mStat.palletRate = mStat.totalPallets > 0 ? ((mStat.palletPallets / mStat.totalPallets) * 100).toFixed(2) + '%' : '0.00%';
+        });
+
+        let yPalletBat = 0, yPalletVol = 0, yPalletPlt = 0;
+        let yLooseBat = 0, yLooseVol = 0, yLoosePlt = 0;
+
+        const monthlyList = Object.keys(monthsMap).sort().map(m => {
+          const item = monthsMap[m];
+          const putRateVal = item.recPcs > 0 ? (item.recPutMatchedPcs / item.recPcs) * 100 : 0;
+
+          yPalletBat += item.palletBatchCount;
+          yPalletVol += item.palletVolume;
+          yPalletPlt += item.palletPallets;
+
+          yLooseBat += item.looseBatchCount;
+          yLooseVol += item.looseVolume;
+          yLoosePlt += item.loosePallets;
+
+          return {
+            month: item.month,
+            recPoCount: item.recPoSet.size,
+            unputPoCount: item.unputPoSet.size,
+            recBatCount: item.recBatSet.size,
+            unputBatCount: item.unputBatSet.size,
+            recPcs: item.recPcs,
+            recCubicFeet: parseFloat(item.recCubicFeet.toFixed(2)),
+            putPoCount: item.putPoSet.size,
+            putBatCount: item.putBatSet.size,
+            putPcs: item.putPcs,
+            putRate: Math.min(100, putRateVal).toFixed(2) + '%',
+            palletBatchCount: item.palletBatchCount,
+            palletVolume: parseFloat(item.palletVolume.toFixed(2)),
+            palletPallets: item.palletPallets,
+            looseBatchCount: item.looseBatchCount,
+            looseVolume: parseFloat(item.looseVolume.toFixed(2)),
+            loosePallets: item.loosePallets,
+            totalPallets: item.totalPallets,
+            palletRate: item.palletRate
+          };
+        });
+
+        const yTotalPallets = parseFloat((yPalletPlt + yLoosePlt).toFixed(2));
+        const yPalletRate = yTotalPallets > 0 ? ((yPalletPlt / yTotalPallets) * 100).toFixed(2) : '0.00';
+        const yLooseRate = yTotalPallets > 0 ? (100 - parseFloat(yPalletRate)).toFixed(2) : '0.00';
+
+        res.json({
+          success: true,
+          year,
+          threshold,
+          monthlyList,
+          cargoSummary: {
+            totalVolume: parseFloat((yPalletVol + yLooseVol).toFixed(2)),
+            totalPallets: yTotalPallets,
+            palletBatchCount: yPalletBat,
+            palletVolume: parseFloat(yPalletVol.toFixed(2)),
+            palletPallets: yPalletPlt,
+            palletRate: yPalletRate + '%',
+            looseBatchCount: yLooseBat,
+            looseVolume: parseFloat(yLooseVol.toFixed(2)),
+            loosePallets: parseFloat(yLoosePlt.toFixed(2)),
+            looseRate: yLooseRate + '%'
+          }
         });
       });
+    });
+  });
 
-      res.json({
-        success: true,
-        type,
-        threshold,
-        count: resultRows.length,
-        data: resultRows
+  // 8. 點選批數穿透：查詢板貨或散貨的商品品項明細 API
+  router.get('/cargo-details', (req, res) => {
+    const { targetDate, targetMonth, targetYear, hour, type, warehouse, remarks } = req.query;
+
+    getSystemThreshold(req.query.threshold, (threshold) => {
+      let sql = `SELECT * FROM inbound_details WHERE 1=1`;
+      const params = [];
+
+      if (targetDate) {
+        sql += ` AND rec_date = ?`;
+        params.push(targetDate);
+      } else if (targetMonth) {
+        sql += ` AND rec_date LIKE ?`;
+        params.push(`${targetMonth}%`);
+      } else if (targetYear) {
+        sql += ` AND rec_date LIKE ?`;
+        params.push(`${targetYear}%`);
+      }
+
+      if (warehouse && warehouse !== 'all') {
+        sql += ` AND warehouse = ?`;
+        params.push(warehouse);
+      }
+
+      db.all(sql, params, (err, rows) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+
+        rows = rows || [];
+        const remarkList = Array.isArray(remarks) ? remarks : (remarks || '').split(',').map(s => s.trim()).filter(Boolean);
+
+        const filtered = rows.filter(r => {
+          if (!remarkList.length) return true;
+          const rem = (r.remark || '').trim();
+          let matched = false;
+          if (remarkList.includes('15') && (rem.includes('15庫') || rem.includes('原15庫'))) matched = true;
+          if (remarkList.includes('empty') && rem === '') matched = true;
+          if (remarkList.includes('abnormal') && rem !== '' && !rem.includes('15庫')) matched = true;
+          return matched;
+        });
+
+        // 依批號計算總才數
+        const batchVolumeMap = new Map();
+        filtered.forEach(r => {
+          const qty = Number(r.qty) || 0;
+          const len = Number(r.length) || 0;
+          const w = Number(r.width) || 0;
+          const h = Number(r.height) || 0;
+          const cf = (len > 0 && w > 0 && h > 0) ? ((len * w * h) / 27000) * qty : 0;
+          const bNo = r.batch_no || 'UNKNOWN';
+          batchVolumeMap.set(bNo, (batchVolumeMap.get(bNo) || 0) + cf);
+        });
+
+        const resultRows = [];
+        filtered.forEach(r => {
+          if (hour !== undefined && hour !== null && hour !== '') {
+            const rHour = r.rec_time ? parseInt(r.rec_time.split(':')[0], 10) : -1;
+            if (rHour !== parseInt(hour, 10)) return;
+          }
+
+          const bNo = r.batch_no || 'UNKNOWN';
+          const totalBatVol = batchVolumeMap.get(bNo) || 0;
+
+          const isPallet = (totalBatVol >= threshold);
+          if (type === 'pallet' && !isPallet) return;
+          if (type === 'loose' && isPallet) return;
+
+          const qty = Number(r.qty) || 0;
+          const len = Number(r.length) || 0;
+          const w = Number(r.width) || 0;
+          const h = Number(r.height) || 0;
+          const lineCf = (len > 0 && w > 0 && h > 0) ? ((len * w * h) / 27000) * qty : 0;
+
+          resultRows.push({
+            rec_date: r.rec_date,
+            rec_time: r.rec_time,
+            warehouse: r.warehouse,
+            po_no: r.po_no,
+            batch_no: r.batch_no,
+            item_id: r.item_id,
+            item_name: r.item_name,
+            qty: qty,
+            length: len,
+            width: w,
+            height: h,
+            line_volume: parseFloat(lineCf.toFixed(2)),
+            batch_total_volume: parseFloat(totalBatVol.toFixed(2)),
+            remark: r.remark || '',
+            cargo_type: isPallet ? '板貨' : '散貨'
+          });
+        });
+
+        res.json({
+          success: true,
+          type,
+          threshold,
+          count: resultRows.length,
+          data: resultRows
+        });
       });
     });
   });

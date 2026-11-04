@@ -92,8 +92,124 @@
       </div>
     </div>
 
-    <!-- 2. 板貨 vs 散貨 KPI 概覽卡 -->
-    <div class="cargo-kpi-card">
+    <!-- 🌟 2. 動態頂部 KPI 儀表卡：依統計檢視維度給予不同資訊 -->
+    
+    <!-- 模式 A：【依進貨單號分析】專屬 KPI 卡 -->
+    <div class="cargo-kpi-card" v-if="activeViewTab === 'po' && analysisMode === 'daily'">
+      <div class="kpi-box main-kpi">
+        <div class="kpi-title">進貨單號驗收總量</div>
+        <div class="kpi-value text-blue">{{ formatNumber(summaryTotal.recPoCount) }} <span class="unit">單 (PO)</span></div>
+        <div class="kpi-sub">驗收總件數：{{ formatNumber(summaryTotal.recPoPcs) }} PCS</div>
+      </div>
+
+      <div class="kpi-box pallet-kpi">
+        <div class="kpi-header-row">
+          <span class="badge pallet-badge">✅ 新品單號已上架</span>
+          <span class="kpi-rate text-green">{{ getPutPoRate }}</span>
+        </div>
+        <div class="kpi-value text-green">{{ formatNumber(summaryTotal.putPoCount) }} <span class="unit">單</span></div>
+        <div class="kpi-sub">已上架 {{ formatNumber(summaryTotal.putPoPcs) }} PCS</div>
+      </div>
+
+      <div class="kpi-box loose-kpi">
+        <div class="kpi-header-row">
+          <span class="badge loose-badge" style="color: #f87171; border-color: rgba(239,68,68,0.4); background: rgba(239,68,68,0.15);">⚠️ 未上架進貨單</span>
+          <span class="kpi-rate text-red">{{ getUnputPoRate }}</span>
+        </div>
+        <div class="kpi-value text-red">{{ formatNumber(summaryTotal.unputPoCount) }} <span class="unit">單</span></div>
+        <div class="kpi-sub">仍有單據品項尚未完成新品上架</div>
+      </div>
+
+      <div class="kpi-progress-col">
+        <div class="progress-label">
+          <span>上架達成率 {{ getPutPoRate }}</span>
+          <span>未上架 {{ getUnputPoRate }}</span>
+        </div>
+        <div class="custom-progress-bar">
+          <div class="bar-part green-part" :style="{ width: getPutPoRate }"></div>
+          <div class="bar-part orange-part" style="background: #ef4444;" :style="{ width: getUnputPoRate }"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 模式 B：【依驗收批號分析】專屬 KPI 卡 -->
+    <div class="cargo-kpi-card" v-else-if="activeViewTab === 'batch' && analysisMode === 'daily'">
+      <div class="kpi-box main-kpi">
+        <div class="kpi-title">驗收批號總量</div>
+        <div class="kpi-value text-cyan">{{ formatNumber(summaryTotal.recBatCount) }} <span class="unit">批</span></div>
+        <div class="kpi-sub">全日驗收 單/批比：{{ formatRatio(summaryTotal.recBatCount, summaryTotal.recPoCount) }} 批/單</div>
+      </div>
+
+      <div class="kpi-box pallet-kpi">
+        <div class="kpi-header-row">
+          <span class="badge pallet-badge">✅ 驗收批號已上架</span>
+          <span class="kpi-rate text-green">{{ getPutBatRate }}</span>
+        </div>
+        <div class="kpi-value text-green">{{ formatNumber(summaryTotal.putBatCount) }} <span class="unit">批</span></div>
+        <div class="kpi-sub">上架批號總件數：{{ formatNumber(summaryTotal.putBatPcs) }} PCS</div>
+      </div>
+
+      <div class="kpi-box loose-kpi">
+        <div class="kpi-header-row">
+          <span class="badge loose-badge" style="color: #f87171; border-color: rgba(239,68,68,0.4); background: rgba(239,68,68,0.15);">⚠️ 未上架批號</span>
+          <span class="kpi-rate text-red">{{ getUnputBatRate }}</span>
+        </div>
+        <div class="kpi-value text-red">{{ formatNumber(summaryTotal.unputBatCount) }} <span class="unit">批</span></div>
+        <div class="kpi-sub">佔當日驗收總批數之 {{ getUnputBatRate }}</div>
+      </div>
+
+      <div class="kpi-progress-col">
+        <div class="progress-label">
+          <span>批號上架率 {{ getPutBatRate }}</span>
+          <span>未上架 {{ getUnputBatRate }}</span>
+        </div>
+        <div class="custom-progress-bar">
+          <div class="bar-part green-part" :style="{ width: getPutBatRate }"></div>
+          <div class="bar-part orange-part" style="background: #ef4444;" :style="{ width: getUnputBatRate }"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 模式 C：【常規統計總表】雙維度綜合 KPI 卡 -->
+    <div class="cargo-kpi-card" v-else-if="activeViewTab === 'both' && analysisMode === 'daily'">
+      <div class="kpi-box main-kpi">
+        <div class="kpi-title">驗收總單數 / 總批數</div>
+        <div class="kpi-value text-blue">{{ formatNumber(summaryTotal.recPoCount) }} <span class="unit">單</span> / {{ formatNumber(summaryTotal.recBatCount) }} <span class="unit">批</span></div>
+        <div class="kpi-sub">全日驗收商品總量：{{ formatNumber(summaryTotal.recPoPcs) }} PCS</div>
+      </div>
+
+      <div class="kpi-box pallet-kpi">
+        <div class="kpi-header-row">
+          <span class="badge pallet-badge">上架單數 / 上架批數</span>
+          <span class="kpi-rate text-green">{{ getPutPoRate }}</span>
+        </div>
+        <div class="kpi-value text-green">{{ formatNumber(summaryTotal.putPoCount) }} <span class="unit">單</span> / {{ formatNumber(summaryTotal.putBatCount) }} <span class="unit">批</span></div>
+        <div class="kpi-sub">全日上架商品總量：{{ formatNumber(summaryTotal.putPoPcs) }} PCS</div>
+      </div>
+
+      <div class="kpi-box loose-kpi">
+        <div class="kpi-header-row">
+          <span class="badge loose-badge" style="color: #f87171; border-color: rgba(239,68,68,0.4); background: rgba(239,68,68,0.15);">⚠️ 未上架單 / 批</span>
+          <span class="kpi-rate text-red">{{ summaryTotal.unputPoCount }}單 / {{ summaryTotal.unputBatCount }}批</span>
+        </div>
+        <div class="kpi-value text-red">{{ formatNumber(summaryTotal.unputPoCount) }} <span class="unit">單未完</span></div>
+        <div class="kpi-sub">全日上架單/批比：{{ formatRatio(summaryTotal.putBatCount, summaryTotal.putPoCount) }} 批/單</div>
+      </div>
+
+      <div class="kpi-progress-col">
+        <div class="progress-label">
+          <span>進貨單完成 {{ getPutPoRate }}</span>
+          <span>批號完成 {{ getPutBatRate }}</span>
+        </div>
+        <div class="custom-progress-bar">
+          <div class="bar-part green-part" :style="{ width: getPutPoRate }"></div>
+          <div class="bar-part orange-part" style="background: #38bdf8;" :style="{ width: getPutBatRate }"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 模式 D：【板貨 vs 散貨分析】板數與才數結構卡 -->
+    <div class="cargo-kpi-card" v-else>
       <div class="kpi-box main-kpi">
         <div class="kpi-title">總進貨預估板數 (27000才基準)</div>
         <div class="kpi-value text-cyan">{{ formatNumber(cargoSummary.totalPallets, 2) }} <span class="unit">板</span></div>
@@ -328,7 +444,7 @@
           </tfoot>
         </table>
 
-        <!-- 🌟 模式 4：單日時段「板貨 vs 散貨分析」表格 (在板貨率旁邊加散貨率) -->
+        <!-- 模式 4：單日時段「板貨 vs 散貨分析」表格 -->
         <table class="vba-style-table" v-else>
           <colgroup>
             <col style="width: 70px;" />
@@ -357,30 +473,25 @@
               <th class="col-time" rowspan="2">時間<br>時段</th>
               <th colspan="5" class="group-green-header">📦 板貨統計 (單批 ≥ {{ palletThreshold }}才)</th>
               <th colspan="5" class="group-orange-header">🧩 散貨統計 (單批 &lt; {{ palletThreshold }}才)</th>
-              <!-- 🌟 表頭 colspan 擴充為 5 -->
               <th colspan="5" class="group-blue-header">📊 時段總批號數、總才數、總板數</th>
             </tr>
             <tr class="header-sub">
-              <!-- 板貨子表頭 -->
               <th class="col-bar-title">板貨圖形</th>
               <th>批數占比</th>
               <th>板貨批數 🔍</th>
               <th>板貨才數</th>
               <th class="text-green font-bold">板貨板數</th>
 
-              <!-- 散貨子表頭 -->
               <th class="col-bar-title">散貨圖形</th>
               <th>批數占比</th>
               <th>散貨批數 🔍</th>
               <th>散貨才數</th>
               <th class="text-orange font-bold">折合板數</th>
 
-              <!-- 合計子表頭 (含板貨率與散貨率) -->
               <th class="text-blue font-bold">時段總批號數</th>
               <th class="text-yellow font-bold">時段總才數</th>
               <th class="text-cyan font-bold">時段總板數</th>
               <th class="text-green font-bold">板貨率 (%)</th>
-              <!-- 🌟 1. 新增散貨率 (%) 欄位 -->
               <th class="text-orange font-bold">散貨率 (%)</th>
             </tr>
           </thead>
@@ -389,7 +500,6 @@
             <tr v-for="(h, idx) in hourlyStats" :key="idx" :class="{ 'row-zebra': idx % 2 === 1 }">
               <td class="col-time font-bold">{{ h.hourStr }}</td>
 
-              <!-- 板貨圖形與占比 -->
               <td class="col-bar-cell"><div class="bar-fill green-bar" :style="{ width: getBarWidth(cargoSummary.palletBatchCount > 0 ? h.palletBatchCount / cargoSummary.palletBatchCount : 0) }"></div></td>
               <td class="text-right">{{ formatPercent(cargoSummary.palletBatchCount > 0 ? h.palletBatchCount / cargoSummary.palletBatchCount : 0) }}</td>
               <td 
@@ -403,7 +513,6 @@
               <td class="text-right">{{ formatNumber(h.palletVolume, 2) }}</td>
               <td class="text-right font-bold text-green">{{ formatNumber(h.palletPallets) }}</td>
 
-              <!-- 散貨圖形與占比 -->
               <td class="col-bar-cell"><div class="bar-fill orange-bar" :style="{ width: getBarWidth(cargoSummary.looseBatchCount > 0 ? h.looseBatchCount / cargoSummary.looseBatchCount : 0) }"></div></td>
               <td class="text-right">{{ formatPercent(cargoSummary.looseBatchCount > 0 ? h.looseBatchCount / cargoSummary.looseBatchCount : 0) }}</td>
               <td 
@@ -417,12 +526,10 @@
               <td class="text-right">{{ formatNumber(h.looseVolume, 2) }}</td>
               <td class="text-right font-bold text-orange">{{ formatNumber(h.loosePallets, 2) }}</td>
 
-              <!-- 時段總批號數、總才數、總板數 -->
               <td class="text-right font-bold text-blue">{{ formatNumber(h.palletBatchCount + h.looseBatchCount) }}</td>
               <td class="text-right font-bold text-yellow">{{ formatNumber(h.palletVolume + h.looseVolume, 2) }}</td>
               <td class="text-right font-bold text-cyan">{{ formatNumber(h.totalPallets, 2) }}</td>
               <td class="text-right font-bold text-green">{{ h.palletRate }}</td>
-              <!-- 🌟 1. 呈現散貨率數值 -->
               <td class="text-right font-bold text-orange">{{ formatPercent(h.totalPallets > 0 ? h.loosePallets / h.totalPallets : 0) }}</td>
             </tr>
           </tbody>
@@ -458,7 +565,6 @@
               <td class="text-right font-bold text-yellow">{{ formatNumber(cargoSummary.totalVolume, 2) }}</td>
               <td class="text-right font-bold text-cyan">{{ formatNumber(cargoSummary.totalPallets, 2) }}</td>
               <td class="text-right font-bold text-green">{{ cargoSummary.palletRate }}</td>
-              <!-- 🌟 全日總計散貨率 -->
               <td class="text-right font-bold text-orange">{{ cargoSummary.looseRate }}</td>
             </tr>
           </tfoot>
@@ -536,7 +642,7 @@
           </tfoot>
         </table>
 
-        <!-- 模式 B：每月每日「板貨 vs 散貨分析」總表 (🌟 2. 已拿掉最後一欄板貨率) -->
+        <!-- 模式 B：每月每日「板貨 vs 散貨分析」總表 -->
         <table class="vba-style-table" v-else>
           <thead>
             <tr class="header-main">
@@ -690,7 +796,7 @@
           </tfoot>
         </table>
 
-        <!-- 模式 B：年度每月「板貨 vs 散貨分析」總表 (🌟 3. 已拿掉最後一欄板貨率) -->
+        <!-- 模式 B：年度每月「板貨 vs 散貨分析」總表 -->
         <table class="vba-style-table" v-else>
           <thead>
             <tr class="header-main">
@@ -785,7 +891,7 @@
     >
       <div class="drill-modal-container" v-loading="loadingDrill">
         <div class="drill-header-summary">
-          <span>🎯 當前篩選門檻：<strong>{{ palletThreshold }} 才/板</strong></span>
+          <span>🎯 當前系統統一門檻：<strong>{{ palletThreshold }} 才/板</strong></span>
           <span>📦 總計明細筆數：<strong class="text-cyan">{{ drillList.length }} 筆</strong></span>
           <span>加總驗收 PCS：<strong class="text-green">{{ formatNumber(drillTotalQty) }}</strong></span>
           <span>加總總才數：<strong class="text-yellow">{{ formatNumber(drillTotalVolume, 2) }} 才</strong></span>
@@ -852,7 +958,7 @@
       </div>
     </el-dialog>
 
-    <!-- 6. 專屬互動式檔案拖曳投放小卡 Modal -->
+    <!-- 6. 專屬互動式檔案拖曳投放小卡 Modal (🌟 管理者在此設定全系統統一門檻) -->
     <el-dialog
       v-model="showUploadCardModal"
       title="📥 匯入 進貨驗收與新品上架單據"
@@ -861,7 +967,7 @@
       custom-class="dark-dialog upload-card-dialog"
     >
       <div v-if="checkSysAdmin" class="admin-threshold-setting">
-        <span class="setting-title">⚙️ 最高管理者設定 - 批號板貨折算門檻：</span>
+        <span class="setting-title">⚙️ 最高管理者設定 - 全系統每板折算才數：</span>
         <div class="setting-control">
           <el-input-number 
             v-model="palletThreshold" 
@@ -870,9 +976,9 @@
             size="small" 
             controls-position="right"
             style="width: 100px;"
-            @change="savePalletThreshold"
+            @change="savePalletThresholdToDb"
           />
-          <span class="setting-unit">才/板 (預設 30 才)</span>
+          <span class="setting-unit">才/板 (更新後全體同仁同步)</span>
         </div>
       </div>
 
@@ -1224,8 +1330,8 @@ export default {
       monthlyDailyList: [],
       yearlyMonthlyList: [],
 
-      // 門檻參數 (預設 30 才)
-      palletThreshold: Number(localStorage.getItem('inbound_pallet_threshold')) || 30,
+      // 🌟 全系統統一門檻 (預設 30 才，自動從後端資料庫讀取)
+      palletThreshold: 30,
 
       // 板貨 vs 散貨 KPI 統計
       cargoSummary: {
@@ -1314,6 +1420,25 @@ export default {
       const username = localStorage.getItem('currentUser') || localStorage.getItem('username') || '';
       return username === 'admin' || username === '系統管理員';
     },
+
+    // 🌟 單號與批號專屬 KPI 比率
+    getPutPoRate() {
+      if (!this.summaryTotal.recPoCount) return '0.00%';
+      return ((this.summaryTotal.putPoCount / this.summaryTotal.recPoCount) * 100).toFixed(2) + '%';
+    },
+    getUnputPoRate() {
+      if (!this.summaryTotal.recPoCount) return '0.00%';
+      return ((this.summaryTotal.unputPoCount / this.summaryTotal.recPoCount) * 100).toFixed(2) + '%';
+    },
+    getPutBatRate() {
+      if (!this.summaryTotal.recBatCount) return '0.00%';
+      return ((this.summaryTotal.putBatCount / this.summaryTotal.recBatCount) * 100).toFixed(2) + '%';
+    },
+    getUnputBatRate() {
+      if (!this.summaryTotal.recBatCount) return '0.00%';
+      return ((this.summaryTotal.unputBatCount / this.summaryTotal.recBatCount) * 100).toFixed(2) + '%';
+    },
+
     summaryTotal() {
       const tot = {
         recPoCount: 0, recPoPcs: 0, unputPoCount: 0,
@@ -1411,7 +1536,9 @@ export default {
       return this.drillList.reduce((sum, r) => sum + (Number(r.line_volume) || 0), 0);
     }
   },
-  mounted() {
+  async mounted() {
+    // 🌟 進入時先讀取全系統統一的門檻才數設定
+    await this.fetchGlobalPalletThreshold();
     this.fetchFishData();
     this.fetchPendingSummary();
 
@@ -1452,10 +1579,31 @@ export default {
       return '雙庫合計';
     },
 
-    savePalletThreshold() {
-      localStorage.setItem('inbound_pallet_threshold', String(this.palletThreshold));
-      ElMessage.success(`⚙️ 已更新每板才數門檻為 ${this.palletThreshold} 才/板！`);
-      this.refreshAllData();
+    // 🌟 從後端資料庫讀取全域統一的門檻設定
+    async fetchGlobalPalletThreshold() {
+      try {
+        const res = await axios.get('/api/inbound/config/pallet-threshold');
+        if (res.data?.success && res.data.threshold) {
+          this.palletThreshold = Number(res.data.threshold);
+        }
+      } catch (e) {
+        console.warn('讀取全域才數門檻失敗，使用預設值 30:', e.message);
+      }
+    },
+
+    // 🌟 最高管理者在小卡中調整門檻後，儲存至後端 SQLite 資料庫
+    async savePalletThresholdToDb() {
+      try {
+        const res = await axios.post('/api/inbound/config/pallet-threshold', {
+          threshold: this.palletThreshold
+        });
+        if (res.data?.success) {
+          ElMessage.success(res.data.message);
+          this.refreshAllData();
+        }
+      } catch (e) {
+        ElMessage.error('儲存全域門檻失敗：' + e.message);
+      }
     },
 
     async openCargoDrillModal(options) {
@@ -1660,6 +1808,7 @@ export default {
     },
 
     async refreshAllData() {
+      await this.fetchGlobalPalletThreshold();
       if (this.analysisMode === 'daily') {
         await Promise.all([this.fetchFishData(), this.fetchPendingSummary()]);
       } else if (this.analysisMode === 'monthly') {
@@ -2058,7 +2207,7 @@ export default {
   color: #38bdf8;
 }
 
-/* 板貨 vs 散貨 KPI 概覽卡 */
+/* 🌟 動態 KPI 概覽卡 */
 .cargo-kpi-card {
   display: grid;
   grid-template-columns: 1.2fr 1.5fr 1.8fr 1.5fr;
