@@ -9,43 +9,85 @@
       @change="handleCsvFileSelected"
     />
 
-    <!-- 1. 第一排：核心標題、日期選擇器、維度切換與操作按鈕 -->
+    <!-- 1. 第一排：核心標題、日期步進切換器、維度切換與操作按鈕 -->
     <div class="top-bar">
       <div class="title-group">
         <span class="page-title">🐟 倉庫 實時補貨單魚群出沒分析 (80 人工倉)</span>
         
-        <el-date-picker
-          v-if="analysisMode === 'daily'"
-          v-model="targetDate"
-          type="date"
-          size="small"
-          value-format="YYYY-MM-DD"
-          placeholder="選擇日期"
-          style="width: 135px;"
-          @change="fetchFishData"
-        />
+        <!-- 🌟 智慧日期/月份/年份 步進切換器 (支援前一天、後一天、今天) -->
+        <div class="date-stepper-group">
+          <el-button 
+            size="small" 
+            type="primary" 
+            plain 
+            class="stepper-btn"
+            @click="shiftPeriod(-1)"
+            :title="getShiftTitle(-1)"
+          >
+            ◀
+          </el-button>
 
-        <el-date-picker
-          v-else-if="analysisMode === 'monthly'"
-          v-model="targetMonth"
-          type="month"
-          size="small"
-          value-format="YYYY-MM"
-          placeholder="選擇月份"
-          style="width: 135px;"
-          @change="fetchMonthlySummary"
-        />
+          <!-- 單日選擇器 -->
+          <el-date-picker
+            v-if="analysisMode === 'daily'"
+            v-model="targetDate"
+            type="date"
+            size="small"
+            value-format="YYYY-MM-DD"
+            placeholder="選擇日期"
+            style="width: 135px;"
+            :clearable="false"
+            @change="fetchFishData"
+          />
 
-        <el-date-picker
-          v-else-if="analysisMode === 'yearly'"
-          v-model="targetYear"
-          type="year"
-          size="small"
-          value-format="YYYY"
-          placeholder="選擇年份"
-          style="width: 110px;"
-          @change="fetchYearlySummary"
-        />
+          <!-- 每月選擇器 -->
+          <el-date-picker
+            v-else-if="analysisMode === 'monthly'"
+            v-model="targetMonth"
+            type="month"
+            size="small"
+            value-format="YYYY-MM"
+            placeholder="選擇月份"
+            style="width: 130px;"
+            :clearable="false"
+            @change="fetchMonthlySummary"
+          />
+
+          <!-- 年度選擇器 -->
+          <el-date-picker
+            v-else
+            v-model="targetYear"
+            type="year"
+            size="small"
+            value-format="YYYY"
+            placeholder="選擇年份"
+            style="width: 110px;"
+            :clearable="false"
+            @change="fetchYearlySummary"
+          />
+
+          <el-button 
+            size="small" 
+            type="primary" 
+            plain 
+            class="stepper-btn"
+            @click="shiftPeriod(1)"
+            :title="getShiftTitle(1)"
+          >
+            ▶
+          </el-button>
+
+          <el-button 
+            size="small" 
+            type="info" 
+            plain 
+            class="stepper-today-btn"
+            @click="resetToCurrentPeriod"
+            :title="getResetTitle"
+          >
+            {{ getResetLabel }}
+          </el-button>
+        </div>
 
         <!-- 3 維度分析模式切換 -->
         <el-radio-group v-model="analysisMode" size="small" @change="handleAnalysisModeChange">
@@ -178,7 +220,6 @@
               <td class="text-right">{{ formatNumber(h.genOrderCount) }}</td>
               <td class="text-right font-bold text-blue">{{ formatNumber(h.genPcs) }}</td>
 
-              <!-- 點擊時段未完成筆數，穿透查看該時段未完成明細 -->
               <td 
                 class="text-right font-bold" 
                 :class="{ 'text-red clickable-cell': h.pendingOrderCount > 0 }"
@@ -367,7 +408,7 @@
       </div>
     </div>
 
-    <!-- 4. 未完成追蹤對話框彈窗（🌟 整合貼 ID 查詢功能） -->
+    <!-- 4. 未完成追蹤對話框彈窗 -->
     <el-dialog
       v-model="showPendingDialog"
       title="⚠️ 尚未補貨完成單據明細監控與更正處置"
@@ -408,7 +449,7 @@
                 未完成明細 (共 {{ formatNumber(filteredPendingList.length) }} 筆<span v-if="searchItemId.trim()"> / 原 {{ pendingList.length }} 筆</span>)
               </span>
 
-              <!-- 🌟 貼 ID 查詢輸入框組件 -->
+              <!-- 貼 ID 查詢輸入框 -->
               <div class="id-search-box">
                 <el-input
                   v-model="searchItemId"
@@ -473,7 +514,6 @@
               </template>
             </el-table-column>
             
-            <!-- 🌟 商品編號點擊可複製 -->
             <el-table-column prop="item_id" label="商品編號" width="140" align="center" sortable>
               <template #default="scope">
                 <span class="text-blue font-bold clickable-id" @click="copyItemId(scope.row.item_id)" title="點擊可複製商品ID">
@@ -697,7 +737,6 @@ export default {
       drillFilterLabel: '',
       drillFilterParams: null,
 
-      // 🌟 貼 ID 查詢輸入綁定
       searchItemId: '',
 
       showUploadCardModal: false,
@@ -748,13 +787,23 @@ export default {
       return username === 'admin' || username === '系統管理員';
     },
 
-    // 🌟 貼 ID 智慧篩選過濾後的未完成清單（支援單筆或多筆批次 ID 貼上）
+    // 🌟 快捷按鈕文字與標題
+    getResetLabel() {
+      if (this.analysisMode === 'daily') return '今天';
+      if (this.analysisMode === 'monthly') return '本月';
+      return '今年';
+    },
+    getResetTitle() {
+      if (this.analysisMode === 'daily') return '回到今天日期';
+      if (this.analysisMode === 'monthly') return '回到當前月份';
+      return '回到當前年份';
+    },
+
     filteredPendingList() {
       if (!this.searchItemId || !this.searchItemId.trim()) {
         return this.pendingList;
       }
 
-      // 將貼上的文字依照 空白、逗號、換行 分割成多筆 ID 清單
       const rawKeywords = this.searchItemId
         .split(/[\s,，\n\r]+/)
         .map(s => s.trim().toUpperCase())
@@ -764,7 +813,6 @@ export default {
         return this.pendingList;
       }
 
-      // 支援多筆精準比對或單筆模糊搜尋
       return this.pendingList.filter(row => {
         const rowId = String(row.item_id || '').trim().toUpperCase();
         const rowOrderNo = String(row.order_no || '').trim().toUpperCase();
@@ -802,11 +850,10 @@ export default {
       return { ...tot, finishRate };
     },
     yearlySummaryTotal() {
-      const tot = { genOrderCount: 0, genPcs: 0, pendingOrderCount: 0, cohortFinOrderCount: 0, finOrderCount: 0, finPcs: 0, delOrderCount: 0 };
+      const tot = { genOrderCount: 0, genPcs: 0, cohortFinOrderCount: 0, finOrderCount: 0, finPcs: 0, delOrderCount: 0 };
       this.yearlyMonthlyList.forEach(m => {
         tot.genOrderCount += m.genOrderCount || 0;
         tot.genPcs += m.genPcs || 0;
-        tot.pendingOrderCount += m.pendingOrderCount || 0;
         tot.cohortFinOrderCount += m.cohortFinOrderCount || 0;
         tot.finOrderCount += m.finOrderCount || 0;
         tot.finPcs += m.finPcs || 0;
@@ -843,6 +890,63 @@ export default {
       if (!dStr) return '';
       const parts = dStr.split('-');
       return parts.length >= 3 ? `${parts[2]}日` : dStr;
+    },
+
+    // 🌟 步進懸浮提示文字
+    getShiftTitle(offset) {
+      const direction = offset < 0 ? '前' : '後';
+      if (this.analysisMode === 'daily') return `切換至${direction}一天`;
+      if (this.analysisMode === 'monthly') return `切換至${direction}一個月`;
+      return `切換至${direction}一年`;
+    },
+
+    // 🌟 核心切換邏輯：往前/往後切換天數、月份、年份
+    shiftPeriod(offset) {
+      if (this.analysisMode === 'daily') {
+        const curDate = new Date(this.targetDate || new Date());
+        curDate.setDate(curDate.getDate() + offset);
+        const y = curDate.getFullYear();
+        const m = String(curDate.getMonth() + 1).padStart(2, '0');
+        const d = String(curDate.getDate()).padStart(2, '0');
+        this.targetDate = `${y}-${m}-${d}`;
+        this.fetchFishData();
+      } else if (this.analysisMode === 'monthly') {
+        const parts = (this.targetMonth || '').split('-');
+        let year = parseInt(parts[0], 10) || new Date().getFullYear();
+        let month = (parseInt(parts[1], 10) || (new Date().getMonth() + 1)) + offset;
+        if (month < 1) {
+          month = 12;
+          year -= 1;
+        } else if (month > 12) {
+          month = 1;
+          year += 1;
+        }
+        this.targetMonth = `${year}-${String(month).padStart(2, '0')}`;
+        this.fetchMonthlySummary();
+      } else {
+        const curYear = parseInt(this.targetYear, 10) || new Date().getFullYear();
+        this.targetYear = String(curYear + offset);
+        this.fetchYearlySummary();
+      }
+    },
+
+    // 🌟 一鍵重置回「今天 / 本月 / 今年」
+    resetToCurrentPeriod() {
+      const now = new Date();
+      const y = now.getFullYear();
+      const m = String(now.getMonth() + 1).padStart(2, '0');
+      const d = String(now.getDate()).padStart(2, '0');
+
+      if (this.analysisMode === 'daily') {
+        this.targetDate = `${y}-${m}-${d}`;
+        this.fetchFishData();
+      } else if (this.analysisMode === 'monthly') {
+        this.targetMonth = `${y}-${m}`;
+        this.fetchMonthlySummary();
+      } else {
+        this.targetYear = String(y);
+        this.fetchYearlySummary();
+      }
     },
 
     copyItemId(id) {
@@ -888,7 +992,6 @@ export default {
       }
     },
 
-    // 一般開啟未完成追蹤彈窗（無穿透模式）
     async openPendingDialog() {
       this.drillFilterLabel = '';
       this.drillFilterParams = null;
@@ -897,7 +1000,6 @@ export default {
       await this.fetchPendingDateList();
     },
 
-    // 點擊任一表格未完成數字觸發的穿透追蹤
     drillPending(options) {
       this.drillFilterLabel = options.label || '';
       this.drillFilterParams = options;
@@ -907,7 +1009,6 @@ export default {
       this.loadDrillPendingDetails(options);
     },
 
-    // 清除穿透篩選，回歸全量清單
     clearDrillFilter() {
       this.drillFilterLabel = '';
       this.drillFilterParams = null;
@@ -920,7 +1021,6 @@ export default {
       }
     },
 
-    // 載入穿透後的未完成明細
     async loadDrillPendingDetails(options) {
       this.loadingPending = true;
       try {
@@ -1435,6 +1535,28 @@ export default {
   white-space: nowrap;
 }
 
+/* 🌟 日期步進器群組樣式 */
+.date-stepper-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #0f172a;
+  padding: 2px 6px;
+  border-radius: 6px;
+  border: 1px solid #334155;
+}
+
+.stepper-btn {
+  padding: 6px 10px !important;
+  font-weight: bold;
+}
+
+.stepper-today-btn {
+  padding: 6px 10px !important;
+  font-weight: bold;
+  margin-left: 2px;
+}
+
 .select-label {
   font-size: 13px;
   color: #f8fafc;
@@ -1533,7 +1655,6 @@ export default {
 .text-red { color: #f87171; }
 .font-bold { font-weight: bold; }
 
-/* 🌟 穿透與商品編號樣式 */
 .clickable-cell {
   cursor: pointer;
   text-decoration: underline;
@@ -1664,7 +1785,6 @@ export default {
   color: #f8fafc;
 }
 
-/* 🌟 貼 ID 查詢樣式 */
 .id-search-box {
   display: flex;
   align-items: center;
