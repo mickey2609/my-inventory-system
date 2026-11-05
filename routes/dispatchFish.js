@@ -11,7 +11,7 @@ module.exports = function(db) {
     if (!str || str === 'NaN' || str === 'null' || str === 'NaT') return '';
 
     // 1. 若為 Excel 天數序號 (純 5 位數字)
-    if (/^\d{5}\$/.test(str)) {
+    if (/^\d{5}$/.test(str)) {
       const excelEpoch = new Date(Date.UTC(1899, 11, 30));
       const targetTime = new Date(excelEpoch.getTime() + parseInt(str, 10) * 86400000);
       const y = targetTime.getUTCFullYear();
@@ -20,7 +20,6 @@ module.exports = function(db) {
       return `${y}-${m}-${d}`;
     }
 
-    // 2. 去除時間部分 (如 2026-11-03 00:00:00 取 2026-11-03)
     if (str.includes(' ')) str = str.split(' ')[0];
     if (str.includes('T')) str = str.split('T')[0];
 
@@ -53,6 +52,15 @@ module.exports = function(db) {
       return `${h}:${m}:${s}`;
     }
     return str;
+  }
+
+  // 判斷是否為異常件
+  function checkIsAbnormal(remark) {
+    if (!remark) return false;
+    const cleanRmk = String(remark).replace(/\(原15庫\)|\(原82庫\)|\s+/g, '').trim();
+    if (!cleanRmk) return false;
+    const keywords = ['問題', '不符', '凹損', '破損', '少', '溢', '退', '效期', '中文標', '處理中', '短少'];
+    return keywords.some(k => cleanRmk.includes(k)) || cleanRmk.length > 5;
   }
 
   // 1. 初始化資料庫資料表
@@ -92,28 +100,41 @@ module.exports = function(db) {
     db.run(`CREATE INDEX IF NOT EXISTS idx_dispatch_item_id ON dispatch_fish_details (item_id)`, () => {});
   });
 
-  function applyFilters(sql, params, sourceFilter, remarks) {
+  // 🌟 動態條件過濾器：支援 來源類別、準時到貨、異常件、快速通關、未驗收
+  function applyFilters(sql, params, query) {
+    const { sourceFilter, onTimeFilter, abnormalFilter, fastPassFilter, uncheckFilter } = query;
+
+    // 1. 單據來源類別 (BR / BY)
     if (sourceFilter && sourceFilter !== 'all') {
-      if (sourceFilter === 'BR') {
-        sql += ` AND order_no LIKE 'BR%'`;
-      } else if (sourceFilter === 'BY') {
-        sql += ` AND order_no LIKE 'BY%'`;
-      }
+      if (sourceFilter === 'BR') sql += ` AND order_no LIKE 'BR%'`;
+      else if (sourceFilter === 'BY') sql += ` AND order_no LIKE 'BY%'`;
     }
 
-    if (remarks) {
-      const rmkList = typeof remarks === 'string' ? remarks.split(',').map(s => s.trim()).filter(Boolean) : remarks;
-      if (rmkList.length > 0 && !rmkList.includes('all')) {
-        const subConds = rmkList.map(() => `remark LIKE ?`);
-        sql += ` AND (${subConds.join(' OR ')})`;
-        rmkList.forEach(r => params.push(`%${r}%`));
-      }
+    // 2. 準時到貨篩選 (K欄 == L欄)
+    if (onTimeFilter === 'yes') {
+      sql += ` AND appoint_date IS NOT NULL AND appoint_date != '' AND appoint_date = rec_date`;
+    } else if (onTimeFilter === 'no') {
+      sql += ` AND appoint_date IS NOT NULL AND appoint_date != '' AND appoint_date != rec_date`;
+    }
+
+    // 3. 快速通關 (A欄)
+    if (fastPassFilter === 'yes') {
+      sql += ` AND fast_pass_info IS NOT NULL AND TRIM(fast_pass_info) != ''`;
+    } else if (fastPassFilter === 'no') {
+      sql += ` AND (fast_pass_info IS NULL OR TRIM(fast_pass_info) = '')`;
+    }
+
+    // 4. 是否已收發未驗收 (有 rec_date 但 check_date 為空)
+    if (uncheckFilter === 'yes') {
+      sql += ` AND (check_date IS NULL OR TRIM(check_date) = '' OR TRIM(check_date) = 'NaT') AND (doc_status IS NULL OR doc_status != '已銷案')`;
+    } else if (uncheckFilter === 'no') {
+      sql += ` AND (check_date IS NOT NULL AND TRIM(check_date) != '' AND TRIM(check_date) != 'NaT')`;
     }
 
     return sql;
   }
 
-  // 2. 匯入 API (支援清洗後資料批次寫入)
+  // 2. 匯入 API
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     const fileName = req.body.fileName || 'dispatch_fish.xlsx';
@@ -225,7 +246,7 @@ module.exports = function(db) {
 
   // 3. 單日時段魚群分析 API
   router.get('/fish-analysis', (req, res) => {
-    const { targetDate, sourceFilter, remarks } = req.query;
+    const { targetDate } = req.query;
 
     let sql = `SELECT * FROM dispatch_fish_details WHERE 1=1`;
     const params = [];
@@ -235,12 +256,19 @@ module.exports = function(db) {
       params.push(targetDate, targetDate);
     }
 
-    sql = applyFilters(sql, params, sourceFilter, remarks);
+    sql = applyFilters(sql, params, req.query);
 
     db.all(sql, params, (err, rows) => {
       if (err) return res.status(500).json({ success: false, message: err.message });
 
       rows = rows || [];
+
+      // 若有異常件篩選 (備註需經 JS 自然語言過濾)
+      if (req.query.abnormalFilter === 'yes') {
+        rows = rows.filter(r => checkIsAbnormal(r.remark));
+      } else if (req.query.abnormalFilter === 'no') {
+        rows = rows.filter(r => !checkIsAbnormal(r.remark));
+      }
 
       const hourlyData = Array.from({ length: 24 }, (_, h) => ({
         hour: h,
@@ -250,9 +278,24 @@ module.exports = function(db) {
         finOrderSet: new Set(), finPcs: 0
       }));
 
+      // 四大維度彙整統計計數
+      let onTimeCount = 0;
+      let abnormalCount = 0;
+      let fastPassCount = 0;
+      let uncheckCount = 0;
+
       rows.forEach(r => {
         const orderNo = (r.order_no || '').trim();
-        const hasCheck = !!(r.check_date && String(r.check_date).trim() !== '');
+        const hasCheck = !!(r.check_date && String(r.check_date).trim() !== '' && String(r.check_date).trim() !== 'NaT');
+        const isOnTime = (r.appoint_date && r.rec_date && r.appoint_date === r.rec_date);
+        const isAbnormal = checkIsAbnormal(r.remark);
+        const isFastPass = !!(r.fast_pass_info && String(r.fast_pass_info).trim() !== '');
+        const isUncheck = (!hasCheck && r.doc_status !== '已銷案');
+
+        if (isOnTime) onTimeCount++;
+        if (isAbnormal) abnormalCount++;
+        if (isFastPass) fastPassCount++;
+        if (isUncheck) uncheckCount++;
 
         // 依收貨時間統計收貨量
         if (r.rec_date === targetDate && r.rec_time) {
@@ -263,8 +306,7 @@ module.exports = function(db) {
             if (orderNo) hourlyData[h].recOrderSet.add(orderNo);
             hourlyData[h].recPcs += (r.pcs || 0);
 
-            // 未驗收完成
-            if (!hasCheck && r.doc_status !== '已銷案') {
+            if (isUncheck) {
               if (orderNo) hourlyData[h].pendingOrderSet.add(orderNo);
               hourlyData[h].pendingPcs += (r.pcs || 0);
             }
@@ -291,195 +333,168 @@ module.exports = function(db) {
         finOrderCount: d.finOrderSet.size, finPcs: d.finPcs
       }));
 
-      res.json({ success: true, totalFiltered: rows.length, hourlyStats });
+      res.json({
+        success: true,
+        totalFiltered: rows.length,
+        metrics: { onTimeCount, abnormalCount, fastPassCount, uncheckCount },
+        hourlyStats
+      });
     });
   });
 
   // 4. 每月每日總表 API
   router.get('/monthly-summary', (req, res) => {
-    const { month, sourceFilter, remarks } = req.query;
+    const { month } = req.query;
     if (!month) return res.status(400).json({ success: false, message: '請提供月份 (YYYY-MM)' });
 
     const monthPattern = `${month}%`;
+    let sql = `SELECT * FROM dispatch_fish_details WHERE (rec_date LIKE ? OR check_date LIKE ?)`;
+    const params = [monthPattern, monthPattern];
+    sql = applyFilters(sql, params, req.query);
 
-    let pendingSql = `
-      SELECT rec_date, COUNT(DISTINCT order_no) AS pending_count
-      FROM dispatch_fish_details
-      WHERE rec_date LIKE ?
-        AND (check_date IS NULL OR TRIM(check_date) = '')
-        AND (doc_status IS NULL OR doc_status != '已銷案')
-    `;
-    const pendingParams = [monthPattern];
-    pendingSql = applyFilters(pendingSql, pendingParams, sourceFilter, remarks);
-    pendingSql += ` GROUP BY rec_date`;
+    db.all(sql, params, (err, rows) => {
+      if (err) return res.status(500).json({ success: false, message: err.message });
+      rows = rows || [];
 
-    db.all(pendingSql, pendingParams, (errPending, pendingRows) => {
-      if (errPending) return res.status(500).json({ success: false, message: errPending.message });
+      if (req.query.abnormalFilter === 'yes') rows = rows.filter(r => checkIsAbnormal(r.remark));
+      else if (req.query.abnormalFilter === 'no') rows = rows.filter(r => !checkIsAbnormal(r.remark));
 
-      const pendingMap = {};
-      (pendingRows || []).forEach(p => {
-        if (p.rec_date) pendingMap[p.rec_date] = p.pending_count || 0;
-      });
-
-      let sql = `SELECT * FROM dispatch_fish_details WHERE (rec_date LIKE ? OR check_date LIKE ?)`;
-      const params = [monthPattern, monthPattern];
-      sql = applyFilters(sql, params, sourceFilter, remarks);
-
-      db.all(sql, params, (err, rows) => {
-        if (err) return res.status(500).json({ success: false, message: err.message });
-
-        rows = rows || [];
-        const daysMap = {};
-
-        const getDayObj = (d) => {
-          if (!daysMap[d]) {
-            daysMap[d] = {
-              date: d,
-              recOrderSet: new Set(), recPcs: 0,
-              cohortFinOrderSet: new Set(),
-              finOrderSet: new Set(), finPcs: 0
-            };
-          }
-          return daysMap[d];
-        };
-
-        rows.forEach(r => {
-          const orderNo = (r.order_no || '').trim();
-          const rDate = (r.rec_date || '').trim();
-          const cDate = (r.check_date || '').trim();
-          const hasCheck = !!(cDate && cDate !== '');
-
-          if (rDate && rDate.startsWith(month)) {
-            const day = getDayObj(rDate);
-            if (orderNo) day.recOrderSet.add(orderNo);
-            day.recPcs += (r.pcs || 0);
-
-            if (hasCheck && orderNo) {
-              day.cohortFinOrderSet.add(orderNo);
-            }
-          }
-
-          if (cDate && cDate.startsWith(month)) {
-            const day = getDayObj(cDate);
-            if (orderNo) day.finOrderSet.add(orderNo);
-            day.finPcs += (r.pcs || 0);
-          }
-        });
-
-        const dailyList = Object.keys(daysMap).sort().map(d => {
-          const item = daysMap[d];
-          const recCount = item.recOrderSet.size;
-          const cohortFinCount = item.cohortFinOrderSet.size;
-          const rateVal = recCount > 0 ? (cohortFinCount / recCount) * 100 : 0;
-
-          return {
-            date: item.date,
-            recOrderCount: recCount,
-            recPcs: item.recPcs,
-            pendingOrderCount: pendingMap[item.date] || 0,
-            finOrderCount: item.finOrderSet.size,
-            finPcs: item.finPcs,
-            finishRate: Math.min(100, rateVal).toFixed(2) + '%'
+      const daysMap = {};
+      const getDayObj = (d) => {
+        if (!daysMap[d]) {
+          daysMap[d] = {
+            date: d,
+            recOrderSet: new Set(), recPcs: 0,
+            pendingOrderSet: new Set(),
+            cohortFinOrderSet: new Set(),
+            finOrderSet: new Set(), finPcs: 0
           };
-        });
+        }
+        return daysMap[d];
+      };
 
-        res.json({ success: true, month, dailyList });
+      rows.forEach(r => {
+        const orderNo = (r.order_no || '').trim();
+        const rDate = (r.rec_date || '').trim();
+        const cDate = (r.check_date || '').trim();
+        const hasCheck = !!(cDate && cDate !== '' && cDate !== 'NaT');
+
+        if (rDate && rDate.startsWith(month)) {
+          const day = getDayObj(rDate);
+          if (orderNo) day.recOrderSet.add(orderNo);
+          day.recPcs += (r.pcs || 0);
+
+          if (!hasCheck && r.doc_status !== '已銷案') {
+            if (orderNo) day.pendingOrderSet.add(orderNo);
+          } else if (hasCheck && orderNo) {
+            day.cohortFinOrderSet.add(orderNo);
+          }
+        }
+
+        if (cDate && cDate.startsWith(month)) {
+          const day = getDayObj(cDate);
+          if (orderNo) day.finOrderSet.add(orderNo);
+          day.finPcs += (r.pcs || 0);
+        }
       });
+
+      const dailyList = Object.keys(daysMap).sort().map(d => {
+        const item = daysMap[d];
+        const recCount = item.recOrderSet.size;
+        const cohortFinCount = item.cohortFinOrderSet.size;
+        const rateVal = recCount > 0 ? (cohortFinCount / recCount) * 100 : 0;
+
+        return {
+          date: item.date,
+          recOrderCount: recCount,
+          recPcs: item.recPcs,
+          pendingOrderCount: item.pendingOrderSet.size,
+          finOrderCount: item.finOrderSet.size,
+          finPcs: item.finPcs,
+          finishRate: Math.min(100, rateVal).toFixed(2) + '%'
+        };
+      });
+
+      res.json({ success: true, month, dailyList });
     });
   });
 
   // 5. 年度每月總表 API
   router.get('/yearly-summary', (req, res) => {
-    const { year, sourceFilter, remarks } = req.query;
+    const { year } = req.query;
     if (!year) return res.status(400).json({ success: false, message: '請提供年份 (YYYY)' });
 
     const yearPattern = `${year}%`;
+    let sql = `SELECT * FROM dispatch_fish_details WHERE (rec_date LIKE ? OR check_date LIKE ?)`;
+    const params = [yearPattern, yearPattern];
+    sql = applyFilters(sql, params, req.query);
 
-    let pendingSql = `
-      SELECT SUBSTR(rec_date, 1, 7) AS month_key, COUNT(DISTINCT order_no) AS pending_count
-      FROM dispatch_fish_details
-      WHERE rec_date LIKE ?
-        AND (check_date IS NULL OR TRIM(check_date) = '')
-        AND (doc_status IS NULL OR doc_status != '已銷案')
-    `;
-    const pendingParams = [yearPattern];
-    pendingSql = applyFilters(pendingSql, pendingParams, sourceFilter, remarks);
-    pendingSql += ` GROUP BY SUBSTR(rec_date, 1, 7)`;
+    db.all(sql, params, (err, rows) => {
+      if (err) return res.status(500).json({ success: false, message: err.message });
+      rows = rows || [];
 
-    db.all(pendingSql, pendingParams, (errPending, pendingRows) => {
-      if (errPending) return res.status(500).json({ success: false, message: errPending.message });
+      if (req.query.abnormalFilter === 'yes') rows = rows.filter(r => checkIsAbnormal(r.remark));
+      else if (req.query.abnormalFilter === 'no') rows = rows.filter(r => !checkIsAbnormal(r.remark));
 
-      const pendingMap = {};
-      (pendingRows || []).forEach(p => {
-        if (p.month_key) pendingMap[p.month_key] = p.pending_count || 0;
-      });
+      const monthMap = {};
+      for (let m = 1; m <= 12; m++) {
+        const mKey = `${year}-${String(m).padStart(2, '0')}`;
+        monthMap[mKey] = {
+          month: mKey,
+          monthLabel: `${String(m).padStart(2, '0')}月`,
+          recOrderSet: new Set(), recPcs: 0,
+          pendingOrderSet: new Set(),
+          cohortFinOrderSet: new Set(),
+          finOrderSet: new Set(), finPcs: 0
+        };
+      }
 
-      let sql = `SELECT * FROM dispatch_fish_details WHERE (rec_date LIKE ? OR check_date LIKE ?)`;
-      const params = [yearPattern, yearPattern];
-      sql = applyFilters(sql, params, sourceFilter, remarks);
+      rows.forEach(r => {
+        const orderNo = (r.order_no || '').trim();
+        const rDate = (r.rec_date || '').trim();
+        const cDate = (r.check_date || '').trim();
+        const hasCheck = !!(cDate && cDate !== '' && cDate !== 'NaT');
 
-      db.all(sql, params, (err, rows) => {
-        if (err) return res.status(500).json({ success: false, message: err.message });
+        if (rDate && rDate.startsWith(year)) {
+          const mKey = rDate.substring(0, 7);
+          if (monthMap[mKey]) {
+            if (orderNo) monthMap[mKey].recOrderSet.add(orderNo);
+            monthMap[mKey].recPcs += (r.pcs || 0);
 
-        rows = rows || [];
-        const monthMap = {};
-
-        for (let m = 1; m <= 12; m++) {
-          const mKey = `${year}-${String(m).padStart(2, '0')}`;
-          monthMap[mKey] = {
-            month: mKey,
-            monthLabel: `${String(m).padStart(2, '0')}月`,
-            recOrderSet: new Set(), recPcs: 0,
-            cohortFinOrderSet: new Set(),
-            finOrderSet: new Set(), finPcs: 0
-          };
+            if (!hasCheck && r.doc_status !== '已銷案') {
+              if (orderNo) monthMap[mKey].pendingOrderSet.add(orderNo);
+            } else if (hasCheck && orderNo) {
+              monthMap[mKey].cohortFinOrderSet.add(orderNo);
+            }
+          }
         }
 
-        rows.forEach(r => {
-          const orderNo = (r.order_no || '').trim();
-          const rDate = (r.rec_date || '').trim();
-          const cDate = (r.check_date || '').trim();
-          const hasCheck = !!(cDate && cDate !== '');
-
-          if (rDate && rDate.startsWith(year)) {
-            const mKey = rDate.substring(0, 7);
-            if (monthMap[mKey]) {
-              if (orderNo) monthMap[mKey].recOrderSet.add(orderNo);
-              monthMap[mKey].recPcs += (r.pcs || 0);
-
-              if (hasCheck && orderNo) {
-                monthMap[mKey].cohortFinOrderSet.add(orderNo);
-              }
-            }
+        if (cDate && cDate.startsWith(year)) {
+          const mKey = cDate.substring(0, 7);
+          if (monthMap[mKey]) {
+            if (orderNo) monthMap[mKey].finOrderSet.add(orderNo);
+            monthMap[mKey].finPcs += (r.pcs || 0);
           }
-
-          if (cDate && cDate.startsWith(year)) {
-            const mKey = cDate.substring(0, 7);
-            if (monthMap[mKey]) {
-              if (orderNo) monthMap[mKey].finOrderSet.add(orderNo);
-              monthMap[mKey].finPcs += (r.pcs || 0);
-            }
-          }
-        });
-
-        const monthlyList = Object.keys(monthMap).sort().map(m => {
-          const item = monthMap[m];
-          const recCount = item.recOrderSet.size;
-          const cohortFinCount = item.cohortFinOrderSet.size;
-          const rateVal = recCount > 0 ? (cohortFinCount / recCount) * 100 : 0;
-
-          return {
-            month: item.month,
-            monthLabel: item.monthLabel,
-            recOrderCount: recCount, recPcs: item.recPcs,
-            pendingOrderCount: pendingMap[item.month] || 0,
-            finOrderCount: item.finOrderSet.size, finPcs: item.finPcs,
-            finishRate: Math.min(100, rateVal).toFixed(2) + '%'
-          };
-        });
-
-        res.json({ success: true, year, monthlyList });
+        }
       });
+
+      const monthlyList = Object.keys(monthMap).sort().map(m => {
+        const item = monthMap[m];
+        const recCount = item.recOrderSet.size;
+        const cohortFinCount = item.cohortFinOrderSet.size;
+        const rateVal = recCount > 0 ? (cohortFinCount / recCount) * 100 : 0;
+
+        return {
+          month: item.month,
+          monthLabel: item.monthLabel,
+          recOrderCount: recCount, recPcs: item.recPcs,
+          pendingOrderCount: item.pendingOrderSet.size,
+          finOrderCount: item.finOrderSet.size, finPcs: item.finPcs,
+          finishRate: Math.min(100, rateVal).toFixed(2) + '%'
+        };
+      });
+
+      res.json({ success: true, year, monthlyList });
     });
   });
 
@@ -488,7 +503,7 @@ module.exports = function(db) {
     const sql = `
       SELECT rec_date, COUNT(*) as count 
       FROM dispatch_fish_details 
-      WHERE (check_date IS NULL OR check_date = '') 
+      WHERE (check_date IS NULL OR check_date = '' OR check_date = 'NaT') 
         AND (doc_status IS NULL OR doc_status != '已銷案')
         AND rec_date != ''
       GROUP BY rec_date
@@ -502,11 +517,11 @@ module.exports = function(db) {
 
   // 7. 未驗收明細 API
   router.get('/pending-details', (req, res) => {
-    let { targetDate, date, hour, month, year, sourceFilter, remarks } = req.query;
+    let { targetDate, date, hour, month, year } = req.query;
 
     let sql = `
       SELECT * FROM dispatch_fish_details
-      WHERE (check_date IS NULL OR check_date = '' OR check_date = ' ' OR INSTR(check_date, '-') = 0)
+      WHERE (check_date IS NULL OR check_date = '' OR check_date = ' ' OR check_date = 'NaT' OR INSTR(check_date, '-') = 0)
         AND (doc_status IS NULL OR doc_status != '已銷案')
     `;
     const params = [];
@@ -529,12 +544,17 @@ module.exports = function(db) {
       params.push(`${hStr}:%`, `${parseInt(hour, 10)}:%`);
     }
 
-    sql = applyFilters(sql, params, sourceFilter, remarks);
+    sql = applyFilters(sql, params, req.query);
     sql += ` ORDER BY rec_date DESC, rec_time DESC`;
 
     db.all(sql, params, (err, rows) => {
       if (err) return res.status(500).json({ success: false, message: '查詢未驗收明細失敗：' + err.message });
-      res.json({ success: true, totalPending: (rows || []).length, pendingList: rows || [] });
+      rows = rows || [];
+
+      if (req.query.abnormalFilter === 'yes') rows = rows.filter(r => checkIsAbnormal(r.remark));
+      else if (req.query.abnormalFilter === 'no') rows = rows.filter(r => !checkIsAbnormal(r.remark));
+
+      res.json({ success: true, totalPending: rows.length, pendingList: rows });
     });
   });
 
@@ -550,7 +570,7 @@ module.exports = function(db) {
       const sql = `
         UPDATE dispatch_fish_details
         SET check_date = ?, check_time = ?, finish_user = ?, finish_remark = ?, doc_status = '已銷案'
-        WHERE (check_date IS NULL OR check_date = '')
+        WHERE (check_date IS NULL OR check_date = '' OR check_date = 'NaT')
           AND (doc_status IS NULL OR doc_status != '已銷案')
           AND rec_date BETWEEN ? AND ?
       `;

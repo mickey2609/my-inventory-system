@@ -88,14 +88,55 @@
       </div>
     </div>
 
-    <!-- 2. 第二排獨立工具列：單據分類 (BR/BY) -->
+    <!-- 2. 第二排獨立工具列：單據來源與四大智慧維度快篩 -->
     <div class="filter-bar">
+      <!-- 來源類別 -->
       <div class="filter-item-box">
-        <span class="select-label">🏷️ 單據來源類別：</span>
+        <span class="select-label">🏷️ 單據類別：</span>
         <el-radio-group v-model="sourceCategoryFilter" size="small" @change="refreshCurrentMode">
-          <el-radio-button label="all">🌐 全部 (BR+BY)</el-radio-button>
-          <el-radio-button label="BR">🔄 BR 借貨商品</el-radio-button>
-          <el-radio-button label="BY">🛒 BY 採購商品</el-radio-button>
+          <el-radio-button label="all">全部</el-radio-button>
+          <el-radio-button label="BR">🔄 BR 借貨</el-radio-button>
+          <el-radio-button label="BY">🛒 BY 採購</el-radio-button>
+        </el-radio-group>
+      </div>
+
+      <!-- 準時到貨 (K=L) -->
+      <div class="filter-item-box">
+        <span class="select-label">🚚 準時到貨：</span>
+        <el-radio-group v-model="onTimeFilter" size="small" @change="refreshCurrentMode">
+          <el-radio-button label="all">全部</el-radio-button>
+          <el-radio-button label="yes">✅ 準時到貨</el-radio-button>
+          <el-radio-button label="no">⏳ 非當日/延遲</el-radio-button>
+        </el-radio-group>
+      </div>
+
+      <!-- 異常件 (N欄備註) -->
+      <div class="filter-item-box">
+        <span class="select-label">⚠️ 異常狀態：</span>
+        <el-radio-group v-model="abnormalFilter" size="small" @change="refreshCurrentMode">
+          <el-radio-button label="all">全部</el-radio-button>
+          <el-radio-button label="yes">🚨 異常件</el-radio-button>
+          <el-radio-button label="no">🟢 常規件</el-radio-button>
+        </el-radio-group>
+      </div>
+
+      <!-- 快速通關 (A欄) -->
+      <div class="filter-item-box">
+        <span class="select-label">⚡ 快速通關：</span>
+        <el-radio-group v-model="fastPassFilter" size="small" @change="refreshCurrentMode">
+          <el-radio-button label="all">全部</el-radio-button>
+          <el-radio-button label="yes">🚀 快速通關</el-radio-button>
+          <el-radio-button label="no">一般件</el-radio-button>
+        </el-radio-group>
+      </div>
+
+      <!-- 是否已收發未驗收 (有L無O) -->
+      <div class="filter-item-box">
+        <span class="select-label">⏳ 收發進度：</span>
+        <el-radio-group v-model="uncheckFilter" size="small" @change="refreshCurrentMode">
+          <el-radio-button label="all">全部</el-radio-button>
+          <el-radio-button label="yes">🔴 已收發未驗收</el-radio-button>
+          <el-radio-button label="no">🟢 已驗收完成</el-radio-button>
         </el-radio-group>
       </div>
     </div>
@@ -374,8 +415,22 @@
                 </span>
               </template>
             </el-table-column>
+
+            <!-- 智慧狀態特徵標籤 -->
+            <el-table-column label="狀態特徵" width="160" align="center">
+              <template #default="scope">
+                <div class="tag-cell-group">
+                  <span v-if="scope.row.appoint_date && scope.row.rec_date && scope.row.appoint_date === scope.row.rec_date" class="status-tag tag-ontime">準時到貨</span>
+                  <span v-else-if="scope.row.appoint_date && scope.row.rec_date" class="status-tag tag-delay">非當日</span>
+                  <span v-if="isRowAbnormal(scope.row.remark)" class="status-tag tag-abnormal">異常件</span>
+                  <span v-if="scope.row.fast_pass_info" class="status-tag tag-fast">快速通關</span>
+                </div>
+              </template>
+            </el-table-column>
+
             <el-table-column prop="rec_date" label="收貨日期" width="100" align="center" sortable />
             <el-table-column prop="rec_time" label="收貨時間" width="85" align="center" sortable />
+            <el-table-column prop="appoint_date" label="預約入庫日" width="100" align="center" sortable />
             
             <!-- 單號點擊複製 -->
             <el-table-column prop="order_no" label="來源單號" width="160" align="center" sortable>
@@ -485,7 +540,13 @@ export default {
       targetMonth: new Date().toISOString().slice(0, 7),
       targetYear: new Date().getFullYear().toString(),
       
+      // 🌟 五大多維度篩選狀態
       sourceCategoryFilter: 'all',
+      onTimeFilter: 'all',
+      abnormalFilter: 'all',
+      fastPassFilter: 'all',
+      uncheckFilter: 'all',
+
       hourlyStats: [],
       monthlyDailyList: [],
       yearlyMonthlyList: [],
@@ -654,6 +715,13 @@ export default {
         ElMessage.success(`📋 已複製${label}：${text}`);
       }
     },
+    isRowAbnormal(remark) {
+      if (!remark) return false;
+      const cleanRmk = String(remark).replace(/\(原15庫\)|\(原82庫\)|\s+/g, '').trim();
+      if (!cleanRmk) return false;
+      const keywords = ['問題', '不符', '凹損', '破損', '少', '溢', '退', '效期', '中文標', '處理中', '短少'];
+      return keywords.some(k => cleanRmk.includes(k)) || cleanRmk.length > 5;
+    },
 
     // 🌟 前端清洗演算法：完全對齊 clean_excel.py
     cleanImportRows(rows) {
@@ -800,11 +868,21 @@ export default {
       }
     },
 
+    getQueryParams() {
+      return {
+        sourceFilter: this.sourceCategoryFilter,
+        onTimeFilter: this.onTimeFilter,
+        abnormalFilter: this.abnormalFilter,
+        fastPassFilter: this.fastPassFilter,
+        uncheckFilter: this.uncheckFilter
+      };
+    },
+
     async fetchFishData() {
       this.loading = true;
       try {
         const res = await axios.get('/api/dispatch/fish-analysis', {
-          params: { targetDate: this.targetDate, sourceFilter: this.sourceCategoryFilter }
+          params: { targetDate: this.targetDate, ...this.getQueryParams() }
         });
         if (res.data?.success) {
           const raw = res.data.hourlyStats || [];
@@ -823,7 +901,7 @@ export default {
       this.loadingMonthly = true;
       try {
         const res = await axios.get('/api/dispatch/monthly-summary', {
-          params: { month: this.targetMonth, sourceFilter: this.sourceCategoryFilter }
+          params: { month: this.targetMonth, ...this.getQueryParams() }
         });
         if (res.data?.success) this.monthlyDailyList = res.data.dailyList || [];
       } finally { this.loadingMonthly = false; }
@@ -833,7 +911,7 @@ export default {
       this.loadingYearly = true;
       try {
         const res = await axios.get('/api/dispatch/yearly-summary', {
-          params: { year: this.targetYear, sourceFilter: this.sourceCategoryFilter }
+          params: { year: this.targetYear, ...this.getQueryParams() }
         });
         if (res.data?.success) this.yearlyMonthlyList = res.data.monthlyList || [];
       } finally { this.loadingYearly = false; }
@@ -877,7 +955,7 @@ export default {
     async loadDrillPendingDetails(options) {
       this.loadingPending = true;
       try {
-        const params = { sourceFilter: this.sourceCategoryFilter };
+        const params = { ...this.getQueryParams() };
         if (options.date) params.date = options.date;
         if (options.month) params.month = options.month;
         if (options.year) params.year = options.year;
@@ -910,7 +988,7 @@ export default {
       this.loadingPending = true;
       try {
         const res = await axios.get('/api/dispatch/pending-details', {
-          params: { targetDate: this.activePendingDate, sourceFilter: this.sourceCategoryFilter }
+          params: { targetDate: this.activePendingDate, ...this.getQueryParams() }
         });
         if (res.data?.success) this.pendingList = res.data.pendingList || [];
       } finally { this.loadingPending = false; }
@@ -953,15 +1031,30 @@ export default {
 }
 .top-bar, .filter-bar {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   align-items: center;
   background: #1e293b;
   padding: 8px 16px;
   border-radius: 8px;
   border: 1px solid #334155;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 .title-group, .action-group { display: flex; align-items: center; gap: 10px; }
+.action-group { margin-left: auto; }
 .page-title { font-size: 16px; font-weight: bold; color: #38bdf8; white-space: nowrap; }
+
+.filter-item-box {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.select-label {
+  font-size: 12px;
+  color: #94a3b8;
+  font-weight: bold;
+  white-space: nowrap;
+}
 
 .date-stepper-group {
   display: flex;
@@ -974,8 +1067,6 @@ export default {
 }
 .stepper-btn { padding: 6px 10px !important; font-weight: bold; }
 .stepper-today-btn { padding: 6px 10px !important; font-weight: bold; margin-left: 2px; }
-
-.select-label { font-size: 13px; color: #f8fafc; font-weight: bold; }
 
 .table-container {
   background: #1e293b;
@@ -1037,6 +1128,13 @@ export default {
 .badge { padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 11px; }
 .badge-br { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); }
 .badge-by { background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); }
+
+.tag-cell-group { display: flex; gap: 4px; justify-content: center; flex-wrap: wrap; }
+.status-tag { padding: 1px 5px; border-radius: 4px; font-size: 10px; font-weight: bold; }
+.tag-ontime { background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.4); }
+.tag-delay { background: rgba(148, 163, 184, 0.2); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.4); }
+.tag-abnormal { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); }
+.tag-fast { background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); }
 
 .monitor-container { display: flex; gap: 15px; height: calc(85vh - 80px); }
 .side-date-nav {
