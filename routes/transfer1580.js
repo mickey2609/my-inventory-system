@@ -54,11 +54,14 @@ module.exports = function(db) {
       )
     `);
 
-    // 自動相容既有資料表升級 overseas_order_no 欄位
     db.run(`ALTER TABLE transfer_1580_details ADD COLUMN overseas_order_no TEXT`, (err) => {});
+    db.run(`CREATE INDEX IF NOT EXISTS idx_transfer1580_gen_date ON transfer_1580_details (gen_date)`, () => {});
+    db.run(`CREATE INDEX IF NOT EXISTS idx_transfer1580_item_id ON transfer_1580_details (item_id)`, () => {});
+    db.run(`CREATE INDEX IF NOT EXISTS idx_transfer1580_overseas ON transfer_1580_details (overseas_order_no)`, () => {});
   });
 
-  function applyFilters(sql, params, docTypes, reasons) {
+  function applyFilters(sql, params, docTypes, reasons, tableAlias = '') {
+    const prefix = tableAlias ? `${tableAlias}.` : '';
     let docList = [];
     if (Array.isArray(docTypes)) docList = docTypes;
     else if (typeof docTypes === 'string' && docTypes.trim() !== '') {
@@ -66,7 +69,7 @@ module.exports = function(db) {
     }
 
     if (docList.length > 0 && !docList.includes('all')) {
-      const subConds = docList.map(() => `doc_type LIKE ?`);
+      const subConds = docList.map(() => `${prefix}doc_type LIKE ?`);
       sql += ` AND (${subConds.join(' OR ')})`;
       docList.forEach(d => params.push(`%${d}%`));
     }
@@ -78,7 +81,7 @@ module.exports = function(db) {
     }
 
     if (reasonList.length > 0 && !reasonList.includes('all')) {
-      const subConds = reasonList.map(() => `remark LIKE ?`);
+      const subConds = reasonList.map(() => `${prefix}remark LIKE ?`);
       sql += ` AND (${subConds.join(' OR ')})`;
       reasonList.forEach(r => params.push(`%${r}%`));
     }
@@ -86,7 +89,7 @@ module.exports = function(db) {
     return sql;
   }
 
-  // 1. 匯入 API (防護限制：單號需為 TR/GD，目的庫不可為 15)
+  // 1. 匯入 API
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     const fileName = req.body.fileName || 'transfer_1580.csv';
@@ -104,14 +107,14 @@ module.exports = function(db) {
         const orderNo = String(item['補貨/調撥單號'] || item['調撥單號'] || item['order_no'] || '').trim().toUpperCase();
         const destWh = String(item['目的庫'] || item['dest_warehouse'] || '').trim();
 
-        if (!orderNo || /^\d+\$/.test(orderNo) || orderNo.includes('筆數') || orderNo.includes('總計') || orderNo.includes('合計') || orderNo.includes('TOTAL')) {
+        if (!orderNo || /^\d+$/.test(orderNo) || orderNo.includes('筆數') || orderNo.includes('總計') || orderNo.includes('合計') || orderNo.includes('TOTAL')) {
           return false;
         }
 
         const isNotTRorGD = !orderNo.startsWith('TR') && !orderNo.startsWith('GD');
-        const isDest15 = destWh === '15';
+        const isNotDest80 = destWh !== '80' && destWh !== '';
 
-        return isNotTRorGD || isDest15;
+        return isNotTRorGD || isNotDest80;
       });
 
       if (invalidRow) {
@@ -119,7 +122,7 @@ module.exports = function(db) {
         const errDest = String(invalidRow['目的庫'] || invalidRow['dest_warehouse'] || '未指定').trim();
         return res.status(400).json({
           success: false,
-          message: `⚠️ 匯入失敗：偵測到非 15➔80 跨庫調撥單據（單號：${errNo}，目的庫：${errDest}）。跨庫調撥單單號必須為 TR 或 GD 開頭且目的庫不可為 15！`
+          message: `⚠️ 匯入失敗：偵測到非 15➔80 集貨調撥單據（單號：${errNo}，目的庫：${errDest}）。調撥單號必須為 TR 或 GD 開頭且目的庫必須為 80！`
         });
       }
     }
@@ -181,7 +184,7 @@ module.exports = function(db) {
         const order_no = getVal('補貨/調撥單號', '調撥單號', 'order_no');
         const item_id = getVal('商品編號', 'item_id');
 
-        if (!item_id || !order_no || /^\d+\$/.test(order_no) || order_no.includes('筆數') || order_no.includes('總計') || order_no.includes('合計') || order_no.includes('TOTAL')) {
+        if (!item_id || !order_no || /^\d+$/.test(order_no) || order_no.includes('筆數') || order_no.includes('總計') || order_no.includes('合計') || order_no.includes('TOTAL')) {
           continue;
         }
 
@@ -202,17 +205,16 @@ module.exports = function(db) {
         const finish_remark = getVal('完成備註', 'finish_remark');
         const remark = getVal('備註說明', 'remark', '備註');
         const actual_pcs = getNum('實際上架PCS', 'actual_pcs');
-        // AD 欄位：海外訂單編號
-        // 嚴格支援多種 AD 欄位命名與去除隱藏空格
+        
         const overseas_order_no = getVal(
           '海外訂單編號',
           '海外訂單編號 ',
           ' 海外訂單編號',
           '海外訂單',
           '海外單號',
-          '訂單單號',
           '進貨單號',
-          '__EMPTY_29', // Excel 無標題時的第 30 欄 (AD欄)
+          '訂單單號',
+          '__EMPTY_29',
           'overseas_order_no'
         );
 
@@ -229,7 +231,7 @@ module.exports = function(db) {
       db.run('COMMIT', (err) => {
         db.run('PRAGMA synchronous = NORMAL');
         if (err) return res.status(500).json({ success: false, message: '跨庫調撥單寫入失敗：' + err.message });
-        res.json({ success: true, count: processedCount, message: `成功同步 ${processedCount} 筆 15➔80 跨庫調撥單資料！` });
+        res.json({ success: true, count: processedCount, message: `成功同步 ${processedCount} 筆跨庫調撥單資料！` });
       });
     });
   });
@@ -254,6 +256,7 @@ module.exports = function(db) {
       rows = rows || [];
 
       const hourlyData = Array.from({ length: 24 }, (_, h) => ({
+        hour: h,
         hourStr: `${String(h).padStart(2, '0')}:00 ~ ${String(h + 1).padStart(2, '0')}:00`,
         genOrderSet: new Set(), genPcs: 0,
         pendingOrderSet: new Set(), pendingPcs: 0,
@@ -293,6 +296,7 @@ module.exports = function(db) {
       });
 
       const hourlyStats = hourlyData.map(d => ({
+        hour: d.hour,
         hourStr: d.hourStr,
         genOrderCount: d.genOrderSet.size, genPcs: d.genPcs,
         pendingOrderCount: d.pendingOrderSet.size, pendingPcs: d.pendingPcs,
@@ -304,7 +308,7 @@ module.exports = function(db) {
     });
   });
 
-  // 3. 每月總表 API（🌟 聚合未完成筆數）
+  // 3. 每月總表 API
   router.get('/monthly-summary', (req, res) => {
     const { month, docTypes, reasons } = req.query;
     if (!month) return res.status(400).json({ success: false, message: '請提供查詢月份 (YYYY-MM)' });
@@ -412,80 +416,101 @@ module.exports = function(db) {
     const { year, docTypes, reasons } = req.query;
     if (!year) return res.status(400).json({ success: false, message: '請提供查詢年份 (YYYY)' });
 
-    let sql = `SELECT * FROM transfer_1580_details WHERE (gen_date LIKE ? OR finish_date LIKE ?)`;
     const yearPattern = `${year}%`;
-    const params = [yearPattern, yearPattern];
 
-    sql = applyFilters(sql, params, docTypes, reasons);
+    let pendingSql = `
+      SELECT SUBSTR(gen_date, 1, 7) AS month_key, COUNT(DISTINCT order_no) AS pending_count
+      FROM transfer_1580_details
+      WHERE gen_date LIKE ?
+        AND (finish_date IS NULL OR TRIM(finish_date) = '')
+        AND (doc_status IS NULL OR (doc_status != '已刪單' AND doc_status != '已銷案'))
+    `;
+    const pendingParams = [yearPattern];
+    pendingSql = applyFilters(pendingSql, pendingParams, docTypes, reasons);
+    pendingSql += ` GROUP BY SUBSTR(gen_date, 1, 7)`;
 
-    db.all(sql, params, (err, rows) => {
-      if (err) return res.status(500).json({ success: false, message: err.message });
+    db.all(pendingSql, pendingParams, (errPending, pendingRows) => {
+      if (errPending) return res.status(500).json({ success: false, message: errPending.message });
 
-      rows = rows || [];
-      const monthMap = {};
-
-      for (let m = 1; m <= 12; m++) {
-        const mKey = `${year}-${String(m).padStart(2, '0')}`;
-        monthMap[mKey] = {
-          month: mKey,
-          monthLabel: `${String(m).padStart(2, '0')}月`,
-          genOrderSet: new Set(), genPcs: 0,
-          cohortFinOrderSet: new Set(),
-          finOrderSet: new Set(), finPcs: 0,
-          delOrderSet: new Set()
-        };
-      }
-
-      rows.forEach(r => {
-        const orderNo = (r.order_no || '').trim();
-        const status = (r.doc_status || '').trim();
-        const gDate = (r.gen_date || '').trim();
-        const fDate = (r.finish_date || '').trim();
-        const isFinished = !!(fDate && fDate !== '') && status !== '已刪單';
-
-        if (gDate && gDate.startsWith(year)) {
-          const mKey = gDate.substring(0, 7);
-          if (monthMap[mKey]) {
-            if (orderNo) monthMap[mKey].genOrderSet.add(orderNo);
-            monthMap[mKey].genPcs += (r.suggest_qty || 0);
-
-            if (isFinished && orderNo) {
-              monthMap[mKey].cohortFinOrderSet.add(orderNo);
-            }
-          }
-        }
-
-        if (fDate && fDate.startsWith(year)) {
-          const mKey = fDate.substring(0, 7);
-          if (monthMap[mKey]) {
-            if (status !== '已刪單') {
-              if (orderNo) monthMap[mKey].finOrderSet.add(orderNo);
-              monthMap[mKey].finPcs += (r.actual_pcs || 0);
-            } else {
-              if (orderNo) monthMap[mKey].delOrderSet.add(orderNo);
-            }
-          }
-        }
+      const pendingMap = {};
+      (pendingRows || []).forEach(p => {
+        if (p.month_key) pendingMap[p.month_key] = p.pending_count || 0;
       });
 
-      const monthlyList = Object.keys(monthMap).sort().map(m => {
-        const item = monthMap[m];
-        const genCount = item.genOrderSet.size;
-        const cohortFinCount = item.cohortFinOrderSet.size;
-        const rateVal = genCount > 0 ? (cohortFinCount / genCount) * 100 : 0;
+      let sql = `SELECT * FROM transfer_1580_details WHERE (gen_date LIKE ? OR finish_date LIKE ?)`;
+      const params = [yearPattern, yearPattern];
+      sql = applyFilters(sql, params, docTypes, reasons);
 
-        return {
-          month: item.month,
-          monthLabel: item.monthLabel,
-          genOrderCount: genCount, genPcs: item.genPcs,
-          finOrderCount: item.finOrderSet.size, finPcs: item.finPcs,
-          delOrderCount: item.delOrderSet.size,
-          cohortFinOrderCount: cohortFinCount,
-          finishRate: Math.min(100, rateVal).toFixed(2) + '%'
-        };
+      db.all(sql, params, (err, rows) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+
+        rows = rows || [];
+        const monthMap = {};
+
+        for (let m = 1; m <= 12; m++) {
+          const mKey = `${year}-${String(m).padStart(2, '0')}`;
+          monthMap[mKey] = {
+            month: mKey,
+            monthLabel: `${String(m).padStart(2, '0')}月`,
+            genOrderSet: new Set(), genPcs: 0,
+            cohortFinOrderSet: new Set(),
+            finOrderSet: new Set(), finPcs: 0,
+            delOrderSet: new Set()
+          };
+        }
+
+        rows.forEach(r => {
+          const orderNo = (r.order_no || '').trim();
+          const status = (r.doc_status || '').trim();
+          const gDate = (r.gen_date || '').trim();
+          const fDate = (r.finish_date || '').trim();
+          const isFinished = !!(fDate && fDate !== '') && status !== '已刪單';
+
+          if (gDate && gDate.startsWith(year)) {
+            const mKey = gDate.substring(0, 7);
+            if (monthMap[mKey]) {
+              if (orderNo) monthMap[mKey].genOrderSet.add(orderNo);
+              monthMap[mKey].genPcs += (r.suggest_qty || 0);
+
+              if (isFinished && orderNo) {
+                monthMap[mKey].cohortFinOrderSet.add(orderNo);
+              }
+            }
+          }
+
+          if (fDate && fDate.startsWith(year)) {
+            const mKey = fDate.substring(0, 7);
+            if (monthMap[mKey]) {
+              if (status !== '已刪單') {
+                if (orderNo) monthMap[mKey].finOrderSet.add(orderNo);
+                monthMap[mKey].finPcs += (r.actual_pcs || 0);
+              } else {
+                if (orderNo) monthMap[mKey].delOrderSet.add(orderNo);
+              }
+            }
+          }
+        });
+
+        const monthlyList = Object.keys(monthMap).sort().map(m => {
+          const item = monthMap[m];
+          const genCount = item.genOrderSet.size;
+          const cohortFinCount = item.cohortFinOrderSet.size;
+          const rateVal = genCount > 0 ? (cohortFinCount / genCount) * 100 : 0;
+
+          return {
+            month: item.month,
+            monthLabel: item.monthLabel,
+            genOrderCount: genCount, genPcs: item.genPcs,
+            pendingOrderCount: pendingMap[item.month] || 0,
+            finOrderCount: item.finOrderSet.size, finPcs: item.finPcs,
+            delOrderCount: item.delOrderSet.size,
+            cohortFinOrderCount: cohortFinCount,
+            finishRate: Math.min(100, rateVal).toFixed(2) + '%'
+          };
+        });
+
+        res.json({ success: true, year, monthlyList });
       });
-
-      res.json({ success: true, year, monthlyList });
     });
   });
 
@@ -506,23 +531,62 @@ module.exports = function(db) {
     });
   });
 
-  // 6. 未完成明細 API（🌟 回傳 overseas_order_no）
+  // 🌟 6. 未完成明細 API：LEFT JOIN inbound_details 關聯抓取進貨端收貨備註
   router.get('/pending-details', (req, res) => {
-    const { targetDate, docTypes, reasons } = req.query;
+    let { targetDate, date, hour, month, year, docTypes, reasons } = req.query;
 
-    let sql = `SELECT * FROM transfer_1580_details WHERE (finish_date IS NULL OR finish_date = '') AND (doc_status IS NULL OR (doc_status != '已刪單' AND doc_status != '已銷案'))`;
+    let sql = `
+      SELECT 
+        t.warehouse,
+        t.order_no,
+        t.doc_type,
+        t.item_id,
+        t.item_name,
+        t.item_spec,
+        t.suggest_qty,
+        t.gen_date,
+        t.gen_time,
+        t.apply_user,
+        t.remark,
+        t.overseas_order_no,
+        ib.remark AS inbound_remark
+      FROM transfer_1580_details t
+      LEFT JOIN inbound_details ib 
+        ON (
+          t.overseas_order_no IS NOT NULL 
+          AND t.overseas_order_no != '' 
+          AND t.overseas_order_no != '-' 
+          AND ib.po_no = t.overseas_order_no
+          AND ib.item_id = t.item_id
+        )
+      WHERE (t.finish_date IS NULL OR t.finish_date = '' OR t.finish_date = ' ' OR INSTR(t.finish_date, '-') = 0)
+        AND (t.doc_status IS NULL OR (t.doc_status != '已刪單' AND t.doc_status != '已銷案'))
+    `;
     const params = [];
 
-    if (targetDate) {
-      sql += ` AND gen_date = ?`;
-      params.push(targetDate);
+    const effectiveDate = date || targetDate;
+    if (effectiveDate) {
+      sql += ` AND t.gen_date = ?`;
+      params.push(effectiveDate);
+    } else if (month) {
+      sql += ` AND t.gen_date LIKE ?`;
+      params.push(`${month}%`);
+    } else if (year) {
+      sql += ` AND t.gen_date LIKE ?`;
+      params.push(`${year}%`);
     }
 
-    sql = applyFilters(sql, params, docTypes, reasons);
-    sql += ` ORDER BY gen_date DESC, gen_time DESC`;
+    if (hour !== undefined && hour !== null && hour !== '') {
+      const hStr = String(hour).padStart(2, '0');
+      sql += ` AND (t.gen_time LIKE ? OR t.gen_time LIKE ?)`;
+      params.push(`${hStr}:%`, `${parseInt(hour, 10)}:%`);
+    }
+
+    sql = applyFilters(sql, params, docTypes, reasons, 't');
+    sql += ` ORDER BY t.gen_date DESC, t.gen_time DESC`;
 
     db.all(sql, params, (err, rows) => {
-      if (err) return res.status(500).json({ success: false, message: err.message });
+      if (err) return res.status(500).json({ success: false, message: '查詢調撥未完成明細失敗：' + err.message });
 
       rows = rows || [];
       const pendingList = rows.map(r => ({
@@ -537,7 +601,8 @@ module.exports = function(db) {
         gen_time: r.gen_time || '-',
         apply_user: r.apply_user || '-',
         remark: r.remark || '-',
-        overseas_order_no: r.overseas_order_no || '-'
+        overseas_order_no: r.overseas_order_no || '-',
+        inbound_remark: r.inbound_remark || ''
       }));
 
       res.json({ success: true, totalPending: pendingList.length, pendingList });
@@ -592,11 +657,11 @@ module.exports = function(db) {
     res.status(400).json({ success: false, message: '請提供要銷案的單據或日期區間！' });
   });
 
-  // 8. 取得非 TR / GD 開頭或目的庫為 15 之誤匯單據列表
+  // 8. 取得異常單據列表 API
   router.get('/invalid-orders', (req, res) => {
     const sql = `
       SELECT * FROM transfer_1580_details 
-      WHERE ((order_no NOT LIKE 'TR%' AND order_no NOT LIKE 'GD%' AND order_no != '') OR dest_warehouse = '15')
+      WHERE ((order_no NOT LIKE 'TR%' AND order_no NOT LIKE 'GD%' AND order_no != '') OR (dest_warehouse != '80' AND dest_warehouse != ''))
         AND item_id != '' 
         AND item_id IS NOT NULL
         AND order_no NOT LIKE '%筆數%' 
@@ -610,7 +675,7 @@ module.exports = function(db) {
     });
   });
 
-  // 9. 批次刪除誤匯單據 API
+  // 9. 批次刪除 API
   router.post('/delete-batch-invalid', (req, res) => {
     const { keys } = req.body;
     if (!Array.isArray(keys) || keys.length === 0) {
@@ -629,7 +694,7 @@ module.exports = function(db) {
 
       stmt.finalize();
       db.run('COMMIT', (err) => {
-        if (err) return res.status(500).json({ success: false, message: err.message });
+        if (err) return res.status(500).json({ success: false, message: '刪除失敗：' + err.message });
         res.json({
           success: true,
           message: `🎉 成功剔除 ${count} 筆勾選的異常跨庫調撥單據！`,
