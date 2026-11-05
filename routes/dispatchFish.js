@@ -11,7 +11,10 @@ module.exports = function(db) {
     str = str.replace(/\//g, '-');
     const parts = str.split('-');
     if (parts.length === 3) {
-      return `${parts[0]}-${String(parts[1]).padStart(2, '0')}-${String(parts[2]).padStart(2, '0')}`;
+      const y = parts[0];
+      const m = String(parts[1]).padStart(2, '0');
+      const d = String(parts[2]).padStart(2, '0');
+      return `${y}-${m}-${d}`;
     }
     return str;
   }
@@ -22,6 +25,13 @@ module.exports = function(db) {
     if (str.includes(' ')) {
       const parts = str.split(' ');
       str = parts[parts.length - 1];
+    }
+    const tParts = str.split(':');
+    if (tParts.length >= 2) {
+      const h = String(tParts[0]).padStart(2, '0');
+      const m = String(tParts[1]).padStart(2, '0');
+      const s = tParts[2] ? String(tParts[2]).padStart(2, '0') : '00';
+      return `${h}:${m}:${s}`;
     }
     return str;
   }
@@ -223,11 +233,13 @@ module.exports = function(db) {
 
       rows.forEach(r => {
         const orderNo = (r.order_no || '').trim();
-        const hasCheck = !!(r.check_date && r.check_date.trim() !== '');
+        const hasCheck = !!(r.check_date && String(r.check_date).trim() !== '');
 
         // 依收貨時間統計收貨量
         if (r.rec_date === targetDate && r.rec_time) {
-          const h = parseInt(r.rec_time.split(':')[0], 10);
+          const timeClean = String(r.rec_time).trim();
+          const hourPart = timeClean.split(':')[0];
+          const h = parseInt(hourPart, 10);
           if (!isNaN(h) && h >= 0 && h < 24) {
             if (orderNo) hourlyData[h].recOrderSet.add(orderNo);
             hourlyData[h].recPcs += (r.pcs || 0);
@@ -242,7 +254,9 @@ module.exports = function(db) {
 
         // 依驗收時間統計完成量
         if (r.check_date === targetDate && r.check_time) {
-          const h = parseInt(r.check_time.split(':')[0], 10);
+          const timeClean = String(r.check_time).trim();
+          const hourPart = timeClean.split(':')[0];
+          const h = parseInt(hourPart, 10);
           if (!isNaN(h) && h >= 0 && h < 24) {
             if (orderNo) hourlyData[h].finOrderSet.add(orderNo);
             hourlyData[h].finPcs += (r.pcs || 0);
@@ -424,7 +438,7 @@ module.exports = function(db) {
             const mKey = cDate.substring(0, 7);
             if (monthMap[mKey]) {
               if (orderNo) monthMap[mKey].finOrderSet.add(orderNo);
-              monthMap[mKey].finPcs += (r.pcs || 0);
+              monthMap[mKey].finPcs += (r.actual_pcs || 0);
             }
           }
         });

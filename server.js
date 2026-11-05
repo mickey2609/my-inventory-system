@@ -63,11 +63,11 @@ app.use('/api/transfer8015', transfer8015Router);
 const transfer1580Router = require('./routes/transfer1580')(db);
 app.use('/api/transfer1580', transfer1580Router);
 
-// 掛載收發魚群分析路由
+// 5. 🌟 收發魚群分析 API (BR 借貨 / BY 採購)
 const dispatchFishRouter = require('./routes/dispatchFish')(db);
 app.use('/api/dispatch', dispatchFishRouter);
 
-// 5. 庫存與儲位分析模組 API
+// 6. 庫存與儲位分析模組 API
 const inventory15Module = require('./routes/inventory15');
 const locationStatsModule = require('./routes/locationStats');
 const turnover15Module = require('./routes/turnover15');
@@ -78,19 +78,19 @@ app.use('/api/location-stats', locationStatsModule(db));
 app.use('/api/turnover15', turnover15Module(db));
 app.use('/api/turnover80', turnover80Module(db));
 
-// 6. 不合理進貨分析 API
+// 7. 不合理進貨分析 API
 const abnormalRouter = require('./routes/abnormal')(db);
 app.use('/api/abnormal', abnormalRouter);
 
-// 7. 全商品歷史銷量與驗收總表 API
+// 8. 全商品歷史銷量與驗收總表 API
 const itemSalesHistoryRouter = require('./routes/itemSalesHistory')(db);
 app.use('/api/item-sales-history', itemSalesHistoryRouter);
 
-// 8. 🌟 地端伺服器硬體效能監控 API (無第三方套件依賴)
+// 9. 🌟 地端伺服器硬體效能監控 API (無第三方套件依賴)
 const systemMonitorRouter = require('./routes/systemMonitor')();
 app.use('/api/system', systemMonitorRouter);
 
-// 9. 首頁 Dashboard 統計數據 API
+// 10. 首頁 Dashboard 統計數據 API
 app.get('/api/dashboard/stats', (req, res) => {
   const sql80 = `SELECT COUNT(*) as total_rows FROM inventory`;
   const sql15 = `SELECT COUNT(*) as total_rows FROM inventory_15`;
@@ -133,7 +133,7 @@ app.get('/api/dashboard/stats', (req, res) => {
   });
 });
 
-// 10. 批次匯入/更新帳號 API
+// 11. 批次匯入/更新帳號 API
 app.post('/api/batch-import-users', (req, res) => {
   const users = req.body.users || req.body;
 
@@ -185,7 +185,7 @@ app.post('/api/batch-import-users', (req, res) => {
   });
 });
 
-// 11. 全域跑馬燈公告同步 API
+// 12. 全域跑馬燈公告同步 API
 app.get('/api/announcement', (req, res) => {
   db.get(`SELECT config_value FROM system_config WHERE config_key = 'announcement'`, [], (err, row) => {
     if (err) return res.status(500).json({ success: false, message: err.message });
@@ -209,7 +209,7 @@ app.post('/api/announcement', (req, res) => {
   );
 });
 
-// 12. 登入 API
+// 13. 登入 API
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
 
@@ -772,7 +772,7 @@ app.get('/api/categories/small', (req, res) => {
   });
 });
 
-// 🌟 心跳 API：記錄使用者與訪客 (guest) 在線狀態
+// 🌟 心跳 API：記錄使用者與訪客 (guest) 在線狀態[cite: 14]
 app.post('/api/heartbeat', (req, res) => {
   if (req.body.username) {
     db.run('UPDATE users SET last_active = ? WHERE username = ?', [Math.floor(Date.now() / 1000), req.body.username]);
@@ -785,7 +785,7 @@ app.post('/api/logout', (req, res) => {
   res.json({ success: true, message: '已成功登出' });
 });
 
-// 🌟 取得所有使用者清單（含訪客 guest 自動補齊與精準在線判定）
+// 🌟 取得所有使用者清單（含訪客 guest 自動補齊與精準在線判定）[cite: 14]
 app.get('/api/get-users', (req, res) => {
   db.all('SELECT username, name, role, permissions, last_active FROM users', [], (err, rows) => {
     if (err) return res.status(500).json({ success: false, error: err.message });
@@ -798,7 +798,7 @@ app.get('/api/get-users', (req, res) => {
         username: 'guest',
         name: '訪客 (免登直達)',
         role: 'guest',
-        permissions: 'replenish_fish,transfer_80_15,transfer_15_80',
+        permissions: 'replenish_fish,transfer_80_15,transfer_15_80,dispatch_fish',
         last_active: 0
       });
     }
@@ -858,7 +858,7 @@ app.post('/api/delete-user', (req, res) => {
   });
 });
 
-// [GET] 庫存查詢 API (完整 48 欄位處理邏輯)
+// [GET] 庫存查詢 API (完整 48 欄位處理邏輯)[cite: 14]
 app.get('/api/search', (req, res) => {
   const page = parseInt(req.query.page || '1', 10);
   const pageSize = parseInt(req.query.pageSize || '500', 10);
@@ -1034,7 +1034,7 @@ app.get('/api/get-logs', (req, res) => {
   });
 });
 
-// [POST] 極速匯入 API (包含自動備份與更新歷史銷量總表)
+// [POST] 極速匯入 API (包含自動備份與更新歷史銷量總表)[cite: 14]
 app.post('/api/upload', (req, res) => {
   try {
     const { items, isFirstChunk, fileName } = req.body;
@@ -1171,7 +1171,7 @@ db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS locations_master (id INTEGER PRIMARY KEY AUTOINCREMENT, floor TEXT, zone TEXT, loc_type TEXT, cubic_feet REAL, grid_count INTEGER, single_cubic_feet REAL);`);
   db.run(`CREATE TABLE IF NOT EXISTS import_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, module_type TEXT, file_name TEXT, row_count INTEGER, imported_at TEXT);`);
   
-  // 1. 每日不合理進貨快照歷史表
+  // 1. 每日不合理進貨快照歷史表[cite: 14]
   db.run(`
     CREATE TABLE IF NOT EXISTS abnormal_purchase_history (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1202,7 +1202,7 @@ db.serialize(() => {
     );
   `);
 
-  // 2. 商品自訂屬性與贈品備註表
+  // 2. 商品自訂屬性與贈品備註表[cite: 14]
   db.run(`
     CREATE TABLE IF NOT EXISTS item_custom_notes (
       item_id TEXT PRIMARY KEY,
@@ -1213,13 +1213,13 @@ db.serialize(() => {
     );
   `);
 
-  // 基礎系統帳號
+  // 基礎系統帳號 (已確保收發魚群權限健全)[cite: 14]
   db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions) VALUES ('admin', '系統管理員', 'sys_admin', 'admin', 'all');`);
   db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions) VALUES ('801854', '黃勝鴻', 'sys_admin', '801854', 'all');`);
-  db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions, last_active) VALUES ('guest', '訪客 (免登直達)', 'guest', 'guest_direct_no_pwd', 'replenish_fish,transfer_80_15,transfer_15_80', 0);`);
+  db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions, last_active) VALUES ('guest', '訪客 (免登直達)', 'guest', 'guest_direct_no_pwd', 'replenish_fish,transfer_80_15,transfer_15_80,dispatch_fish', 0);`);
 });
 
-// 為高頻查詢欄位建立索引
+// 為高頻查詢欄位建立索引[cite: 14]
 db.run(`CREATE INDEX IF NOT EXISTS idx_inbound_rec_date ON inbound_details(rec_date)`);
 db.run(`CREATE INDEX IF NOT EXISTS idx_inbound_item_id ON inbound_details(item_id)`);
 db.run(`CREATE INDEX IF NOT EXISTS idx_abnormal_rec_date ON abnormal_purchase_history(rec_date)`);
