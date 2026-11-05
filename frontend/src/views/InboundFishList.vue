@@ -9,43 +9,85 @@
       @change="handleCsvFileSelected"
     />
 
-    <!-- 1. 頂部操作與篩選列 -->
+    <!-- 1. 頂部操作與篩選列 (🌟 整合日期步進組件) -->
     <div class="top-bar">
       <div class="title-group">
         <span class="page-title">🐟 倉庫 進貨驗收與新品上架分析</span>
         
-        <el-date-picker
-          v-if="analysisMode === 'daily'"
-          v-model="targetDate"
-          type="date"
-          size="small"
-          value-format="YYYY-MM-DD"
-          placeholder="選擇日期"
-          style="width: 135px;"
-          @change="fetchFishData"
-        />
+        <!-- 🌟 智慧日期/月份/年份 步進切換器 (支援前一天、後一天、今天) -->
+        <div class="date-stepper-group">
+          <el-button 
+            size="small" 
+            type="primary" 
+            plain 
+            class="stepper-btn"
+            @click="shiftPeriod(-1)"
+            :title="getShiftTitle(-1)"
+          >
+            ◀
+          </el-button>
 
-        <el-date-picker
-          v-else-if="analysisMode === 'monthly'"
-          v-model="targetMonth"
-          type="month"
-          size="small"
-          value-format="YYYY-MM"
-          placeholder="選擇月份"
-          style="width: 135px;"
-          @change="fetchMonthlySummary"
-        />
+          <!-- 單日選擇器 -->
+          <el-date-picker
+            v-if="analysisMode === 'daily'"
+            v-model="targetDate"
+            type="date"
+            size="small"
+            value-format="YYYY-MM-DD"
+            placeholder="選擇日期"
+            style="width: 135px;"
+            :clearable="false"
+            @change="fetchFishData"
+          />
 
-        <el-date-picker
-          v-else
-          v-model="targetYear"
-          type="year"
-          size="small"
-          value-format="YYYY"
-          placeholder="選擇年份"
-          style="width: 110px;"
-          @change="fetchYearlySummary"
-        />
+          <!-- 每月選擇器 -->
+          <el-date-picker
+            v-else-if="analysisMode === 'monthly'"
+            v-model="targetMonth"
+            type="month"
+            size="small"
+            value-format="YYYY-MM"
+            placeholder="選擇月份"
+            style="width: 130px;"
+            :clearable="false"
+            @change="fetchMonthlySummary"
+          />
+
+          <!-- 年度選擇器 -->
+          <el-date-picker
+            v-else
+            v-model="targetYear"
+            type="year"
+            size="small"
+            value-format="YYYY"
+            placeholder="選擇年份"
+            style="width: 110px;"
+            :clearable="false"
+            @change="fetchYearlySummary"
+          />
+
+          <el-button 
+            size="small" 
+            type="primary" 
+            plain 
+            class="stepper-btn"
+            @click="shiftPeriod(1)"
+            :title="getShiftTitle(1)"
+          >
+            ▶
+          </el-button>
+
+          <el-button 
+            size="small" 
+            type="info" 
+            plain 
+            class="stepper-today-btn"
+            @click="resetToCurrentPeriod"
+            :title="getResetTitle"
+          >
+            {{ getResetLabel }}
+          </el-button>
+        </div>
 
         <el-radio-group v-model="analysisMode" size="small" @change="handleAnalysisModeChange">
           <el-radio-button label="daily">📅 單日時段分析</el-radio-button>
@@ -92,7 +134,7 @@
       </div>
     </div>
 
-    <!-- 🌟 2. 動態頂部 KPI 儀表卡：依統計檢視維度給予不同資訊 -->
+    <!-- 2. 動態頂部 KPI 儀表卡：依統計檢視維度給予不同資訊 -->
     
     <!-- 模式 A：【單日 - 依進貨單號分析】精準拆解當日件 vs 歷史滯留 -->
     <div class="cargo-kpi-card po-advanced-kpi" v-if="activeViewTab === 'po' && analysisMode === 'daily'">
@@ -229,7 +271,7 @@
       </div>
     </div>
 
-    <!-- 🌟 模式 C2：【每月每日總表 - 常規統計總表】專屬全月宏觀 KPI 卡 -->
+    <!-- 模式 C2：【每月每日總表 - 常規統計總表】專屬全月宏觀 KPI 卡 -->
     <div class="cargo-kpi-card" v-else-if="activeViewTab === 'both' && analysisMode === 'monthly'">
       <div class="kpi-box main-kpi">
         <div class="kpi-title">🗓️ {{ targetMonth }} 月份驗收總量</div>
@@ -267,7 +309,7 @@
       </div>
     </div>
 
-    <!-- 🌟 模式 C3：【年度每月總表 - 常規統計總表】專屬全年度宏觀 KPI 卡 -->
+    <!-- 模式 C3：【年度每月總表 - 常規統計總表】專屬全年度宏觀 KPI 卡 -->
     <div class="cargo-kpi-card" v-else-if="activeViewTab === 'both' && analysisMode === 'yearly'">
       <div class="kpi-box main-kpi">
         <div class="kpi-title">📊 {{ targetYear }} 年度驗收總量</div>
@@ -305,7 +347,7 @@
       </div>
     </div>
 
-    <!-- 模式 D：【板貨 vs 散貨分析】板數與才數結構卡（單日、每月、年度通用的板散卡片） -->
+    <!-- 模式 D：【板貨 vs 散貨分析】板數與才數結構卡 -->
     <div class="cargo-kpi-card" v-else>
       <div class="kpi-box main-kpi">
         <div class="kpi-title">總進貨預估板數 (27000才基準)</div>
@@ -375,7 +417,6 @@
       </div>
 
       <div class="table-scroll-wrapper">
-        <!-- 模式 1, 2, 3：單號 / 批號表格 -->
         <table class="vba-style-table" v-if="activeViewTab !== 'cargo'">
           <colgroup>
             <col style="width: 70px;" />
@@ -600,7 +641,7 @@
                 class="text-right font-bold clickable-drill" 
                 :class="{ 'text-green': h.palletBatchCount > 0 }"
                 @click="h.palletBatchCount > 0 ? openCargoDrillModal({ type: 'pallet', hour: h.hour, title: `${h.hourStr} 板貨品項明細` }) : null"
-                :title="h.palletBatchCount > 0 ? `點擊穿透查看 ${h.palletBatchCount} 筆板貨驗收品項明細` : ''"
+                :title="h.palletBatchCount > 0 ? `點擊穿透查看 ${h.hourStr} 時段 ${h.palletBatchCount} 筆板貨驗收品項明細` : ''"
               >
                 {{ formatNumber(h.palletBatchCount) }}
               </td>
@@ -635,7 +676,7 @@
               <td class="text-right font-bold">100.00%</td>
               <td 
                 class="text-right font-bold text-green clickable-drill" 
-                @click="cargoSummary.palletBatchCount > 0 ? openCargoDrillModal({ type: 'pallet', title: '當日全量 板貨品項明細' }) : null"
+                @click="cargoSummary.palletBatchCount > 0 ? openCargoDrillModal({ type: 'pallet', title: '當日全量 板貨品項明細` }) : null"
                 title="點擊穿透查看當日全量板貨明細"
               >
                 {{ formatNumber(cargoSummary.palletBatchCount) }}
@@ -1010,7 +1051,7 @@
           
           <el-table-column prop="item_id" label="商品編號" width="170" align="center" sortable>
             <template #default="scope">
-              <span class="font-bold text-blue clickable-id" @click="copyItemId(scope.row.item_id)">
+              <span class="font-bold text-blue clickable-id" @click="copyText(scope.row.item_id, '商品編號')">
                 {{ scope.row.item_id }}
               </span>
             </template>
@@ -1160,7 +1201,7 @@
       </div>
     </el-dialog>
 
-    <!-- 9. 未上架彈窗 -->
+    <!-- 🌟 9. 未上架彈窗 (支援貼 ID / 進貨單號 / 批號 批量搜尋與點擊複製) -->
     <el-dialog 
       v-model="showPendingDialog" 
       title="⚠️ 尚未上架明細監控與更正處置" 
@@ -1198,8 +1239,24 @@
               </span>
 
               <span class="detail-count-text">
-                共 <strong>{{ filteredDetailsList.length }}</strong> 筆明細
+                共 <strong>{{ filteredDetailsList.length }}</strong> 筆明細<span v-if="searchPendingKeyword.trim()"> / 原 {{ currentDetailsList.length }} 筆</span>
               </span>
+
+              <!-- 🌟 貼 ID / 單號 / 批號 查詢輸入框 -->
+              <div class="id-search-box">
+                <el-input
+                  v-model="searchPendingKeyword"
+                  size="small"
+                  placeholder="貼上商品ID/進貨單號/批號 (多筆以空格/逗號/換行隔開)"
+                  clearable
+                  prefix-icon="el-icon-search"
+                  style="width: 380px;"
+                >
+                  <template #append v-if="searchPendingKeyword.trim()">
+                    <span class="id-count-badge">已比對 {{ filteredDetailsList.length }} 筆</span>
+                  </template>
+                </el-input>
+              </div>
 
               <el-radio-group v-model="pendingWhFilter" size="mini" class="pending-wh-radio">
                 <el-radio-button label="all">全部庫別</el-radio-button>
@@ -1289,12 +1346,28 @@
               </template>
             </el-table-column>
 
-            <el-table-column prop="po_no" label="進貨單號" width="165" align="center" sortable />
-            <el-table-column prop="batch_no" label="驗收批號" width="160" align="center" sortable />
+            <!-- 🌟 進貨單號支援點擊複製 -->
+            <el-table-column prop="po_no" label="進貨單號" width="165" align="center" sortable>
+              <template #default="scope">
+                <span class="font-bold text-orange clickable-id" @click="copyText(scope.row.po_no, '進貨單號')" title="點擊可複製進貨單號">
+                  {{ scope.row.po_no }}
+                </span>
+              </template>
+            </el-table-column>
 
+            <!-- 🌟 驗收批號支援點擊複製 -->
+            <el-table-column prop="batch_no" label="驗收批號" width="160" align="center" sortable>
+              <template #default="scope">
+                <span class="font-bold text-cyan clickable-id" @click="copyText(scope.row.batch_no, '驗收批號')" title="點擊可複製驗收批號">
+                  {{ scope.row.batch_no }}
+                </span>
+              </template>
+            </el-table-column>
+
+            <!-- 商品ID支援點擊複製 -->
             <el-table-column prop="item_id" label="商品ID" width="190" align="center" sortable>
               <template #default="scope">
-                <span class="font-bold text-blue clickable-id" @click="copyItemId(scope.row.item_id)" title="點擊可複製商品ID">
+                <span class="font-bold text-blue clickable-id" @click="copyText(scope.row.item_id, '商品ID')" title="點擊可複製商品ID">
                   {{ scope.row.item_id }}
                 </span>
               </template>
@@ -1420,10 +1493,10 @@ export default {
       monthlyDailyList: [],
       yearlyMonthlyList: [],
 
-      // 全系統統一門檻 (預設 30 才，自動從後端 SQLite 讀取)
+      // 全系統統一門檻 (預設 30 才，自動從後端資料庫讀取)
       palletThreshold: 30,
 
-      // 🌟 拆解後的進貨單號詳細指標
+      // 拆解後的進貨單號詳細指標
       poData: {
         todayRecPoCount: 0,
         todayRecPcs: 0,
@@ -1472,6 +1545,9 @@ export default {
       selectedHourStr: '',
       pendingWhFilter: 'all',
       aiFilterStatus: 'all',
+
+      // 🌟 未上架貼 ID / 進貨單號 / 批號 查詢輸入綁定
+      searchPendingKeyword: '',
 
       showUploadCardModal: false,
       isCardHover: false,
@@ -1528,33 +1604,40 @@ export default {
       return username === 'admin' || username === '系統管理員';
     },
 
-    // 🌟 1. 真實當日即時達成率（當日驗當日上 / 當日驗收總量，永不爆表）
+    // 🌟 步進快捷按鈕文字與標題
+    getResetLabel() {
+      if (this.analysisMode === 'daily') return '今天';
+      if (this.analysisMode === 'monthly') return '本月';
+      return '今年';
+    },
+    getResetTitle() {
+      if (this.analysisMode === 'daily') return '回到今天日期';
+      if (this.analysisMode === 'monthly') return '回到當前月份';
+      return '回到當前年份';
+    },
+
+    // 單號與批號專屬 KPI 比率
     getSameDaySlaRate() {
       if (!this.poData.todayRecPoCount) return '0.00%';
       return ((this.poData.sameDayPutPoCount / this.poData.todayRecPoCount) * 100).toFixed(2) + '%';
     },
-    // 🌟 2. 當日上架總產能佔當日驗收比
     getOverallCapacityRate() {
       if (!this.poData.todayRecPoCount) return '0.00%';
       return ((this.poData.todayPutPoCount / this.poData.todayRecPoCount) * 100).toFixed(2) + '%';
     },
-    // 🌟 3. 消化歷史積壓佔當日上架產能的比例
     getPrevDayClearRate() {
       if (!this.poData.todayPutPoCount) return '0.00%';
       return ((this.poData.prevDayPutPoCount / this.poData.todayPutPoCount) * 100).toFixed(2) + '%';
     },
-    // 🌟 4. 當日進貨滯留率（當日驗收未上 / 當日驗收總量）
     getTodayUnputRate() {
       if (!this.poData.todayRecPoCount) return '0.00%';
       return ((this.poData.todayUnputPoCount / this.poData.todayRecPoCount) * 100).toFixed(2) + '%';
     },
-    // 🌟 5. 歷史積壓佔當前所有未上架單數的比例
     getHistoryUnputShareRate() {
       if (!this.poData.totalUnputPoCount) return '0.00%';
       return ((this.poData.historyUnputPoCount / this.poData.totalUnputPoCount) * 100).toFixed(2) + '%';
     },
 
-    // 批號與常規模式比率
     getPutPoRate() {
       if (!this.summaryTotal.recPoCount) return '0.00%';
       return ((this.summaryTotal.putPoCount / this.summaryTotal.recPoCount) * 100).toFixed(2) + '%';
@@ -1638,6 +1721,7 @@ export default {
       return this.currentDetailsList.filter(r => this.analyzeRemark(r.remark).isAbnormal).length;
     },
 
+    // 🌟 支援 貼 ID / 進貨單號 / 批號 批量比對過濾
     filteredDetailsList() {
       let list = this.currentDetailsList;
 
@@ -1657,6 +1741,27 @@ export default {
         list = list.filter(r => this.analyzeRemark(r.remark).isAbnormal);
       } else if (this.aiFilterStatus === 'normal') {
         list = list.filter(r => !this.analyzeRemark(r.remark).isAbnormal);
+      }
+
+      if (this.searchPendingKeyword && this.searchPendingKeyword.trim()) {
+        const rawKeywords = this.searchPendingKeyword
+          .split(/[\s,，\n\r]+/)
+          .map(s => s.trim().toUpperCase())
+          .filter(Boolean);
+
+        if (rawKeywords.length > 0) {
+          list = list.filter(row => {
+            const rowId = String(row.item_id || '').trim().toUpperCase();
+            const rowPo = String(row.po_no || '').trim().toUpperCase();
+            const rowBatch = String(row.batch_no || '').trim().toUpperCase();
+
+            return rawKeywords.some(kw => {
+              return rowId === kw || rowId.includes(kw) ||
+                     rowPo === kw || rowPo.includes(kw) ||
+                     rowBatch === kw || rowBatch.includes(kw);
+            });
+          });
+        }
       }
 
       return list;
@@ -1709,6 +1814,90 @@ export default {
       if (wh === '80') return '80 庫';
       if (wh === '15') return '15 庫';
       return '雙庫合計';
+    },
+
+    // 🌟 步進懸浮提示文字
+    getShiftTitle(offset) {
+      const direction = offset < 0 ? '前' : '後';
+      if (this.analysisMode === 'daily') return `切換至${direction}一天`;
+      if (this.analysisMode === 'monthly') return `切換至${direction}一個月`;
+      return `切換至${direction}一年`;
+    },
+
+    // 🌟 核心切換邏輯：往前/往後切換天數、月份、年份
+    shiftPeriod(offset) {
+      if (this.analysisMode === 'daily') {
+        const curDate = new Date(this.targetDate || new Date());
+        curDate.setDate(curDate.getDate() + offset);
+        const y = curDate.getFullYear();
+        const m = String(curDate.getMonth() + 1).padStart(2, '0');
+        const d = String(curDate.getDate()).padStart(2, '0');
+        this.targetDate = `${y}-${m}-${d}`;
+        this.fetchFishData();
+      } else if (this.analysisMode === 'monthly') {
+        const parts = (this.targetMonth || '').split('-');
+        let year = parseInt(parts[0], 10) || new Date().getFullYear();
+        let month = (parseInt(parts[1], 10) || (new Date().getMonth() + 1)) + offset;
+        if (month < 1) {
+          month = 12;
+          year -= 1;
+        } else if (month > 12) {
+          month = 1;
+          year += 1;
+        }
+        this.targetMonth = `${year}-${String(month).padStart(2, '0')}`;
+        this.fetchMonthlySummary();
+      } else {
+        const curYear = parseInt(this.targetYear, 10) || new Date().getFullYear();
+        this.targetYear = String(curYear + offset);
+        this.fetchYearlySummary();
+      }
+    },
+
+    // 🌟 一鍵重置回「今天 / 本月 / 今年」
+    resetToCurrentPeriod() {
+      const now = new Date();
+      const y = now.getFullYear();
+      const m = String(now.getMonth() + 1).padStart(2, '0');
+      const d = String(now.getDate()).padStart(2, '0');
+
+      if (this.analysisMode === 'daily') {
+        this.targetDate = `${y}-${m}-${d}`;
+        this.fetchFishData();
+      } else if (this.analysisMode === 'monthly') {
+        this.targetMonth = `${y}-${m}`;
+        this.fetchMonthlySummary();
+      } else {
+        this.targetYear = String(y);
+        this.fetchYearlySummary();
+      }
+    },
+
+    // 🌟 點擊一鍵複製文字
+    copyText(text, label = '內容') {
+      if (!text) return;
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(() => {
+          ElMessage.success(`📋 已複製${label}：${text}`);
+        }).catch(() => {
+          this.fallbackCopy(text, label);
+        });
+      } else {
+        this.fallbackCopy(text, label);
+      }
+    },
+    fallbackCopy(text, label = '內容') {
+      const input = document.createElement('textarea');
+      input.value = text;
+      document.body.appendChild(input);
+      input.select();
+      try {
+        document.execCommand('copy');
+        ElMessage.success(`📋 已複製${label}：${text}`);
+      } catch (err) {
+        ElMessage.error('複製失敗');
+      }
+      document.body.removeChild(input);
     },
 
     async fetchGlobalPalletThreshold() {
@@ -1829,32 +2018,6 @@ export default {
 
     filterWarehouseColumn(value, row) {
       return String(row.warehouse) === String(value);
-    },
-
-    copyItemId(id) {
-      if (!id) return;
-      if (navigator.clipboard && window.isSecureContext) {
-        navigator.clipboard.writeText(id).then(() => {
-          ElMessage.success(`📋 已成功複製商品ID：${id}`);
-        }).catch(() => {
-          this.fallbackCopy(id);
-        });
-      } else {
-        this.fallbackCopy(id);
-      }
-    },
-    fallbackCopy(text) {
-      const input = document.createElement('textarea');
-      input.value = text;
-      document.body.appendChild(input);
-      input.select();
-      try {
-        document.execCommand('copy');
-        ElMessage.success(`📋 已成功複製商品ID：${text}`);
-      } catch (err) {
-        ElMessage.error('複製失敗');
-      }
-      document.body.removeChild(input);
     },
 
     globalBlockDrop(e) {
@@ -2050,7 +2213,6 @@ export default {
           }
 
           const rawHourly = res.data.hourlyStats || [];
-          
           let totRecPo = 0, totPutPo = 0, totRecBat = 0, totPutBat = 0;
           rawHourly.forEach(r => {
             totRecPo += r.recPoCount || 0;
@@ -2157,6 +2319,7 @@ export default {
       this.selectedHourStr = '';
       this.pendingWhFilter = 'all';
       this.aiFilterStatus = 'all';
+      this.searchPendingKeyword = '';
 
       if (this.pendingSummary && this.pendingSummary.length > 0) {
         this.selectedPendingDate = this.pendingSummary[0].rec_date;
@@ -2173,6 +2336,7 @@ export default {
       this.selectedPendingDate = this.targetDate;
       this.pendingWhFilter = 'all';
       this.aiFilterStatus = 'all';
+      this.searchPendingKeyword = '';
       this.fetchPendingSummary();
       this.loadPendingDetails(this.targetDate, hourIndex);
       this.showPendingDialog = true;
@@ -2184,6 +2348,7 @@ export default {
     },
 
     onPendingDateSelectChange(val) {
+      this.searchPendingKeyword = '';
       this.loadPendingDetails(val, null);
     },
 
@@ -2341,7 +2506,29 @@ export default {
   color: #38bdf8;
 }
 
-/* 🌟 動態 KPI 概覽卡 */
+/* 🌟 日期步進器樣式 */
+.date-stepper-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #0f172a;
+  padding: 2px 6px;
+  border-radius: 6px;
+  border: 1px solid #334155;
+}
+
+.stepper-btn {
+  padding: 6px 10px !important;
+  font-weight: bold;
+}
+
+.stepper-today-btn {
+  padding: 6px 10px !important;
+  font-weight: bold;
+  margin-left: 2px;
+}
+
+/* 動態 KPI 概覽卡 */
 .cargo-kpi-card {
   display: grid;
   grid-template-columns: 1.2fr 1.6fr 1.6fr 1.4fr;
@@ -2413,7 +2600,6 @@ export default {
   color: #94a3b8;
 }
 
-/* 🌟 拆分細節樣式 */
 .kpi-sub-split {
   display: flex;
   flex-direction: column;
@@ -2670,12 +2856,12 @@ export default {
 
 .clickable-id {
   cursor: pointer;
-  color: #38bdf8;
   transition: all 0.2s;
 }
 .clickable-id:hover {
   text-decoration: underline;
-  color: #60a5fa;
+  color: #60a5fa !important;
+  text-shadow: 0 0 6px rgba(56, 189, 248, 0.6);
 }
 
 .wh-badge {
@@ -2855,6 +3041,18 @@ export default {
   border-radius: 4px;
   font-weight: bold;
   font-size: 12px;
+}
+
+/* 🌟 貼 ID / 單號 查詢輸入框樣式 */
+.id-search-box {
+  display: flex;
+  align-items: center;
+}
+.id-count-badge {
+  color: #38bdf8;
+  font-weight: bold;
+  font-size: 11px;
+  padding-right: 4px;
 }
 
 .pending-wh-radio, .ai-filter-radio {
