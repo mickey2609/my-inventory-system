@@ -88,9 +88,8 @@
       </div>
     </div>
 
-    <!-- 2. 第二排獨立工具列：單據來源與四大智慧維度快篩 -->
+    <!-- 2. 第二排獨立工具列：主畫面四大智慧維度快篩 -->
     <div class="filter-bar">
-      <!-- 來源類別 -->
       <div class="filter-item-box">
         <span class="select-label">🏷️ 單據類別：</span>
         <el-radio-group v-model="sourceCategoryFilter" size="small" @change="refreshCurrentMode">
@@ -100,7 +99,6 @@
         </el-radio-group>
       </div>
 
-      <!-- 準時到貨 (K=L) -->
       <div class="filter-item-box">
         <span class="select-label">🚚 準時到貨：</span>
         <el-radio-group v-model="onTimeFilter" size="small" @change="refreshCurrentMode">
@@ -110,17 +108,15 @@
         </el-radio-group>
       </div>
 
-      <!-- 異常件 (N欄備註) -->
       <div class="filter-item-box">
         <span class="select-label">⚠️ 異常狀態：</span>
         <el-radio-group v-model="abnormalFilter" size="small" @change="refreshCurrentMode">
           <el-radio-button label="all">全部</el-radio-button>
           <el-radio-button label="yes">🚨 異常件</el-radio-button>
-          <el-radio-button label="no">🟢 常規件</el-radio-button>
+          <el-radio-button label="no">🟢 正常件</el-radio-button>
         </el-radio-group>
       </div>
 
-      <!-- 快速通關 (A欄) -->
       <div class="filter-item-box">
         <span class="select-label">⚡ 快速通關：</span>
         <el-radio-group v-model="fastPassFilter" size="small" @change="refreshCurrentMode">
@@ -130,7 +126,6 @@
         </el-radio-group>
       </div>
 
-      <!-- 是否已收發未驗收 (有L無O) -->
       <div class="filter-item-box">
         <span class="select-label">⏳ 收發進度：</span>
         <el-radio-group v-model="uncheckFilter" size="small" @change="refreshCurrentMode">
@@ -334,7 +329,7 @@
       </div>
     </div>
 
-    <!-- 4. 未驗收追蹤對話框 (支援貼 ID/單號批量比對) -->
+    <!-- 4. 🌟 未驗收追蹤對話框 (完整修復：支援顯示全部日期、獨立異常件篩選、多筆搜尋) -->
     <el-dialog
       v-model="showPendingDialog"
       title="⚠️ 尚未驗收完成單據明細監控與更正處置"
@@ -344,9 +339,20 @@
       custom-class="dark-dialog full-monitor-dialog"
     >
       <div class="monitor-container" v-loading="loadingPending">
+        <!-- 左側收貨日期選單 -->
         <div class="side-date-nav">
           <div class="nav-title">📅 選擇收貨日期：</div>
           <div class="nav-scroll-list">
+            <!-- 🌟 全部日期彙總選項 -->
+            <div
+              class="nav-date-item"
+              :class="{ 'active-date': activePendingDate === '' && !drillFilterLabel }"
+              @click="selectPendingDate('')"
+            >
+              <span class="date-str font-bold">🌐 全部未驗收日期</span>
+              <span class="count-badge badge-all">{{ formatNumber(totalPendingAllDates) }} 筆</span>
+            </div>
+
             <div
               v-for="d in pendingDateList"
               :key="d.rec_date"
@@ -361,14 +367,25 @@
           </div>
         </div>
 
+        <!-- 右側主要清單 -->
         <div class="main-monitor-content">
           <div class="monitor-top-toolbar">
             <div class="toolbar-left-info">
               <span v-if="drillFilterLabel" class="drill-tag">🎯 穿透篩選：<strong>[{{ drillFilterLabel }}]</strong></span>
               <span class="current-date-header">
-                🔍 <strong>{{ drillFilterLabel ? '' : (activePendingDate || '全部日期') }}</strong> 
-                未完成明細 (共 {{ formatNumber(filteredPendingList.length) }} 筆<span v-if="searchKeyword.trim()"> / 原 {{ pendingList.length }} 筆</span>)
+                🔍 <strong>{{ drillFilterLabel ? '' : (activePendingDate || '全部未驗收日期') }}</strong> 
+                未完成明細 (共 {{ formatNumber(filteredPendingList.length) }} 筆<span v-if="searchKeyword.trim() || dialogAbnormalFilter !== 'all'"> / 原 {{ pendingList.length }} 筆</span>)
               </span>
+
+              <!-- 🌟 彈窗專屬：異常件 / 正常件篩選按鈕 -->
+              <div class="dialog-filter-box">
+                <span class="dialog-filter-label">異常狀態：</span>
+                <el-radio-group v-model="dialogAbnormalFilter" size="mini">
+                  <el-radio-button label="all">全部</el-radio-button>
+                  <el-radio-button label="yes">🚨 異常件</el-radio-button>
+                  <el-radio-button label="no">🟢 正常件</el-radio-button>
+                </el-radio-group>
+              </div>
 
               <!-- 貼 ID / 單號 批量搜尋框 -->
               <div class="id-search-box">
@@ -378,7 +395,7 @@
                   placeholder="貼上商品ID / BR借貨單 / BY採購單 (多筆以空格/逗號/換行隔開)"
                   clearable
                   prefix-icon="el-icon-search"
-                  style="width: 390px;"
+                  style="width: 360px;"
                 >
                   <template #append v-if="searchKeyword.trim()">
                     <span class="id-count-badge">已比對 {{ filteredPendingList.length }} 筆</span>
@@ -462,7 +479,7 @@
 
             <el-table-column label="處置" width="90" align="center" fixed="right">
               <template #default="scope">
-                <el-button size="mini" type="danger" plain icon="el-icon-wrench" @click="openCloseDialog(scope.row)">銷案</el-button>
+                <el-button size="mini" type="danger" plain icon="el-icon-wrench" @click="batchCloseSingle(scope.row)">銷案</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -540,7 +557,7 @@ export default {
       targetMonth: new Date().toISOString().slice(0, 7),
       targetYear: new Date().getFullYear().toString(),
       
-      // 🌟 五大多維度篩選狀態
+      // 主畫面篩選狀態
       sourceCategoryFilter: 'all',
       onTimeFilter: 'all',
       abnormalFilter: 'all',
@@ -551,6 +568,7 @@ export default {
       monthlyDailyList: [],
       yearlyMonthlyList: [],
 
+      // 未驗收彈窗內部狀態
       showPendingDialog: false,
       pendingDateList: [],
       activePendingDate: '',
@@ -559,6 +577,7 @@ export default {
       isAllSelected: false,
       drillFilterLabel: '',
       drillFilterParams: null,
+      dialogAbnormalFilter: 'all', // 🌟 彈窗專屬異常件篩選 (all / yes / no)
 
       searchKeyword: '',
 
@@ -595,12 +614,26 @@ export default {
       if (this.analysisMode === 'monthly') return '回到當前月份';
       return '回到當前年份';
     },
+    totalPendingAllDates() {
+      return this.pendingDateList.reduce((acc, d) => acc + (d.count || 0), 0);
+    },
+    // 🌟 彈窗內部的資料計算：支援「異常狀態」與「貼ID/單號搜尋」
     filteredPendingList() {
-      if (!this.searchKeyword || !this.searchKeyword.trim()) return this.pendingList;
-      const rawKeywords = this.searchKeyword.split(/[\s,，\n\r]+/).map(s => s.trim().toUpperCase()).filter(Boolean);
-      if (rawKeywords.length === 0) return this.pendingList;
+      let list = this.pendingList;
 
-      return this.pendingList.filter(row => {
+      // 1. 異常狀態過濾
+      if (this.dialogAbnormalFilter === 'yes') {
+        list = list.filter(r => this.isRowAbnormal(r.remark));
+      } else if (this.dialogAbnormalFilter === 'no') {
+        list = list.filter(r => !this.isRowAbnormal(r.remark));
+      }
+
+      // 2. 關鍵字搜尋過濾
+      if (!this.searchKeyword || !this.searchKeyword.trim()) return list;
+      const rawKeywords = this.searchKeyword.split(/[\s,，\n\r]+/).map(s => s.trim().toUpperCase()).filter(Boolean);
+      if (rawKeywords.length === 0) return list;
+
+      return list.filter(row => {
         const rowId = String(row.item_id || '').trim().toUpperCase();
         const rowOrder = String(row.order_no || '').trim().toUpperCase();
         return rawKeywords.some(kw => rowId === kw || rowId.includes(kw) || rowOrder === kw || rowOrder.includes(kw));
@@ -813,7 +846,6 @@ export default {
         let rawData = [];
         if (file.name.endsWith('.xls') || file.name.endsWith('.xlsx')) {
           const arrayBuffer = await file.arrayBuffer();
-          // 🌟 加入 cellDates 與 dateNF，防止 Excel 日期變為純天數序號
           const workbook = XLSX.read(arrayBuffer, { 
             type: 'array',
             cellDates: true,
@@ -849,7 +881,6 @@ export default {
 
         ElMessage.success(`🎉 成功清洗並同步 ${this.totalRowsToUpload.toLocaleString()} 筆收發單據！`);
 
-        // 🌟 自動尋找檔案內最新收貨日期並將畫面切換至該日
         for (let j = rawData.length - 1; j >= 0; j--) {
           const rDate = String(rawData[j]['收貨日期'] || '').trim();
           if (rDate && rDate.includes('-')) {
@@ -928,10 +959,12 @@ export default {
       ElMessage.success('🎉 資料已重新整理！');
     },
 
+    // 🌟 打開未驗收彈窗 (重置彈窗獨立搜尋，不被外層工具列鎖死)
     openPendingDialog() {
       this.drillFilterLabel = '';
       this.drillFilterParams = null;
       this.searchKeyword = '';
+      this.dialogAbnormalFilter = 'all';
       this.showPendingDialog = true;
       this.fetchPendingDateList();
     },
@@ -939,6 +972,7 @@ export default {
       this.drillFilterLabel = options.label || '';
       this.drillFilterParams = options;
       this.searchKeyword = '';
+      this.dialogAbnormalFilter = 'all';
       this.showPendingDialog = true;
       this.fetchPendingDateList();
       this.loadDrillPendingDetails(options);
@@ -947,15 +981,14 @@ export default {
       this.drillFilterLabel = '';
       this.drillFilterParams = null;
       this.searchKeyword = '';
-      if (this.pendingDateList.length > 0) {
-        this.activePendingDate = this.pendingDateList[0].rec_date;
-        this.fetchPendingDetails();
-      }
+      this.dialogAbnormalFilter = 'all';
+      this.activePendingDate = ''; // 回到全部
+      this.fetchPendingDetails();
     },
     async loadDrillPendingDetails(options) {
       this.loadingPending = true;
       try {
-        const params = { ...this.getQueryParams() };
+        const params = { sourceFilter: this.sourceCategoryFilter };
         if (options.date) params.date = options.date;
         if (options.month) params.month = options.month;
         if (options.year) params.year = options.year;
@@ -970,8 +1003,11 @@ export default {
         const res = await axios.get('/api/dispatch/pending-dates');
         if (res.data?.success) {
           this.pendingDateList = res.data.list || [];
-          if (!this.drillFilterLabel && this.pendingDateList.length > 0 && !this.activePendingDate) {
-            this.activePendingDate = this.pendingDateList[0].rec_date;
+          if (!this.drillFilterLabel) {
+            // 預設載入選單第一天，或載入全部
+            if (!this.activePendingDate && this.pendingDateList.length > 0) {
+              this.activePendingDate = this.pendingDateList[0].rec_date;
+            }
             this.fetchPendingDetails();
           }
         }
@@ -984,12 +1020,17 @@ export default {
       this.activePendingDate = d;
       this.fetchPendingDetails();
     },
+    // 🌟 查詢未驗收明細 (不傳遞外層 onTimeFilter, abnormalFilter，改由彈窗自由控制)
     async fetchPendingDetails() {
       this.loadingPending = true;
       try {
-        const res = await axios.get('/api/dispatch/pending-details', {
-          params: { targetDate: this.activePendingDate, ...this.getQueryParams() }
-        });
+        const params = {
+          sourceFilter: this.sourceCategoryFilter
+        };
+        if (this.activePendingDate) {
+          params.targetDate = this.activePendingDate;
+        }
+        const res = await axios.get('/api/dispatch/pending-details', { params });
         if (res.data?.success) this.pendingList = res.data.pendingList || [];
       } finally { this.loadingPending = false; }
     },
@@ -1003,6 +1044,19 @@ export default {
         else this.filteredPendingList.forEach(row => this.$refs.pendingTable.toggleRowSelection(row, true));
       }
     },
+    async batchCloseSingle(row) {
+      try {
+        await ElMessageBox.confirm(`確定銷案單號【${row.order_no}】品項【${row.item_id}】？`, '銷案確認', { type: 'warning' });
+        const res = await axios.post('/api/dispatch/close-order', {
+          keys: [{ orderNo: row.order_no, itemId: row.item_id }]
+        });
+        if (res.data?.success) {
+          ElMessage.success(res.data.message);
+          this.fetchPendingDateList();
+          this.fetchPendingDetails();
+        }
+      } catch (e) {}
+    },
     async batchCloseOrders() {
       if (this.selectedPendingRows.length === 0) return;
       try {
@@ -1011,7 +1065,8 @@ export default {
         const res = await axios.post('/api/dispatch/close-order', { keys });
         if (res.data?.success) {
           ElMessage.success(res.data.message);
-          this.refreshAllData();
+          this.fetchPendingDateList();
+          this.fetchPendingDetails();
         }
       } catch (e) {}
     }
@@ -1138,7 +1193,7 @@ export default {
 
 .monitor-container { display: flex; gap: 15px; height: calc(85vh - 80px); }
 .side-date-nav {
-  width: 220px;
+  width: 230px;
   background: #0f172a;
   border: 1px solid #334155;
   border-radius: 8px;
@@ -1156,9 +1211,12 @@ export default {
   background: #1e293b;
   border-radius: 6px;
   cursor: pointer;
+  transition: all 0.2s;
 }
+.nav-date-item:hover { background: #334155; }
 .active-date { background: #0284c7 !important; font-weight: bold; }
 .count-badge { background: #ef4444; color: #ffffff; padding: 2px 6px; border-radius: 12px; font-size: 11px; }
+.badge-all { background: #3b82f6 !important; }
 
 .main-monitor-content {
   flex: 1;
@@ -1181,6 +1239,8 @@ export default {
   gap: 10px;
 }
 .toolbar-left-info { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.dialog-filter-box { display: flex; align-items: center; gap: 4px; }
+.dialog-filter-label { font-size: 12px; color: #cbd5e1; font-weight: bold; }
 .drill-tag { background: #b91c1c; color: #fef2f2; padding: 3px 10px; border-radius: 4px; font-size: 12px; }
 
 .drop-card-box {
