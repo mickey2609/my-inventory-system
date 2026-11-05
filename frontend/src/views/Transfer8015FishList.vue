@@ -14,38 +14,80 @@
       <div class="title-group">
         <span class="page-title">🔄 倉庫 跨庫調撥 (80 ➔ 15) 魚群分析</span>
         
-        <el-date-picker
-          v-if="analysisMode === 'daily'"
-          v-model="targetDate"
-          type="date"
-          size="small"
-          value-format="YYYY-MM-DD"
-          placeholder="選擇日期"
-          style="width: 135px;"
-          @change="fetchFishData"
-        />
+        <!-- 🌟 智慧日期/月份/年份 步進切換器 (支援前一天、後一天、今天) -->
+        <div class="date-stepper-group">
+          <el-button 
+            size="small" 
+            type="primary" 
+            plain 
+            class="stepper-btn"
+            @click="shiftPeriod(-1)"
+            :title="getShiftTitle(-1)"
+          >
+            ◀
+          </el-button>
 
-        <el-date-picker
-          v-else-if="analysisMode === 'monthly'"
-          v-model="targetMonth"
-          type="month"
-          size="small"
-          value-format="YYYY-MM"
-          placeholder="選擇月份"
-          style="width: 135px;"
-          @change="fetchMonthlySummary"
-        />
+          <!-- 單日選擇器 -->
+          <el-date-picker
+            v-if="analysisMode === 'daily'"
+            v-model="targetDate"
+            type="date"
+            size="small"
+            value-format="YYYY-MM-DD"
+            placeholder="選擇日期"
+            style="width: 135px;"
+            :clearable="false"
+            @change="fetchFishData"
+          />
 
-        <el-date-picker
-          v-else-if="analysisMode === 'yearly'"
-          v-model="targetYear"
-          type="year"
-          size="small"
-          value-format="YYYY"
-          placeholder="選擇年份"
-          style="width: 110px;"
-          @change="fetchYearlySummary"
-        />
+          <!-- 每月選擇器 -->
+          <el-date-picker
+            v-else-if="analysisMode === 'monthly'"
+            v-model="targetMonth"
+            type="month"
+            size="small"
+            value-format="YYYY-MM"
+            placeholder="選擇月份"
+            style="width: 130px;"
+            :clearable="false"
+            @change="fetchMonthlySummary"
+          />
+
+          <!-- 年度選擇器 -->
+          <el-date-picker
+            v-else
+            v-model="targetYear"
+            type="year"
+            size="small"
+            value-format="YYYY"
+            placeholder="選擇年份"
+            style="width: 110px;"
+            :clearable="false"
+            @change="fetchYearlySummary"
+          />
+
+          <el-button 
+            size="small" 
+            type="primary" 
+            plain 
+            class="stepper-btn"
+            @click="shiftPeriod(1)"
+            :title="getShiftTitle(1)"
+          >
+            ▶
+          </el-button>
+
+          <el-button 
+            size="small" 
+            type="info" 
+            plain 
+            class="stepper-today-btn"
+            @click="resetToCurrentPeriod"
+            :title="getResetTitle"
+          >
+            {{ getResetLabel }}
+          </el-button>
+        </div>
 
         <!-- 3 維度分析模式切換 -->
         <el-radio-group v-model="analysisMode" size="small" @change="handleAnalysisModeChange">
@@ -161,7 +203,7 @@
               <th style="width: 80px;">產生占比</th>
               <th style="width: 80px;">產生筆數</th>
               <th style="width: 90px;">調撥PCS</th>
-              <th class="col-pending-header" style="width: 90px;">未完成筆數</th>
+              <th class="col-pending-header" style="width: 100px;">未完成筆數 🔍</th>
               <th class="col-bar-title">完成圖形</th>
               <th style="width: 80px;">完成占比</th>
               <th style="width: 80px;">完成筆數</th>
@@ -178,7 +220,14 @@
               <td class="text-right">{{ formatNumber(h.genOrderCount) }}</td>
               <td class="text-right font-bold text-blue">{{ formatNumber(h.genPcs) }}</td>
 
-              <td class="text-right font-bold text-red">{{ formatNumber(h.pendingOrderCount) }}</td>
+              <td 
+                class="text-right font-bold" 
+                :class="{ 'text-red clickable-cell': h.pendingOrderCount > 0 }"
+                @click="h.pendingOrderCount > 0 ? drillPending({ type: 'hour', date: targetDate, hour: h.hour, label: `${targetDate} ${h.hourStr} 時段` }) : null"
+                :title="h.pendingOrderCount > 0 ? `點擊穿透查看 ${h.hourStr} 時段 ${h.pendingOrderCount} 筆未完成明細` : ''"
+              >
+                {{ formatNumber(h.pendingOrderCount) }}
+              </td>
 
               <td class="col-bar-cell"><div class="bar-fill green-bar" :style="{ width: getBarWidth(h.finPct) }"></div></td>
               <td class="text-right">{{ formatPercent(h.finPct) }}</td>
@@ -196,7 +245,14 @@
               <td class="text-right font-bold">100.00%</td>
               <td class="text-right font-bold">{{ formatNumber(summaryTotal.genOrderCount) }}</td>
               <td class="text-right font-bold text-blue">{{ formatNumber(summaryTotal.genPcs) }}</td>
-              <td class="text-right font-bold text-red">{{ formatNumber(summaryTotal.pendingOrderCount) }}</td>
+              <td 
+                class="text-right font-bold"
+                :class="{ 'text-red clickable-cell': summaryTotal.pendingOrderCount > 0 }"
+                @click="summaryTotal.pendingOrderCount > 0 ? drillPending({ type: 'date', date: targetDate, label: `${targetDate} 全日` }) : null"
+                :title="summaryTotal.pendingOrderCount > 0 ? `點擊穿透查看全日 ${summaryTotal.pendingOrderCount} 筆未完成明細` : ''"
+              >
+                {{ formatNumber(summaryTotal.pendingOrderCount) }}
+              </td>
               <td></td>
               <td class="text-right font-bold">100.00%</td>
               <td class="text-right font-bold">{{ formatNumber(summaryTotal.finOrderCount) }}</td>
@@ -208,7 +264,7 @@
       </div>
     </div>
 
-    <!-- 3.2 每月每日總表區塊（🌟 包含未完成筆數） -->
+    <!-- 3.2 每月每日總表區塊 -->
     <div class="table-container" v-loading="loadingMonthly" v-else-if="analysisMode === 'monthly'">
       <div class="sheet-title">
         🗓️ 倉庫 跨庫調撥 (80➔15) - {{ targetMonth }} 月份每日總表
@@ -227,7 +283,7 @@
             <tr class="header-sub">
               <th style="width: 100px;">產生單數</th>
               <th style="width: 110px;">產生 PCS</th>
-              <th class="col-pending-header" style="width: 100px;">未完成筆數</th>
+              <th class="col-pending-header" style="width: 100px;">未完成筆數 🔍</th>
               <th style="width: 100px;">完成單數</th>
               <th style="width: 110px;">完成 PCS</th>
             </tr>
@@ -238,7 +294,14 @@
               <td class="text-center font-bold">{{ day.date }}</td>
               <td class="text-right">{{ formatNumber(day.genOrderCount) }}</td>
               <td class="text-right font-bold text-blue">{{ formatNumber(day.genPcs) }}</td>
-              <td class="text-right font-bold text-red">{{ formatNumber(day.pendingOrderCount) }}</td>
+              <td 
+                class="text-right font-bold" 
+                :class="{ 'text-red clickable-cell': day.pendingOrderCount > 0 }"
+                @click="day.pendingOrderCount > 0 ? drillPending({ type: 'date', date: day.date, label: `${day.date} 當日` }) : null"
+                :title="day.pendingOrderCount > 0 ? `點擊穿透查看 ${day.date} 當日 ${day.pendingOrderCount} 筆未完成明細` : ''"
+              >
+                {{ formatNumber(day.pendingOrderCount) }}
+              </td>
               
               <td class="text-right">{{ formatNumber(day.finOrderCount) }}</td>
               <td class="text-right font-bold text-green">{{ formatNumber(day.finPcs) }}</td>
@@ -253,7 +316,14 @@
               <td class="text-center font-bold">全月總計</td>
               <td class="text-right font-bold">{{ formatNumber(monthlySummaryTotal.genOrderCount) }}</td>
               <td class="text-right font-bold text-blue">{{ formatNumber(monthlySummaryTotal.genPcs) }}</td>
-              <td class="text-right font-bold text-red">{{ formatNumber(monthlySummaryTotal.pendingOrderCount) }}</td>
+              <td 
+                class="text-right font-bold"
+                :class="{ 'text-red clickable-cell': monthlySummaryTotal.pendingOrderCount > 0 }"
+                @click="monthlySummaryTotal.pendingOrderCount > 0 ? drillPending({ type: 'month', month: targetMonth, label: `${targetMonth} 全月` }) : null"
+                :title="monthlySummaryTotal.pendingOrderCount > 0 ? `點擊穿透查看 ${targetMonth} 全月未完成明細` : ''"
+              >
+                {{ formatNumber(monthlySummaryTotal.pendingOrderCount) }}
+              </td>
               
               <td class="text-right font-bold">{{ formatNumber(monthlySummaryTotal.finOrderCount) }}</td>
               <td class="text-right font-bold text-green">{{ formatNumber(monthlySummaryTotal.finPcs) }}</td>
@@ -277,16 +347,17 @@
           <thead>
             <tr class="header-main">
               <th style="width: 110px;" rowspan="2">月份</th>
-              <th colspan="2" class="group-blue-header">產生調撥單匯總</th>
+              <th colspan="3" class="group-blue-header">產生調撥單匯總</th>
               <th colspan="2" class="group-green-header">完成調撥單匯總</th>
               <th class="col-ratio-header" rowspan="2" style="width: 100px;">已刪單筆數</th>
               <th class="col-ratio-header" rowspan="2" style="width: 110px;">完成率 (%)</th>
             </tr>
             <tr class="header-sub">
-              <th style="width: 120px;">產生單數</th>
-              <th style="width: 130px;">產生 PCS</th>
-              <th style="width: 120px;">完成單數</th>
-              <th style="width: 130px;">完成 PCS</th>
+              <th style="width: 100px;">產生單數</th>
+              <th style="width: 110px;">產生 PCS</th>
+              <th class="col-pending-header" style="width: 100px;">未完成筆數 🔍</th>
+              <th style="width: 100px;">完成單數</th>
+              <th style="width: 110px;">完成 PCS</th>
             </tr>
           </thead>
 
@@ -295,6 +366,14 @@
               <td class="text-center font-bold">{{ m.monthLabel }} ({{ m.month }})</td>
               <td class="text-right">{{ formatNumber(m.genOrderCount) }}</td>
               <td class="text-right font-bold text-blue">{{ formatNumber(m.genPcs) }}</td>
+              <td 
+                class="text-right font-bold" 
+                :class="{ 'text-red clickable-cell': m.pendingOrderCount > 0 }"
+                @click="m.pendingOrderCount > 0 ? drillPending({ type: 'month', month: m.month, label: `${m.month} 月度` }) : null"
+                :title="m.pendingOrderCount > 0 ? `點擊穿透查看 ${m.month} 月度 ${m.pendingOrderCount} 筆未完成明細` : ''"
+              >
+                {{ formatNumber(m.pendingOrderCount) }}
+              </td>
               
               <td class="text-right">{{ formatNumber(m.finOrderCount) }}</td>
               <td class="text-right font-bold text-green">{{ formatNumber(m.finPcs) }}</td>
@@ -309,6 +388,14 @@
               <td class="text-center font-bold">全年總計</td>
               <td class="text-right font-bold">{{ formatNumber(yearlySummaryTotal.genOrderCount) }}</td>
               <td class="text-right font-bold text-blue">{{ formatNumber(yearlySummaryTotal.genPcs) }}</td>
+              <td 
+                class="text-right font-bold"
+                :class="{ 'text-red clickable-cell': yearlySummaryTotal.pendingOrderCount > 0 }"
+                @click="yearlySummaryTotal.pendingOrderCount > 0 ? drillPending({ type: 'year', year: targetYear, label: `${targetYear} 全年` }) : null"
+                :title="yearlySummaryTotal.pendingOrderCount > 0 ? `點擊穿透查看 ${targetYear} 全年未完成明細` : ''"
+              >
+                {{ formatNumber(yearlySummaryTotal.pendingOrderCount) }}
+              </td>
               
               <td class="text-right font-bold">{{ formatNumber(yearlySummaryTotal.finOrderCount) }}</td>
               <td class="text-right font-bold text-green">{{ formatNumber(yearlySummaryTotal.finPcs) }}</td>
@@ -321,7 +408,7 @@
       </div>
     </div>
 
-    <!-- 4. 未完成追蹤對話框彈窗（🌟 包含「進貨單號」欄位） -->
+    <!-- 4. 未完成追蹤對話框彈窗（🌟 整合貼 ID/調撥單/進貨單號 查詢與「進貨備註」智慧呈現） -->
     <el-dialog
       v-model="showPendingDialog"
       title="⚠️ 尚未調撥完成單據明細監控與更正處置"
@@ -338,7 +425,7 @@
               v-for="d in pendingDateList"
               :key="d.gen_date"
               class="nav-date-item"
-              :class="{ 'active-date': activePendingDate === d.gen_date }"
+              :class="{ 'active-date': activePendingDate === d.gen_date && !drillFilterLabel }"
               @click="selectPendingDate(d.gen_date)"
             >
               <span class="date-str">{{ d.gen_date }}</span>
@@ -352,13 +439,46 @@
 
         <div class="main-monitor-content">
           <div class="monitor-top-toolbar">
-            <span class="current-date-header">
-              🔍 <strong>{{ activePendingDate || '全部日期' }}</strong> 未完成明細 ({{ formatNumber(pendingList.length) }} 筆)
-            </span>
+            <div class="toolbar-left-info">
+              <span v-if="drillFilterLabel" class="drill-tag">
+                🎯 穿透篩選：<strong>[{{ drillFilterLabel }}]</strong>
+              </span>
+
+              <span class="current-date-header">
+                🔍 <strong>{{ drillFilterLabel ? '' : (activePendingDate || '全部日期') }}</strong> 
+                未完成明細 (共 {{ formatNumber(filteredPendingList.length) }} 筆<span v-if="searchKeyword.trim()"> / 原 {{ pendingList.length }} 筆</span>)
+              </span>
+
+              <!-- 🌟 貼 ID / 調撥單號 / 進貨單號 批量搜尋框 -->
+              <div class="id-search-box">
+                <el-input
+                  v-model="searchKeyword"
+                  size="small"
+                  placeholder="貼上商品ID / 調撥單號 / 進貨單號 (多筆以空格/逗號/換行隔開)"
+                  clearable
+                  prefix-icon="el-icon-search"
+                  style="width: 380px;"
+                >
+                  <template #append v-if="searchKeyword.trim()">
+                    <span class="id-count-badge">已比對 {{ filteredPendingList.length }} 筆</span>
+                  </template>
+                </el-input>
+              </div>
+
+              <el-button
+                v-if="drillFilterLabel"
+                size="mini"
+                type="info"
+                plain
+                @click="clearDrillFilter"
+              >
+                顯示全部未完成
+              </el-button>
+            </div>
 
             <div class="toolbar-btns">
               <el-button size="mini" type="info" @click="toggleSelectAll">
-                {{ isAllSelected ? '取消全選' : '全選當頁 (' + pendingList.length + ' 筆)' }}
+                {{ isAllSelected ? '取消全選' : '全選當前清單 (' + filteredPendingList.length + ' 筆)' }}
               </el-button>
 
               <el-button
@@ -379,41 +499,63 @@
 
           <el-table
             ref="pendingTable"
-            :data="pendingList"
+            :data="filteredPendingList"
             style="width: 100%; font-size: 12px;"
             height="calc(80vh - 120px)"
             border
             @selection-change="handlePendingSelectionChange"
           >
             <el-table-column type="selection" width="45" align="center" />
-            <el-table-column prop="gen_date" label="產生日期" width="100" align="center" />
-            <el-table-column prop="gen_time" label="產生時間" width="85" align="center" />
-            <el-table-column prop="order_no" label="調撥單號" width="150" align="center">
+            <el-table-column prop="gen_date" label="產生日期" width="100" align="center" sortable />
+            <el-table-column prop="gen_time" label="產生時間" width="85" align="center" sortable />
+            
+            <!-- 🌟 調撥單號點擊複製 -->
+            <el-table-column prop="order_no" label="調撥單號" width="150" align="center" sortable>
               <template #default="scope">
-                <span class="text-orange font-bold">{{ scope.row.order_no }}</span>
+                <span class="text-orange font-bold clickable-id" @click="copyText(scope.row.order_no, '調撥單號')" title="點擊可複製調撥單號">
+                  {{ scope.row.order_no }}
+                </span>
               </template>
             </el-table-column>
             
-            <!-- 🌟 80 ➔ 15 專屬欄位：進貨單號 (匯入檔 AD 欄) -->
-            <el-table-column prop="overseas_order_no" label="進貨單號" width="150" align="center">
+            <!-- 🌟 進貨單號 (AD欄) 點擊複製 -->
+            <el-table-column prop="overseas_order_no" label="進貨單號" width="155" align="center" sortable>
               <template #default="scope">
-                <span class="text-yellow font-bold">{{ scope.row.overseas_order_no }}</span>
+                <span class="text-yellow font-bold clickable-id" @click="copyText(scope.row.overseas_order_no, '進貨單號')" title="點擊可複製進貨單號">
+                  {{ scope.row.overseas_order_no }}
+                </span>
               </template>
             </el-table-column>
 
-            <el-table-column prop="item_id" label="商品編號" width="140" align="center">
+            <!-- 🌟 商品編號點擊複製 -->
+            <el-table-column prop="item_id" label="商品編號" width="140" align="center" sortable>
               <template #default="scope">
-                <span class="text-blue font-bold">{{ scope.row.item_id }}</span>
+                <span class="text-blue font-bold clickable-id" @click="copyText(scope.row.item_id, '商品編號')" title="點擊可複製商品ID">
+                  {{ scope.row.item_id }}
+                </span>
               </template>
             </el-table-column>
-            <el-table-column prop="item_name" label="商品名稱" show-overflow-tooltip />
-            <el-table-column prop="suggest_qty" label="調撥數量" width="85" align="right">
+            
+            <el-table-column prop="item_name" label="商品名稱" min-width="180" show-overflow-tooltip sortable />
+            <el-table-column prop="suggest_qty" label="調撥數量" width="85" align="right" sortable>
               <template #default="scope">
                 <span class="text-red font-bold">{{ formatNumber(scope.row.suggest_qty) }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="apply_user" label="申請人員" width="90" align="center" />
-            <el-table-column prop="remark" label="備註說明" show-overflow-tooltip />
+            <el-table-column prop="apply_user" label="申請人員" width="90" align="center" sortable />
+            
+            <!-- 🌟 備註說明：智慧顯示調撥備註 + 進貨端的收貨備註資訊 -->
+            <el-table-column label="備註說明" min-width="220" show-overflow-tooltip>
+              <template #default="scope">
+                <div class="remark-cell">
+                  <span>{{ scope.row.remark || '-' }}</span>
+                  <span v-if="scope.row.inbound_remark" class="inbound-remark-badge" :title="'進貨端收貨備註: ' + scope.row.inbound_remark">
+                    🏷️ 【進貨備註: {{ scope.row.inbound_remark }}】
+                  </span>
+                </div>
+              </template>
+            </el-table-column>
+
             <el-table-column label="處置" width="90" align="center" fixed="right">
               <template #default="scope">
                 <el-button size="mini" type="danger" plain icon="el-icon-wrench" @click="openCloseDialog(scope.row)">
@@ -621,6 +763,11 @@ export default {
       pendingList: [],
       selectedPendingRows: [],
       isAllSelected: false,
+      drillFilterLabel: '',
+      drillFilterParams: null,
+
+      // 🌟 貼 ID / 調撥單號 / 進貨單號 查詢輸入綁定
+      searchKeyword: '',
 
       showUploadCardModal: false,
       isCardHover: false,
@@ -669,6 +816,46 @@ export default {
       const username = localStorage.getItem('currentUser') || localStorage.getItem('username') || '';
       return username === 'admin' || username === '系統管理員';
     },
+
+    getResetLabel() {
+      if (this.analysisMode === 'daily') return '今天';
+      if (this.analysisMode === 'monthly') return '本月';
+      return '今年';
+    },
+    getResetTitle() {
+      if (this.analysisMode === 'daily') return '回到今天日期';
+      if (this.analysisMode === 'monthly') return '回到當前月份';
+      return '回到當前年份';
+    },
+
+    // 🌟 同時過濾 商品ID、調撥單號、進貨單號 (支援多筆空格/逗號/換行隔開)
+    filteredPendingList() {
+      if (!this.searchKeyword || !this.searchKeyword.trim()) {
+        return this.pendingList;
+      }
+
+      const rawKeywords = this.searchKeyword
+        .split(/[\s,，\n\r]+/)
+        .map(s => s.trim().toUpperCase())
+        .filter(Boolean);
+
+      if (rawKeywords.length === 0) {
+        return this.pendingList;
+      }
+
+      return this.pendingList.filter(row => {
+        const rowId = String(row.item_id || '').trim().toUpperCase();
+        const rowOrderNo = String(row.order_no || '').trim().toUpperCase();
+        const rowOverseas = String(row.overseas_order_no || '').trim().toUpperCase();
+
+        return rawKeywords.some(kw => {
+          return rowId === kw || rowId.includes(kw) ||
+                 rowOrderNo === kw || rowOrderNo.includes(kw) ||
+                 rowOverseas === kw || rowOverseas.includes(kw);
+        });
+      });
+    },
+
     summaryTotal() {
       const tot = { genOrderCount: 0, genPcs: 0, pendingOrderCount: 0, finOrderCount: 0, finPcs: 0, delOrderCount: 0 };
       this.hourlyStats.forEach(h => {
@@ -738,6 +925,86 @@ export default {
       return parts.length >= 3 ? `${parts[2]}日` : dStr;
     },
 
+    getShiftTitle(offset) {
+      const direction = offset < 0 ? '前' : '後';
+      if (this.analysisMode === 'daily') return `切換至${direction}一天`;
+      if (this.analysisMode === 'monthly') return `切換至${direction}一個月`;
+      return `切換至${direction}一年`;
+    },
+
+    shiftPeriod(offset) {
+      if (this.analysisMode === 'daily') {
+        const curDate = new Date(this.targetDate || new Date());
+        curDate.setDate(curDate.getDate() + offset);
+        const y = curDate.getFullYear();
+        const m = String(curDate.getMonth() + 1).padStart(2, '0');
+        const d = String(curDate.getDate()).padStart(2, '0');
+        this.targetDate = `${y}-${m}-${d}`;
+        this.fetchFishData();
+      } else if (this.analysisMode === 'monthly') {
+        const parts = (this.targetMonth || '').split('-');
+        let year = parseInt(parts[0], 10) || new Date().getFullYear();
+        let month = (parseInt(parts[1], 10) || (new Date().getMonth() + 1)) + offset;
+        if (month < 1) {
+          month = 12;
+          year -= 1;
+        } else if (month > 12) {
+          month = 1;
+          year += 1;
+        }
+        this.targetMonth = `${year}-${String(month).padStart(2, '0')}`;
+        this.fetchMonthlySummary();
+      } else {
+        const curYear = parseInt(this.targetYear, 10) || new Date().getFullYear();
+        this.targetYear = String(curYear + offset);
+        this.fetchYearlySummary();
+      }
+    },
+
+    resetToCurrentPeriod() {
+      const now = new Date();
+      const y = now.getFullYear();
+      const m = String(now.getMonth() + 1).padStart(2, '0');
+      const d = String(now.getDate()).padStart(2, '0');
+
+      if (this.analysisMode === 'daily') {
+        this.targetDate = `${y}-${m}-${d}`;
+        this.fetchFishData();
+      } else if (this.analysisMode === 'monthly') {
+        this.targetMonth = `${y}-${m}`;
+        this.fetchMonthlySummary();
+      } else {
+        this.targetYear = String(y);
+        this.fetchYearlySummary();
+      }
+    },
+
+    copyText(text, label = '內容') {
+      if (!text || text === '-') return;
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(() => {
+          ElMessage.success(`📋 已複製${label}：${text}`);
+        }).catch(() => {
+          this.fallbackCopy(text, label);
+        });
+      } else {
+        this.fallbackCopy(text, label);
+      }
+    },
+    fallbackCopy(text, label = '內容') {
+      const input = document.createElement('textarea');
+      input.value = text;
+      document.body.appendChild(input);
+      input.select();
+      try {
+        document.execCommand('copy');
+        ElMessage.success(`📋 已複製${label}：${text}`);
+      } catch (err) {
+        ElMessage.error('複製失敗');
+      }
+      document.body.removeChild(input);
+    },
+
     globalBlockDrop(e) {
       e.preventDefault();
     },
@@ -756,8 +1023,64 @@ export default {
     },
 
     async openPendingDialog() {
+      this.drillFilterLabel = '';
+      this.drillFilterParams = null;
+      this.searchKeyword = '';
       this.showPendingDialog = true;
       await this.fetchPendingDateList();
+    },
+
+    drillPending(options) {
+      this.drillFilterLabel = options.label || '';
+      this.drillFilterParams = options;
+      this.searchKeyword = '';
+      this.showPendingDialog = true;
+      this.fetchPendingDateList();
+      this.loadDrillPendingDetails(options);
+    },
+
+    clearDrillFilter() {
+      this.drillFilterLabel = '';
+      this.drillFilterParams = null;
+      this.searchKeyword = '';
+      if (this.pendingDateList.length > 0) {
+        this.activePendingDate = this.pendingDateList[0].gen_date;
+        this.fetchPendingDetails();
+      } else {
+        this.pendingList = [];
+      }
+    },
+
+    async loadDrillPendingDetails(options) {
+      this.loadingPending = true;
+      try {
+        const activeDocTypes = this.selectedDocTypes.includes('all') ? 'all' : this.selectedDocTypes.join(',');
+        const activeReasons = this.selectedReasons.includes('all') ? 'all' : this.selectedReasons.join(',');
+
+        const params = {
+          docTypes: activeDocTypes,
+          reasons: activeReasons
+        };
+
+        if (options.date) params.date = options.date;
+        if (options.month) params.month = options.month;
+        if (options.year) params.year = options.year;
+        if (options.hour !== undefined) params.hour = options.hour;
+
+        const res = await axios.get('/api/transfer8015/pending-details', { params });
+        if (res.data?.success) {
+          this.pendingList = res.data.pendingList || [];
+          if (options.date) {
+            this.activePendingDate = options.date;
+          }
+        } else {
+          ElMessage.error(res.data?.message || '讀取未完成明細失敗');
+        }
+      } catch (e) {
+        ElMessage.error('載入穿透明細失敗：' + e.message);
+      } finally {
+        this.loadingPending = false;
+      }
     },
 
     async fetchPendingDateList() {
@@ -765,11 +1088,12 @@ export default {
         const res = await axios.get('/api/transfer8015/pending-dates');
         if (res.data?.success) {
           this.pendingDateList = res.data.list || [];
-          if (this.pendingDateList.length > 0) {
-            this.activePendingDate = this.pendingDateList[0].gen_date;
-            this.fetchPendingDetails();
-          } else {
-            this.pendingList = [];
+          // 避免覆蓋穿透狀態
+          if (!this.drillFilterLabel && this.pendingDateList.length > 0) {
+            if (!this.activePendingDate) {
+              this.activePendingDate = this.pendingDateList[0].gen_date;
+              this.fetchPendingDetails();
+            }
           }
         }
       } catch (e) {
@@ -778,13 +1102,16 @@ export default {
     },
 
     selectPendingDate(dStr) {
+      this.drillFilterLabel = '';
+      this.drillFilterParams = null;
+      this.searchKeyword = '';
       this.activePendingDate = dStr;
       this.fetchPendingDetails();
     },
 
     handlePendingSelectionChange(val) {
       this.selectedPendingRows = val;
-      this.isAllSelected = (val.length === this.pendingList.length && this.pendingList.length > 0);
+      this.isAllSelected = (val.length === this.filteredPendingList.length && this.filteredPendingList.length > 0);
     },
 
     toggleSelectAll() {
@@ -792,7 +1119,9 @@ export default {
         if (this.isAllSelected) {
           this.$refs.pendingTable.clearSelection();
         } else {
-          this.$refs.pendingTable.toggleAllSelection();
+          this.filteredPendingList.forEach(row => {
+            this.$refs.pendingTable.toggleRowSelection(row, true);
+          });
         }
       }
     },
@@ -818,7 +1147,11 @@ export default {
 
         if (res.data?.success) {
           ElMessage.success(res.data.message);
-          this.fetchPendingDateList();
+          if (this.drillFilterParams) {
+            this.loadDrillPendingDetails(this.drillFilterParams);
+          } else {
+            this.fetchPendingDateList();
+          }
           this.refreshAllData();
         }
       } catch (e) {
@@ -832,7 +1165,7 @@ export default {
           confirmButtonText: '執行銷案',
           cancelButtonText: '取消',
           inputValue: '2026-01-01, 2026-08-31',
-          inputPattern: /^\d{4}-\d{2}-\d{2}\s*,\s*\d{4}-\d{2}-\d{2}\$/,
+          inputPattern: /^\d{4}-\d{2}-\d{2}\s*,\s*\d{4}-\d{2}-\d{2}$/,
           inputErrorMessage: '格式不正確，例：2026-01-01, 2026-08-31'
         });
 
@@ -849,7 +1182,11 @@ export default {
 
           if (res.data?.success) {
             ElMessage.success(res.data.message);
-            this.fetchPendingDateList();
+            if (this.drillFilterParams) {
+              this.loadDrillPendingDetails(this.drillFilterParams);
+            } else {
+              this.fetchPendingDateList();
+            }
             this.refreshAllData();
           }
         }
@@ -944,7 +1281,13 @@ export default {
 
     async refreshAllData() {
       await this.refreshCurrentMode();
-      if (this.showPendingDialog) await this.fetchPendingDateList();
+      if (this.showPendingDialog) {
+        if (this.drillFilterParams) {
+          await this.loadDrillPendingDetails(this.drillFilterParams);
+        } else {
+          await this.fetchPendingDateList();
+        }
+      }
       ElMessage.success('🎉 資料已成功重新整理！');
     },
 
@@ -1024,7 +1367,7 @@ export default {
     resetUploadState() {
       this.isUploading = false;
       this.showUploadProgressModal = false;
-      if (this.$refs.csvFileInput) this.$refs.csvFileInput.value = '';
+      if (this.$refs && this.$refs.csvFileInput) this.$refs.csvFileInput.value = '';
     },
 
     openCloseDialog(row) {
@@ -1049,7 +1392,11 @@ export default {
         if (res.data?.success) {
           ElMessage.success(res.data.message || '跨庫調撥單成功銷案！');
           this.showCloseModal = false;
-          this.fetchPendingDateList();
+          if (this.drillFilterParams) {
+            this.loadDrillPendingDetails(this.drillFilterParams);
+          } else {
+            this.fetchPendingDateList();
+          }
         } else {
           ElMessage.error('銷案失敗：' + (res.data?.message || '未知錯誤'));
         }
@@ -1221,6 +1568,28 @@ export default {
   white-space: nowrap;
 }
 
+/* 🌟 日期步進器樣式 */
+.date-stepper-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #0f172a;
+  padding: 2px 6px;
+  border-radius: 6px;
+  border: 1px solid #334155;
+}
+
+.stepper-btn {
+  padding: 6px 10px !important;
+  font-weight: bold;
+}
+
+.stepper-today-btn {
+  padding: 6px 10px !important;
+  font-weight: bold;
+  margin-left: 2px;
+}
+
 .select-label {
   font-size: 13px;
   color: #f8fafc;
@@ -1319,6 +1688,28 @@ export default {
 .text-red { color: #f87171; }
 .font-bold { font-weight: bold; }
 
+/* 🌟 下鑽與商品/單號可點擊樣式 */
+.clickable-cell {
+  cursor: pointer;
+  text-decoration: underline;
+  transition: all 0.2s ease;
+}
+.clickable-cell:hover {
+  color: #f87171 !important;
+  text-shadow: 0 0 8px rgba(239, 68, 68, 0.7);
+  transform: scale(1.08);
+}
+
+.clickable-id {
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.clickable-id:hover {
+  text-decoration: underline;
+  color: #60a5fa !important;
+  text-shadow: 0 0 6px rgba(56, 189, 248, 0.6);
+}
+
 .monitor-container {
   display: flex;
   gap: 15px;
@@ -1403,11 +1794,58 @@ export default {
   padding: 8px 12px;
   border-radius: 6px;
   border: 1px solid #334155;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.toolbar-left-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.drill-tag {
+  background: #b91c1c;
+  color: #fef2f2;
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: bold;
 }
 
 .current-date-header {
   font-size: 14px;
   color: #f8fafc;
+}
+
+.id-search-box {
+  display: flex;
+  align-items: center;
+}
+.id-count-badge {
+  color: #38bdf8;
+  font-weight: bold;
+  font-size: 11px;
+  padding-right: 4px;
+}
+
+/* 🌟 進貨備註徽章樣式 */
+.remark-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.inbound-remark-badge {
+  display: inline-block;
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: bold;
+  width: fit-content;
 }
 
 .toolbar-btns {
