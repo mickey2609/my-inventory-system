@@ -14,7 +14,7 @@
       <div class="title-group">
         <span class="page-title">🐟 倉庫 實時補貨單魚群出沒分析 (80 人工倉)</span>
         
-        <!-- 🌟 智慧日期/月份/年份 步進切換器 (支援前一天、後一天、今天) -->
+        <!-- 智慧日期/月份/年份 步進切換器 (支援前一天、後一天、今天) -->
         <div class="date-stepper-group">
           <el-button 
             size="small" 
@@ -408,7 +408,7 @@
       </div>
     </div>
 
-    <!-- 4. 未完成追蹤對話框彈窗 -->
+    <!-- 4. 未完成追蹤對話框彈窗（🌟 支援貼 商品ID 或 補貨單號 YW... 通用批次查詢） -->
     <el-dialog
       v-model="showPendingDialog"
       title="⚠️ 尚未補貨完成單據明細監控與更正處置"
@@ -449,15 +449,15 @@
                 未完成明細 (共 {{ formatNumber(filteredPendingList.length) }} 筆<span v-if="searchItemId.trim()"> / 原 {{ pendingList.length }} 筆</span>)
               </span>
 
-              <!-- 貼 ID 查詢輸入框 -->
+              <!-- 🌟 貼 ID 或 補貨單號 通用查詢輸入框 -->
               <div class="id-search-box">
                 <el-input
                   v-model="searchItemId"
                   size="small"
-                  placeholder="貼上商品ID (可貼單筆或多筆，以空格/逗號/換行區隔)"
+                  placeholder="貼上商品ID或補貨單號 (可貼單/多筆，支援空格/逗號/換行)"
                   clearable
                   prefix-icon="el-icon-search"
-                  style="width: 330px;"
+                  style="width: 360px;"
                 >
                   <template #append v-if="searchItemId.trim()">
                     <span class="id-count-badge">已比對 {{ filteredPendingList.length }} 筆</span>
@@ -508,12 +508,17 @@
             <el-table-column type="selection" width="45" align="center" />
             <el-table-column prop="gen_date" label="產生日期" width="100" align="center" sortable />
             <el-table-column prop="gen_time" label="產生時間" width="85" align="center" sortable />
+
+            <!-- 🌟 補貨單號支援點選複製 -->
             <el-table-column prop="order_no" label="補貨單號" width="150" align="center" sortable>
               <template #default="scope">
-                <span class="text-orange font-bold">{{ scope.row.order_no }}</span>
+                <span class="text-orange font-bold clickable-id" @click="copyOrderNo(scope.row.order_no)" title="點擊可複製補貨單號">
+                  {{ scope.row.order_no }}
+                </span>
               </template>
             </el-table-column>
             
+            <!-- 商品編號支援點選複製 -->
             <el-table-column prop="item_id" label="商品編號" width="140" align="center" sortable>
               <template #default="scope">
                 <span class="text-blue font-bold clickable-id" @click="copyItemId(scope.row.item_id)" title="點擊可複製商品ID">
@@ -737,6 +742,7 @@ export default {
       drillFilterLabel: '',
       drillFilterParams: null,
 
+      // 🌟 貼 ID 或 補貨單號 查詢輸入綁定
       searchItemId: '',
 
       showUploadCardModal: false,
@@ -787,7 +793,6 @@ export default {
       return username === 'admin' || username === '系統管理員';
     },
 
-    // 🌟 快捷按鈕文字與標題
     getResetLabel() {
       if (this.analysisMode === 'daily') return '今天';
       if (this.analysisMode === 'monthly') return '本月';
@@ -799,11 +804,13 @@ export default {
       return '回到當前年份';
     },
 
+    // 🌟 核心升級：同時比對 商品ID 與 補貨單號 (order_no)
     filteredPendingList() {
       if (!this.searchItemId || !this.searchItemId.trim()) {
         return this.pendingList;
       }
 
+      // 將貼上的內容依空白、逗號、全形逗號、換行拆分成多個關鍵字清單
       const rawKeywords = this.searchItemId
         .split(/[\s,，\n\r]+/)
         .map(s => s.trim().toUpperCase())
@@ -813,6 +820,7 @@ export default {
         return this.pendingList;
       }
 
+      // 支援商品編號與補貨單號比對（精準相符或包含）
       return this.pendingList.filter(row => {
         const rowId = String(row.item_id || '').trim().toUpperCase();
         const rowOrderNo = String(row.order_no || '').trim().toUpperCase();
@@ -892,7 +900,6 @@ export default {
       return parts.length >= 3 ? `${parts[2]}日` : dStr;
     },
 
-    // 🌟 步進懸浮提示文字
     getShiftTitle(offset) {
       const direction = offset < 0 ? '前' : '後';
       if (this.analysisMode === 'daily') return `切換至${direction}一天`;
@@ -900,7 +907,6 @@ export default {
       return `切換至${direction}一年`;
     },
 
-    // 🌟 核心切換邏輯：往前/往後切換天數、月份、年份
     shiftPeriod(offset) {
       if (this.analysisMode === 'daily') {
         const curDate = new Date(this.targetDate || new Date());
@@ -930,7 +936,6 @@ export default {
       }
     },
 
-    // 🌟 一鍵重置回「今天 / 本月 / 今年」
     resetToCurrentPeriod() {
       const now = new Date();
       const y = now.getFullYear();
@@ -955,20 +960,34 @@ export default {
         navigator.clipboard.writeText(id).then(() => {
           ElMessage.success(`📋 已複製商品編號：${id}`);
         }).catch(() => {
-          this.fallbackCopy(id);
+          this.fallbackCopy(id, '商品編號');
         });
       } else {
-        this.fallbackCopy(id);
+        this.fallbackCopy(id, '商品編號');
       }
     },
-    fallbackCopy(text) {
+
+    copyOrderNo(orderNo) {
+      if (!orderNo) return;
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(orderNo).then(() => {
+          ElMessage.success(`📋 已複製補貨單號：${orderNo}`);
+        }).catch(() => {
+          this.fallbackCopy(orderNo, '補貨單號');
+        });
+      } else {
+        this.fallbackCopy(orderNo, '補貨單號');
+      }
+    },
+
+    fallbackCopy(text, label = '內容') {
       const input = document.createElement('textarea');
       input.value = text;
       document.body.appendChild(input);
       input.select();
       try {
         document.execCommand('copy');
-        ElMessage.success(`📋 已複製商品編號：${text}`);
+        ElMessage.success(`📋 已複製${label}：${text}`);
       } catch (err) {
         ElMessage.error('複製失敗');
       }
@@ -1535,7 +1554,6 @@ export default {
   white-space: nowrap;
 }
 
-/* 🌟 日期步進器群組樣式 */
 .date-stepper-group {
   display: flex;
   align-items: center;
