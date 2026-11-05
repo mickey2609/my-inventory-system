@@ -57,11 +57,10 @@ module.exports = function(db) {
     db.run(`ALTER TABLE transfer_1580_details ADD COLUMN overseas_order_no TEXT`, (err) => {});
     db.run(`CREATE INDEX IF NOT EXISTS idx_transfer1580_gen_date ON transfer_1580_details (gen_date)`, () => {});
     db.run(`CREATE INDEX IF NOT EXISTS idx_transfer1580_item_id ON transfer_1580_details (item_id)`, () => {});
-    db.run(`CREATE INDEX IF NOT EXISTS idx_transfer1580_overseas ON transfer_1580_details (overseas_order_no)`, () => {});
+    db.run(`CREATE INDEX IF NOT EXISTS idx_transfer1580_order_no ON transfer_1580_details (order_no)`, () => {});
   });
 
-  function applyFilters(sql, params, docTypes, reasons, tableAlias = '') {
-    const prefix = tableAlias ? `${tableAlias}.` : '';
+  function applyFilters(sql, params, docTypes, reasons) {
     let docList = [];
     if (Array.isArray(docTypes)) docList = docTypes;
     else if (typeof docTypes === 'string' && docTypes.trim() !== '') {
@@ -69,7 +68,7 @@ module.exports = function(db) {
     }
 
     if (docList.length > 0 && !docList.includes('all')) {
-      const subConds = docList.map(() => `${prefix}doc_type LIKE ?`);
+      const subConds = docList.map(() => `doc_type LIKE ?`);
       sql += ` AND (${subConds.join(' OR ')})`;
       docList.forEach(d => params.push(`%${d}%`));
     }
@@ -81,7 +80,7 @@ module.exports = function(db) {
     }
 
     if (reasonList.length > 0 && !reasonList.includes('all')) {
-      const subConds = reasonList.map(() => `${prefix}remark LIKE ?`);
+      const subConds = reasonList.map(() => `remark LIKE ?`);
       sql += ` AND (${subConds.join(' OR ')})`;
       reasonList.forEach(r => params.push(`%${r}%`));
     }
@@ -206,14 +205,15 @@ module.exports = function(db) {
         const remark = getVal('備註說明', 'remark', '備註');
         const actual_pcs = getNum('實際上架PCS', 'actual_pcs');
         
+        // 15 ➔ 80 代表出貨集貨訂單單號
         const overseas_order_no = getVal(
+          '訂單單號',
+          '訂單編號',
           '海外訂單編號',
           '海外訂單編號 ',
           ' 海外訂單編號',
           '海外訂單',
           '海外單號',
-          '進貨單號',
-          '訂單單號',
           '__EMPTY_29',
           'overseas_order_no'
         );
@@ -531,59 +531,50 @@ module.exports = function(db) {
     });
   });
 
-  // 🌟 6. 未完成明細 API：LEFT JOIN inbound_details 關聯抓取進貨端收貨備註
+  // 🌟 6. 未完成明細 API：純單表查詢（不關聯進貨上架）
   router.get('/pending-details', (req, res) => {
     let { targetDate, date, hour, month, year, docTypes, reasons } = req.query;
 
     let sql = `
       SELECT 
-        t.warehouse,
-        t.order_no,
-        t.doc_type,
-        t.item_id,
-        t.item_name,
-        t.item_spec,
-        t.suggest_qty,
-        t.gen_date,
-        t.gen_time,
-        t.apply_user,
-        t.remark,
-        t.overseas_order_no,
-        ib.remark AS inbound_remark
-      FROM transfer_1580_details t
-      LEFT JOIN inbound_details ib 
-        ON (
-          t.overseas_order_no IS NOT NULL 
-          AND t.overseas_order_no != '' 
-          AND t.overseas_order_no != '-' 
-          AND ib.po_no = t.overseas_order_no
-          AND ib.item_id = t.item_id
-        )
-      WHERE (t.finish_date IS NULL OR t.finish_date = '' OR t.finish_date = ' ' OR INSTR(t.finish_date, '-') = 0)
-        AND (t.doc_status IS NULL OR (t.doc_status != '已刪單' AND t.doc_status != '已銷案'))
+        warehouse,
+        order_no,
+        doc_type,
+        item_id,
+        item_name,
+        item_spec,
+        suggest_qty,
+        gen_date,
+        gen_time,
+        apply_user,
+        remark,
+        overseas_order_no
+      FROM transfer_1580_details
+      WHERE (finish_date IS NULL OR finish_date = '' OR finish_date = ' ' OR INSTR(finish_date, '-') = 0)
+        AND (doc_status IS NULL OR (doc_status != '已刪單' AND doc_status != '已銷案'))
     `;
     const params = [];
 
     const effectiveDate = date || targetDate;
     if (effectiveDate) {
-      sql += ` AND t.gen_date = ?`;
+      sql += ` AND gen_date = ?`;
       params.push(effectiveDate);
     } else if (month) {
-      sql += ` AND t.gen_date LIKE ?`;
+      sql += ` AND gen_date LIKE ?`;
       params.push(`${month}%`);
     } else if (year) {
-      sql += ` AND t.gen_date LIKE ?`;
+      sql += ` AND gen_date LIKE ?`;
       params.push(`${year}%`);
     }
 
     if (hour !== undefined && hour !== null && hour !== '') {
       const hStr = String(hour).padStart(2, '0');
-      sql += ` AND (t.gen_time LIKE ? OR t.gen_time LIKE ?)`;
+      sql += ` AND (gen_time LIKE ? OR gen_time LIKE ?)`;
       params.push(`${hStr}:%`, `${parseInt(hour, 10)}:%`);
     }
 
-    sql = applyFilters(sql, params, docTypes, reasons, 't');
-    sql += ` ORDER BY t.gen_date DESC, t.gen_time DESC`;
+    sql = applyFilters(sql, params, docTypes, reasons);
+    sql += ` ORDER BY gen_date DESC, gen_time DESC`;
 
     db.all(sql, params, (err, rows) => {
       if (err) return res.status(500).json({ success: false, message: '查詢調撥未完成明細失敗：' + err.message });
@@ -601,8 +592,7 @@ module.exports = function(db) {
         gen_time: r.gen_time || '-',
         apply_user: r.apply_user || '-',
         remark: r.remark || '-',
-        overseas_order_no: r.overseas_order_no || '-',
-        inbound_remark: r.inbound_remark || ''
+        overseas_order_no: r.overseas_order_no || '-'
       }));
 
       res.json({ success: true, totalPending: pendingList.length, pendingList });

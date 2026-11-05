@@ -408,7 +408,7 @@
       </div>
     </div>
 
-    <!-- 4. 未完成追蹤對話框彈窗（🌟 整合貼 ID/調撥單/進貨單號 查詢與「進貨備註」智慧呈現） -->
+    <!-- 4. 未完成追蹤對話框彈窗（🌟 支援貼 ID/調撥單/訂單單號 批量搜尋與複製） -->
     <el-dialog
       v-model="showPendingDialog"
       title="⚠️ 尚未調撥完成單據明細監控與更正處置"
@@ -449,12 +449,12 @@
                 未完成明細 (共 {{ formatNumber(filteredPendingList.length) }} 筆<span v-if="searchKeyword.trim()"> / 原 {{ pendingList.length }} 筆</span>)
               </span>
 
-              <!-- 🌟 貼 ID / 調撥單號 / 進貨單號 批量搜尋框 -->
+              <!-- 🌟 貼 ID / 調撥單號 / 訂單單號 批量搜尋框 -->
               <div class="id-search-box">
                 <el-input
                   v-model="searchKeyword"
                   size="small"
-                  placeholder="貼上商品ID / 調撥單號 / 進貨單號 (多筆以空格/逗號/換行隔開)"
+                  placeholder="貼上商品ID / 調撥單號 / 訂單單號 (多筆以空格/逗號/換行隔開)"
                   clearable
                   prefix-icon="el-icon-search"
                   style="width: 380px;"
@@ -518,10 +518,10 @@
               </template>
             </el-table-column>
             
-            <!-- 進貨單號 (若有) 點擊複製 -->
-            <el-table-column prop="overseas_order_no" label="進貨單號" width="155" align="center" sortable>
+            <!-- 🌟 15➔80 正確對應：訂單單號點擊複製 -->
+            <el-table-column prop="overseas_order_no" label="訂單單號" width="155" align="center" sortable>
               <template #default="scope">
-                <span class="text-yellow font-bold clickable-id" @click="copyText(scope.row.overseas_order_no, '進貨單號')" title="點擊可複製進貨單號">
+                <span class="text-yellow font-bold clickable-id" @click="copyText(scope.row.overseas_order_no, '訂單單號')" title="點擊可複製訂單單號">
                   {{ scope.row.overseas_order_no }}
                 </span>
               </template>
@@ -543,18 +543,7 @@
               </template>
             </el-table-column>
             <el-table-column prop="apply_user" label="申請人員" width="90" align="center" sortable />
-            
-            <!-- 🌟 備註說明：智慧顯示調撥備註 + 進貨端的收貨備註資訊 -->
-            <el-table-column label="備註說明" min-width="220" show-overflow-tooltip>
-              <template #default="scope">
-                <div class="remark-cell">
-                  <span>{{ scope.row.remark || '-' }}</span>
-                  <span v-if="scope.row.inbound_remark" class="inbound-remark-badge" :title="'進貨端收貨備註: ' + scope.row.inbound_remark">
-                    🏷️ 【進貨備註: {{ scope.row.inbound_remark }}】
-                  </span>
-                </div>
-              </template>
-            </el-table-column>
+            <el-table-column prop="remark" label="備註說明" min-width="200" show-overflow-tooltip />
 
             <el-table-column label="處置" width="90" align="center" fixed="right">
               <template #default="scope">
@@ -766,7 +755,7 @@ export default {
       drillFilterLabel: '',
       drillFilterParams: null,
 
-      // 貼 ID / 調撥單號 / 進貨單號 查詢輸入綁定
+      // 貼 ID / 調撥單號 / 訂單單號 查詢輸入綁定
       searchKeyword: '',
 
       showUploadCardModal: false,
@@ -828,7 +817,7 @@ export default {
       return '回到當前年份';
     },
 
-    // 同時過濾 商品ID、調撥單號、進貨單號
+    // 🌟 同時過濾 商品ID、調撥單號、訂單單號
     filteredPendingList() {
       if (!this.searchKeyword || !this.searchKeyword.trim()) {
         return this.pendingList;
@@ -1567,6 +1556,7 @@ export default {
   white-space: nowrap;
 }
 
+/* 日期步進器樣式 */
 .date-stepper-group {
   display: flex;
   align-items: center;
@@ -1825,23 +1815,6 @@ export default {
   font-weight: bold;
   font-size: 11px;
   padding-right: 4px;
-}
-
-.remark-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-.inbound-remark-badge {
-  display: inline-block;
-  background: rgba(245, 158, 11, 0.15);
-  color: #fbbf24;
-  border: 1px solid rgba(245, 158, 11, 0.35);
-  padding: 1px 6px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: bold;
-  width: fit-content;
 }
 
 .toolbar-btns {
