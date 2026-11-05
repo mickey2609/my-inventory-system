@@ -178,6 +178,13 @@
           <div class="action-desc">集貨調撥魚群及未完成追蹤</div>
         </div>
 
+        <!-- 🌟 新增：收發魚群出沒分析快捷入口小卡 -->
+        <div v-if="hasPermission('dispatch_fish')" class="action-card" @click="openTab('dispatch_fish')">
+          <div class="action-icon">📦</div>
+          <div class="action-title">收發魚群出沒分析</div>
+          <div class="action-desc">借貨(BR)與採購(BY)收貨驗收時段分析及未完成追蹤</div>
+        </div>
+
         <div v-if="hasPermission('item_sales_history')" class="action-card" @click="openTab('item_sales_history')">
           <div class="action-icon">📈</div>
           <div class="action-title">全商品歷史銷量履歷</div>
@@ -499,7 +506,6 @@ export default {
   color: #7dd3fc;
 }
 
-/* 方案一：右側膠囊與身分標籤排列 */
 .header-right-zone {
   display: flex;
   align-items: center;
@@ -683,7 +689,6 @@ export default {
 }
 </style>
 
-<!-- 方案一：Popover 懸浮卡樣式 -->
 <style>
 .dark-popover.el-popper {
   background: #1e293b !important;
