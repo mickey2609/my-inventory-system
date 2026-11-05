@@ -515,7 +515,7 @@ module.exports = function(db) {
     });
   });
 
-  // 7. 未驗收明細 API
+  // 7. 未驗收明細 API (確保穿透條件 100% 繼承主畫面篩選)
   router.get('/pending-details', (req, res) => {
     let { targetDate, date, hour, month, year } = req.query;
 
@@ -544,6 +544,7 @@ module.exports = function(db) {
       params.push(`${hStr}:%`, `${parseInt(hour, 10)}:%`);
     }
 
+    // 🌟 關鍵：必須套用主畫面當前的所有條件 (如準時到貨 onTimeFilter)
     sql = applyFilters(sql, params, req.query);
     sql += ` ORDER BY rec_date DESC, rec_time DESC`;
 
@@ -551,13 +552,15 @@ module.exports = function(db) {
       if (err) return res.status(500).json({ success: false, message: '查詢未驗收明細失敗：' + err.message });
       rows = rows || [];
 
-      if (req.query.abnormalFilter === 'yes') rows = rows.filter(r => checkIsAbnormal(r.remark));
-      else if (req.query.abnormalFilter === 'no') rows = rows.filter(r => !checkIsAbnormal(r.remark));
+      // 彈窗內部或外層的異常件自然語言過濾
+      const abFilter = req.query.abnormalFilter;
+      if (abFilter === 'yes') rows = rows.filter(r => checkIsAbnormal(r.remark));
+      else if (abFilter === 'no') rows = rows.filter(r => !checkIsAbnormal(r.remark));
 
       res.json({ success: true, totalPending: rows.length, pendingList: rows });
     });
   });
-
+  
   // 8. 手動銷案 API
   router.post('/close-order', (req, res) => {
     const { keys, startDate, endDate, closeUser, closeRemark } = req.body;

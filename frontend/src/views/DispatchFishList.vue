@@ -972,9 +972,9 @@ export default {
       this.drillFilterLabel = options.label || '';
       this.drillFilterParams = options;
       this.searchKeyword = '';
-      this.dialogAbnormalFilter = 'all';
+      // 繼承主畫面異常件設定 (若主畫面選了異常件，彈窗同步對齊)
+      this.dialogAbnormalFilter = this.abnormalFilter;
       this.showPendingDialog = true;
-      this.fetchPendingDateList();
       this.loadDrillPendingDetails(options);
     },
     clearDrillFilter() {
@@ -988,15 +988,23 @@ export default {
     async loadDrillPendingDetails(options) {
       this.loadingPending = true;
       try {
-        const params = { sourceFilter: this.sourceCategoryFilter };
+        // 🌟 完整帶入主畫面當前所有篩選參數 (單據類別、準時到貨、快速通關等)
+        const params = {
+          ...this.getQueryParams(),
+          abnormalFilter: this.dialogAbnormalFilter
+        };
         if (options.date) params.date = options.date;
         if (options.month) params.month = options.month;
         if (options.year) params.year = options.year;
         if (options.hour !== undefined) params.hour = options.hour;
 
         const res = await axios.get('/api/dispatch/pending-details', { params });
-        if (res.data?.success) this.pendingList = res.data.pendingList || [];
-      } finally { this.loadingPending = false; }
+        if (res.data?.success) {
+          this.pendingList = res.data.pendingList || [];
+        }
+      } finally {
+        this.loadingPending = false;
+      }
     },
     async fetchPendingDateList() {
       try {
