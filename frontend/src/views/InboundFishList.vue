@@ -9,12 +9,12 @@
       @change="handleCsvFileSelected"
     />
 
-    <!-- 1. 頂部操作與篩選列 (🌟 整合日期步進組件) -->
+    <!-- 1. 頂部操作與篩選列 (整合日期步進組件) -->
     <div class="top-bar">
       <div class="title-group">
         <span class="page-title">🐟 倉庫 進貨驗收與新品上架分析</span>
         
-        <!-- 🌟 智慧日期/月份/年份 步進切換器 (支援前一天、後一天、今天) -->
+        <!-- 智慧日期/月份/年份 步進切換器 (支援前一天、後一天、今天) -->
         <div class="date-stepper-group">
           <el-button 
             size="small" 
@@ -676,7 +676,7 @@
               <td class="text-right font-bold">100.00%</td>
               <td 
                 class="text-right font-bold text-green clickable-drill" 
-                @click="cargoSummary.palletBatchCount > 0 ? openCargoDrillModal({ type: 'pallet', title: '當日全量 板貨品項明細` }) : null"
+                @click="cargoSummary.palletBatchCount > 0 ? openCargoDrillModal({ type: 'pallet', title: '當日全量 板貨品項明細' }) : null"
                 title="點擊穿透查看當日全量板貨明細"
               >
                 {{ formatNumber(cargoSummary.palletBatchCount) }}
@@ -1201,7 +1201,7 @@
       </div>
     </el-dialog>
 
-    <!-- 🌟 9. 未上架彈窗 (支援貼 ID / 進貨單號 / 批號 批量搜尋與點擊複製) -->
+    <!-- 9. 未上架彈窗 (支援貼 ID / 進貨單號 / 批號 批量搜尋與點擊複製) -->
     <el-dialog 
       v-model="showPendingDialog" 
       title="⚠️ 尚未上架明細監控與更正處置" 
@@ -1242,7 +1242,7 @@
                 共 <strong>{{ filteredDetailsList.length }}</strong> 筆明細<span v-if="searchPendingKeyword.trim()"> / 原 {{ currentDetailsList.length }} 筆</span>
               </span>
 
-              <!-- 🌟 貼 ID / 單號 / 批號 查詢輸入框 -->
+              <!-- 貼 ID / 單號 / 批號 查詢輸入框 -->
               <div class="id-search-box">
                 <el-input
                   v-model="searchPendingKeyword"
@@ -1346,7 +1346,7 @@
               </template>
             </el-table-column>
 
-            <!-- 🌟 進貨單號支援點擊複製 -->
+            <!-- 進貨單號支援點擊複製 -->
             <el-table-column prop="po_no" label="進貨單號" width="165" align="center" sortable>
               <template #default="scope">
                 <span class="font-bold text-orange clickable-id" @click="copyText(scope.row.po_no, '進貨單號')" title="點擊可複製進貨單號">
@@ -1355,7 +1355,7 @@
               </template>
             </el-table-column>
 
-            <!-- 🌟 驗收批號支援點擊複製 -->
+            <!-- 驗收批號支援點擊複製 -->
             <el-table-column prop="batch_no" label="驗收批號" width="160" align="center" sortable>
               <template #default="scope">
                 <span class="font-bold text-cyan clickable-id" @click="copyText(scope.row.batch_no, '驗收批號')" title="點擊可複製驗收批號">
@@ -1546,7 +1546,7 @@ export default {
       pendingWhFilter: 'all',
       aiFilterStatus: 'all',
 
-      // 🌟 未上架貼 ID / 進貨單號 / 批號 查詢輸入綁定
+      // 未上架貼 ID / 進貨單號 / 批號 查詢輸入綁定
       searchPendingKeyword: '',
 
       showUploadCardModal: false,
@@ -1604,7 +1604,6 @@ export default {
       return username === 'admin' || username === '系統管理員';
     },
 
-    // 🌟 步進快捷按鈕文字與標題
     getResetLabel() {
       if (this.analysisMode === 'daily') return '今天';
       if (this.analysisMode === 'monthly') return '本月';
@@ -1616,7 +1615,6 @@ export default {
       return '回到當前年份';
     },
 
-    // 單號與批號專屬 KPI 比率
     getSameDaySlaRate() {
       if (!this.poData.todayRecPoCount) return '0.00%';
       return ((this.poData.sameDayPutPoCount / this.poData.todayRecPoCount) * 100).toFixed(2) + '%';
@@ -1721,7 +1719,6 @@ export default {
       return this.currentDetailsList.filter(r => this.analyzeRemark(r.remark).isAbnormal).length;
     },
 
-    // 🌟 支援 貼 ID / 進貨單號 / 批號 批量比對過濾
     filteredDetailsList() {
       let list = this.currentDetailsList;
 
@@ -1816,7 +1813,6 @@ export default {
       return '雙庫合計';
     },
 
-    // 🌟 步進懸浮提示文字
     getShiftTitle(offset) {
       const direction = offset < 0 ? '前' : '後';
       if (this.analysisMode === 'daily') return `切換至${direction}一天`;
@@ -1824,7 +1820,6 @@ export default {
       return `切換至${direction}一年`;
     },
 
-    // 🌟 核心切換邏輯：往前/往後切換天數、月份、年份
     shiftPeriod(offset) {
       if (this.analysisMode === 'daily') {
         const curDate = new Date(this.targetDate || new Date());
@@ -1854,7 +1849,6 @@ export default {
       }
     },
 
-    // 🌟 一鍵重置回「今天 / 本月 / 今年」
     resetToCurrentPeriod() {
       const now = new Date();
       const y = now.getFullYear();
@@ -1873,7 +1867,6 @@ export default {
       }
     },
 
-    // 🌟 點擊一鍵複製文字
     copyText(text, label = '內容') {
       if (!text) return;
       if (navigator.clipboard && window.isSecureContext) {
