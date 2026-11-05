@@ -63,6 +63,10 @@ app.use('/api/transfer8015', transfer8015Router);
 const transfer1580Router = require('./routes/transfer1580')(db);
 app.use('/api/transfer1580', transfer1580Router);
 
+// 掛載收發魚群分析路由
+const dispatchFishRouter = require('./routes/dispatchFish')(db);
+app.use('/api/dispatch', dispatchFishRouter);
+
 // 5. 庫存與儲位分析模組 API
 const inventory15Module = require('./routes/inventory15');
 const locationStatsModule = require('./routes/locationStats');

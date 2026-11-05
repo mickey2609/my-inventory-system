@@ -112,6 +112,13 @@
             :is-sys-admin="isSysAdmin"
           />
 
+          <!-- 🌟 收發魚群出沒分析模組 (BR 借貨 / BY 採購) -->
+          <DispatchFishList 
+            v-else-if="currentTab === 'dispatch_fish'" key="dispatch_fish"
+            :is-admin="isAdmin"
+            :is-sys-admin="isSysAdmin"
+          />
+
           <SettingsLog 
             v-else-if="currentTab === 'settings_log'" key="settings_log"
             v-model:log-tab="logTab" :filtered-logs-list="logsList" @refresh-logs="fetchLogs"
@@ -232,6 +239,7 @@ import InboundFishList from './views/InboundFishList.vue'
 import ReplenishFishList from './views/ReplenishFishList.vue'
 import Transfer8015FishList from './views/Transfer8015FishList.vue'
 import Transfer1580FishList from './views/Transfer1580FishList.vue'
+import DispatchFishList from './views/DispatchFishList.vue'
 import SettingsPerm from './views/SettingsPerm.vue'
 import SettingsLog from './views/SettingsLog.vue'
 
@@ -253,6 +261,7 @@ const TAB_PATH_MAP = {
   'replenish_fish': '/replenish-fish',
   'transfer_80_15': '/transfer-8015',
   'transfer_15_80': '/transfer-1580',
+  'dispatch_fish': '/dispatch-fish',
   'settings_perm': '/settings-perm',
   'settings_log': '/settings-log'
 };
@@ -267,7 +276,7 @@ export default {
     TopNavbar, SystemDrawer, ColConfigModal, ParamMenuModal, WidthConfigModal,
     ImportTipModal, UserManagementModals, InventorySearchModal, HomeDashboard,
     LoginOverlay, InvQuery80, InvSearch15, LocSummary, ItemSalesHistory, TurnoverList, AbnormalPurchase,
-    InboundFishList, ReplenishFishList, Transfer8015FishList, Transfer1580FishList, 
+    InboundFishList, ReplenishFishList, Transfer8015FishList, Transfer1580FishList, DispatchFishList,
     SettingsPerm, SettingsLog
   },
   setup() {
@@ -349,7 +358,8 @@ export default {
         { key: 'inbound_fish', name: '🐟 進貨上架魚群' },
         { key: 'replenish_fish', name: '🐟 立即補貨單魚群' },
         { key: 'transfer_80_15', name: '🔄 跨庫調撥 80 ➔ 15' },
-        { key: 'transfer_15_80', name: '🔄 跨庫調撥 15 ➔ 80' }
+        { key: 'transfer_15_80', name: '🔄 跨庫調撥 15 ➔ 80' },
+        { key: 'dispatch_fish', name: '📦 收發魚群出沒分析' }
       ],
 
       rawColumnsMaster: [...full48Cols],
@@ -953,6 +963,7 @@ export default {
         'replenish_fish': '🐟 立即補貨單魚群',
         'transfer_80_15': '🔄 跨庫調撥 80 ➔ 15',
         'transfer_15_80': '🔄 跨庫調撥 15 ➔ 80',
+        'dispatch_fish': '📦 收發魚群出沒分析',
         'settings_perm': '⚙️ 權限管理',
         'settings_log': '📜 日誌歷程查詢'
       };
