@@ -1,3 +1,4 @@
+<!-- frontend/src/views/DispatchFishList.vue -->
 <template>
   <div class="dispatch-fish-page dark-bg">
     <!-- 隱藏的檔案選擇器 -->
@@ -87,7 +88,7 @@
       </div>
     </div>
 
-    <!-- 2. 第二排獨立工具列：單據分類 (BR/BY) 與備註過濾 -->
+    <!-- 2. 第二排獨立工具列：單據分類 (BR/BY) -->
     <div class="filter-bar">
       <div class="filter-item-box">
         <span class="select-label">🏷️ 單據來源類別：</span>
@@ -744,8 +745,16 @@ export default {
         let rawData = [];
         if (file.name.endsWith('.xls') || file.name.endsWith('.xlsx')) {
           const arrayBuffer = await file.arrayBuffer();
-          const workbook = XLSX.read(arrayBuffer, { type: 'array' });
-          rawData = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { defval: '' });
+          // 🌟 加入 cellDates 與 dateNF，防止 Excel 日期變為純天數序號
+          const workbook = XLSX.read(arrayBuffer, { 
+            type: 'array',
+            cellDates: true,
+            dateNF: 'yyyy-mm-dd'
+          });
+          rawData = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { 
+            defval: '',
+            raw: false
+          });
         } else {
           const text = await file.text();
           rawData = Papa.parse(text, { header: true, skipEmptyLines: true }).data || [];
@@ -771,6 +780,16 @@ export default {
         }
 
         ElMessage.success(`🎉 成功清洗並同步 ${this.totalRowsToUpload.toLocaleString()} 筆收發單據！`);
+
+        // 🌟 自動尋找檔案內最新收貨日期並將畫面切換至該日
+        for (let j = rawData.length - 1; j >= 0; j--) {
+          const rDate = String(rawData[j]['收貨日期'] || '').trim();
+          if (rDate && rDate.includes('-')) {
+            this.targetDate = rDate.split(' ')[0];
+            break;
+          }
+        }
+
         this.refreshAllData();
       } catch (e) {
         ElMessage.error('匯入處理失敗：' + e.message);

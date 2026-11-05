@@ -4,10 +4,26 @@ const express = require('express');
 module.exports = function(db) {
   const router = express.Router();
 
+  // 🌟 日期標準化：相容 Excel 天數序號 (如 46329) 與一般字串日期
   function standardizeDate(val) {
-    if (!val) return '';
+    if (val === undefined || val === null || val === '') return '';
     let str = String(val).trim();
+    if (!str || str === 'NaN' || str === 'null' || str === 'NaT') return '';
+
+    // 1. 若為 Excel 天數序號 (純 5 位數字)
+    if (/^\d{5}\$/.test(str)) {
+      const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+      const targetTime = new Date(excelEpoch.getTime() + parseInt(str, 10) * 86400000);
+      const y = targetTime.getUTCFullYear();
+      const m = String(targetTime.getUTCMonth() + 1).padStart(2, '0');
+      const d = String(targetTime.getUTCDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+
+    // 2. 去除時間部分 (如 2026-11-03 00:00:00 取 2026-11-03)
     if (str.includes(' ')) str = str.split(' ')[0];
+    if (str.includes('T')) str = str.split('T')[0];
+
     str = str.replace(/\//g, '-');
     const parts = str.split('-');
     if (parts.length === 3) {
@@ -19,9 +35,12 @@ module.exports = function(db) {
     return str;
   }
 
+  // 🌟 時間標準化：確保格式為 HH:mm:ss
   function standardizeTime(val) {
-    if (!val) return '';
+    if (val === undefined || val === null || val === '') return '';
     let str = String(val).trim();
+    if (!str || str === 'NaN' || str === 'null' || str === 'NaT') return '';
+
     if (str.includes(' ')) {
       const parts = str.split(' ');
       str = parts[parts.length - 1];
@@ -438,7 +457,7 @@ module.exports = function(db) {
             const mKey = cDate.substring(0, 7);
             if (monthMap[mKey]) {
               if (orderNo) monthMap[mKey].finOrderSet.add(orderNo);
-              monthMap[mKey].finPcs += (r.actual_pcs || 0);
+              monthMap[mKey].finPcs += (r.pcs || 0);
             }
           }
         });
