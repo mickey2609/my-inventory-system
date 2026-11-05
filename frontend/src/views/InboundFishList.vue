@@ -2297,7 +2297,8 @@ export default {
           this.pendingSummary = list;
           this.totalPendingCount = list.reduce((sum, item) => sum + item.pending_count, 0);
 
-          if (list.length > 0) {
+          // 🌟 修改這裡：只有在「尚未選擇日期」且「未處於時段穿透模式」時才預設選取第一筆日期
+          if (list.length > 0 && !this.selectedPendingDate && this.selectedHourFilter === null) {
             this.selectedPendingDate = list[0].rec_date;
             this.loadPendingDetails(this.selectedPendingDate, null);
           }
@@ -2326,13 +2327,17 @@ export default {
     openHourPendingDetails(hourIndex, hourLabel) {
       this.selectedHourFilter = hourIndex;
       this.selectedHourStr = hourLabel;
-      this.selectedPendingDate = this.targetDate;
+      this.selectedPendingDate = this.targetDate; // 鎖定目前查詢的日期
       this.pendingWhFilter = 'all';
       this.aiFilterStatus = 'all';
       this.searchPendingKeyword = '';
-      this.fetchPendingSummary();
-      this.loadPendingDetails(this.targetDate, hourIndex);
+      
+      // 🌟 先打開彈窗並載入當天該時段的明細
       this.showPendingDialog = true;
+      this.loadPendingDetails(this.targetDate, hourIndex);
+      
+      // 🌟 背景更新下拉清單即可，不觸發覆蓋
+      this.fetchPendingSummary();
     },
 
     clearHourFilter() {
