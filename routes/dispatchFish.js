@@ -4,13 +4,14 @@ const express = require('express');
 module.exports = function(db) {
   const router = express.Router();
 
-  // 🌟 日期標準化：相容 Excel 天數序號 (如 46329) 與一般字串日期
+  // 暫存本次完整匯入作業中出現的所有單號與商品組合
+  let currentImportingBatchKeys = new Set();
+
   function standardizeDate(val) {
     if (val === undefined || val === null || val === '') return '';
     let str = String(val).trim();
     if (!str || str === 'NaN' || str === 'null' || str === 'NaT') return '';
 
-    // 1. 若為 Excel 天數序號 (純 5 位數字)
     if (/^\d{5}$/.test(str)) {
       const excelEpoch = new Date(Date.UTC(1899, 11, 30));
       const targetTime = new Date(excelEpoch.getTime() + parseInt(str, 10) * 86400000);
@@ -34,7 +35,6 @@ module.exports = function(db) {
     return str;
   }
 
-  // 🌟 時間標準化：確保格式為 HH:mm:ss
   function standardizeTime(val) {
     if (val === undefined || val === null || val === '') return '';
     let str = String(val).trim();
@@ -54,7 +54,6 @@ module.exports = function(db) {
     return str;
   }
 
-  // 判斷是否為異常件
   function checkIsAbnormal(remark) {
     if (!remark) return false;
     const cleanRmk = String(remark).replace(/\(原15庫\)|\(原82庫\)|\s+/g, '').trim();
@@ -100,48 +99,48 @@ module.exports = function(db) {
     db.run(`CREATE INDEX IF NOT EXISTS idx_dispatch_item_id ON dispatch_fish_details (item_id)`, () => {});
   });
 
-  // 🌟 動態條件過濾器：支援 來源類別、準時到貨、異常件、快速通關、未驗收
   function applyFilters(sql, params, query) {
-    const { sourceFilter, onTimeFilter, abnormalFilter, fastPassFilter, uncheckFilter } = query;
+    const { sourceFilter, onTimeFilter, fastPassFilter, uncheckFilter } = query;
 
-    // 1. 單據來源類別 (BR / BY)
     if (sourceFilter && sourceFilter !== 'all') {
       if (sourceFilter === 'BR') sql += ` AND order_no LIKE 'BR%'`;
       else if (sourceFilter === 'BY') sql += ` AND order_no LIKE 'BY%'`;
     }
 
-    // 2. 準時到貨篩選 (K欄 == L欄)
     if (onTimeFilter === 'yes') {
       sql += ` AND appoint_date IS NOT NULL AND appoint_date != '' AND appoint_date = rec_date`;
     } else if (onTimeFilter === 'no') {
       sql += ` AND appoint_date IS NOT NULL AND appoint_date != '' AND appoint_date != rec_date`;
     }
 
-    // 3. 快速通關 (A欄)
     if (fastPassFilter === 'yes') {
       sql += ` AND fast_pass_info IS NOT NULL AND TRIM(fast_pass_info) != ''`;
     } else if (fastPassFilter === 'no') {
       sql += ` AND (fast_pass_info IS NULL OR TRIM(fast_pass_info) = '')`;
     }
 
-    // 4. 是否已收發未驗收 (有 rec_date 但 check_date 為空)
     if (uncheckFilter === 'yes') {
       sql += ` AND (check_date IS NULL OR TRIM(check_date) = '' OR TRIM(check_date) = 'NaT') AND (doc_status IS NULL OR doc_status != '已銷案')`;
     } else if (uncheckFilter === 'no') {
-      sql += ` AND (check_date IS NOT NULL AND TRIM(check_date) != '' AND TRIM(check_date) != 'NaT')`;
+      sql += ` AND ((check_date IS NOT NULL AND TRIM(check_date) != '' AND TRIM(check_date) != 'NaT') OR doc_status = '已銷案')`;
     }
 
     return sql;
   }
 
-  // 2. 匯入 API
+  // 2. 匯入 API (🌟 內建自動銷案機制：未在匯入清單中的未完成單據自動判斷已驗收銷案)
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     const fileName = req.body.fileName || 'dispatch_fish.xlsx';
     const isFirstChunk = req.body.isFirstChunk === true;
+    const isLastChunk = req.body.isLastChunk === true;
 
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ success: false, message: '未收到有效的收發魚群資料' });
+    }
+
+    if (isFirstChunk) {
+      currentImportingBatchKeys.clear();
     }
 
     db.serialize(() => {
@@ -208,6 +207,9 @@ module.exports = function(db) {
           continue;
         }
 
+        // 收集本次匯入檔中出現的所有主鍵
+        currentImportingBatchKeys.add(`${order_no}__${item_id}`);
+
         const source_category = order_no.toUpperCase().startsWith('BR') ? '借貨商品' : '採購商品';
         const fast_pass_info = getVal('快速通關資訊', 'fast_pass_info');
         const item_type = getVal('類型', 'item_type');
@@ -236,10 +238,63 @@ module.exports = function(db) {
       }
 
       stmt.finalize();
+
       db.run('COMMIT', (err) => {
         db.run('PRAGMA synchronous = NORMAL');
-        if (err) return res.status(500).json({ success: false, message: '收發魚群資料寫入失敗：' + err.message });
-        res.json({ success: true, count: processedCount, message: `成功同步 ${processedCount} 筆收發魚群資料！` });
+        if (err) return res.status(500).json({ success: false, message: '寫入失敗：' + err.message });
+
+        // 🌟 當整批檔案傳輸完成時 (isLastChunk === true)，執行自動銷案對比！
+        if (isLastChunk && currentImportingBatchKeys.size > 0) {
+          const now = new Date();
+          const autoCloseDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+          const autoCloseTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+
+          // 取出目前資料庫中所有尚未驗收結案的單據
+          const pendingCheckSql = `
+            SELECT order_no, item_id, rec_date 
+            FROM dispatch_fish_details 
+            WHERE (check_date IS NULL OR TRIM(check_date) = '' OR TRIM(check_date) = 'NaT')
+              AND (doc_status IS NULL OR doc_status != '已銷案')
+          `;
+
+          db.all(pendingCheckSql, [], (pendingErr, pendingRows) => {
+            if (!pendingErr && pendingRows && pendingRows.length > 0) {
+              const toAutoClose = pendingRows.filter(r => !currentImportingBatchKeys.has(`${r.order_no}__${r.item_id}`));
+
+              if (toAutoClose.length > 0) {
+                db.serialize(() => {
+                  db.run('BEGIN TRANSACTION');
+                  const closeStmt = db.prepare(`
+                    UPDATE dispatch_fish_details
+                    SET check_date = ?, check_time = ?, doc_status = '已銷案', finish_user = '系統自動銷案', finish_remark = '匯入檔無此單號，判定已驗收上架'
+                    WHERE order_no = ? AND item_id = ?
+                  `);
+
+                  toAutoClose.forEach(c => {
+                    closeStmt.run(autoCloseDate, autoCloseTime, c.order_no, c.item_id);
+                  });
+
+                  closeStmt.finalize();
+                  db.run('COMMIT', () => {
+                    currentImportingBatchKeys.clear();
+                    res.json({
+                      success: true,
+                      count: processedCount,
+                      autoClosedCount: toAutoClose.length,
+                      message: `成功同步 ${processedCount} 筆資料，並自動為 ${toAutoClose.length} 筆已從匯入檔移除的單據完成驗收銷案！`
+                    });
+                  });
+                });
+                return;
+              }
+            }
+
+            currentImportingBatchKeys.clear();
+            res.json({ success: true, count: processedCount, message: `成功同步 ${processedCount} 筆收發魚群資料！` });
+          });
+        } else {
+          res.json({ success: true, count: processedCount, message: `成功同步 ${processedCount} 筆收發魚群資料！` });
+        }
       });
     });
   });
@@ -263,7 +318,6 @@ module.exports = function(db) {
 
       rows = rows || [];
 
-      // 若有異常件篩選 (備註需經 JS 自然語言過濾)
       if (req.query.abnormalFilter === 'yes') {
         rows = rows.filter(r => checkIsAbnormal(r.remark));
       } else if (req.query.abnormalFilter === 'no') {
@@ -278,7 +332,6 @@ module.exports = function(db) {
         finOrderSet: new Set(), finPcs: 0
       }));
 
-      // 四大維度彙整統計計數
       let onTimeCount = 0;
       let abnormalCount = 0;
       let fastPassCount = 0;
@@ -286,7 +339,7 @@ module.exports = function(db) {
 
       rows.forEach(r => {
         const orderNo = (r.order_no || '').trim();
-        const hasCheck = !!(r.check_date && String(r.check_date).trim() !== '' && String(r.check_date).trim() !== 'NaT');
+        const hasCheck = !!((r.check_date && String(r.check_date).trim() !== '' && String(r.check_date).trim() !== 'NaT') || r.doc_status === '已銷案');
         const isOnTime = (r.appoint_date && r.rec_date && r.appoint_date === r.rec_date);
         const isAbnormal = checkIsAbnormal(r.remark);
         const isFastPass = !!(r.fast_pass_info && String(r.fast_pass_info).trim() !== '');
@@ -297,7 +350,6 @@ module.exports = function(db) {
         if (isFastPass) fastPassCount++;
         if (isUncheck) uncheckCount++;
 
-        // 依收貨時間統計收貨量
         if (r.rec_date === targetDate && r.rec_time) {
           const timeClean = String(r.rec_time).trim();
           const hourPart = timeClean.split(':')[0];
@@ -313,7 +365,6 @@ module.exports = function(db) {
           }
         }
 
-        // 依驗收時間統計完成量
         if (r.check_date === targetDate && r.check_time) {
           const timeClean = String(r.check_time).trim();
           const hourPart = timeClean.split(':')[0];
@@ -377,7 +428,7 @@ module.exports = function(db) {
         const orderNo = (r.order_no || '').trim();
         const rDate = (r.rec_date || '').trim();
         const cDate = (r.check_date || '').trim();
-        const hasCheck = !!(cDate && cDate !== '' && cDate !== 'NaT');
+        const hasCheck = !!((cDate && cDate !== '' && cDate !== 'NaT') || r.doc_status === '已銷案');
 
         if (rDate && rDate.startsWith(month)) {
           const day = getDayObj(rDate);
@@ -453,7 +504,7 @@ module.exports = function(db) {
         const orderNo = (r.order_no || '').trim();
         const rDate = (r.rec_date || '').trim();
         const cDate = (r.check_date || '').trim();
-        const hasCheck = !!(cDate && cDate !== '' && cDate !== 'NaT');
+        const hasCheck = !!((cDate && cDate !== '' && cDate !== 'NaT') || r.doc_status === '已銷案');
 
         if (rDate && rDate.startsWith(year)) {
           const mKey = rDate.substring(0, 7);
@@ -489,7 +540,8 @@ module.exports = function(db) {
           monthLabel: item.monthLabel,
           recOrderCount: recCount, recPcs: item.recPcs,
           pendingOrderCount: item.pendingOrderSet.size,
-          finOrderCount: item.finOrderSet.size, finPcs: item.finPcs,
+          finOrderCount: item.finOrderSet.size,
+          finPcs: item.finPcs,
           finishRate: Math.min(100, rateVal).toFixed(2) + '%'
         };
       });
@@ -515,7 +567,7 @@ module.exports = function(db) {
     });
   });
 
-  // 7. 未驗收明細 API (確保穿透條件 100% 繼承主畫面篩選)
+  // 7. 未驗收明細 API (🌟 精準繼承穿透篩選條件)
   router.get('/pending-details', (req, res) => {
     let { targetDate, date, hour, month, year } = req.query;
 
@@ -544,7 +596,6 @@ module.exports = function(db) {
       params.push(`${hStr}:%`, `${parseInt(hour, 10)}:%`);
     }
 
-    // 🌟 關鍵：必須套用主畫面當前的所有條件 (如準時到貨 onTimeFilter)
     sql = applyFilters(sql, params, req.query);
     sql += ` ORDER BY rec_date DESC, rec_time DESC`;
 
@@ -552,7 +603,6 @@ module.exports = function(db) {
       if (err) return res.status(500).json({ success: false, message: '查詢未驗收明細失敗：' + err.message });
       rows = rows || [];
 
-      // 彈窗內部或外層的異常件自然語言過濾
       const abFilter = req.query.abnormalFilter;
       if (abFilter === 'yes') rows = rows.filter(r => checkIsAbnormal(r.remark));
       else if (abFilter === 'no') rows = rows.filter(r => !checkIsAbnormal(r.remark));
@@ -560,7 +610,7 @@ module.exports = function(db) {
       res.json({ success: true, totalPending: rows.length, pendingList: rows });
     });
   });
-  
+
   // 8. 手動銷案 API
   router.post('/close-order', (req, res) => {
     const { keys, startDate, endDate, closeUser, closeRemark } = req.body;

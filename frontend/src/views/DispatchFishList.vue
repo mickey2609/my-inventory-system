@@ -329,7 +329,7 @@
       </div>
     </div>
 
-    <!-- 4. 🌟 未驗收追蹤對話框 (完整修復：支援顯示全部日期、獨立異常件篩選、多筆搜尋) -->
+    <!-- 4. 未驗收追蹤對話框 (支援穿透精準篩選與切換) -->
     <el-dialog
       v-model="showPendingDialog"
       title="⚠️ 尚未驗收完成單據明細監控與更正處置"
@@ -343,7 +343,7 @@
         <div class="side-date-nav">
           <div class="nav-title">📅 選擇收貨日期：</div>
           <div class="nav-scroll-list">
-            <!-- 🌟 全部日期彙總選項 -->
+            <!-- 全部日期彙總選項 -->
             <div
               class="nav-date-item"
               :class="{ 'active-date': activePendingDate === '' && !drillFilterLabel }"
@@ -371,13 +371,13 @@
         <div class="main-monitor-content">
           <div class="monitor-top-toolbar">
             <div class="toolbar-left-info">
-              <span v-if="drillFilterLabel" class="drill-tag">🎯 穿透篩選：<strong>[{{ drillFilterLabel }}]</strong></span>
+              <span v-if="drillFilterLabel" class="drill-tag">🎯 穿透鎖定：<strong>[{{ drillFilterLabel }}]</strong></span>
               <span class="current-date-header">
                 🔍 <strong>{{ drillFilterLabel ? '' : (activePendingDate || '全部未驗收日期') }}</strong> 
-                未完成明細 (共 {{ formatNumber(filteredPendingList.length) }} 筆<span v-if="searchKeyword.trim() || dialogAbnormalFilter !== 'all'"> / 原 {{ pendingList.length }} 筆</span>)
+                未完成明細 (共 {{ formatNumber(filteredPendingList.length) }} 筆<span v-if="searchKeyword.trim() || dialogAbnormalFilter !== 'all'"> / 原始 {{ pendingList.length }} 筆</span>)
               </span>
 
-              <!-- 🌟 彈窗專屬：異常件 / 正常件篩選按鈕 -->
+              <!-- 彈窗專屬：異常件 / 正常件篩選按鈕 -->
               <div class="dialog-filter-box">
                 <span class="dialog-filter-label">異常狀態：</span>
                 <el-radio-group v-model="dialogAbnormalFilter" size="mini">
@@ -403,7 +403,7 @@
                 </el-input>
               </div>
 
-              <el-button v-if="drillFilterLabel" size="mini" type="info" plain @click="clearDrillFilter">顯示全部未完成</el-button>
+              <el-button v-if="drillFilterLabel" size="mini" type="info" plain @click="clearDrillFilter">解除鎖定 (看全部未驗收)</el-button>
             </div>
 
             <div class="toolbar-btns">
@@ -577,7 +577,7 @@ export default {
       isAllSelected: false,
       drillFilterLabel: '',
       drillFilterParams: null,
-      dialogAbnormalFilter: 'all', // 🌟 彈窗專屬異常件篩選 (all / yes / no)
+      dialogAbnormalFilter: 'all',
 
       searchKeyword: '',
 
@@ -617,18 +617,17 @@ export default {
     totalPendingAllDates() {
       return this.pendingDateList.reduce((acc, d) => acc + (d.count || 0), 0);
     },
-    // 🌟 彈窗內部的資料計算：支援「異常狀態」與「貼ID/單號搜尋」
     filteredPendingList() {
       let list = this.pendingList;
 
-      // 1. 異常狀態過濾
+      // 異常狀態過濾
       if (this.dialogAbnormalFilter === 'yes') {
         list = list.filter(r => this.isRowAbnormal(r.remark));
       } else if (this.dialogAbnormalFilter === 'no') {
         list = list.filter(r => !this.isRowAbnormal(r.remark));
       }
 
-      // 2. 關鍵字搜尋過濾
+      // 關鍵字搜尋過濾
       if (!this.searchKeyword || !this.searchKeyword.trim()) return list;
       const rawKeywords = this.searchKeyword.split(/[\s,，\n\r]+/).map(s => s.trim().toUpperCase()).filter(Boolean);
       if (rawKeywords.length === 0) return list;
@@ -756,7 +755,6 @@ export default {
       return keywords.some(k => cleanRmk.includes(k)) || cleanRmk.length > 5;
     },
 
-    // 🌟 前端清洗演算法：完全對齊 clean_excel.py
     cleanImportRows(rows) {
       if (!Array.isArray(rows) || rows.length === 0) return [];
       const repairedRows = [];
@@ -772,7 +770,6 @@ export default {
         const valOrder = getRowVal('來源單號');
         const firstCol = getRowVal('快速通關資訊');
 
-        // 情況 A：主單號列
         if (orderPattern.test(valOrder)) {
           if (currentMainRow !== null) repairedRows.push(currentMainRow);
           currentMainRow = { ...row };
@@ -786,9 +783,7 @@ export default {
             currentMainRow['供應商編號'] = row['供應商名稱'];
             currentMainRow['供應商名稱'] = row['Unnamed: 18'];
           }
-        } 
-        // 情況 B：換行碎片列
-        else {
+        } else {
           if (currentMainRow !== null) {
             const costVal = getRowVal('成本總計');
             const isTailRow = companyKeywords.some(kw => costVal.includes(kw));
@@ -860,23 +855,30 @@ export default {
           rawData = Papa.parse(text, { header: true, skipEmptyLines: true }).data || [];
         }
 
-        // 🌟 自動執行 clean_excel 清洗校正邏輯
         rawData = this.cleanImportRows(rawData);
-
         this.totalRowsToUpload = rawData.length;
         const BATCH_SIZE = 10000;
         let processed = 0;
 
         for (let i = 0; i < rawData.length; i += BATCH_SIZE) {
           const chunk = rawData.slice(i, i + BATCH_SIZE);
-          await axios.post('/api/dispatch/import-json', {
+          const isFirstChunk = (i === 0);
+          const isLastChunk = (i + BATCH_SIZE >= rawData.length);
+
+          const res = await axios.post('/api/dispatch/import-json', {
             items: chunk,
             fileName: file.name,
-            isFirstChunk: (i === 0)
+            isFirstChunk: isFirstChunk,
+            isLastChunk: isLastChunk
           });
+          
           processed += chunk.length;
           this.uploadedRows = processed;
           this.uploadPercent = Math.min(100, Math.round((processed / this.totalRowsToUpload) * 100));
+
+          if (isLastChunk && res.data?.autoClosedCount > 0) {
+            ElMessage.info(`💡 系統已自動將 ${res.data.autoClosedCount} 筆未在本次名單中的單據判為「已驗收銷案」！`);
+          }
         }
 
         ElMessage.success(`🎉 成功清洗並同步 ${this.totalRowsToUpload.toLocaleString()} 筆收發單據！`);
@@ -959,7 +961,7 @@ export default {
       ElMessage.success('🎉 資料已重新整理！');
     },
 
-    // 🌟 打開未驗收彈窗 (重置彈窗獨立搜尋，不被外層工具列鎖死)
+    // 🌟 打開全域未驗收追蹤對話框
     openPendingDialog() {
       this.drillFilterLabel = '';
       this.drillFilterParams = null;
@@ -968,27 +970,33 @@ export default {
       this.showPendingDialog = true;
       this.fetchPendingDateList();
     },
+
+    // 🌟 點擊時段穿透：100% 繼承主畫面當前維度條件，且精準鎖定該時段
     drillPending(options) {
       this.drillFilterLabel = options.label || '';
       this.drillFilterParams = options;
       this.searchKeyword = '';
-      // 繼承主畫面異常件設定 (若主畫面選了異常件，彈窗同步對齊)
+      // 繼承主畫面的異常狀態選擇
       this.dialogAbnormalFilter = this.abnormalFilter;
       this.showPendingDialog = true;
+      // 載入左側日期清單供參考，但不要覆蓋穿透的查詢結果
+      this.fetchPendingDateListOnly();
       this.loadDrillPendingDetails(options);
     },
+
     clearDrillFilter() {
       this.drillFilterLabel = '';
       this.drillFilterParams = null;
       this.searchKeyword = '';
       this.dialogAbnormalFilter = 'all';
-      this.activePendingDate = ''; // 回到全部
+      this.activePendingDate = '';
       this.fetchPendingDetails();
     },
+
+    // 🌟 核心穿透查詢：確保送出 onTimeFilter 與精確的 hour
     async loadDrillPendingDetails(options) {
       this.loadingPending = true;
       try {
-        // 🌟 完整帶入主畫面當前所有篩選參數 (單據類別、準時到貨、快速通關等)
         const params = {
           ...this.getQueryParams(),
           abnormalFilter: this.dialogAbnormalFilter
@@ -996,7 +1004,9 @@ export default {
         if (options.date) params.date = options.date;
         if (options.month) params.month = options.month;
         if (options.year) params.year = options.year;
-        if (options.hour !== undefined) params.hour = options.hour;
+        if (options.hour !== undefined && options.hour !== null) {
+          params.hour = options.hour;
+        }
 
         const res = await axios.get('/api/dispatch/pending-details', { params });
         if (res.data?.success) {
@@ -1006,13 +1016,23 @@ export default {
         this.loadingPending = false;
       }
     },
+
+    // 僅更新日期選單清單，不觸發明細覆蓋
+    async fetchPendingDateListOnly() {
+      try {
+        const res = await axios.get('/api/dispatch/pending-dates');
+        if (res.data?.success) {
+          this.pendingDateList = res.data.list || [];
+        }
+      } catch (e) {}
+    },
+
     async fetchPendingDateList() {
       try {
         const res = await axios.get('/api/dispatch/pending-dates');
         if (res.data?.success) {
           this.pendingDateList = res.data.list || [];
           if (!this.drillFilterLabel) {
-            // 預設載入選單第一天，或載入全部
             if (!this.activePendingDate && this.pendingDateList.length > 0) {
               this.activePendingDate = this.pendingDateList[0].rec_date;
             }
@@ -1021,6 +1041,7 @@ export default {
         }
       } catch (e) {}
     },
+
     selectPendingDate(d) {
       this.drillFilterLabel = '';
       this.drillFilterParams = null;
@@ -1028,20 +1049,25 @@ export default {
       this.activePendingDate = d;
       this.fetchPendingDetails();
     },
-    // 🌟 查詢未驗收明細 (不傳遞外層 onTimeFilter, abnormalFilter，改由彈窗自由控制)
+
     async fetchPendingDetails() {
       this.loadingPending = true;
       try {
         const params = {
-          sourceFilter: this.sourceCategoryFilter
+          ...this.getQueryParams(),
+          abnormalFilter: this.dialogAbnormalFilter
         };
         if (this.activePendingDate) {
           params.targetDate = this.activePendingDate;
+        } else {
+          delete params.targetDate;
+          delete params.date;
         }
         const res = await axios.get('/api/dispatch/pending-details', { params });
         if (res.data?.success) this.pendingList = res.data.pendingList || [];
       } finally { this.loadingPending = false; }
     },
+
     handlePendingSelectionChange(val) {
       this.selectedPendingRows = val;
       this.isAllSelected = (val.length === this.filteredPendingList.length && this.filteredPendingList.length > 0);
@@ -1060,8 +1086,12 @@ export default {
         });
         if (res.data?.success) {
           ElMessage.success(res.data.message);
-          this.fetchPendingDateList();
-          this.fetchPendingDetails();
+          if (this.drillFilterParams) {
+            this.loadDrillPendingDetails(this.drillFilterParams);
+          } else {
+            this.fetchPendingDetails();
+          }
+          this.fetchPendingDateListOnly();
         }
       } catch (e) {}
     },
@@ -1073,8 +1103,12 @@ export default {
         const res = await axios.post('/api/dispatch/close-order', { keys });
         if (res.data?.success) {
           ElMessage.success(res.data.message);
-          this.fetchPendingDateList();
-          this.fetchPendingDetails();
+          if (this.drillFilterParams) {
+            this.loadDrillPendingDetails(this.drillFilterParams);
+          } else {
+            this.fetchPendingDetails();
+          }
+          this.fetchPendingDateListOnly();
         }
       } catch (e) {}
     }
