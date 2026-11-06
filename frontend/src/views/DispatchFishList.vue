@@ -329,12 +329,12 @@
       </div>
     </div>
 
-    <!-- 4. 未驗收追蹤對話框 (支援穿透精準篩選與切換) -->
+    <!-- 4. 🌟 未驗收追蹤對話框 (解決畫面超過、分層響應、精準鎖定) -->
     <el-dialog
       v-model="showPendingDialog"
       title="⚠️ 尚未驗收完成單據明細監控與更正處置"
-      width="96%"
-      top="3vh"
+      width="95%"
+      top="2.5vh"
       append-to-body
       custom-class="dark-dialog full-monitor-dialog"
     >
@@ -343,7 +343,6 @@
         <div class="side-date-nav">
           <div class="nav-title">📅 選擇收貨日期：</div>
           <div class="nav-scroll-list">
-            <!-- 全部日期彙總選項 -->
             <div
               class="nav-date-item"
               :class="{ 'active-date': activePendingDate === '' && !drillFilterLabel }"
@@ -367,127 +366,132 @@
           </div>
         </div>
 
-        <!-- 右側主要清單 -->
+        <!-- 右側主要清單 (版面重構：雙層工具列防破版) -->
         <div class="main-monitor-content">
-          <div class="monitor-top-toolbar">
-            <div class="toolbar-left-info">
-              <span v-if="drillFilterLabel" class="drill-tag">🎯 穿透鎖定：<strong>[{{ drillFilterLabel }}]</strong></span>
-              <span class="current-date-header">
-                🔍 <strong>{{ drillFilterLabel ? '' : (activePendingDate || '全部未驗收日期') }}</strong> 
-                未完成明細 (共 {{ formatNumber(filteredPendingList.length) }} 筆<span v-if="searchKeyword.trim() || dialogAbnormalFilter !== 'all'"> / 原始 {{ pendingList.length }} 筆</span>)
-              </span>
-
-              <!-- 彈窗專屬：異常件 / 正常件篩選按鈕 -->
-              <div class="dialog-filter-box">
-                <span class="dialog-filter-label">異常狀態：</span>
-                <el-radio-group v-model="dialogAbnormalFilter" size="mini">
-                  <el-radio-button label="all">全部</el-radio-button>
-                  <el-radio-button label="yes">🚨 異常件</el-radio-button>
-                  <el-radio-button label="no">🟢 正常件</el-radio-button>
-                </el-radio-group>
+          <div class="monitor-top-toolbar-clean">
+            <!-- 上排：狀態、搜尋框 -->
+            <div class="toolbar-row-top">
+              <div class="left-tag-group">
+                <span v-if="drillFilterLabel" class="drill-tag">🎯 穿透鎖定：<strong>[{{ drillFilterLabel }}]</strong></span>
+                <span class="current-date-header">
+                  🔍 <strong>{{ drillFilterLabel ? '' : (activePendingDate || '全部未驗收日期') }}</strong> 
+                  未完成明細 (共 {{ formatNumber(filteredPendingList.length) }} 筆<span v-if="searchKeyword.trim() || dialogAbnormalFilter !== 'all'"> / 原始 {{ pendingList.length }} 筆</span>)
+                </span>
               </div>
 
-              <!-- 貼 ID / 單號 批量搜尋框 -->
-              <div class="id-search-box">
+              <div class="search-and-filter-box">
+                <div class="dialog-filter-box">
+                  <span class="dialog-filter-label">異常狀態：</span>
+                  <el-radio-group v-model="dialogAbnormalFilter" size="mini">
+                    <el-radio-button label="all">全部</el-radio-button>
+                    <el-radio-button label="yes">🚨 異常件</el-radio-button>
+                    <el-radio-button label="no">🟢 正常件</el-radio-button>
+                  </el-radio-group>
+                </div>
+
                 <el-input
                   v-model="searchKeyword"
-                  size="small"
-                  placeholder="貼上商品ID / BR借貨單 / BY採購單 (多筆以空格/逗號/換行隔開)"
+                  size="mini"
+                  placeholder="貼上商品ID / 單號 (空格/逗號/換行隔開)"
                   clearable
                   prefix-icon="el-icon-search"
-                  style="width: 360px;"
+                  style="width: 280px;"
                 >
                   <template #append v-if="searchKeyword.trim()">
-                    <span class="id-count-badge">已比對 {{ filteredPendingList.length }} 筆</span>
+                    <span class="id-count-badge">{{ filteredPendingList.length }} 筆</span>
                   </template>
                 </el-input>
               </div>
-
-              <el-button v-if="drillFilterLabel" size="mini" type="info" plain @click="clearDrillFilter">解除鎖定 (看全部未驗收)</el-button>
             </div>
 
-            <div class="toolbar-btns">
-              <el-button size="mini" type="info" @click="toggleSelectAll">
-                {{ isAllSelected ? '取消全選' : '全選當前清單 (' + filteredPendingList.length + ' 筆)' }}
+            <!-- 下排：操作按鈕區 (右對齊) -->
+            <div class="toolbar-row-bottom">
+              <el-button v-if="drillFilterLabel" size="mini" type="info" plain @click="clearDrillFilter">
+                解除鎖定 (看全部未驗收)
               </el-button>
-              <el-button size="mini" type="danger" icon="el-icon-delete" :disabled="selectedPendingRows.length === 0" @click="batchCloseOrders">
-                🛠️ 勾選批次銷案 (已選 {{ selectedPendingRows.length }} 筆)
-              </el-button>
+              <div class="btn-group-right">
+                <el-button size="mini" type="info" @click="toggleSelectAll">
+                  {{ isAllSelected ? '取消全選' : '全選當前清單 (' + filteredPendingList.length + ' 筆)' }}
+                </el-button>
+                <el-button size="mini" type="danger" icon="el-icon-delete" :disabled="selectedPendingRows.length === 0" @click="batchCloseOrders">
+                  🛠️ 勾選批次銷案 (已選 {{ selectedPendingRows.length }} 筆)
+                </el-button>
+              </div>
             </div>
           </div>
 
-          <el-table
-            ref="pendingTable"
-            :data="filteredPendingList"
-            style="width: 100%; font-size: 12px;"
-            height="calc(80vh - 120px)"
-            border
-            @selection-change="handlePendingSelectionChange"
-          >
-            <el-table-column type="selection" width="45" align="center" />
-            <el-table-column prop="source_category" label="類別" width="90" align="center" sortable>
-              <template #default="scope">
-                <span class="badge" :class="scope.row.order_no.startsWith('BR') ? 'badge-br' : 'badge-by'">
-                  {{ scope.row.source_category }}
-                </span>
-              </template>
-            </el-table-column>
+          <!-- 表格主體 (限制水平滾動，銷案列右側釘選) -->
+          <div class="dialog-table-wrapper">
+            <el-table
+              ref="pendingTable"
+              :data="filteredPendingList"
+              style="width: 100%; font-size: 12px;"
+              height="calc(80vh - 130px)"
+              border
+              @selection-change="handlePendingSelectionChange"
+            >
+              <el-table-column type="selection" width="45" align="center" />
+              <el-table-column prop="source_category" label="類別" width="85" align="center" sortable>
+                <template #default="scope">
+                  <span class="badge" :class="scope.row.order_no.startsWith('BR') ? 'badge-br' : 'badge-by'">
+                    {{ scope.row.source_category }}
+                  </span>
+                </template>
+              </el-table-column>
 
-            <!-- 智慧狀態特徵標籤 -->
-            <el-table-column label="狀態特徵" width="160" align="center">
-              <template #default="scope">
-                <div class="tag-cell-group">
-                  <span v-if="scope.row.appoint_date && scope.row.rec_date && scope.row.appoint_date === scope.row.rec_date" class="status-tag tag-ontime">準時到貨</span>
-                  <span v-else-if="scope.row.appoint_date && scope.row.rec_date" class="status-tag tag-delay">非當日</span>
-                  <span v-if="isRowAbnormal(scope.row.remark)" class="status-tag tag-abnormal">異常件</span>
-                  <span v-if="scope.row.fast_pass_info" class="status-tag tag-fast">快速通關</span>
-                </div>
-              </template>
-            </el-table-column>
+              <el-table-column label="狀態特徵" width="145" align="center">
+                <template #default="scope">
+                  <div class="tag-cell-group">
+                    <span v-if="scope.row.appoint_date && scope.row.rec_date && scope.row.appoint_date === scope.row.rec_date" class="status-tag tag-ontime">準時到貨</span>
+                    <span v-else-if="scope.row.appoint_date && scope.row.rec_date" class="status-tag tag-delay">非當日</span>
+                    <span v-if="isRowAbnormal(scope.row.remark)" class="status-tag tag-abnormal">異常件</span>
+                    <span v-if="scope.row.fast_pass_info" class="status-tag tag-fast">快速通關</span>
+                  </div>
+                </template>
+              </el-table-column>
 
-            <el-table-column prop="rec_date" label="收貨日期" width="100" align="center" sortable />
-            <el-table-column prop="rec_time" label="收貨時間" width="85" align="center" sortable />
-            <el-table-column prop="appoint_date" label="預約入庫日" width="100" align="center" sortable />
-            
-            <!-- 單號點擊複製 -->
-            <el-table-column prop="order_no" label="來源單號" width="160" align="center" sortable>
-              <template #default="scope">
-                <span class="text-orange font-bold clickable-id" @click="copyText(scope.row.order_no, '來源單號')" title="點擊可複製單號">
-                  {{ scope.row.order_no }}
-                </span>
-              </template>
-            </el-table-column>
+              <el-table-column prop="rec_date" label="收貨日期" width="95" align="center" sortable />
+              <el-table-column prop="rec_time" label="收貨時間" width="85" align="center" sortable />
+              <el-table-column prop="appoint_date" label="預約入庫日" width="95" align="center" sortable />
+              
+              <el-table-column prop="order_no" label="來源單號" width="155" align="center" sortable>
+                <template #default="scope">
+                  <span class="text-orange font-bold clickable-id" @click="copyText(scope.row.order_no, '來源單號')" title="點擊可複製單號">
+                    {{ scope.row.order_no }}
+                  </span>
+                </template>
+              </el-table-column>
 
-            <!-- 商品ID點擊複製 -->
-            <el-table-column prop="item_id" label="商品ID" width="150" align="center" sortable>
-              <template #default="scope">
-                <span class="text-blue font-bold clickable-id" @click="copyText(scope.row.item_id, '商品ID')" title="點擊可複製商品ID">
-                  {{ scope.row.item_id }}
-                </span>
-              </template>
-            </el-table-column>
-            
-            <el-table-column prop="item_name" label="商品名稱" min-width="190" show-overflow-tooltip sortable />
-            <el-table-column prop="pcs" label="PCS數" width="80" align="right" sortable>
-              <template #default="scope">
-                <span class="text-red font-bold">{{ formatNumber(scope.row.pcs) }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column prop="pm_user" label="PM" width="85" align="center" sortable />
-            <el-table-column prop="supplier_name" label="供應商名稱" min-width="150" show-overflow-tooltip sortable />
-            <el-table-column prop="remark" label="備註 (已完整清洗合併)" min-width="220" show-overflow-tooltip />
+              <el-table-column prop="item_id" label="商品ID" width="145" align="center" sortable>
+                <template #default="scope">
+                  <span class="text-blue font-bold clickable-id" @click="copyText(scope.row.item_id, '商品ID')" title="點擊可複製商品ID">
+                    {{ scope.row.item_id }}
+                  </span>
+                </template>
+              </el-table-column>
+              
+              <el-table-column prop="item_name" label="商品名稱" min-width="180" show-overflow-tooltip sortable />
+              <el-table-column prop="pcs" label="PCS數" width="75" align="right" sortable>
+                <template #default="scope">
+                  <span class="text-red font-bold">{{ formatNumber(scope.row.pcs) }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="pm_user" label="PM" width="80" align="center" sortable />
+              <el-table-column prop="supplier_name" label="供應商名稱" min-width="140" show-overflow-tooltip sortable />
+              <el-table-column prop="remark" label="備註 (已完整清洗合併)" min-width="200" show-overflow-tooltip />
 
-            <el-table-column label="處置" width="90" align="center" fixed="right">
-              <template #default="scope">
-                <el-button size="mini" type="danger" plain icon="el-icon-wrench" @click="batchCloseSingle(scope.row)">銷案</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
+              <el-table-column label="處置" width="80" align="center" fixed="right">
+                <template #default="scope">
+                  <el-button size="mini" type="danger" plain icon="el-icon-wrench" @click="batchCloseSingle(scope.row)">銷案</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
         </div>
       </div>
     </el-dialog>
 
-    <!-- 5. 檔案拖曳小卡 Modal (內建 clean_excel 清洗) -->
+    <!-- 5. 檔案拖曳小卡 Modal -->
     <el-dialog
       v-model="showUploadCardModal"
       title="📥 匯入 收發魚群單據 (支援 .xls / .xlsx / .csv)"
@@ -620,14 +624,12 @@ export default {
     filteredPendingList() {
       let list = this.pendingList;
 
-      // 異常狀態過濾
       if (this.dialogAbnormalFilter === 'yes') {
         list = list.filter(r => this.isRowAbnormal(r.remark));
       } else if (this.dialogAbnormalFilter === 'no') {
         list = list.filter(r => !this.isRowAbnormal(r.remark));
       }
 
-      // 關鍵字搜尋過濾
       if (!this.searchKeyword || !this.searchKeyword.trim()) return list;
       const rawKeywords = this.searchKeyword.split(/[\s,，\n\r]+/).map(s => s.trim().toUpperCase()).filter(Boolean);
       if (rawKeywords.length === 0) return list;
@@ -961,7 +963,6 @@ export default {
       ElMessage.success('🎉 資料已重新整理！');
     },
 
-    // 🌟 打開全域未驗收追蹤對話框
     openPendingDialog() {
       this.drillFilterLabel = '';
       this.drillFilterParams = null;
@@ -971,15 +972,12 @@ export default {
       this.fetchPendingDateList();
     },
 
-    // 🌟 點擊時段穿透：100% 繼承主畫面當前維度條件，且精準鎖定該時段
     drillPending(options) {
       this.drillFilterLabel = options.label || '';
       this.drillFilterParams = options;
       this.searchKeyword = '';
-      // 繼承主畫面的異常狀態選擇
       this.dialogAbnormalFilter = this.abnormalFilter;
       this.showPendingDialog = true;
-      // 載入左側日期清單供參考，但不要覆蓋穿透的查詢結果
       this.fetchPendingDateListOnly();
       this.loadDrillPendingDetails(options);
     },
@@ -993,7 +991,6 @@ export default {
       this.fetchPendingDetails();
     },
 
-    // 🌟 核心穿透查詢：確保送出 onTimeFilter 與精確的 hour
     async loadDrillPendingDetails(options) {
       this.loadingPending = true;
       try {
@@ -1017,7 +1014,6 @@ export default {
       }
     },
 
-    // 僅更新日期選單清單，不觸發明細覆蓋
     async fetchPendingDateListOnly() {
       try {
         const res = await axios.get('/api/dispatch/pending-dates');
@@ -1081,9 +1077,9 @@ export default {
     async batchCloseSingle(row) {
       try {
         await ElMessageBox.confirm(`確定銷案單號【${row.order_no}】品項【${row.item_id}】？`, '銷案確認', { type: 'warning' });
-        const res = await axios.post('/api/dispatch/close-order', {
-          keys: [{ orderNo: row.order_no, itemId: row.item_id }]
-        });
+        // 優先傳遞唯一流水號 id
+        const payload = row.id ? { ids: [row.id] } : { keys: [{ orderNo: row.order_no, itemId: row.item_id }] };
+        const res = await axios.post('/api/dispatch/close-order', payload);
         if (res.data?.success) {
           ElMessage.success(res.data.message);
           if (this.drillFilterParams) {
@@ -1099,8 +1095,10 @@ export default {
       if (this.selectedPendingRows.length === 0) return;
       try {
         await ElMessageBox.confirm(`確定銷案 ${this.selectedPendingRows.length} 筆單據？`, '警告', { type: 'warning' });
+        const ids = this.selectedPendingRows.map(r => r.id).filter(Boolean);
         const keys = this.selectedPendingRows.map(r => ({ orderNo: r.order_no, itemId: r.item_id }));
-        const res = await axios.post('/api/dispatch/close-order', { keys });
+        const payload = ids.length > 0 ? { ids } : { keys };
+        const res = await axios.post('/api/dispatch/close-order', payload);
         if (res.data?.success) {
           ElMessage.success(res.data.message);
           if (this.drillFilterParams) {
@@ -1233,9 +1231,17 @@ export default {
 .tag-abnormal { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); }
 .tag-fast { background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); }
 
-.monitor-container { display: flex; gap: 15px; height: calc(85vh - 80px); }
+/* 🌟 彈窗容器與自適應工具列排版 */
+.monitor-container {
+  display: flex;
+  gap: 12px;
+  height: calc(85vh - 75px);
+  overflow: hidden;
+}
+
 .side-date-nav {
-  width: 230px;
+  width: 210px;
+  flex-shrink: 0;
   background: #0f172a;
   border: 1px solid #334155;
   border-radius: 8px;
@@ -1249,7 +1255,7 @@ export default {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 12px;
+  padding: 7px 10px;
   background: #1e293b;
   border-radius: 6px;
   cursor: pointer;
@@ -1262,28 +1268,71 @@ export default {
 
 .main-monitor-content {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   background: #0f172a;
   border: 1px solid #334155;
   border-radius: 8px;
-  padding: 12px;
+  padding: 10px;
+  overflow: hidden;
 }
-.monitor-top-toolbar {
+
+/* 🌟 分層防擠壓工具列 */
+.monitor-top-toolbar-clean {
+  background: #1e293b;
+  border-radius: 6px;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid #334155;
+}
+
+.toolbar-row-top {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: #1e293b;
-  padding: 8px 12px;
-  border-radius: 6px;
   flex-wrap: wrap;
   gap: 10px;
 }
-.toolbar-left-info { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.left-tag-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.drill-tag { background: #b91c1c; color: #fef2f2; padding: 2px 8px; border-radius: 4px; font-size: 12px; }
+.current-date-header { font-size: 13px; color: #f8fafc; }
+
+.search-and-filter-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
 .dialog-filter-box { display: flex; align-items: center; gap: 4px; }
 .dialog-filter-label { font-size: 12px; color: #cbd5e1; font-weight: bold; }
-.drill-tag { background: #b91c1c; color: #fef2f2; padding: 3px 10px; border-radius: 4px; font-size: 12px; }
+
+.toolbar-row-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-top: 1px solid #334155;
+  padding-top: 6px;
+}
+.btn-group-right {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.dialog-table-wrapper {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
 
 .drop-card-box {
   background: #0f172a;
