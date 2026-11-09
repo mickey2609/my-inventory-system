@@ -433,7 +433,7 @@
               <el-table-column type="selection" width="45" align="center" />
               <el-table-column prop="source_category" label="類別" width="85" align="center" sortable>
                 <template #default="scope">
-                  <span class="badge" :class="scope.row.order_no.startsWith('BR') ? 'badge-br' : 'badge-by'">
+                  <span class="badge" :class="(scope.row.order_no || '').startsWith('BR') ? 'badge-br' : 'badge-by'">
                     {{ scope.row.source_category }}
                   </span>
                 </template>
@@ -561,7 +561,6 @@ export default {
       targetMonth: new Date().toISOString().slice(0, 7),
       targetYear: new Date().getFullYear().toString(),
       
-      // 主畫面篩選狀態
       sourceCategoryFilter: 'all',
       onTimeFilter: 'all',
       abnormalFilter: 'all',
@@ -572,7 +571,6 @@ export default {
       monthlyDailyList: [],
       yearlyMonthlyList: [],
 
-      // 未驗收彈窗內部狀態
       showPendingDialog: false,
       pendingDateList: [],
       activePendingDate: '',
@@ -622,7 +620,8 @@ export default {
       return this.pendingDateList.reduce((acc, d) => acc + (d.count || 0), 0);
     },
     filteredPendingList() {
-      let list = this.pendingList;
+      // 確保畫面只呈現有來源單號的有效資料
+      let list = this.pendingList.filter(r => r.order_no && String(r.order_no).trim() !== '');
 
       if (this.dialogAbnormalFilter === 'yes') {
         list = list.filter(r => this.isRowAbnormal(r.remark));
@@ -879,7 +878,7 @@ export default {
           this.uploadPercent = Math.min(100, Math.round((processed / this.totalRowsToUpload) * 100));
 
           if (isLastChunk && res.data?.autoClosedCount > 0) {
-            ElMessage.info(`💡 系統已自動將 ${res.data.autoClosedCount} 筆未在本次名單中的單據判為「已驗收銷案」！`);
+            ElMessage.info(`💡 系統已自動將 ${res.data.autoClosedCount} 筆完成上架的單據更新為「已銷案」！`);
           }
         }
 
@@ -1077,7 +1076,6 @@ export default {
     async batchCloseSingle(row) {
       try {
         await ElMessageBox.confirm(`確定銷案單號【${row.order_no}】品項【${row.item_id}】？`, '銷案確認', { type: 'warning' });
-        // 優先傳遞唯一流水號 id
         const payload = row.id ? { ids: [row.id] } : { keys: [{ orderNo: row.order_no, itemId: row.item_id }] };
         const res = await axios.post('/api/dispatch/close-order', payload);
         if (res.data?.success) {
@@ -1231,7 +1229,7 @@ export default {
 .tag-abnormal { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); }
 .tag-fast { background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); }
 
-/* 🌟 彈窗容器與自適應工具列排版 */
+/* 彈窗容器與自適應工具列排版 */
 .monitor-container {
   display: flex;
   gap: 12px;
@@ -1279,7 +1277,6 @@ export default {
   overflow: hidden;
 }
 
-/* 🌟 分層防擠壓工具列 */
 .monitor-top-toolbar-clean {
   background: #1e293b;
   border-radius: 6px;

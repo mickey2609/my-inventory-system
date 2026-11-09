@@ -61,7 +61,7 @@ module.exports = function(db) {
     return keywords.some(k => cleanRmk.includes(k)) || cleanRmk.length > 5;
   }
 
-  // 1. 初始化資料庫 Schema (加入自動遞增流水號 id，並以單號+商品+收貨日+收貨時間做防重約束)
+  // 1. 初始化資料庫 Schema 與複合唯一索引 (支援 ON CONFLICT 與自動結案)
   db.serialize(() => {
     db.run(`
       CREATE TABLE IF NOT EXISTS dispatch_fish_details (
@@ -93,10 +93,17 @@ module.exports = function(db) {
       )
     `);
 
-    db.run(`CREATE INDEX IF NOT EXISTS idx_dispatch_rec_date ON dispatch_fish_details (rec_date)`, () => {});
-    db.run(`CREATE INDEX IF NOT EXISTS idx_dispatch_check_date ON dispatch_fish_details (check_date)`, () => {});
-    db.run(`CREATE INDEX IF NOT EXISTS idx_dispatch_order_no ON dispatch_fish_details (order_no)`, () => {});
-    db.run(`CREATE INDEX IF NOT EXISTS idx_dispatch_item_id ON dispatch_fish_details (item_id)`, () => {});
+    // 固化複合唯一約束，避免 ON CONFLICT 錯誤
+    db.run(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_dispatch_composite_conflict 
+      ON dispatch_fish_details (order_no, item_id, rec_date, rec_time)
+    `);
+
+    db.run(`CREATE INDEX IF NOT EXISTS idx_dispatch_rec_date ON dispatch_fish_details (rec_date)`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_dispatch_check_date ON dispatch_fish_details (check_date)`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_dispatch_order_no ON dispatch_fish_details (order_no)`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_dispatch_item_id ON dispatch_fish_details (item_id)`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_dispatch_status ON dispatch_fish_details (doc_status)`);
   });
 
   function applyFilters(sql, params, query) {
@@ -128,7 +135,7 @@ module.exports = function(db) {
     return sql;
   }
 
-  // 2. 匯入 API
+  // 2. 匯入 API (含「無單號自動結案」與「已上架批次自動結案」機制)
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     const fileName = req.body.fileName || 'dispatch_fish.xlsx';
@@ -201,6 +208,7 @@ module.exports = function(db) {
         const order_no = getVal('來源單號', 'order_no');
         const item_id = getVal('商品ID', '商品編號', 'item_id');
 
+        // 若無單號或非 BR/BY 單號，跳過不寫入有效明細
         if (!order_no || !item_id || !/^(BR|BY)/i.test(order_no)) {
           continue;
         }
@@ -223,7 +231,7 @@ module.exports = function(db) {
         const supplier_id = getVal('供應商編號', 'supplier_id');
         const supplier_name = getVal('供應商名稱', 'supplier_name');
 
-        // 收集本次出現鍵值 (支援分批識別)
+        // 收集本次有單據的 Key
         currentImportingBatchKeys.add(`${order_no}__${item_id}__${rec_date}__${rec_time}`);
 
         stmt.run(
@@ -241,16 +249,26 @@ module.exports = function(db) {
         db.run('PRAGMA synchronous = NORMAL');
         if (err) return res.status(500).json({ success: false, message: '寫入失敗：' + err.message });
 
-        if (isLastChunk && currentImportingBatchKeys.size > 0) {
-          const now = new Date();
-          const autoCloseDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-          const autoCloseTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+        const now = new Date();
+        const autoCloseDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+        const autoCloseTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
 
+        // 【核心邏輯 1】：每次匯入時，資料庫內任何無來源單號的歷史記錄一律直接結案
+        db.run(`
+          UPDATE dispatch_fish_details
+          SET check_date = ?, check_time = ?, doc_status = '已銷案', finish_user = '系統自動結案', finish_remark = '自動結案：無來源單號/已上架完成'
+          WHERE (order_no IS NULL OR TRIM(order_no) = '' OR order_no = 'null')
+            AND (doc_status IS NULL OR doc_status != '已銷案')
+        `, [autoCloseDate, autoCloseTime], () => {});
+
+        // 【核心邏輯 2】：若為最後一批，將已不在報表中的先前未驗收單據自動判定結案
+        if (isLastChunk && currentImportingBatchKeys.size > 0) {
           const pendingCheckSql = `
             SELECT id, order_no, item_id, rec_date, rec_time 
             FROM dispatch_fish_details 
             WHERE (check_date IS NULL OR TRIM(check_date) = '' OR TRIM(check_date) = 'NaT')
               AND (doc_status IS NULL OR doc_status != '已銷案')
+              AND order_no IS NOT NULL AND TRIM(order_no) != ''
           `;
 
           db.all(pendingCheckSql, [], (pendingErr, pendingRows) => {
@@ -277,7 +295,7 @@ module.exports = function(db) {
                       success: true,
                       count: processedCount,
                       autoClosedCount: toAutoClose.length,
-                      message: `成功同步 ${processedCount} 筆資料，並自動為 ${toAutoClose.length} 筆已從匯入檔移除的單據完成驗收銷案！`
+                      message: `成功同步 ${processedCount} 筆資料，並自動為 ${toAutoClose.length} 筆已完成上架出庫的單據完成結案！`
                     });
                   });
                 });
@@ -299,7 +317,7 @@ module.exports = function(db) {
   router.get('/fish-analysis', (req, res) => {
     const { targetDate } = req.query;
 
-    let sql = `SELECT * FROM dispatch_fish_details WHERE 1=1`;
+    let sql = `SELECT * FROM dispatch_fish_details WHERE order_no IS NOT NULL AND TRIM(order_no) != ''`;
     const params = [];
 
     if (targetDate) {
@@ -395,7 +413,7 @@ module.exports = function(db) {
     if (!month) return res.status(400).json({ success: false, message: '請提供月份 (YYYY-MM)' });
 
     const monthPattern = `${month}%`;
-    let sql = `SELECT * FROM dispatch_fish_details WHERE (rec_date LIKE ? OR check_date LIKE ?)`;
+    let sql = `SELECT * FROM dispatch_fish_details WHERE order_no IS NOT NULL AND TRIM(order_no) != '' AND (rec_date LIKE ? OR check_date LIKE ?)`;
     const params = [monthPattern, monthPattern];
     sql = applyFilters(sql, params, req.query);
 
@@ -472,7 +490,7 @@ module.exports = function(db) {
     if (!year) return res.status(400).json({ success: false, message: '請提供年份 (YYYY)' });
 
     const yearPattern = `${year}%`;
-    let sql = `SELECT * FROM dispatch_fish_details WHERE (rec_date LIKE ? OR check_date LIKE ?)`;
+    let sql = `SELECT * FROM dispatch_fish_details WHERE order_no IS NOT NULL AND TRIM(order_no) != '' AND (rec_date LIKE ? OR check_date LIKE ?)`;
     const params = [yearPattern, yearPattern];
     sql = applyFilters(sql, params, req.query);
 
@@ -546,7 +564,7 @@ module.exports = function(db) {
     });
   });
 
-  // 6. 未驗收日期選單 API
+  // 6. 未驗收日期選單 API (嚴格排除無來源單號之記錄)
   router.get('/pending-dates', (req, res) => {
     const sql = `
       SELECT rec_date, COUNT(*) as count 
@@ -554,6 +572,7 @@ module.exports = function(db) {
       WHERE (check_date IS NULL OR check_date = '' OR check_date = 'NaT') 
         AND (doc_status IS NULL OR doc_status != '已銷案')
         AND rec_date != ''
+        AND order_no IS NOT NULL AND TRIM(order_no) != ''
       GROUP BY rec_date
       ORDER BY rec_date DESC
     `;
@@ -563,7 +582,7 @@ module.exports = function(db) {
     });
   });
 
-  // 7. 未驗收明細 API
+  // 7. 未驗收明細 API (嚴格排除無單號及已結案單據)
   router.get('/pending-details', (req, res) => {
     let { targetDate, date, hour, month, year } = req.query;
 
@@ -571,6 +590,7 @@ module.exports = function(db) {
       SELECT * FROM dispatch_fish_details
       WHERE (check_date IS NULL OR check_date = '' OR check_date = ' ' OR check_date = 'NaT' OR INSTR(check_date, '-') = 0)
         AND (doc_status IS NULL OR doc_status != '已銷案')
+        AND order_no IS NOT NULL AND TRIM(order_no) != ''
     `;
     const params = [];
 
