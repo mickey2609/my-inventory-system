@@ -57,7 +57,7 @@ module.exports = function(db) {
     return '';
   }
 
-  // 初始化資料表：以 tracking_no 為唯一依據，避免同秒多箱被吃掉
+  // 初始化資料表：以 tracking_no 為唯一約束
   db.serialize(() => {
     db.run(`
       CREATE TABLE IF NOT EXISTS delivery_order_tracking (
@@ -136,7 +136,6 @@ module.exports = function(db) {
         if (ship_date.includes(' ')) ship_date = ship_date.split(' ')[0];
         const ship_time = getV('出貨時間', 'ship_time');
 
-        // 過濾 Excel 尾端統計列
         if (!tracking_no || tracking_no.includes('總計') || !ship_date) continue;
 
         const addr = getV('收件地址', 'address');
@@ -175,7 +174,7 @@ module.exports = function(db) {
     });
   });
 
-  // 日期選單 API：同時回傳 count (相容前端)、tracking_count 與 order_count
+  // 日期選單 API
   router.get('/dates', (req, res) => {
     db.all(`
       SELECT 
@@ -193,10 +192,10 @@ module.exports = function(db) {
     });
   });
 
-  // 統計分析 API
+  // 🌟 分析 API：支援橫向為「接單日期 + 區間」
   router.get('/flow-analysis', (req, res) => {
     let { targetDate, region, shift, countMode } = req.query;
-    countMode = countMode || 'tracking'; // tracking(宅單/箱數) 或 order(訂單數)
+    countMode = countMode || 'tracking';
 
     const runAnalysis = (effectiveDate) => {
       let sql = `SELECT * FROM delivery_order_tracking WHERE ship_date = ?`;
@@ -215,7 +214,6 @@ module.exports = function(db) {
         if (err) return res.status(500).json({ success: false, message: err.message });
         rows = rows || [];
 
-        // 依據 countMode 進行資料分群
         let processRows = rows;
         if (countMode === 'order') {
           const orderMap = new Map();
@@ -228,43 +226,51 @@ module.exports = function(db) {
         }
 
         const regions = ['北北基桃', '中南部', '宜花東', '外島', '其他/未識別'];
-        const hourlyFlow = Array.from({ length: 24 }, (_, h) => {
-          const slot = `${String(h).padStart(2, '0')}~${String((h + 1) % 24).padStart(2, '0')}`;
-          const item = { hour: h, slot, total: 0 };
-          regions.forEach(r => { item[r] = 0; });
-          return item;
-        });
 
+        // 1. 三班總計卡
         const shiftSummary = {
           '日班': { count: 0, timeSpan: '09:00 ~ 17:00', regions: { '北北基桃': 0, '中南部': 0, '宜花東': 0, '外島': 0, '其他/未識別': 0 } },
           '夜班': { count: 0, timeSpan: '17:00 ~ 01:00', regions: { '北北基桃': 0, '中南部': 0, '宜花東': 0, '外島': 0, '其他/未識別': 0 } },
           '大夜班': { count: 0, timeSpan: '01:00 ~ 09:00', regions: { '北北基桃': 0, '中南部': 0, '宜花東': 0, '外島': 0, '其他/未識別': 0 } }
         };
 
-        const leadTimeMatrix = {};
+        // 2. 🌟 核心：橫軸為「接單日期 + 接單區間」的時序分佈
+        // 結構：{ "2026-11-05 16~17": { date: "2026-11-05", interval: "16~17", label: "11/05 16~17", total: 0, "北北基桃": 0, ... } }
+        const orderTimelineMap = {};
 
         processRows.forEach(r => {
-          const h = r.ship_time ? parseInt(r.ship_time.split(':')[0], 10) : -1;
           const reg = regions.includes(r.region) ? r.region : '其他/未識別';
-
-          if (h >= 0 && h < 24) {
-            hourlyFlow[h].total++;
-            hourlyFlow[h][reg]++;
-          }
-
           const sType = shiftSummary[r.shift_type] ? r.shift_type : '日班';
+
           shiftSummary[sType].count++;
           shiftSummary[sType].regions[reg] = (shiftSummary[sType].regions[reg] || 0) + 1;
 
-          const sSlot = r.ship_interval || (h >= 0 ? `${String(h).padStart(2, '0')}~${String((h + 1) % 24).padStart(2, '0')}` : '未記錄');
-          const oSlot = r.order_interval || '未記錄';
+          // 處理接單日期與區間
+          const oDate = r.order_date || '未記錄日期';
+          const oSlot = r.order_interval || '未記錄時段';
+          const key = `${oDate} ${oSlot}`;
 
-          if (!leadTimeMatrix[sSlot]) {
-            leadTimeMatrix[sSlot] = { shipSlot: sSlot, shift: r.shift_type, total: 0, orderSlots: {} };
+          if (!orderTimelineMap[key]) {
+            const shortDate = oDate.length >= 10 ? oDate.slice(5) : oDate;
+            orderTimelineMap[key] = {
+              key,
+              orderDate: oDate,
+              orderInterval: oSlot,
+              timelineLabel: `${shortDate} ${oSlot}`,
+              total: 0,
+              '北北基桃': 0,
+              '中南部': 0,
+              '宜花東': 0,
+              '外島': 0,
+              '其他/未識別': 0
+            };
           }
-          leadTimeMatrix[sSlot].total++;
-          leadTimeMatrix[sSlot].orderSlots[oSlot] = (leadTimeMatrix[sSlot].orderSlots[oSlot] || 0) + 1;
+          orderTimelineMap[key].total++;
+          orderTimelineMap[key][reg]++;
         });
+
+        // 依接單日期與時段排序（由遠到近：舊單 ➔ 新單）
+        const orderTimelineFlow = Object.values(orderTimelineMap).sort((a, b) => a.key.localeCompare(b.key));
 
         const totalTrackingCount = rows.length;
         const totalOrderCount = new Set(rows.map(r => r.order_no)).size;
@@ -274,12 +280,11 @@ module.exports = function(db) {
           targetDate: effectiveDate,
           countMode,
           totalCount: processRows.length,
-          totalOrders: processRows.length, // 兼容前端 totalOrders
+          totalOrders: processRows.length,
           totalTrackingCount,
           totalOrderCount,
           shiftSummary,
-          hourlyFlow,
-          leadTimeMatrix
+          orderTimelineFlow // 🌟 X 軸為接單日期+區間的流線數據
         });
       });
     };
@@ -296,21 +301,16 @@ module.exports = function(db) {
 
   // 穿透明細 API
   router.get('/orders-detail', (req, res) => {
-    const { targetDate, shift, hour, shipSlot, orderSlot, region } = req.query;
+    const { targetDate, shift, orderDate, orderInterval, region } = req.query;
     let sql = `SELECT * FROM delivery_order_tracking WHERE ship_date = ?`;
     const params = [targetDate];
 
     if (shift && shift !== 'all') { sql += ` AND shift_type = ?`; params.push(shift); }
-    if (hour !== undefined && hour !== null && hour !== '') {
-      const hStr = String(hour).padStart(2, '0');
-      sql += ` AND ship_time LIKE ?`;
-      params.push(`${hStr}:%`);
-    }
-    if (shipSlot) { sql += ` AND ship_interval = ?`; params.push(shipSlot); }
-    if (orderSlot) { sql += ` AND order_interval = ?`; params.push(orderSlot); }
+    if (orderDate) { sql += ` AND order_date = ?`; params.push(orderDate); }
+    if (orderInterval) { sql += ` AND order_interval = ?`; params.push(orderInterval); }
     if (region && region !== 'all') { sql += ` AND region = ?`; params.push(region); }
 
-    sql += ` ORDER BY ship_time ASC LIMIT 3000`;
+    sql += ` ORDER BY order_date ASC, order_time ASC LIMIT 3000`;
 
     db.all(sql, params, (err, rows) => {
       if (err) return res.status(500).json({ success: false, message: err.message });

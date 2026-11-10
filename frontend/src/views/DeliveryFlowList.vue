@@ -52,6 +52,17 @@
           </el-radio-group>
         </div>
 
+        <!-- 班別篩選器 (可獨立選夜班、日班、大夜班) -->
+        <div class="filter-item highlight-shift-box">
+          <span class="label text-blue">⏰ 觀察班別：</span>
+          <el-radio-group v-model="selectedShift" size="small" @change="fetchData">
+            <el-radio-button label="all">全部班別</el-radio-button>
+            <el-radio-button label="日班">☀️ 日班 (09~17)</el-radio-button>
+            <el-radio-button label="夜班">🌆 夜班 (17~01)</el-radio-button>
+            <el-radio-button label="大夜班">🌙 大夜班 (01~09)</el-radio-button>
+          </el-radio-group>
+        </div>
+
         <!-- 區域篩選器 -->
         <div class="filter-item">
           <span class="label">📍 區域：</span>
@@ -64,57 +75,26 @@
           </el-radio-group>
         </div>
 
-        <!-- 班別篩選器 -->
-        <div class="filter-item">
-          <span class="label">⏰ 班別：</span>
-          <el-radio-group v-model="selectedShift" size="small" @change="fetchData">
-            <el-radio-button label="all">全部</el-radio-button>
-            <el-radio-button label="日班">☀️ 日班</el-radio-button>
-            <el-radio-button label="夜班">🌆 夜班</el-radio-button>
-            <el-radio-button label="大夜班">🌙 大夜班</el-radio-button>
-          </el-radio-group>
-        </div>
-
         <div class="btn-group">
           <span class="total-badge">
-            總計：<strong>{{ formatNumber(totalOrders) }}</strong> {{ countMode === 'order' ? '單' : '箱' }}
+            目前視角：<strong>{{ formatNumber(totalOrders) }}</strong> {{ countMode === 'order' ? '單' : '箱' }}
           </span>
           <el-button type="info" size="small" icon="el-icon-refresh" :loading="loading" @click="fetchData">重新整理</el-button>
           <el-button type="success" size="small" icon="el-icon-upload2" :loading="isUploading" @click="showUploadCard = true">📥 匯入 3BC1 宅配單</el-button>
         </div>
       </div>
-
-      <!-- 2. 分頁切換頁籤 -->
-      <div class="sub-tabs-bar">
-        <button
-          class="sub-tab-btn"
-          :class="{ active: activeTab === 'river_flow' }"
-          @click="activeTab = 'river_flow'"
-        >
-          🌊 出貨區域流線圖與魚群矩陣
-        </button>
-        <button
-          class="sub-tab-btn"
-          :class="{ active: activeTab === 'lead_time' }"
-          @click="activeTab = 'lead_time'"
-        >
-          ⏱️ 班別出貨時段 × 接單時效觀察表
-        </button>
-      </div>
     </div>
 
-    <!-- ======================================================== -->
-    <!-- 分頁 1：波浪流線圖 + 魚群矩陣表                          -->
-    <!-- ======================================================== -->
-    <div v-show="activeTab === 'river_flow'" class="tab-pane-content">
+    <!-- 2. 主視圖內容 -->
+    <div class="main-content-scroll">
       <!-- 三班數據總覽指標卡 -->
       <div class="shift-cards-row">
         <div
           v-for="(info, shiftKey) in shiftSummary"
           :key="shiftKey"
           class="shift-card"
-          :class="getShiftClass(shiftKey)"
-          @click="openDetailModal({ shift: shiftKey, title: `${targetDate}【${shiftKey} (${info.timeSpan})】明細` })"
+          :class="[getShiftClass(shiftKey), { 'card-selected': selectedShift === shiftKey }]"
+          @click="selectShiftCard(shiftKey)"
         >
           <div class="card-head">
             <span class="shift-name">{{ getShiftIcon(shiftKey) }} {{ shiftKey }}</span>
@@ -133,10 +113,12 @@
         </div>
       </div>
 
-      <!-- 波浪流線圖 -->
+      <!-- 🌟 波浪流線圖：橫軸為「接單日期＋區間」，縱軸為出貨量，分區域 -->
       <div class="chart-container" v-loading="loading">
         <div class="chart-header">
-          <span class="chart-title">📈 24 小時出貨四大區域魚群流線 (可點擊波浪點位穿透查看單據)</span>
+          <span class="chart-title">
+            🌊 【{{ selectedShift === 'all' ? '全日出貨' : selectedShift }}】消化之「接單日期與時段」區域流線波浪圖
+          </span>
           <div class="legend-tags">
             <span class="lg-dot dot-north">● 北北基桃</span>
             <span class="lg-dot dot-south">● 中南部</span>
@@ -147,17 +129,23 @@
         <div ref="flowChart" class="flow-echart"></div>
       </div>
 
-      <!-- 魚群矩陣表 -->
+      <!-- 🌟 接單時段消化觀察明細表（比照 Excel 階層圖） -->
       <div class="table-container" v-loading="loading">
-        <div class="table-title">🐟 24 小時出貨魚群密度分佈 (依{{ countMode === 'order' ? '訂單數' : '宅配單/箱數' }}統計)</div>
+        <div class="table-header-bar">
+          <span class="table-title">
+            📋 【{{ selectedShift === 'all' ? '全日各班' : selectedShift }}】出貨所消化之「接單日期 × 時段」分區域明細表
+          </span>
+          <span class="tip-text">💡 橫軸已按接單時間展開，點擊「穿透」或數字可立即調閱訂單單據</span>
+        </div>
+
         <div class="table-scroll-wrapper">
           <table class="flow-matrix-table">
             <thead>
               <tr>
-                <th style="width: 85px;">出貨時段</th>
-                <th style="width: 85px;">班別</th>
-                <th>出貨密度圖形 (藍:北基桃 / 橘:中南 / 綠:花東 / 紫:外島)</th>
-                <th style="width: 90px;">出貨數量</th>
+                <th style="width: 110px;">接單日期</th>
+                <th style="width: 95px;">接單區間</th>
+                <th>區域分佈密度長條 (藍:北基桃 / 橘:中南 / 綠:花東 / 紫:外島)</th>
+                <th style="width: 100px;">消化數量 ({{ countMode === 'order' ? '單' : '箱' }})</th>
                 <th style="width: 95px;">北北基桃</th>
                 <th style="width: 95px;">中南部</th>
                 <th style="width: 80px;">宜花東</th>
@@ -166,79 +154,57 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="h in filteredHourlyFlow" :key="h.hour" :class="{ 'row-zebra': h.hour % 2 === 1 }">
-                <td class="text-center font-bold">{{ h.slot }}</td>
-                <td class="text-center">
-                  <span class="shift-badge" :class="getShiftClass(getHourShift(h.hour))">{{ getHourShift(h.hour) }}</span>
+              <tr v-if="orderTimelineFlow.length === 0">
+                <td colspan="9" class="text-center text-dim" style="padding: 30px;">該條件下暫無出貨資料</td>
+              </tr>
+              <tr
+                v-for="(row, idx) in orderTimelineFlow"
+                :key="row.key"
+                :class="{ 'row-zebra': idx % 2 === 1, 'row-delay': isDelayOrder(row.orderDate) }"
+              >
+                <td class="text-center font-bold">
+                  {{ row.orderDate }}
+                  <span v-if="isDelayOrder(row.orderDate)" class="delay-tag">歷史積單</span>
                 </td>
+                <td class="text-center font-bold text-yellow">{{ row.orderInterval }}</td>
                 <td>
                   <div class="multi-bar-wrapper">
-                    <div class="bar-seg seg-north" :style="{ width: getPctWidth(h['北北基桃'], h.total) }"></div>
-                    <div class="bar-seg seg-south" :style="{ width: getPctWidth(h['中南部'], h.total) }"></div>
-                    <div class="bar-seg seg-east" :style="{ width: getPctWidth(h['宜花東'], h.total) }"></div>
-                    <div class="bar-seg seg-island" :style="{ width: getPctWidth(h['外島'], h.total) }"></div>
+                    <div class="bar-seg seg-north" :style="{ width: getPctWidth(row['北北基桃'], row.total) }"></div>
+                    <div class="bar-seg seg-south" :style="{ width: getPctWidth(row['中南部'], row.total) }"></div>
+                    <div class="bar-seg seg-east" :style="{ width: getPctWidth(row['宜花東'], row.total) }"></div>
+                    <div class="bar-seg seg-island" :style="{ width: getPctWidth(row['外島'], row.total) }"></div>
                   </div>
                 </td>
-                <td class="text-right font-bold text-yellow">{{ formatNumber(h.total) }}</td>
-                <td class="text-right text-blue">{{ formatNumber(h['北北基桃']) }}</td>
-                <td class="text-right text-orange">{{ formatNumber(h['中南部']) }}</td>
-                <td class="text-right text-green">{{ formatNumber(h['宜花東']) }}</td>
-                <td class="text-right text-purple">{{ formatNumber(h['外島']) }}</td>
+                <td class="text-right font-bold text-yellow">{{ formatNumber(row.total) }}</td>
+                <td class="text-right text-blue">{{ formatNumber(row['北北基桃']) }}</td>
+                <td class="text-right text-orange">{{ formatNumber(row['中南部']) }}</td>
+                <td class="text-right text-green">{{ formatNumber(row['宜花東']) }}</td>
+                <td class="text-right text-purple">{{ formatNumber(row['外島']) }}</td>
                 <td class="text-center">
-                  <el-button size="mini" type="primary" plain @click="openDetailModal({ hour: h.hour, title: `${targetDate} ${h.slot} 時段明細` })">
+                  <el-button
+                    size="mini"
+                    type="primary"
+                    plain
+                    @click="openDetailModal({ orderDate: row.orderDate, orderInterval: row.orderInterval, title: `${targetDate} 出貨 [接單: ${row.orderDate} ${row.orderInterval}] 明細` })"
+                  >
                     穿透
                   </el-button>
                 </td>
               </tr>
             </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <!-- ======================================================== -->
-    <!-- 分頁 2：各班別出貨時段 × 接單區間時效交叉表                -->
-    <!-- ======================================================== -->
-    <div v-show="activeTab === 'lead_time'" class="tab-pane-content" v-loading="loading">
-      <div class="table-container">
-        <div class="lead-time-header">
-          <span class="table-title">⏱️ 出貨時段 vs 接單成立區間分析（縱向：出貨時間點 ➔ 橫向：當初幾點接的單）</span>
-          <span class="tip-text">💡 點擊任何單元格數字，可立即穿透調閱該批單據明細</span>
-        </div>
-
-        <div class="table-scroll-wrapper">
-          <table class="lead-time-table">
-            <thead>
-              <tr>
-                <th class="sticky-col col-slot">出貨時段</th>
-                <th class="sticky-col col-shift">班別</th>
-                <th class="sticky-col col-total">總計({{ countMode === 'order' ? '單' : '箱' }})</th>
-                <th v-for="slot in allHourSlots" :key="slot" class="col-order-slot">
-                  {{ slot }}<br><span class="sub-th">接單</span>
-                </th>
+            <!-- 表尾合計列 -->
+            <tfoot v-if="orderTimelineFlow.length > 0">
+              <tr class="table-total-row">
+                <td colspan="2" class="text-center font-bold text-yellow">總計</td>
+                <td></td>
+                <td class="text-right font-bold text-yellow">{{ formatNumber(totalOrders) }}</td>
+                <td class="text-right font-bold text-blue">{{ formatNumber(sumRegion('北北基桃')) }}</td>
+                <td class="text-right font-bold text-orange">{{ formatNumber(sumRegion('中南部')) }}</td>
+                <td class="text-right font-bold text-green">{{ formatNumber(sumRegion('宜花東')) }}</td>
+                <td class="text-right font-bold text-purple">{{ formatNumber(sumRegion('外島')) }}</td>
+                <td></td>
               </tr>
-            </thead>
-            <tbody>
-              <tr v-for="row in leadTimeRows" :key="row.shipSlot">
-                <td class="sticky-col col-slot font-bold text-center">{{ row.shipSlot }}</td>
-                <td class="sticky-col col-shift text-center">
-                  <span class="shift-badge" :class="getShiftClass(row.shift)">{{ row.shift }}</span>
-                </td>
-                <td class="sticky-col col-total text-right font-bold text-yellow copyable" @click="openDetailModal({ shipSlot: row.shipSlot, title: `${targetDate} 出貨時段 ${row.shipSlot} 全量明細` })">
-                  {{ formatNumber(row.total) }}
-                </td>
-                <td
-                  v-for="slot in allHourSlots"
-                  :key="slot"
-                  class="text-right cell-number"
-                  :class="{ 'cell-has-val': (row.orderSlots[slot] || 0) > 0 }"
-                  @click="(row.orderSlots[slot] || 0) > 0 && openDetailModal({ shipSlot: row.shipSlot, orderSlot: slot, title: `${targetDate} 出貨[${row.shipSlot}] × 接單[${slot}] 明細` })"
-                >
-                  <span v-if="(row.orderSlots[slot] || 0) > 0">{{ formatNumber(row.orderSlots[slot]) }}</span>
-                  <span v-else class="text-dim">-</span>
-                </td>
-              </tr>
-            </tbody>
+            </tfoot>
           </table>
         </div>
       </div>
@@ -281,8 +247,9 @@
               <span class="reg-tag" :class="getRegTagClass(scope.row.region)">{{ scope.row.region }}</span>
             </template>
           </el-table-column>
-          <el-table-column prop="shift_type" label="班別" width="85" align="center" sortable />
+          <el-table-column prop="shift_type" label="出貨班別" width="85" align="center" sortable />
           <el-table-column prop="ship_time" label="出貨時間" width="95" align="center" sortable />
+          <el-table-column prop="order_date" label="接單日期" width="105" align="center" sortable />
           <el-table-column prop="order_time" label="接單時間" width="95" align="center" sortable />
           <el-table-column prop="order_interval" label="接單區間" width="95" align="center" sortable />
           <el-table-column prop="pick_time" label="開始揀貨" width="95" align="center" sortable />
@@ -313,7 +280,7 @@
         <i class="el-icon-upload drop-icon"></i>
         <div class="drop-text-main">將 Excel 報表拖曳至此處</div>
         <div class="drop-text-sub">或點擊此處選取檔案</div>
-        <div class="drop-tip">🛡️ 自動解析宅配單號與訂單編號，精確統計箱數與單數</div>
+        <div class="drop-tip">🛡️ 自動解析宅配單號與接單時間序列，支援歷史積單追蹤</div>
       </div>
     </el-dialog>
   </div>
@@ -329,13 +296,12 @@ export default {
   name: 'DeliveryFlowList',
   data() {
     return {
-      activeTab: 'river_flow',
       countMode: 'tracking',
       loading: false,
       isUploading: false,
       targetDate: '',
       selectedRegion: 'all',
-      selectedShift: 'all',
+      selectedShift: '夜班', // 預設聚焦夜班，亦可點擊切換
       availableDates: [],
       totalOrders: 0,
       totalTrackingCount: 0,
@@ -346,8 +312,7 @@ export default {
         '夜班': { count: 0, timeSpan: '17:00 ~ 01:00', regions: {} },
         '大夜班': { count: 0, timeSpan: '01:00 ~ 09:00', regions: {} }
       },
-      hourlyFlow: [],
-      leadTimeMatrix: {},
+      orderTimelineFlow: [],
       chartInstance: null,
 
       showDetailModal: false,
@@ -361,19 +326,6 @@ export default {
     }
   },
   computed: {
-    allHourSlots() {
-      return Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2, '0')}~${String((h + 1) % 24).padStart(2, '0')}`);
-    },
-    filteredHourlyFlow() {
-      if (this.selectedShift === 'all') return this.hourlyFlow;
-      return this.hourlyFlow.filter(h => this.getHourShift(h.hour) === this.selectedShift);
-    },
-    leadTimeRows() {
-      const list = Object.values(this.leadTimeMatrix);
-      list.sort((a, b) => a.shipSlot.localeCompare(b.shipSlot));
-      if (this.selectedShift === 'all') return list;
-      return list.filter(r => r.shift === this.selectedShift);
-    },
     filteredModalList() {
       if (!this.filterKeyword.trim()) return this.modalList;
       const kw = this.filterKeyword.trim().toLowerCase();
@@ -383,16 +335,6 @@ export default {
         (r.carrier_name && r.carrier_name.toLowerCase().includes(kw)) ||
         (r.receiver_name && r.receiver_name.toLowerCase().includes(kw))
       );
-    }
-  },
-  watch: {
-    activeTab(newTab) {
-      if (newTab === 'river_flow') {
-        this.$nextTick(() => {
-          if (this.chartInstance) this.chartInstance.resize();
-          else this.renderFlowChart();
-        });
-      }
     }
   },
   mounted() {
@@ -418,11 +360,6 @@ export default {
       if (s === '夜班') return '🌆';
       return '🌙';
     },
-    getHourShift(h) {
-      if (h >= 9 && h < 17) return '日班';
-      if (h >= 17 || h === 0) return '夜班';
-      return '大夜班';
-    },
     getPctWidth(val, tot) {
       if (!tot || !val) return '0%';
       return ((val / tot) * 100).toFixed(1) + '%';
@@ -433,6 +370,17 @@ export default {
       if (r === '宜花東') return 'tag-east';
       if (r === '外島') return 'tag-island';
       return '';
+    },
+    isDelayOrder(orderDate) {
+      if (!orderDate || !this.targetDate) return false;
+      return orderDate < this.targetDate;
+    },
+    sumRegion(regKey) {
+      return this.orderTimelineFlow.reduce((acc, row) => acc + (row[regKey] || 0), 0);
+    },
+    selectShiftCard(shiftKey) {
+      this.selectedShift = this.selectedShift === shiftKey ? 'all' : shiftKey;
+      this.fetchData();
     },
     copyText(txt) {
       navigator.clipboard.writeText(txt).then(() => ElMessage.success(`📋 已複製單號：${txt}`));
@@ -470,8 +418,7 @@ export default {
           this.totalTrackingCount = res.data.totalTrackingCount || 0;
           this.totalOrderCount = res.data.totalOrderCount || 0;
           this.shiftSummary = res.data.shiftSummary;
-          this.hourlyFlow = res.data.hourlyFlow;
-          this.leadTimeMatrix = res.data.leadTimeMatrix || {};
+          this.orderTimelineFlow = res.data.orderTimelineFlow || [];
           this.$nextTick(() => { this.renderFlowChart(); });
         }
       } catch (e) {
@@ -486,20 +433,23 @@ export default {
       if (!this.chartInstance) {
         this.chartInstance = echarts.init(this.$refs.flowChart);
         this.chartInstance.on('click', (params) => {
-          const hour = params.dataIndex;
-          this.openDetailModal({
-            hour,
-            region: this.selectedRegion !== 'all' ? this.selectedRegion : undefined,
-            title: `${this.targetDate} ${String(hour).padStart(2, '0')}:00 時段明細`
-          });
+          const item = this.orderTimelineFlow[params.dataIndex];
+          if (item) {
+            this.openDetailModal({
+              orderDate: item.orderDate,
+              orderInterval: item.orderInterval,
+              region: this.selectedRegion !== 'all' ? this.selectedRegion : undefined,
+              title: `${this.targetDate} 出貨 [接單: ${item.timelineLabel}] 明細`
+            });
+          }
         });
       }
 
-      const xHours = this.hourlyFlow.map(h => h.slot);
-      const northData = this.hourlyFlow.map(h => h['北北基桃']);
-      const southData = this.hourlyFlow.map(h => h['中南部']);
-      const eastData = this.hourlyFlow.map(h => h['宜花東']);
-      const islandData = this.hourlyFlow.map(h => h['外島']);
+      const xLabels = this.orderTimelineFlow.map(item => item.timelineLabel);
+      const northData = this.orderTimelineFlow.map(item => item['北北基桃']);
+      const southData = this.orderTimelineFlow.map(item => item['中南部']);
+      const eastData = this.orderTimelineFlow.map(item => item['宜花東']);
+      const islandData = this.orderTimelineFlow.map(item => item['外島']);
 
       const option = {
         backgroundColor: 'transparent',
@@ -507,16 +457,23 @@ export default {
           trigger: 'axis',
           axisPointer: { type: 'cross', label: { backgroundColor: '#334155' } }
         },
-        grid: { top: '8%', left: '3%', right: '3%', bottom: '8%', containLabel: true },
+        grid: { top: '8%', left: '3%', right: '3%', bottom: '15%', containLabel: true },
         xAxis: {
           type: 'category',
           boundaryGap: false,
-          data: xHours,
+          data: xLabels,
           axisLine: { lineStyle: { color: '#64748b' } },
-          axisLabel: { color: '#cbd5e1', fontSize: 11 }
+          axisLabel: {
+            color: '#cbd5e1',
+            fontSize: 11,
+            rotate: 35,
+            interval: 0
+          }
         },
         yAxis: {
           type: 'value',
+          name: this.countMode === 'order' ? '訂單數' : '宅配箱數',
+          nameTextStyle: { color: '#94a3b8' },
           splitLine: { lineStyle: { color: 'rgba(255,255,255,0.06)' } },
           axisLabel: { color: '#94a3b8' }
         },
@@ -607,9 +564,8 @@ export default {
           targetDate: this.targetDate,
           region: options.region || (this.selectedRegion !== 'all' ? this.selectedRegion : undefined),
           shift: options.shift || (this.selectedShift !== 'all' ? this.selectedShift : undefined),
-          hour: options.hour,
-          shipSlot: options.shipSlot,
-          orderSlot: options.orderSlot
+          orderDate: options.orderDate,
+          orderInterval: options.orderInterval
         };
 
         const res = await axios.get('/api/delivery/orders-detail', { params });
@@ -644,7 +600,6 @@ export default {
           return;
         }
 
-        // 自動提取出貨日期
         for (const row of data) {
           const rawD = String(row['出貨日期'] || '').trim();
           if (rawD && rawD.includes('/')) {
@@ -690,14 +645,14 @@ export default {
   background: #1e293b;
   border: 1px solid #334155;
   border-radius: 8px;
-  padding: 10px 14px 0 14px;
+  padding: 10px 14px;
+  flex-shrink: 0;
 }
 .filter-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 14px;
-  margin-bottom: 10px;
 }
 .filter-item {
   display: flex;
@@ -715,6 +670,13 @@ export default {
   border-radius: 6px;
   border: 1px dashed rgba(250, 204, 21, 0.4);
 }
+.highlight-shift-box {
+  background: rgba(56, 189, 248, 0.08);
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+}
+
 .btn-group {
   margin-left: auto;
   display: flex;
@@ -729,37 +691,10 @@ export default {
   border-radius: 4px;
   border: 1px solid #334155;
 }
-.total-badge strong {
-  color: #facc15;
-  font-size: 15px;
-}
+.total-badge strong { color: #facc15; font-size: 15px; }
 
-.sub-tabs-bar {
-  display: flex;
-  gap: 8px;
-  border-top: 1px solid #334155;
-  padding-top: 8px;
-}
-.sub-tab-btn {
-  background: transparent;
-  border: none;
-  border-bottom: 3px solid transparent;
-  color: #94a3b8;
-  font-size: 13px;
-  font-weight: bold;
-  padding: 8px 16px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-.sub-tab-btn:hover { color: #f8fafc; }
-.sub-tab-btn.active {
-  color: #38bdf8;
-  border-bottom-color: #38bdf8;
-  background: rgba(56, 189, 248, 0.08);
-  border-radius: 4px 4px 0 0;
-}
-
-.tab-pane-content {
+/* 滾動內容區 */
+.main-content-scroll {
   flex: 1;
   overflow-y: auto;
   display: flex;
@@ -768,6 +703,7 @@ export default {
   padding-right: 4px;
 }
 
+/* 三班速覽卡 */
 .shift-cards-row {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -782,6 +718,10 @@ export default {
   transition: transform 0.2s, border-color 0.2s;
 }
 .shift-card:hover { transform: translateY(-2px); border-color: #38bdf8; }
+.card-selected {
+  outline: 2px solid #38bdf8;
+  background: rgba(56, 189, 248, 0.08) !important;
+}
 .shift-day { border-top: 4px solid #38bdf8; }
 .shift-night { border-top: 4px solid #fb923c; }
 .shift-graveyard { border-top: 4px solid #a855f7; }
@@ -799,6 +739,7 @@ export default {
 .chip-east { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
 .chip-island { background: rgba(192, 132, 252, 0.2); color: #c084fc; }
 
+/* 圖表 */
 .chart-container {
   background: #1e293b;
   border: 1px solid #334155;
@@ -814,14 +755,18 @@ export default {
 .dot-island { color: #c084fc; font-weight: bold; }
 .flow-echart { width: 100%; height: 350px; }
 
+/* 觀察明細表 */
 .table-container {
   background: #1e293b;
   border: 1px solid #334155;
   border-radius: 8px;
   padding: 12px;
 }
-.table-title { font-size: 14px; font-weight: bold; color: #f8fafc; margin-bottom: 10px; }
-.table-scroll-wrapper { overflow-x: auto; max-height: calc(100vh - 250px); }
+.table-header-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.table-title { font-size: 14px; font-weight: bold; color: #f8fafc; }
+.tip-text { font-size: 12px; color: #38bdf8; }
+
+.table-scroll-wrapper { overflow-x: auto; max-height: 480px; }
 .flow-matrix-table {
   width: 100%;
   border-collapse: collapse;
@@ -834,8 +779,24 @@ export default {
   border: 1px solid #334155;
   padding: 6px 8px;
 }
-.flow-matrix-table th { background: #1e293b; color: #94a3b8; font-weight: bold; text-align: center; }
+.flow-matrix-table th { background: #1e293b; color: #94a3b8; font-weight: bold; text-align: center; position: sticky; top: 0; z-index: 5; }
 .row-zebra td { background: rgba(255, 255, 255, 0.02); }
+
+.row-delay td { background: rgba(239, 68, 68, 0.06); }
+.delay-tag {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  font-size: 10px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  margin-left: 4px;
+}
+
+.table-total-row td {
+  background: #1e293b !important;
+  font-size: 13px;
+  border-top: 2px solid #38bdf8;
+}
 
 .multi-bar-wrapper {
   display: flex;
@@ -852,7 +813,6 @@ export default {
 .seg-east { background: #4ade80; }
 .seg-island { background: #c084fc; }
 
-.shift-badge { padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: bold; }
 .text-center { text-align: center; }
 .text-right { text-align: right; }
 .text-yellow { color: #facc15; }
@@ -860,50 +820,10 @@ export default {
 .text-orange { color: #fb923c; }
 .text-green { color: #4ade80; }
 .text-purple { color: #c084fc; }
+.text-dim { color: #475569; }
 .font-bold { font-weight: bold; }
 
-.lead-time-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 10px;
-}
-.tip-text { font-size: 12px; color: #38bdf8; }
-
-.lead-time-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 11px;
-  color: #f8fafc;
-  background: #0f172a;
-  white-space: nowrap;
-}
-.lead-time-table th, .lead-time-table td {
-  border: 1px solid #334155;
-  padding: 5px 6px;
-}
-.lead-time-table th {
-  background: #1e293b;
-  color: #94a3b8;
-  text-align: center;
-  position: sticky;
-  top: 0;
-  z-index: 10;
-}
-.sub-th { font-size: 9px; color: #64748b; font-weight: normal; }
-
-.sticky-col { position: sticky; z-index: 5; background: #0f172a; }
-.col-slot { left: 0; width: 80px; }
-.col-shift { left: 80px; width: 75px; }
-.col-total { left: 155px; width: 85px; border-right: 2px solid #38bdf8 !important; }
-.lead-time-table th.sticky-col { background: #1e293b; z-index: 15; }
-
-.col-order-slot { width: 52px; min-width: 52px; }
-.cell-number { font-family: monospace; font-size: 11px; transition: background 0.15s; }
-.cell-has-val { background: rgba(56, 189, 248, 0.08); color: #38bdf8; font-weight: bold; cursor: pointer; }
-.cell-has-val:hover { background: rgba(250, 204, 21, 0.25) !important; color: #fef08a !important; text-decoration: underline; }
-.text-dim { color: #334155; }
-
+/* 彈窗表格 */
 .dialog-summary-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; color: #94a3b8; font-size: 12px; }
 .copyable { cursor: pointer; }
 .copyable:hover { text-decoration: underline; }
@@ -913,6 +833,7 @@ export default {
 .tag-east { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
 .tag-island { background: rgba(192, 132, 252, 0.2); color: #c084fc; }
 
+/* 拖曳上傳 */
 .drop-card {
   background: #0f172a;
   border: 2px dashed #38bdf8;
