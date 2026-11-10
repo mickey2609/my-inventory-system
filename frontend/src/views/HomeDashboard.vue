@@ -1,3 +1,4 @@
+<!-- frontend/src/views/HomeDashboard.vue -->
 <template>
   <div class="home-dashboard dark-bg">
     <div class="dashboard-header">
@@ -178,11 +179,18 @@
           <div class="action-desc">集貨調撥魚群及未完成追蹤</div>
         </div>
 
-        <!-- 🌟 新增：收發魚群出沒分析快捷入口小卡 -->
+        <!-- 🌟 收發魚群出沒分析快捷入口小卡 -->
         <div v-if="hasPermission('dispatch_fish')" class="action-card" @click="openTab('dispatch_fish')">
           <div class="action-icon">📦</div>
           <div class="action-title">收發魚群出沒分析</div>
           <div class="action-desc">借貨(BR)與採購(BY)收貨驗收時段分析及未完成追蹤</div>
+        </div>
+
+        <!-- 🌊 宅配出貨流線魚群快捷入口小卡 (新增) -->
+        <div v-if="hasPermission('delivery_flow')" class="action-card" @click="openTab('delivery_flow')">
+          <div class="action-icon">🌊</div>
+          <div class="action-title">宅配出貨流線魚群</div>
+          <div class="action-desc">3BC1宅配單三班出貨時段與四大區域流線波浪觀察</div>
         </div>
 
         <div v-if="hasPermission('item_sales_history')" class="action-card" @click="openTab('item_sales_history')">
