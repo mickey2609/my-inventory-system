@@ -63,6 +63,11 @@ const routes = [
     component: () => import('../views/DispatchFishList.vue')
   },
   {
+    path: '/delivery-flow',
+    name: 'DeliveryFlowList',
+    component: () => import('../views/DeliveryFlowList.vue')
+  },
+  {
     path: '/settings-perm',
     name: 'SettingsPerm',
     component: () => import('../views/SettingsPerm.vue')

@@ -1,3 +1,4 @@
+<!-- frontend/src/App.vue -->
 <template>
   <div id="app" class="app-container dark-mode">
     <!-- 1. 登入遮罩畫面 (僅在未登入且非公開模組直達時顯示) -->
@@ -115,6 +116,13 @@
           <!-- 🌟 收發魚群出沒分析模組 (BR 借貨 / BY 採購) -->
           <DispatchFishList 
             v-else-if="currentTab === 'dispatch_fish'" key="dispatch_fish"
+            :is-admin="isAdmin"
+            :is-sys-admin="isSysAdmin"
+          />
+
+          <!-- 🌊 宅配出貨流線圖與三班時段魚群觀察表 (新增) -->
+          <DeliveryFlowList 
+            v-else-if="currentTab === 'delivery_flow'" key="delivery_flow"
             :is-admin="isAdmin"
             :is-sys-admin="isSysAdmin"
           />
@@ -240,6 +248,7 @@ import ReplenishFishList from './views/ReplenishFishList.vue'
 import Transfer8015FishList from './views/Transfer8015FishList.vue'
 import Transfer1580FishList from './views/Transfer1580FishList.vue'
 import DispatchFishList from './views/DispatchFishList.vue'
+import DeliveryFlowList from './views/DeliveryFlowList.vue' // 👈 引入宅配流線圖
 import SettingsPerm from './views/SettingsPerm.vue'
 import SettingsLog from './views/SettingsLog.vue'
 
@@ -262,6 +271,7 @@ const TAB_PATH_MAP = {
   'transfer_80_15': '/transfer-8015',
   'transfer_15_80': '/transfer-1580',
   'dispatch_fish': '/dispatch-fish',
+  'delivery_flow': '/delivery-flow', // 👈 路由映射
   'settings_perm': '/settings-perm',
   'settings_log': '/settings-log'
 };
@@ -277,6 +287,7 @@ export default {
     ImportTipModal, UserManagementModals, InventorySearchModal, HomeDashboard,
     LoginOverlay, InvQuery80, InvSearch15, LocSummary, ItemSalesHistory, TurnoverList, AbnormalPurchase,
     InboundFishList, ReplenishFishList, Transfer8015FishList, Transfer1580FishList, DispatchFishList,
+    DeliveryFlowList, // 👈 註冊組件
     SettingsPerm, SettingsLog
   },
   setup() {
@@ -359,7 +370,8 @@ export default {
         { key: 'replenish_fish', name: '🐟 立即補貨單魚群' },
         { key: 'transfer_80_15', name: '🔄 跨庫調撥 80 ➔ 15' },
         { key: 'transfer_15_80', name: '🔄 跨庫調撥 15 ➔ 80' },
-        { key: 'dispatch_fish', name: '📦 收發魚群出沒分析' }
+        { key: 'dispatch_fish', name: '📦 收發魚群出沒分析' },
+        { key: 'delivery_flow', name: '🌊 宅配出貨流線魚群' } // 👈 權限模組清單
       ],
 
       rawColumnsMaster: [...full48Cols],
@@ -964,6 +976,7 @@ export default {
         'transfer_80_15': '🔄 跨庫調撥 80 ➔ 15',
         'transfer_15_80': '🔄 跨庫調撥 15 ➔ 80',
         'dispatch_fish': '📦 收發魚群出沒分析',
+        'delivery_flow': '🌊 宅配出貨流線魚群',
         'settings_perm': '⚙️ 權限管理',
         'settings_log': '📜 日誌歷程查詢'
       };
