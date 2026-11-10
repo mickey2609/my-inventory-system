@@ -57,7 +57,6 @@ module.exports = function(db) {
     return '';
   }
 
-  // 初始化資料表：以 tracking_no 為唯一約束
   db.serialize(() => {
     db.run(`
       CREATE TABLE IF NOT EXISTS delivery_order_tracking (
@@ -92,7 +91,6 @@ module.exports = function(db) {
     db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_region ON delivery_order_tracking (region)`);
   });
 
-  // 匯入 API
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     if (!Array.isArray(items) || items.length === 0) {
@@ -174,7 +172,6 @@ module.exports = function(db) {
     });
   });
 
-  // 日期選單 API
   router.get('/dates', (req, res) => {
     db.all(`
       SELECT 
@@ -192,7 +189,6 @@ module.exports = function(db) {
     });
   });
 
-  // 🌟 分析 API：支援橫向為「接單日期 + 區間」
   router.get('/flow-analysis', (req, res) => {
     let { targetDate, region, shift, countMode } = req.query;
     countMode = countMode || 'tracking';
@@ -227,25 +223,40 @@ module.exports = function(db) {
 
         const regions = ['北北基桃', '中南部', '宜花東', '外島', '其他/未識別'];
 
-        // 1. 三班總計卡
+        // 1. 三班匯總指標卡
         const shiftSummary = {
           '日班': { count: 0, timeSpan: '09:00 ~ 17:00', regions: { '北北基桃': 0, '中南部': 0, '宜花東': 0, '外島': 0, '其他/未識別': 0 } },
           '夜班': { count: 0, timeSpan: '17:00 ~ 01:00', regions: { '北北基桃': 0, '中南部': 0, '宜花東': 0, '外島': 0, '其他/未識別': 0 } },
           '大夜班': { count: 0, timeSpan: '01:00 ~ 09:00', regions: { '北北基桃': 0, '中南部': 0, '宜花東': 0, '外島': 0, '其他/未識別': 0 } }
         };
 
-        // 2. 🌟 核心：橫軸為「接單日期 + 接單區間」的時序分佈
-        // 結構：{ "2026-11-05 16~17": { date: "2026-11-05", interval: "16~17", label: "11/05 16~17", total: 0, "北北基桃": 0, ... } }
+        // 2. 頁籤 1 專用：24 小時出貨時段分佈 (00~01 到 23~00)
+        const hourlyFlow = Array.from({ length: 24 }, (_, h) => {
+          const slot = `${String(h).padStart(2, '0')}~${String((h + 1) % 24).padStart(2, '0')}`;
+          const item = { hour: h, slot, total: 0 };
+          regions.forEach(r => { item[r] = 0; });
+          return item;
+        });
+
+        // 3. 頁籤 2 專用：接單日期與時段波浪分佈
         const orderTimelineMap = {};
 
         processRows.forEach(r => {
           const reg = regions.includes(r.region) ? r.region : '其他/未識別';
           const sType = shiftSummary[r.shift_type] ? r.shift_type : '日班';
 
+          // 計算三班總計
           shiftSummary[sType].count++;
           shiftSummary[sType].regions[reg] = (shiftSummary[sType].regions[reg] || 0) + 1;
 
-          // 處理接單日期與區間
+          // 計算 24 小時出貨時段
+          const h = r.ship_time ? parseInt(r.ship_time.split(':')[0], 10) : -1;
+          if (h >= 0 && h < 24) {
+            hourlyFlow[h].total++;
+            hourlyFlow[h][reg]++;
+          }
+
+          // 計算接單日期時序
           const oDate = r.order_date || '未記錄日期';
           const oSlot = r.order_interval || '未記錄時段';
           const key = `${oDate} ${oSlot}`;
@@ -269,7 +280,6 @@ module.exports = function(db) {
           orderTimelineMap[key][reg]++;
         });
 
-        // 依接單日期與時段排序（由遠到近：舊單 ➔ 新單）
         const orderTimelineFlow = Object.values(orderTimelineMap).sort((a, b) => a.key.localeCompare(b.key));
 
         const totalTrackingCount = rows.length;
@@ -284,7 +294,8 @@ module.exports = function(db) {
           totalTrackingCount,
           totalOrderCount,
           shiftSummary,
-          orderTimelineFlow // 🌟 X 軸為接單日期+區間的流線數據
+          hourlyFlow, // 頁籤 1 數據
+          orderTimelineFlow // 頁籤 2 數據
         });
       });
     };
@@ -299,13 +310,17 @@ module.exports = function(db) {
     }
   });
 
-  // 穿透明細 API
   router.get('/orders-detail', (req, res) => {
-    const { targetDate, shift, orderDate, orderInterval, region } = req.query;
+    const { targetDate, shift, hour, orderDate, orderInterval, region } = req.query;
     let sql = `SELECT * FROM delivery_order_tracking WHERE ship_date = ?`;
     const params = [targetDate];
 
     if (shift && shift !== 'all') { sql += ` AND shift_type = ?`; params.push(shift); }
+    if (hour !== undefined && hour !== null && hour !== '') {
+      const hStr = String(hour).padStart(2, '0');
+      sql += ` AND ship_time LIKE ?`;
+      params.push(`${hStr}:%`);
+    }
     if (orderDate) { sql += ` AND order_date = ?`; params.push(orderDate); }
     if (orderInterval) { sql += ` AND order_interval = ?`; params.push(orderInterval); }
     if (region && region !== 'all') { sql += ` AND region = ?`; params.push(region); }
