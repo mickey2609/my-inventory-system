@@ -13,19 +13,20 @@
     <!-- 1. 頂部條件與導覽工具列 -->
     <div class="control-header-panel">
       <div class="filter-row">
+        <!-- 出貨日期 -->
         <div class="filter-item">
           <span class="label">📅 出貨日期：</span>
           <el-select
             v-if="availableDates.length > 0"
             v-model="targetDate"
             size="small"
-            style="width: 160px;"
+            style="width: 170px;"
             @change="fetchData"
           >
             <el-option
               v-for="d in availableDates"
               :key="d.ship_date"
-              :label="`${d.ship_date} (${formatNumber(d.count)}單)`"
+              :label="`${d.ship_date} (${formatNumber(countMode === 'order' ? d.order_count : d.tracking_count)} ${countMode === 'order' ? '單' : '箱'})`"
               :value="d.ship_date"
             />
           </el-select>
@@ -42,11 +43,20 @@
           />
         </div>
 
-        <!-- 區域篩選器 (可獨立看，也可全部看) -->
+        <!-- 🌟 統計維度：訂單 vs 宅單切換 -->
+        <div class="filter-item highlight-box">
+          <span class="label text-yellow">📊 觀察維度：</span>
+          <el-radio-group v-model="countMode" size="small" @change="fetchData">
+            <el-radio-button label="tracking">📦 宅配單 ({{ formatNumber(totalTrackingCount) }} 箱)</el-radio-button>
+            <el-radio-button label="order">📋 訂單 ({{ formatNumber(totalOrderCount) }} 單)</el-radio-button>
+          </el-radio-group>
+        </div>
+
+        <!-- 區域篩選器 -->
         <div class="filter-item">
-          <span class="label">📍 出貨區域：</span>
+          <span class="label">📍 區域：</span>
           <el-radio-group v-model="selectedRegion" size="small" @change="fetchData">
-            <el-radio-button label="all">全部區域</el-radio-button>
+            <el-radio-button label="all">全部</el-radio-button>
             <el-radio-button label="北北基桃">北北基桃</el-radio-button>
             <el-radio-button label="中南部">中南部</el-radio-button>
             <el-radio-button label="宜花東">宜花東</el-radio-button>
@@ -54,21 +64,23 @@
           </el-radio-group>
         </div>
 
-        <!-- 班別篩選器 (可獨立看，也可全部看) -->
+        <!-- 班別篩選器 -->
         <div class="filter-item">
-          <span class="label">⏰ 所屬班別：</span>
+          <span class="label">⏰ 班別：</span>
           <el-radio-group v-model="selectedShift" size="small" @change="fetchData">
-            <el-radio-button label="all">全部班別</el-radio-button>
-            <el-radio-button label="日班">☀️ 日班 (09~17)</el-radio-button>
-            <el-radio-button label="夜班">🌆 夜班 (17~01)</el-radio-button>
-            <el-radio-button label="大夜班">🌙 大夜班 (01~09)</el-radio-button>
+            <el-radio-button label="all">全部</el-radio-button>
+            <el-radio-button label="日班">☀️ 日班</el-radio-button>
+            <el-radio-button label="夜班">🌆 夜班</el-radio-button>
+            <el-radio-button label="大夜班">🌙 大夜班</el-radio-button>
           </el-radio-group>
         </div>
 
         <div class="btn-group">
-          <span class="total-badge">總出貨：<strong>{{ formatNumber(totalOrders) }}</strong> 單</span>
+          <span class="total-badge">
+            當前視角：<strong>{{ formatNumber(totalCount) }}</strong> {{ countMode === 'order' ? '單' : '箱' }}
+          </span>
           <el-button type="info" size="small" icon="el-icon-refresh" :loading="loading" @click="fetchData">重新整理</el-button>
-          <el-button type="success" size="small" icon="el-icon-upload2" :loading="isUploading" @click="showUploadCard = true">📥 匯入 3BC1 宅配單</el-button>
+          <el-button type="success" size="small" icon="el-icon-upload2" :loading="isUploading" @click="showUploadCard = true">📥 匯入 3BC1 / 出貨表</el-button>
         </div>
       </div>
 
@@ -102,13 +114,16 @@
           :key="shiftKey"
           class="shift-card"
           :class="getShiftClass(shiftKey)"
-          @click="openDetailModal({ shift: shiftKey, title: `${targetDate}【${shiftKey} (${info.timeSpan})】所有出貨` })"
+          @click="openDetailModal({ shift: shiftKey, title: `${targetDate}【${shiftKey} (${info.timeSpan})】明細` })"
         >
           <div class="card-head">
             <span class="shift-name">{{ getShiftIcon(shiftKey) }} {{ shiftKey }}</span>
             <span class="shift-time">{{ info.timeSpan }}</span>
           </div>
-          <div class="card-count">{{ formatNumber(info.count) }} <span class="unit">單</span></div>
+          <div class="card-count">
+            {{ formatNumber(info.count) }} 
+            <span class="unit">{{ countMode === 'order' ? '單' : '箱' }}</span>
+          </div>
           <div class="card-sub-bars">
             <div class="reg-chip chip-north">北北基桃: {{ formatNumber(info.regions['北北基桃'] || 0) }}</div>
             <div class="reg-chip chip-south">中南部: {{ formatNumber(info.regions['中南部'] || 0) }}</div>
@@ -134,15 +149,15 @@
 
       <!-- 魚群矩陣表 -->
       <div class="table-container" v-loading="loading">
-        <div class="table-title">🐟 24 小時出貨魚群密度分佈</div>
+        <div class="table-title">🐟 24 小時出貨魚群密度分佈 (依{{ countMode === 'order' ? '訂單數' : '宅配單/箱數' }}統計)</div>
         <div class="table-scroll-wrapper">
           <table class="flow-matrix-table">
             <thead>
               <tr>
                 <th style="width: 85px;">出貨時段</th>
                 <th style="width: 85px;">班別</th>
-                <th>出貨魚群密度圖形 (藍:北基桃 / 橘:中南 / 綠:花東 / 紫:外島)</th>
-                <th style="width: 90px;">出貨單數</th>
+                <th>出貨密度圖形 (藍:北基桃 / 橘:中南 / 綠:花東 / 紫:外島)</th>
+                <th style="width: 90px;">出貨數量</th>
                 <th style="width: 95px;">北北基桃</th>
                 <th style="width: 95px;">中南部</th>
                 <th style="width: 80px;">宜花東</th>
@@ -170,7 +185,7 @@
                 <td class="text-right text-green">{{ formatNumber(h['宜花東']) }}</td>
                 <td class="text-right text-purple">{{ formatNumber(h['外島']) }}</td>
                 <td class="text-center">
-                  <el-button size="mini" type="primary" plain @click="openDetailModal({ hour: h.hour, title: `${targetDate} ${h.slot} 時段出貨明細` })">
+                  <el-button size="mini" type="primary" plain @click="openDetailModal({ hour: h.hour, title: `${targetDate} ${h.slot} 時段明細` })">
                     穿透
                   </el-button>
                 </td>
@@ -182,13 +197,13 @@
     </div>
 
     <!-- ======================================================== -->
-    <!-- 分頁 2 (新增)：各班別出貨時段 × 接單區間時效交叉表        -->
+    <!-- 分頁 2：各班別出貨時段 × 接單區間時效交叉表                -->
     <!-- ======================================================== -->
     <div v-show="activeTab === 'lead_time'" class="tab-pane-content" v-loading="loading">
       <div class="table-container">
         <div class="lead-time-header">
           <span class="table-title">⏱️ 出貨時段 vs 接單成立區間分析（縱向：出貨時間點 ➔ 橫向：當初幾點接的單）</span>
-          <span class="tip-text">💡 點擊任何單元格數字，可立即穿透調閱該批訂單明細</span>
+          <span class="tip-text">💡 點擊任何單元格數字，可立即穿透調閱該批單據明細</span>
         </div>
 
         <div class="table-scroll-wrapper">
@@ -197,7 +212,7 @@
               <tr>
                 <th class="sticky-col col-slot">出貨時段</th>
                 <th class="sticky-col col-shift">班別</th>
-                <th class="sticky-col col-total">出貨總單數</th>
+                <th class="sticky-col col-total">總計({{ countMode === 'order' ? '單' : '箱' }})</th>
                 <!-- 24 小時接單區間欄位 -->
                 <th v-for="slot in allHourSlots" :key="slot" class="col-order-slot">
                   {{ slot }}<br><span class="sub-th">接單</span>
@@ -231,18 +246,18 @@
       </div>
     </div>
 
-    <!-- 3. 穿透訂單明細 Dialog -->
+    <!-- 3. 穿透單據明細 Dialog -->
     <el-dialog
       v-model="showDetailModal"
       :title="modalTitle"
-      width="85%"
+      width="90%"
       top="4vh"
       append-to-body
       custom-class="dark-dialog"
     >
       <div class="dialog-body" v-loading="loadingDetails">
         <div class="dialog-summary-bar">
-          <span>共調閱 <strong>{{ modalList.length }}</strong> 筆訂單記錄 (最多展示前 2000 筆)</span>
+          <span>共調閱 <strong>{{ modalList.length }}</strong> 筆記錄 (最多展示前 3000 筆)</span>
           <el-input
             v-model="filterKeyword"
             size="mini"
@@ -253,6 +268,11 @@
         </div>
 
         <el-table :data="filteredModalList" height="520px" border size="mini" style="width: 100%;">
+          <el-table-column prop="tracking_no" label="宅配單號" width="180" sortable>
+            <template #default="scope">
+              <span class="font-bold text-blue copyable" @click="copyText(scope.row.tracking_no)">{{ scope.row.tracking_no }}</span>
+            </template>
+          </el-table-column>
           <el-table-column prop="order_no" label="訂單編號" width="160" sortable>
             <template #default="scope">
               <span class="font-bold text-orange copyable" @click="copyText(scope.row.order_no)">{{ scope.row.order_no }}</span>
@@ -279,7 +299,7 @@
     <!-- 4. 拖曳上傳 Modal -->
     <el-dialog
       v-model="showUploadCard"
-      title="📥 匯入 3BC1 宅配訂單 (自動清洗區域與時段)"
+      title="📥 匯入宅配報表 (3BC1 / 出貨資訊80)"
       width="500px"
       append-to-body
       custom-class="dark-dialog"
@@ -293,9 +313,9 @@
         @click="$refs.fileInput.click()"
       >
         <i class="el-icon-upload drop-icon"></i>
-        <div class="drop-text-main">將 3BC1.xls 拖曳至此處</div>
+        <div class="drop-text-main">將 Excel 報表拖曳至此處</div>
         <div class="drop-text-sub">或點擊此處選取檔案</div>
-        <div class="drop-tip">🛡️ 自動標記【北北基桃 / 中南部 / 宜花東 / 外島】與【日班 / 夜班 / 大夜班】</div>
+        <div class="drop-tip">🛡️ 自動解析宅配單號與訂單編號，精準統計箱數與單數</div>
       </div>
     </el-dialog>
   </div>
@@ -311,14 +331,17 @@ export default {
   name: 'DeliveryFlowList',
   data() {
     return {
-      activeTab: 'river_flow', // river_flow 或 lead_time
+      activeTab: 'river_flow',
+      countMode: 'tracking', // tracking(宅配單/箱數) 或 order(訂單數)
       loading: false,
       isUploading: false,
       targetDate: '',
       selectedRegion: 'all',
       selectedShift: 'all',
       availableDates: [],
-      totalOrders: 0,
+      totalCount: 0,
+      totalTrackingCount: 0,
+      totalOrderCount: 0,
 
       shiftSummary: {
         '日班': { count: 0, timeSpan: '09:00 ~ 17:00', regions: {} },
@@ -357,6 +380,7 @@ export default {
       if (!this.filterKeyword.trim()) return this.modalList;
       const kw = this.filterKeyword.trim().toLowerCase();
       return this.modalList.filter(r => 
+        (r.tracking_no && r.tracking_no.toLowerCase().includes(kw)) ||
         (r.order_no && r.order_no.toLowerCase().includes(kw)) ||
         (r.carrier_name && r.carrier_name.toLowerCase().includes(kw)) ||
         (r.receiver_name && r.receiver_name.toLowerCase().includes(kw))
@@ -438,12 +462,15 @@ export default {
           params: {
             targetDate: this.targetDate,
             region: this.selectedRegion,
-            shift: this.selectedShift
+            shift: this.selectedShift,
+            countMode: this.countMode
           }
         });
         if (res.data?.success) {
           this.targetDate = res.data.targetDate || this.targetDate;
-          this.totalOrders = res.data.totalOrders;
+          this.totalCount = res.data.totalCount;
+          this.totalTrackingCount = res.data.totalTrackingCount;
+          this.totalOrderCount = res.data.totalOrderCount;
           this.shiftSummary = res.data.shiftSummary;
           this.hourlyFlow = res.data.hourlyFlow;
           this.leadTimeMatrix = res.data.leadTimeMatrix || {};
@@ -465,7 +492,7 @@ export default {
           this.openDetailModal({
             hour,
             region: this.selectedRegion !== 'all' ? this.selectedRegion : undefined,
-            title: `${this.targetDate} ${String(hour).padStart(2, '0')}:00 時段出貨明細`
+            title: `${this.targetDate} ${String(hour).padStart(2, '0')}:00 時段明細`
           });
         });
       }
@@ -608,7 +635,7 @@ export default {
     async processUpload(file) {
       this.showUploadCard = false;
       this.isUploading = true;
-      ElMessage.info('⚡ 正在讀取並解析 3BC1 宅配報表...');
+      ElMessage.info('⚡ 正在讀取並解析宅配報表...');
       try {
         const buffer = await file.arrayBuffer();
         const wb = XLSX.read(buffer, { type: 'array' });
@@ -619,6 +646,7 @@ export default {
           return;
         }
 
+        // 自動提取出貨日期
         for (const row of data) {
           const rawD = String(row['出貨日期'] || '').trim();
           if (rawD && rawD.includes('/')) {
@@ -627,14 +655,14 @@ export default {
           }
         }
 
-        ElMessage.info(`正在寫入 ${data.length.toLocaleString()} 筆宅配單...`);
-        const BATCH = 5000;
+        ElMessage.info(`正在寫入 ${data.length.toLocaleString()} 筆宅配記錄...`);
+        const BATCH = 3000;
         for (let i = 0; i < data.length; i += BATCH) {
           const chunk = data.slice(i, i + BATCH);
           await axios.post('/api/delivery/import-json', { items: chunk });
         }
 
-        ElMessage.success(`🎉 3BC1 宅配資料清洗並匯入成功！已切換至 ${this.targetDate}`);
+        ElMessage.success(`🎉 宅配報表全量匯入成功！已切換至 ${this.targetDate}`);
         await this.fetchDates();
         await this.fetchData();
       } catch (e) {
@@ -660,7 +688,6 @@ export default {
   overflow: hidden;
 }
 
-/* 控制台上方篩選面板 */
 .control-header-panel {
   background: #1e293b;
   border: 1px solid #334155;
@@ -671,18 +698,24 @@ export default {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 16px;
+  gap: 14px;
   margin-bottom: 10px;
 }
 .filter-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 .filter-item .label {
   font-size: 13px;
   font-weight: bold;
   color: #cbd5e1;
+}
+.highlight-box {
+  background: rgba(250, 204, 21, 0.08);
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px dashed rgba(250, 204, 21, 0.4);
 }
 .btn-group {
   margin-left: auto;
@@ -703,7 +736,6 @@ export default {
   font-size: 15px;
 }
 
-/* 分頁切換 Tabs */
 .sub-tabs-bar {
   display: flex;
   gap: 8px;
@@ -721,9 +753,7 @@ export default {
   cursor: pointer;
   transition: all 0.2s;
 }
-.sub-tab-btn:hover {
-  color: #f8fafc;
-}
+.sub-tab-btn:hover { color: #f8fafc; }
 .sub-tab-btn.active {
   color: #38bdf8;
   border-bottom-color: #38bdf8;
@@ -731,7 +761,6 @@ export default {
   border-radius: 4px 4px 0 0;
 }
 
-/* 內容面板 */
 .tab-pane-content {
   flex: 1;
   overflow-y: auto;
@@ -741,7 +770,6 @@ export default {
   padding-right: 4px;
 }
 
-/* 三班速覽卡 */
 .shift-cards-row {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -773,7 +801,6 @@ export default {
 .chip-east { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
 .chip-island { background: rgba(192, 132, 252, 0.2); color: #c084fc; }
 
-/* 圖表 */
 .chart-container {
   background: #1e293b;
   border: 1px solid #334155;
@@ -789,7 +816,6 @@ export default {
 .dot-island { color: #c084fc; font-weight: bold; }
 .flow-echart { width: 100%; height: 350px; }
 
-/* 魚群矩陣表 */
 .table-container {
   background: #1e293b;
   border: 1px solid #334155;
@@ -838,7 +864,6 @@ export default {
 .text-purple { color: #c084fc; }
 .font-bold { font-weight: bold; }
 
-/* 🌟 接單時效交叉表 (Lead Time Matrix) 樣式 */
 .lead-time-header {
   display: flex;
   justify-content: space-between;
@@ -869,7 +894,6 @@ export default {
 }
 .sub-th { font-size: 9px; color: #64748b; font-weight: normal; }
 
-/* 凍結前三欄 */
 .sticky-col { position: sticky; z-index: 5; background: #0f172a; }
 .col-slot { left: 0; width: 80px; }
 .col-shift { left: 80px; width: 75px; }
@@ -877,25 +901,11 @@ export default {
 .lead-time-table th.sticky-col { background: #1e293b; z-index: 15; }
 
 .col-order-slot { width: 52px; min-width: 52px; }
-.cell-number {
-  font-family: monospace;
-  font-size: 11px;
-  transition: background 0.15s;
-}
-.cell-has-val {
-  background: rgba(56, 189, 248, 0.08);
-  color: #38bdf8;
-  font-weight: bold;
-  cursor: pointer;
-}
-.cell-has-val:hover {
-  background: rgba(250, 204, 21, 0.25) !important;
-  color: #fef08a !important;
-  text-decoration: underline;
-}
+.cell-number { font-family: monospace; font-size: 11px; transition: background 0.15s; }
+.cell-has-val { background: rgba(56, 189, 248, 0.08); color: #38bdf8; font-weight: bold; cursor: pointer; }
+.cell-has-val:hover { background: rgba(250, 204, 21, 0.25) !important; color: #fef08a !important; text-decoration: underline; }
 .text-dim { color: #334155; }
 
-/* 彈窗表格 */
 .dialog-summary-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; color: #94a3b8; font-size: 12px; }
 .copyable { cursor: pointer; }
 .copyable:hover { text-decoration: underline; }
@@ -905,7 +915,6 @@ export default {
 .tag-east { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
 .tag-island { background: rgba(192, 132, 252, 0.2); color: #c084fc; }
 
-/* 拖曳上傳 */
 .drop-card {
   background: #0f172a;
   border: 2px dashed #38bdf8;

@@ -57,11 +57,12 @@ module.exports = function(db) {
     return '';
   }
 
-  // 初始化資料表與唯一索引
+  // 初始化資料表：以 tracking_no 為唯一依據
   db.serialize(() => {
     db.run(`
       CREATE TABLE IF NOT EXISTS delivery_order_tracking (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tracking_no TEXT,
         order_no TEXT,
         region TEXT,
         shift_type TEXT,
@@ -80,11 +81,12 @@ module.exports = function(db) {
         zip_code TEXT,
         address TEXT,
         imported_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(order_no, ship_date, ship_time)
+        UNIQUE(tracking_no)
       )
     `);
 
-    db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_deliv_conflict ON delivery_order_tracking(order_no, ship_date, ship_time)`);
+    db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_deliv_tracking ON delivery_order_tracking(tracking_no)`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_order_no ON delivery_order_tracking (order_no)`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_ship_date ON delivery_order_tracking (ship_date)`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_shift ON delivery_order_tracking (shift_type)`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_region ON delivery_order_tracking (region)`);
@@ -98,19 +100,20 @@ module.exports = function(db) {
     }
 
     db.serialize(() => {
-      db.run('PRAGMA synchronous = OFF');
-      db.run('PRAGMA journal_mode = MEMORY');
       db.run('BEGIN TRANSACTION');
 
       const stmt = db.prepare(`
         INSERT INTO delivery_order_tracking (
-          order_no, region, shift_type, ship_date, ship_time, ship_interval,
+          tracking_no, order_no, region, shift_type, ship_date, ship_time, ship_interval,
           order_date, order_time, order_interval, pick_time, pick_interval,
           print_time, print_interval, carrier_name, receiver_name, zip_code, address
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(order_no, ship_date, ship_time) DO UPDATE SET
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(tracking_no) DO UPDATE SET
+          order_no = EXCLUDED.order_no,
           region = EXCLUDED.region,
           shift_type = EXCLUDED.shift_type,
+          ship_date = EXCLUDED.ship_date,
+          ship_time = EXCLUDED.ship_time,
           ship_interval = EXCLUDED.ship_interval,
           carrier_name = EXCLUDED.carrier_name,
           imported_at = CURRENT_TIMESTAMP
@@ -127,12 +130,14 @@ module.exports = function(db) {
           return '';
         };
 
+        const tracking_no = getV('宅配單號', 'tracking_no');
         const order_no = getV('訂單編號', '訂單編號 ', 'order_no');
         let ship_date = getV('出貨日期', 'ship_date').replace(/\//g, '-');
         if (ship_date.includes(' ')) ship_date = ship_date.split(' ')[0];
         const ship_time = getV('出貨時間', 'ship_time');
 
-        if (!order_no || !ship_date) continue;
+        // 過濾表尾合計列與空列
+        if (!tracking_no || tracking_no.includes('總計') || !ship_date) continue;
 
         const addr = getV('收件地址', 'address');
         const zip = getV('郵遞區號', 'zip_code');
@@ -155,7 +160,7 @@ module.exports = function(db) {
         const receiver_name = getV('收件人', 'receiver_name');
 
         stmt.run(
-          order_no, region, shift_type, ship_date, ship_time, ship_interval,
+          tracking_no, order_no, region, shift_type, ship_date, ship_time, ship_interval,
           order_date, order_time, order_interval, pick_time, pick_interval,
           print_time, print_interval, carrier_name, receiver_name, zip, addr
         );
@@ -164,24 +169,24 @@ module.exports = function(db) {
 
       stmt.finalize();
       db.run('COMMIT', (err) => {
-        db.run('PRAGMA synchronous = NORMAL');
         if (err) return res.status(500).json({ success: false, message: '匯入失敗：' + err.message });
-        res.json({ success: true, count, message: `🎉 成功處理並匯入 ${count} 筆宅配訂單！` });
+        res.json({ success: true, count, message: `成功處理 ${count} 筆宅配記錄` });
       });
     });
   });
 
-  // 取得現有日期清單
+  // 日期選單 API
   router.get('/dates', (req, res) => {
-    db.all(`SELECT ship_date, COUNT(*) as count FROM delivery_order_tracking WHERE ship_date IS NOT NULL AND ship_date != '' GROUP BY ship_date ORDER BY ship_date DESC`, [], (err, rows) => {
+    db.all(`SELECT ship_date, COUNT(*) as tracking_count, COUNT(DISTINCT order_no) as order_count FROM delivery_order_tracking WHERE ship_date IS NOT NULL AND ship_date != '' GROUP BY ship_date ORDER BY ship_date DESC`, [], (err, rows) => {
       if (err) return res.status(500).json({ success: false, message: err.message });
       res.json({ success: true, list: rows || [] });
     });
   });
 
-  // 分析 API (支援 region 與 shift 過濾，並包含出貨時段 vs 接單時段交叉統計)
+  // 統計分析 API (支援 countMode: tracking 或 order)
   router.get('/flow-analysis', (req, res) => {
-    let { targetDate, region, shift } = req.query;
+    let { targetDate, region, shift, countMode } = req.query;
+    countMode = countMode || 'tracking'; // tracking(宅單/箱數) 或 order(訂單數)
 
     const runAnalysis = (effectiveDate) => {
       let sql = `SELECT * FROM delivery_order_tracking WHERE ship_date = ?`;
@@ -200,6 +205,19 @@ module.exports = function(db) {
         if (err) return res.status(500).json({ success: false, message: err.message });
         rows = rows || [];
 
+        // 依據 countMode 進行資料預處理
+        let processRows = rows;
+        if (countMode === 'order') {
+          // 依 order_no 去重，確保每筆訂單只計算一次
+          const orderMap = new Map();
+          rows.forEach(r => {
+            if (!orderMap.has(r.order_no)) {
+              orderMap.set(r.order_no, r);
+            }
+          });
+          processRows = Array.from(orderMap.values());
+        }
+
         const regions = ['北北基桃', '中南部', '宜花東', '外島', '其他/未識別'];
         const hourlyFlow = Array.from({ length: 24 }, (_, h) => {
           const slot = `${String(h).padStart(2, '0')}~${String((h + 1) % 24).padStart(2, '0')}`;
@@ -214,11 +232,9 @@ module.exports = function(db) {
           '大夜班': { count: 0, timeSpan: '01:00 ~ 09:00', regions: { '北北基桃': 0, '中南部': 0, '宜花東': 0, '外島': 0, '其他/未識別': 0 } }
         };
 
-        // 🌟 追加功能：出貨時段 (ship_interval) vs 接單區間 (order_interval) 矩陣
-        // 結構：{ [ship_interval]: { total: N, [order_interval]: N } }
         const leadTimeMatrix = {};
 
-        rows.forEach(r => {
+        processRows.forEach(r => {
           const h = r.ship_time ? parseInt(r.ship_time.split(':')[0], 10) : -1;
           const reg = regions.includes(r.region) ? r.region : '其他/未識別';
 
@@ -231,7 +247,6 @@ module.exports = function(db) {
           shiftSummary[sType].count++;
           shiftSummary[sType].regions[reg] = (shiftSummary[sType].regions[reg] || 0) + 1;
 
-          // 統計出貨時段 vs 接單區間
           const sSlot = r.ship_interval || (h >= 0 ? `${String(h).padStart(2, '0')}~${String((h + 1) % 24).padStart(2, '0')}` : '未記錄');
           const oSlot = r.order_interval || '未記錄';
 
@@ -242,10 +257,17 @@ module.exports = function(db) {
           leadTimeMatrix[sSlot].orderSlots[oSlot] = (leadTimeMatrix[sSlot].orderSlots[oSlot] || 0) + 1;
         });
 
+        // 總計資訊（同時回傳箱數與單數）
+        const totalTrackingCount = rows.length;
+        const totalOrderCount = new Set(rows.map(r => r.order_no)).size;
+
         res.json({
           success: true,
           targetDate: effectiveDate,
-          totalOrders: rows.length,
+          countMode,
+          totalCount: processRows.length,
+          totalTrackingCount,
+          totalOrderCount,
           shiftSummary,
           hourlyFlow,
           leadTimeMatrix
@@ -263,7 +285,7 @@ module.exports = function(db) {
     }
   });
 
-  // 穿透訂單明細 API (支援 orderInterval 接單區間精準穿透)
+  // 穿透訂單明細 API
   router.get('/orders-detail', (req, res) => {
     const { targetDate, shift, hour, shipSlot, orderSlot, region } = req.query;
     let sql = `SELECT * FROM delivery_order_tracking WHERE ship_date = ?`;
@@ -275,20 +297,11 @@ module.exports = function(db) {
       sql += ` AND ship_time LIKE ?`;
       params.push(`${hStr}:%`);
     }
-    if (shipSlot) {
-      sql += ` AND ship_interval = ?`;
-      params.push(shipSlot);
-    }
-    if (orderSlot) {
-      sql += ` AND order_interval = ?`;
-      params.push(orderSlot);
-    }
-    if (region && region !== 'all') {
-      sql += ` AND region = ?`;
-      params.push(region);
-    }
+    if (shipSlot) { sql += ` AND ship_interval = ?`; params.push(shipSlot); }
+    if (orderSlot) { sql += ` AND order_interval = ?`; params.push(orderSlot); }
+    if (region && region !== 'all') { sql += ` AND region = ?`; params.push(region); }
 
-    sql += ` ORDER BY ship_time ASC LIMIT 2000`;
+    sql += ` ORDER BY ship_time ASC LIMIT 3000`;
 
     db.all(sql, params, (err, rows) => {
       if (err) return res.status(500).json({ success: false, message: err.message });
