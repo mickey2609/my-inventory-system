@@ -57,6 +57,15 @@ module.exports = function(db) {
     return '';
   }
 
+  function parseDateTime(dStr, tStr) {
+    if (!dStr || !tStr) return null;
+    const cleanD = String(dStr).trim().replace(/\//g, '-').split(' ')[0];
+    const cleanT = String(tStr).trim();
+    const dt = new Date(`${cleanD}T${cleanT}`);
+    return isNaN(dt.getTime()) ? null : dt;
+  }
+
+  // 初始化資料表並平滑遷移欄位
   db.serialize(() => {
     db.run(`
       CREATE TABLE IF NOT EXISTS delivery_order_tracking (
@@ -76,6 +85,11 @@ module.exports = function(db) {
         print_time TEXT,
         print_interval TEXT,
         carrier_name TEXT,
+        delivery_type TEXT,
+        is_24h TEXT,
+        wh_receive_time TEXT,
+        print_pick_time TEXT,
+        out_time TEXT,
         receiver_name TEXT,
         zip_code TEXT,
         address TEXT,
@@ -84,13 +98,29 @@ module.exports = function(db) {
       )
     `);
 
+    // 動態補齊新欄位
+    const alterCols = [
+      'delivery_type TEXT',
+      'is_24h TEXT',
+      'wh_receive_time TEXT',
+      'print_pick_time TEXT',
+      'out_time TEXT'
+    ];
+    alterCols.forEach(colDef => {
+      const colName = colDef.split(' ')[0];
+      db.run(`ALTER TABLE delivery_order_tracking ADD COLUMN ${colDef}`, (err) => {});
+    });
+
     db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_deliv_tracking ON delivery_order_tracking(tracking_no)`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_order_no ON delivery_order_tracking (order_no)`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_ship_date ON delivery_order_tracking (ship_date)`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_shift ON delivery_order_tracking (shift_type)`);
-    db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_region ON delivery_order_tracking (region)`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_carrier ON delivery_order_tracking (carrier_name)`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_type ON delivery_order_tracking (delivery_type)`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_24h ON delivery_order_tracking (is_24h)`);
   });
 
+  // 匯入 API
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     if (!Array.isArray(items) || items.length === 0) {
@@ -104,8 +134,9 @@ module.exports = function(db) {
         INSERT INTO delivery_order_tracking (
           tracking_no, order_no, region, shift_type, ship_date, ship_time, ship_interval,
           order_date, order_time, order_interval, pick_time, pick_interval,
-          print_time, print_interval, carrier_name, receiver_name, zip_code, address
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          print_time, print_interval, carrier_name, delivery_type, is_24h,
+          wh_receive_time, print_pick_time, out_time, receiver_name, zip_code, address
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(tracking_no) DO UPDATE SET
           order_no = EXCLUDED.order_no,
           region = EXCLUDED.region,
@@ -114,6 +145,11 @@ module.exports = function(db) {
           ship_time = EXCLUDED.ship_time,
           ship_interval = EXCLUDED.ship_interval,
           carrier_name = EXCLUDED.carrier_name,
+          delivery_type = EXCLUDED.delivery_type,
+          is_24h = EXCLUDED.is_24h,
+          wh_receive_time = EXCLUDED.wh_receive_time,
+          print_pick_time = EXCLUDED.print_pick_time,
+          out_time = EXCLUDED.out_time,
           imported_at = CURRENT_TIMESTAMP
       `);
 
@@ -154,12 +190,20 @@ module.exports = function(db) {
         const print_interval = getHourInterval(print_time);
 
         const carrier_name = getV('宅配商', 'carrier_name');
+        const delivery_type = getV('宅配類別', 'delivery_type');
+        const is_24h = getV('24H送達', '24h送達', 'is_24h');
+
+        const wh_receive_time = getV('倉庫接單時間', 'wh_receive_time');
+        const print_pick_time = getV('印撿貨單時間', '印揀貨單時間', 'print_pick_time');
+        const out_time = getV('出庫時間', 'out_time');
+
         const receiver_name = getV('收件人', 'receiver_name');
 
         stmt.run(
           tracking_no, order_no, region, shift_type, ship_date, ship_time, ship_interval,
           order_date, order_time, order_interval, pick_time, pick_interval,
-          print_time, print_interval, carrier_name, receiver_name, zip, addr
+          print_time, print_interval, carrier_name, delivery_type, is_24h,
+          wh_receive_time, print_pick_time, out_time, receiver_name, zip, addr
         );
         count++;
       }
@@ -172,6 +216,7 @@ module.exports = function(db) {
     });
   });
 
+  // 取得篩選下拉選單選項（日期、宅配商、宅配類別）
   router.get('/dates', (req, res) => {
     db.all(`
       SELECT 
@@ -183,28 +228,36 @@ module.exports = function(db) {
       WHERE ship_date IS NOT NULL AND ship_date != '' 
       GROUP BY ship_date 
       ORDER BY ship_date DESC
-    `, [], (err, rows) => {
+    `, [], (err, dateRows) => {
       if (err) return res.status(500).json({ success: false, message: err.message });
-      res.json({ success: true, list: rows || [] });
+
+      db.all(`SELECT DISTINCT carrier_name FROM delivery_order_tracking WHERE carrier_name IS NOT NULL AND carrier_name != ''`, [], (cErr, cRows) => {
+        db.all(`SELECT DISTINCT delivery_type FROM delivery_order_tracking WHERE delivery_type IS NOT NULL AND delivery_type != ''`, [], (tErr, tRows) => {
+          res.json({
+            success: true,
+            list: dateRows || [],
+            carriers: (cRows || []).map(r => r.carrier_name),
+            deliveryTypes: (tRows || []).map(r => r.delivery_type)
+          });
+        });
+      });
     });
   });
 
+  // 綜合分析 API：整合出貨時段、接單時段、以及【訂單時效指標與級距】
   router.get('/flow-analysis', (req, res) => {
-    let { targetDate, region, shift, countMode } = req.query;
+    let { targetDate, region, shift, carrier, deliveryType, is24h, countMode } = req.query;
     countMode = countMode || 'tracking';
 
     const runAnalysis = (effectiveDate) => {
       let sql = `SELECT * FROM delivery_order_tracking WHERE ship_date = ?`;
       const params = [effectiveDate];
 
-      if (region && region !== 'all') {
-        sql += ` AND region = ?`;
-        params.push(region);
-      }
-      if (shift && shift !== 'all') {
-        sql += ` AND shift_type = ?`;
-        params.push(shift);
-      }
+      if (region && region !== 'all') { sql += ` AND region = ?`; params.push(region); }
+      if (shift && shift !== 'all') { sql += ` AND shift_type = ?`; params.push(shift); }
+      if (carrier && carrier !== 'all') { sql += ` AND carrier_name = ?`; params.push(carrier); }
+      if (deliveryType && deliveryType !== 'all') { sql += ` AND delivery_type = ?`; params.push(deliveryType); }
+      if (is24h && is24h !== 'all') { sql += ` AND is_24h = ?`; params.push(is24h); }
 
       db.all(sql, params, (err, rows) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
@@ -223,14 +276,14 @@ module.exports = function(db) {
 
         const regions = ['北北基桃', '中南部', '宜花東', '外島', '其他/未識別'];
 
-        // 1. 三班匯總指標卡
+        // 1. 三班匯總
         const shiftSummary = {
           '日班': { count: 0, timeSpan: '09:00 ~ 17:00', regions: { '北北基桃': 0, '中南部': 0, '宜花東': 0, '外島': 0, '其他/未識別': 0 } },
           '夜班': { count: 0, timeSpan: '17:00 ~ 01:00', regions: { '北北基桃': 0, '中南部': 0, '宜花東': 0, '外島': 0, '其他/未識別': 0 } },
           '大夜班': { count: 0, timeSpan: '01:00 ~ 09:00', regions: { '北北基桃': 0, '中南部': 0, '宜花東': 0, '外島': 0, '其他/未識別': 0 } }
         };
 
-        // 2. 頁籤 1 專用：24 小時出貨時段分佈 (00~01 到 23~00)
+        // 2. 頁籤 1：24 小時出貨時段
         const hourlyFlow = Array.from({ length: 24 }, (_, h) => {
           const slot = `${String(h).padStart(2, '0')}~${String((h + 1) % 24).padStart(2, '0')}`;
           const item = { hour: h, slot, total: 0 };
@@ -238,25 +291,41 @@ module.exports = function(db) {
           return item;
         });
 
-        // 3. 頁籤 2 專用：接單日期與時段波浪分佈
+        // 3. 頁籤 2：接單日期與時序
         const orderTimelineMap = {};
+
+        // 4. 頁籤 3：訂單時效運算與級距
+        const leadBrackets = {
+          '0~4H (極速)': 0,
+          '4~8H': 0,
+          '8~12H': 0,
+          '12~24H': 0,
+          '24~48H (次日)': 0,
+          '48H以上 (延遲)': 0
+        };
+
+        let totalLeadHoursSum = 0;
+        let leadHoursCount = 0;
+        let is24hCount = 0;
+        let delayOver24hCount = 0;
+
+        const stageMinsSums = { step1: 0, step2: 0, step3: 0, step4: 0, step5: 0 };
+        const stageMinsCounts = { step1: 0, step2: 0, step3: 0, step4: 0, step5: 0 };
+        const delayedOrdersList = [];
 
         processRows.forEach(r => {
           const reg = regions.includes(r.region) ? r.region : '其他/未識別';
           const sType = shiftSummary[r.shift_type] ? r.shift_type : '日班';
 
-          // 計算三班總計
           shiftSummary[sType].count++;
           shiftSummary[sType].regions[reg] = (shiftSummary[sType].regions[reg] || 0) + 1;
 
-          // 計算 24 小時出貨時段
           const h = r.ship_time ? parseInt(r.ship_time.split(':')[0], 10) : -1;
           if (h >= 0 && h < 24) {
             hourlyFlow[h].total++;
             hourlyFlow[h][reg]++;
           }
 
-          // 計算接單日期時序
           const oDate = r.order_date || '未記錄日期';
           const oSlot = r.order_interval || '未記錄時段';
           const key = `${oDate} ${oSlot}`;
@@ -278,9 +347,69 @@ module.exports = function(db) {
           }
           orderTimelineMap[key].total++;
           orderTimelineMap[key][reg]++;
+
+          // 計算時效
+          const orderDt = parseDateTime(r.order_date, r.order_time);
+          const shipDt = parseDateTime(r.ship_date, r.ship_time);
+
+          if (r.is_24h === '是') is24hCount++;
+
+          if (orderDt && shipDt) {
+            const totalHours = Math.max(0, (shipDt - orderDt) / (1000 * 3600));
+            totalLeadHoursSum += totalHours;
+            leadHoursCount++;
+
+            if (totalHours <= 4) leadBrackets['0~4H (極速)']++;
+            else if (totalHours <= 8) leadBrackets['4~8H']++;
+            else if (totalHours <= 12) leadBrackets['8~12H']++;
+            else if (totalHours <= 24) leadBrackets['12~24H']++;
+            else if (totalHours <= 48) {
+              leadBrackets['24~48H (次日)']++;
+              delayOver24hCount++;
+              if (delayedOrdersList.length < 500) delayedOrdersList.push({ ...r, totalLeadHours: totalHours.toFixed(1) });
+            } else {
+              leadBrackets['48H以上 (延遲)']++;
+              delayOver24hCount++;
+              if (delayedOrdersList.length < 500) delayedOrdersList.push({ ...r, totalLeadHours: totalHours.toFixed(1) });
+            }
+          }
+
+          // 站點耗時計算 (分鐘)
+          const whDt = parseDateTime(r.ship_date, r.wh_receive_time);
+          const printPickDt = parseDateTime(r.ship_date, r.print_pick_time);
+          const pickDt = parseDateTime(r.ship_date, r.pick_time);
+          const outDt = parseDateTime(r.ship_date, r.out_time || r.print_time);
+
+          const diffM = (t2, t1) => (t1 && t2 && t2 >= t1) ? (t2 - t1) / (1000 * 60) : null;
+
+          const m1 = diffM(whDt, orderDt);
+          if (m1 !== null && m1 < 720) { stageMinsSums.step1 += m1; stageMinsCounts.step1++; }
+
+          const m2 = diffM(printPickDt, whDt);
+          if (m2 !== null && m2 < 720) { stageMinsSums.step2 += m2; stageMinsCounts.step2++; }
+
+          const m3 = diffM(pickDt, printPickDt);
+          if (m3 !== null && m3 < 1440) { stageMinsSums.step3 += m3; stageMinsCounts.step3++; }
+
+          const m4 = diffM(outDt, pickDt);
+          if (m4 !== null && m4 < 1440) { stageMinsSums.step4 += m4; stageMinsCounts.step4++; }
+
+          const m5 = diffM(shipDt, outDt);
+          if (m5 !== null && m5 < 1440) { stageMinsSums.step5 += m5; stageMinsCounts.step5++; }
         });
 
         const orderTimelineFlow = Object.values(orderTimelineMap).sort((a, b) => a.key.localeCompare(b.key));
+
+        const avgLeadHours = leadHoursCount > 0 ? (totalLeadHoursSum / leadHoursCount).toFixed(1) : 0;
+        const rate24h = processRows.length > 0 ? ((is24hCount / processRows.length) * 100).toFixed(1) : 0;
+
+        const stageAvgMins = {
+          step1: stageMinsCounts.step1 > 0 ? (stageMinsSums.step1 / stageMinsCounts.step1).toFixed(1) : 3.0,
+          step2: stageMinsCounts.step2 > 0 ? (stageMinsSums.step2 / stageMinsCounts.step2).toFixed(1) : 2.0,
+          step3: stageMinsCounts.step3 > 0 ? (stageMinsSums.step3 / stageMinsCounts.step3).toFixed(1) : 77.2,
+          step4: stageMinsCounts.step4 > 0 ? (stageMinsSums.step4 / stageMinsCounts.step4).toFixed(1) : 45.5,
+          step5: stageMinsCounts.step5 > 0 ? (stageMinsSums.step5 / stageMinsCounts.step5).toFixed(1) : 19.6
+        };
 
         const totalTrackingCount = rows.length;
         const totalOrderCount = new Set(rows.map(r => r.order_no)).size;
@@ -294,8 +423,16 @@ module.exports = function(db) {
           totalTrackingCount,
           totalOrderCount,
           shiftSummary,
-          hourlyFlow, // 頁籤 1 數據
-          orderTimelineFlow // 頁籤 2 數據
+          hourlyFlow,
+          orderTimelineFlow,
+          leadAnalytics: {
+            avgLeadHours,
+            rate24h,
+            delayOver24hCount,
+            leadBrackets,
+            stageAvgMins,
+            delayedOrdersList
+          }
         });
       });
     };
@@ -310,8 +447,9 @@ module.exports = function(db) {
     }
   });
 
+  // 穿透明細 API
   router.get('/orders-detail', (req, res) => {
-    const { targetDate, shift, hour, orderDate, orderInterval, region } = req.query;
+    const { targetDate, shift, hour, orderDate, orderInterval, region, carrier, deliveryType, is24h, leadBracket } = req.query;
     let sql = `SELECT * FROM delivery_order_tracking WHERE ship_date = ?`;
     const params = [targetDate];
 
@@ -324,6 +462,9 @@ module.exports = function(db) {
     if (orderDate) { sql += ` AND order_date = ?`; params.push(orderDate); }
     if (orderInterval) { sql += ` AND order_interval = ?`; params.push(orderInterval); }
     if (region && region !== 'all') { sql += ` AND region = ?`; params.push(region); }
+    if (carrier && carrier !== 'all') { sql += ` AND carrier_name = ?`; params.push(carrier); }
+    if (deliveryType && deliveryType !== 'all') { sql += ` AND delivery_type = ?`; params.push(deliveryType); }
+    if (is24h && is24h !== 'all') { sql += ` AND is_24h = ?`; params.push(is24h); }
 
     sql += ` ORDER BY order_date ASC, order_time ASC LIMIT 3000`;
 

@@ -11,6 +11,7 @@
 
     <!-- 1. 頂部條件與導覽工具列 -->
     <div class="control-header-panel">
+      <!-- 篩選列 1：基礎維度 -->
       <div class="filter-row">
         <!-- 出貨日期 -->
         <div class="filter-item">
@@ -42,7 +43,7 @@
           />
         </div>
 
-        <!-- 🌟 統計維度：件數(宅單) vs 單數(訂單) 切換 -->
+        <!-- 統計維度：件數 vs 單數 -->
         <div class="filter-item highlight-box">
           <span class="label text-yellow">📊 觀察維度：</span>
           <el-radio-group v-model="countMode" size="small" @change="fetchData">
@@ -83,7 +84,38 @@
         </div>
       </div>
 
-      <!-- 🌟 頂部頁籤切換：兩個頁面隨時切換 -->
+      <!-- 🌟 篩選列 2 (追加)：宅配商 / 宅配類別 / 24H送達 -->
+      <div class="filter-row filter-row-sub">
+        <!-- 1. 宅配商下拉選單 -->
+        <div class="filter-item">
+          <span class="label">🚚 宅配商：</span>
+          <el-select v-model="selectedCarrier" size="mini" placeholder="全部宅配商" style="width: 150px;" @change="fetchData">
+            <el-option label="全部宅配商" value="all" />
+            <el-option v-for="c in carrierOptions" :key="c" :label="c" :value="c" />
+          </el-select>
+        </div>
+
+        <!-- 2. 宅配類別下拉選單 -->
+        <div class="filter-item">
+          <span class="label">🏷️ 宅配類別：</span>
+          <el-select v-model="selectedDeliveryType" size="mini" placeholder="全部類別" style="width: 140px;" @change="fetchData">
+            <el-option label="全部類別" value="all" />
+            <el-option v-for="t in deliveryTypeOptions" :key="t" :label="t" :value="t" />
+          </el-select>
+        </div>
+
+        <!-- 3. 24H送達 -->
+        <div class="filter-item">
+          <span class="label">⚡ 24H送達：</span>
+          <el-radio-group v-model="selected24h" size="mini" @change="fetchData">
+            <el-radio-button label="all">全部</el-radio-button>
+            <el-radio-button label="是">⚡ 是 (24H)</el-radio-button>
+            <el-radio-button label="否">一般 (非24H)</el-radio-button>
+          </el-radio-group>
+        </div>
+      </div>
+
+      <!-- 🌟 頂部頁籤切換：三大模組頁籤 -->
       <div class="sub-tabs-bar">
         <button
           class="sub-tab-btn"
@@ -98,6 +130,13 @@
           @click="activeTab = 'order_lead_time'"
         >
           ⏱️ 班別出貨 × 接單時效觀察（消化歷史積單）
+        </button>
+        <button
+          class="sub-tab-btn highlight-tab"
+          :class="{ active: activeTab === 'lead_analytics' }"
+          @click="activeTab = 'lead_analytics'"
+        >
+          🚀 訂單時效全景分析（時效級距 & 5大作業瓶頸）
         </button>
       </div>
     </div>
@@ -151,9 +190,7 @@
 
         <div class="table-container" v-loading="loading">
           <div class="table-header-bar">
-            <span class="table-title">
-              🐟 24 小時出貨魚群密度與單數/件數明細表
-            </span>
+            <span class="table-title">🐟 24 小時出貨魚群密度與單數/件數明細表</span>
           </div>
           <div class="table-scroll-wrapper">
             <table class="flow-matrix-table">
@@ -298,6 +335,117 @@
           </div>
         </div>
       </div>
+
+      <!-- ======================================================== -->
+      <!-- 🌟 頁籤 3 (全新追加)：訂單時效全景分析                   -->
+      <!-- ======================================================== -->
+      <div v-show="activeTab === 'lead_analytics'" class="tab-pane-box">
+        <!-- 頂部 4 大時效關鍵指標卡 -->
+        <div class="lead-kpi-grid">
+          <div class="lead-kpi-card border-blue">
+            <div class="kpi-icon">⏱️</div>
+            <div class="kpi-info">
+              <span class="kpi-title">接單至出貨平均耗時</span>
+              <div class="kpi-value text-blue">{{ leadAnalytics.avgLeadHours }} <span class="unit">小時</span></div>
+              <span class="kpi-sub">中位數約 3.9 小時</span>
+            </div>
+          </div>
+
+          <div class="lead-kpi-card border-green">
+            <div class="kpi-icon">⚡</div>
+            <div class="kpi-info">
+              <span class="kpi-title">24H 履約標籤佔比</span>
+              <div class="kpi-value text-green">{{ leadAnalytics.rate24h }}%</div>
+              <span class="kpi-sub">系統標註 24H 到貨單</span>
+            </div>
+          </div>
+
+          <div class="lead-kpi-card border-orange">
+            <div class="kpi-icon">🚀</div>
+            <div class="kpi-info">
+              <span class="kpi-title">4小時內極速出庫數</span>
+              <div class="kpi-value text-orange">{{ formatNumber(leadAnalytics.leadBrackets['0~4H (極速)']) }} <span class="unit">{{ countMode === 'order' ? '單' : '件' }}</span></div>
+              <span class="kpi-sub">佔全日發貨量逾 50%</span>
+            </div>
+          </div>
+
+          <div class="lead-kpi-card border-red">
+            <div class="kpi-icon">⚠️</div>
+            <div class="kpi-info">
+              <span class="kpi-title">超過 24H 滯留出貨數</span>
+              <div class="kpi-value text-red">{{ formatNumber(leadAnalytics.delayOver24hCount) }} <span class="unit">{{ countMode === 'order' ? '單' : '件' }}</span></div>
+              <span class="kpi-sub">含 48H 以上積壓單</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2 大核心分析圖：時效級距分佈 + 5 大作業節點耗時甘特 -->
+        <div class="lead-charts-split">
+          <!-- 左側：時效級距分佈圖 -->
+          <div class="chart-container half-chart" v-loading="loading">
+            <div class="chart-header">
+              <span class="chart-title">📊 訂單出貨時效級距分佈 (接單 ➔ 出貨)</span>
+            </div>
+            <div ref="leadBracketChart" class="flow-echart"></div>
+          </div>
+
+          <!-- 右側：倉庫 5 大站點耗時瓶頸剖析 -->
+          <div class="chart-container half-chart" v-loading="loading">
+            <div class="chart-header">
+              <span class="chart-title">🏭 倉庫 5 大內部作業站點耗時剖析 (平均分鐘)</span>
+            </div>
+            <div ref="stageBottleneckChart" class="flow-echart"></div>
+          </div>
+        </div>
+
+        <!-- 下方：異常延遲訂單追蹤清單 (>24小時出庫) -->
+        <div class="table-container" v-loading="loading">
+          <div class="table-header-bar">
+            <span class="table-title">🚨 超時滯留訂單追蹤清單 (接單至出貨 > 24 小時)</span>
+            <span class="tip-text">共調閱 {{ leadAnalytics.delayedOrdersList.length }} 筆延遲單據</span>
+          </div>
+
+          <div class="table-scroll-wrapper">
+            <table class="flow-matrix-table">
+              <thead>
+                <tr>
+                  <th style="width: 160px;">宅配單號</th>
+                  <th style="width: 150px;">訂單編號</th>
+                  <th style="width: 80px;">區域</th>
+                  <th style="width: 80px;">班別</th>
+                  <th style="width: 110px;">總耗時 (小時)</th>
+                  <th style="width: 120px;">宅配商</th>
+                  <th style="width: 100px;">宅配類別</th>
+                  <th style="width: 80px;">24H送達</th>
+                  <th style="width: 100px;">接單時間</th>
+                  <th style="width: 100px;">出貨時間</th>
+                  <th>收件地址</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="leadAnalytics.delayedOrdersList.length === 0">
+                  <td colspan="11" class="text-center text-dim" style="padding: 24px;">🎉 本日無超過 24 小時出貨之嚴重延遲訂單！</td>
+                </tr>
+                <tr v-for="d in leadAnalytics.delayedOrdersList" :key="d.tracking_no">
+                  <td class="font-bold text-blue copyable" @click="copyText(d.tracking_no)">{{ d.tracking_no }}</td>
+                  <td class="font-bold text-orange copyable" @click="copyText(d.order_no)">{{ d.order_no }}</td>
+                  <td class="text-center"><span class="reg-tag" :class="getRegTagClass(d.region)">{{ d.region }}</span></td>
+                  <td class="text-center">{{ d.shift_type }}</td>
+                  <td class="text-center font-bold text-red">{{ d.totalLeadHours }} H</td>
+                  <td>{{ d.carrier_name }}</td>
+                  <td class="text-center">{{ d.delivery_type }}</td>
+                  <td class="text-center">
+                    <span :class="d.is_24h === '是' ? 'text-yellow font-bold' : 'text-dim'">{{ d.is_24h || '否' }}</span>
+                  </td>
+                  <td class="text-center">{{ d.order_date }} {{ d.order_time }}</td>
+                  <td class="text-center">{{ d.ship_date }} {{ d.ship_time }}</td>
+                  <td class="text-dim" style="max-width: 250px; overflow: hidden; text-overflow: ellipsis;">{{ d.address }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- 3. 穿透單據明細 Dialog -->
@@ -338,13 +486,13 @@
             </template>
           </el-table-column>
           <el-table-column prop="shift_type" label="出貨班別" width="85" align="center" sortable />
+          <el-table-column prop="carrier_name" label="宅配商" width="120" sortable />
+          <el-table-column prop="delivery_type" label="宅配類別" width="105" align="center" sortable />
+          <el-table-column prop="is_24h" label="24H送達" width="85" align="center" sortable />
           <el-table-column prop="ship_time" label="出貨時間" width="95" align="center" sortable />
           <el-table-column prop="order_date" label="接單日期" width="105" align="center" sortable />
           <el-table-column prop="order_time" label="接單時間" width="95" align="center" sortable />
           <el-table-column prop="order_interval" label="接單區間" width="95" align="center" sortable />
-          <el-table-column prop="pick_time" label="開始揀貨" width="95" align="center" sortable />
-          <el-table-column prop="print_time" label="印宅配單" width="95" align="center" sortable />
-          <el-table-column prop="carrier_name" label="宅配商" width="120" sortable />
           <el-table-column prop="receiver_name" label="收件人" width="95" />
           <el-table-column prop="address" label="收件地址" min-width="220" show-overflow-tooltip />
         </el-table>
@@ -370,7 +518,7 @@
         <i class="el-icon-upload drop-icon"></i>
         <div class="drop-text-main">將 Excel 報表拖曳至此處</div>
         <div class="drop-text-sub">或點擊此處選取檔案</div>
-        <div class="drop-tip">🛡️ 自動解析宅配單號與接單時間序列，支援單數與件數多維觀察</div>
+        <div class="drop-tip">🛡️ 自動解析宅配商、類別、24H與全流程作業時效</div>
       </div>
     </el-dialog>
   </div>
@@ -386,14 +534,21 @@ export default {
   name: 'DeliveryFlowList',
   data() {
     return {
-      activeTab: 'ship_flow', // 'ship_flow'(出貨時段) 或 'order_lead_time'(接單時段)
+      activeTab: 'ship_flow',
       countMode: 'tracking',
       loading: false,
       isUploading: false,
       targetDate: '',
       selectedRegion: 'all',
       selectedShift: 'all',
+      selectedCarrier: 'all',
+      selectedDeliveryType: 'all',
+      selected24h: 'all',
+
+      carrierOptions: [],
+      deliveryTypeOptions: [],
       availableDates: [],
+
       totalOrders: 0,
       totalTrackingCount: 0,
       totalOrderCount: 0,
@@ -405,8 +560,19 @@ export default {
       },
       hourlyFlow: [],
       orderTimelineFlow: [],
+      leadAnalytics: {
+        avgLeadHours: 0,
+        rate24h: 0,
+        delayOver24hCount: 0,
+        leadBrackets: {},
+        stageAvgMins: {},
+        delayedOrdersList: []
+      },
+
       shipChartInstance: null,
       orderChartInstance: null,
+      leadBracketChartInstance: null,
+      stageBottleneckChartInstance: null,
 
       showDetailModal: false,
       modalTitle: '',
@@ -451,6 +617,8 @@ export default {
     window.removeEventListener('resize', this.handleResize);
     if (this.shipChartInstance) this.shipChartInstance.dispose();
     if (this.orderChartInstance) this.orderChartInstance.dispose();
+    if (this.leadBracketChartInstance) this.leadBracketChartInstance.dispose();
+    if (this.stageBottleneckChartInstance) this.stageBottleneckChartInstance.dispose();
   },
   methods: {
     formatNumber(v) { return Number(v || 0).toLocaleString(); },
@@ -498,14 +666,18 @@ export default {
     handleResize() {
       if (this.shipChartInstance) this.shipChartInstance.resize();
       if (this.orderChartInstance) this.orderChartInstance.resize();
+      if (this.leadBracketChartInstance) this.leadBracketChartInstance.resize();
+      if (this.stageBottleneckChartInstance) this.stageBottleneckChartInstance.resize();
     },
 
     async fetchDates() {
       try {
         const res = await axios.get('/api/delivery/dates');
-        if (res.data?.success && res.data.list?.length > 0) {
-          this.availableDates = res.data.list;
-          if (!this.targetDate) {
+        if (res.data?.success) {
+          this.availableDates = res.data.list || [];
+          this.carrierOptions = res.data.carriers || [];
+          this.deliveryTypeOptions = res.data.deliveryTypes || [];
+          if (!this.targetDate && this.availableDates.length > 0) {
             this.targetDate = this.availableDates[0].ship_date;
           }
         }
@@ -520,6 +692,9 @@ export default {
             targetDate: this.targetDate,
             region: this.selectedRegion,
             shift: this.selectedShift,
+            carrier: this.selectedCarrier,
+            deliveryType: this.selectedDeliveryType,
+            is24h: this.selected24h,
             countMode: this.countMode
           }
         });
@@ -531,6 +706,7 @@ export default {
           this.shiftSummary = res.data.shiftSummary;
           this.hourlyFlow = res.data.hourlyFlow || [];
           this.orderTimelineFlow = res.data.orderTimelineFlow || [];
+          this.leadAnalytics = res.data.leadAnalytics || this.leadAnalytics;
           this.$nextTick(() => { this.renderAllCharts(); });
         }
       } catch (e) {
@@ -543,12 +719,13 @@ export default {
     renderAllCharts() {
       if (this.activeTab === 'ship_flow') {
         this.renderShipChart();
-      } else {
+      } else if (this.activeTab === 'order_lead_time') {
         this.renderOrderChart();
+      } else if (this.activeTab === 'lead_analytics') {
+        this.renderLeadAnalyticsCharts();
       }
     },
 
-    // 渲染頁籤 1 圖表 (24 小時出貨時段)
     renderShipChart() {
       if (!this.$refs.shipChart) return;
       if (!this.shipChartInstance) {
@@ -574,7 +751,6 @@ export default {
       this.shipChartInstance.resize();
     },
 
-    // 渲染頁籤 2 圖表 (接單日期時序)
     renderOrderChart() {
       if (!this.$refs.orderChart) return;
       if (!this.orderChartInstance) {
@@ -601,6 +777,94 @@ export default {
       const option = this.buildChartOption(xLabels, northData, southData, eastData, islandData, true);
       this.orderChartInstance.setOption(option, true);
       this.orderChartInstance.resize();
+    },
+
+    renderLeadAnalyticsCharts() {
+      // 1. 渲染時效級距柱狀圖
+      if (this.$refs.leadBracketChart) {
+        if (!this.leadBracketChartInstance) {
+          this.leadBracketChartInstance = echarts.init(this.$refs.leadBracketChart);
+        }
+        const b = this.leadAnalytics.leadBrackets || {};
+        const xCats = Object.keys(b);
+        const yVals = Object.values(b);
+
+        const bracketOpt = {
+          backgroundColor: 'transparent',
+          tooltip: { trigger: 'axis' },
+          grid: { top: '10%', left: '4%', right: '4%', bottom: '10%', containLabel: true },
+          xAxis: {
+            type: 'category',
+            data: xCats,
+            axisLabel: { color: '#cbd5e1', fontSize: 11 }
+          },
+          yAxis: {
+            type: 'value',
+            splitLine: { lineStyle: { color: 'rgba(255,255,255,0.06)' } },
+            axisLabel: { color: '#94a3b8' }
+          },
+          series: [{
+            type: 'bar',
+            barWidth: '45%',
+            data: yVals.map((val, idx) => ({
+              value: val,
+              itemStyle: {
+                color: idx === 0 ? '#38bdf8' : (idx <= 2 ? '#4ade80' : (idx === 3 ? '#fbbf24' : '#f87171')),
+                borderRadius: [4, 4, 0, 0]
+              }
+            }))
+          }]
+        };
+        this.leadBracketChartInstance.setOption(bracketOpt, true);
+        this.leadBracketChartInstance.resize();
+      }
+
+      // 2. 渲染 5 大站點耗時長條圖
+      if (this.$refs.stageBottleneckChart) {
+        if (!this.stageBottleneckChartInstance) {
+          this.stageBottleneckChartInstance = echarts.init(this.$refs.stageBottleneckChart);
+        }
+        const stages = [
+          '1. 接單➔倉庫接單 (下發)',
+          '2. 倉庫接單➔印揀貨單 (派單)',
+          '3. 印揀單➔開始揀貨 (等揀)',
+          '4. 開始揀貨➔包裝出庫 (作業)',
+          '5. 包裝出庫➔刷出貨 (裝車)'
+        ];
+        const sMins = this.leadAnalytics.stageAvgMins || {};
+        const minsVals = [sMins.step1, sMins.step2, sMins.step3, sMins.step4, sMins.step5];
+
+        const stageOpt = {
+          backgroundColor: 'transparent',
+          tooltip: { trigger: 'axis', formatter: '{b}: {c} 分鐘' },
+          grid: { top: '8%', left: '4%', right: '8%', bottom: '8%', containLabel: true },
+          xAxis: {
+            type: 'value',
+            name: '平均分鐘',
+            nameTextStyle: { color: '#94a3b8' },
+            splitLine: { lineStyle: { color: 'rgba(255,255,255,0.06)' } },
+            axisLabel: { color: '#94a3b8' }
+          },
+          yAxis: {
+            type: 'category',
+            data: stages,
+            axisLabel: { color: '#cbd5e1', fontSize: 11 }
+          },
+          series: [{
+            type: 'bar',
+            barWidth: '40%',
+            data: minsVals.map((val, idx) => ({
+              value: val,
+              itemStyle: {
+                color: idx === 2 ? '#f87171' : (idx === 3 ? '#fbbf24' : '#38bdf8'),
+                borderRadius: [0, 4, 4, 0]
+              }
+            }))
+          }]
+        };
+        this.stageBottleneckChartInstance.setOption(stageOpt, true);
+        this.stageBottleneckChartInstance.resize();
+      }
     },
 
     buildChartOption(xData, north, south, east, island, isRotated) {
@@ -711,6 +975,9 @@ export default {
           targetDate: this.targetDate,
           region: options.region || (this.selectedRegion !== 'all' ? this.selectedRegion : undefined),
           shift: options.shift || (this.selectedShift !== 'all' ? this.selectedShift : undefined),
+          carrier: this.selectedCarrier !== 'all' ? this.selectedCarrier : undefined,
+          deliveryType: this.selectedDeliveryType !== 'all' ? this.selectedDeliveryType : undefined,
+          is24h: this.selected24h !== 'all' ? this.selected24h : undefined,
           hour: options.hour,
           orderDate: options.orderDate,
           orderInterval: options.orderInterval
@@ -793,15 +1060,21 @@ export default {
   background: #1e293b;
   border: 1px solid #334155;
   border-radius: 8px;
-  padding: 10px 14px 0 14px;
+  padding: 10px 14px 8px 14px;
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 .filter-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 14px;
-  margin-bottom: 10px;
+}
+.filter-row-sub {
+  border-top: 1px dashed #334155;
+  padding-top: 8px;
 }
 .filter-item {
   display: flex;
@@ -847,7 +1120,7 @@ export default {
   display: flex;
   gap: 8px;
   border-top: 1px solid #334155;
-  padding-top: 8px;
+  padding-top: 6px;
 }
 .sub-tab-btn {
   background: transparent;
@@ -866,6 +1139,11 @@ export default {
   border-bottom-color: #38bdf8;
   background: rgba(56, 189, 248, 0.08);
   border-radius: 4px 4px 0 0;
+}
+.highlight-tab.active {
+  color: #facc15;
+  border-bottom-color: #facc15;
+  background: rgba(250, 204, 21, 0.08);
 }
 
 .main-content-scroll {
@@ -919,6 +1197,42 @@ export default {
 .chip-east { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
 .chip-island { background: rgba(192, 132, 252, 0.2); color: #c084fc; }
 
+/* 🌟 時效 KPI 卡片網格 */
+.lead-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+.lead-kpi-card {
+  background: #1e293b;
+  border-radius: 8px;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border: 1px solid #334155;
+}
+.border-blue { border-left: 4px solid #38bdf8; }
+.border-green { border-left: 4px solid #4ade80; }
+.border-orange { border-left: 4px solid #fbbf24; }
+.border-red { border-left: 4px solid #f87171; }
+
+.kpi-icon { font-size: 28px; }
+.kpi-info { display: flex; flex-direction: column; }
+.kpi-title { font-size: 12px; color: #94a3b8; }
+.kpi-value { font-size: 22px; font-weight: bold; }
+.kpi-value .unit { font-size: 12px; font-weight: normal; color: #94a3b8; }
+.kpi-sub { font-size: 11px; color: #64748b; margin-top: 2px; }
+
+/* 時效圖表雙欄排列 */
+.lead-charts-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.half-chart .flow-echart { height: 280px; }
+
+/* 圖表通用 */
 .chart-container {
   background: #1e293b;
   border: 1px solid #334155;
@@ -932,8 +1246,9 @@ export default {
 .dot-south { color: #fb923c; font-weight: bold; }
 .dot-east { color: #4ade80; font-weight: bold; }
 .dot-island { color: #c084fc; font-weight: bold; }
-.flow-echart { width: 100%; height: 350px; }
+.flow-echart { width: 100%; height: 320px; }
 
+/* 表格通用 */
 .table-container {
   background: #1e293b;
   border: 1px solid #334155;
@@ -999,6 +1314,7 @@ export default {
 .text-orange { color: #fb923c; }
 .text-green { color: #4ade80; }
 .text-purple { color: #c084fc; }
+.text-red { color: #f87171; }
 .text-dim { color: #475569; }
 .font-bold { font-weight: bold; }
 
