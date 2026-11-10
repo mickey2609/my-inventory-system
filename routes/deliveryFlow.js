@@ -65,7 +65,7 @@ module.exports = function(db) {
     return isNaN(dt.getTime()) ? null : dt;
   }
 
-  // 初始化資料表並平滑遷移欄位
+  // 初始化資料表與自動補齊新欄位
   db.serialize(() => {
     db.run(`
       CREATE TABLE IF NOT EXISTS delivery_order_tracking (
@@ -98,7 +98,6 @@ module.exports = function(db) {
       )
     `);
 
-    // 動態補齊新欄位
     const alterCols = [
       'delivery_type TEXT',
       'is_24h TEXT',
@@ -107,7 +106,6 @@ module.exports = function(db) {
       'out_time TEXT'
     ];
     alterCols.forEach(colDef => {
-      const colName = colDef.split(' ')[0];
       db.run(`ALTER TABLE delivery_order_tracking ADD COLUMN ${colDef}`, (err) => {});
     });
 
@@ -115,9 +113,6 @@ module.exports = function(db) {
     db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_order_no ON delivery_order_tracking (order_no)`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_ship_date ON delivery_order_tracking (ship_date)`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_shift ON delivery_order_tracking (shift_type)`);
-    db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_carrier ON delivery_order_tracking (carrier_name)`);
-    db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_type ON delivery_order_tracking (delivery_type)`);
-    db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_24h ON delivery_order_tracking (is_24h)`);
   });
 
   // 匯入 API
@@ -216,7 +211,7 @@ module.exports = function(db) {
     });
   });
 
-  // 取得篩選下拉選單選項（日期、宅配商、宅配類別）
+  // 日期與選單選項 API
   router.get('/dates', (req, res) => {
     db.all(`
       SELECT 
@@ -244,46 +239,63 @@ module.exports = function(db) {
     });
   });
 
-  // 綜合分析 API：整合出貨時段、接單時段、以及【訂單時效指標與級距】
+  // 綜合分析 API
   router.get('/flow-analysis', (req, res) => {
     let { targetDate, region, shift, carrier, deliveryType, is24h, countMode } = req.query;
     countMode = countMode || 'tracking';
 
     const runAnalysis = (effectiveDate) => {
-      let sql = `SELECT * FROM delivery_order_tracking WHERE ship_date = ?`;
-      const params = [effectiveDate];
+      // 🌟 第一步：先撈出當天「符合基礎通用條件 (日期、宅配商、宅配類別、24H)」的全量資料 (不卡 shift 條件)
+      let baseSql = `SELECT * FROM delivery_order_tracking WHERE ship_date = ?`;
+      const baseParams = [effectiveDate];
 
-      if (region && region !== 'all') { sql += ` AND region = ?`; params.push(region); }
-      if (shift && shift !== 'all') { sql += ` AND shift_type = ?`; params.push(shift); }
-      if (carrier && carrier !== 'all') { sql += ` AND carrier_name = ?`; params.push(carrier); }
-      if (deliveryType && deliveryType !== 'all') { sql += ` AND delivery_type = ?`; params.push(deliveryType); }
-      if (is24h && is24h !== 'all') { sql += ` AND is_24h = ?`; params.push(is24h); }
+      if (region && region !== 'all') { baseSql += ` AND region = ?`; baseParams.push(region); }
+      if (carrier && carrier !== 'all') { baseSql += ` AND carrier_name = ?`; baseParams.push(carrier); }
+      if (deliveryType && deliveryType !== 'all') { baseSql += ` AND delivery_type = ?`; baseParams.push(deliveryType); }
+      if (is24h && is24h !== 'all') { baseSql += ` AND is_24h = ?`; baseParams.push(is24h); }
 
-      db.all(sql, params, (err, rows) => {
+      db.all(baseSql, baseParams, (err, allDateRows) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
-        rows = rows || [];
-
-        let processRows = rows;
-        if (countMode === 'order') {
-          const orderMap = new Map();
-          rows.forEach(r => {
-            if (!orderMap.has(r.order_no)) {
-              orderMap.set(r.order_no, r);
-            }
-          });
-          processRows = Array.from(orderMap.values());
-        }
+        allDateRows = allDateRows || [];
 
         const regions = ['北北基桃', '中南部', '宜花東', '外島', '其他/未識別'];
 
-        // 1. 三班匯總
+        // 🌟 1. 三班總覽指標卡：始終基於當天全量資料計算，不受「shift 班別按鈕」影響！
         const shiftSummary = {
           '日班': { count: 0, timeSpan: '09:00 ~ 17:00', regions: { '北北基桃': 0, '中南部': 0, '宜花東': 0, '外島': 0, '其他/未識別': 0 } },
           '夜班': { count: 0, timeSpan: '17:00 ~ 01:00', regions: { '北北基桃': 0, '中南部': 0, '宜花東': 0, '外島': 0, '其他/未識別': 0 } },
           '大夜班': { count: 0, timeSpan: '01:00 ~ 09:00', regions: { '北北基桃': 0, '中南部': 0, '宜花東': 0, '外島': 0, '其他/未識別': 0 } }
         };
 
-        // 2. 頁籤 1：24 小時出貨時段
+        // 處理全日資料的去重（若為 order 模式）
+        let allDateProcessRows = allDateRows;
+        if (countMode === 'order') {
+          const m = new Map();
+          allDateRows.forEach(r => { if (!m.has(r.order_no)) m.set(r.order_no, r); });
+          allDateProcessRows = Array.from(m.values());
+        }
+
+        allDateProcessRows.forEach(r => {
+          const reg = regions.includes(r.region) ? r.region : '其他/未識別';
+          const sType = shiftSummary[r.shift_type] ? r.shift_type : '日班';
+          shiftSummary[sType].count++;
+          shiftSummary[sType].regions[reg] = (shiftSummary[sType].regions[reg] || 0) + 1;
+        });
+
+        // 🌟 2. 下方的圖表與表格數據：精準套用「shift 班別按鈕 (全部/日班/夜班/大夜班)」過濾！
+        let lowerRows = allDateRows;
+        if (shift && shift !== 'all') {
+          lowerRows = allDateRows.filter(r => r.shift_type === shift);
+        }
+
+        let lowerProcessRows = lowerRows;
+        if (countMode === 'order') {
+          const m = new Map();
+          lowerRows.forEach(r => { if (!m.has(r.order_no)) m.set(r.order_no, r); });
+          lowerProcessRows = Array.from(m.values());
+        }
+
+        // 頁籤 1：24 小時出貨時段
         const hourlyFlow = Array.from({ length: 24 }, (_, h) => {
           const slot = `${String(h).padStart(2, '0')}~${String((h + 1) % 24).padStart(2, '0')}`;
           const item = { hour: h, slot, total: 0 };
@@ -291,10 +303,10 @@ module.exports = function(db) {
           return item;
         });
 
-        // 3. 頁籤 2：接單日期與時序
+        // 頁籤 2：接單日期與時序
         const orderTimelineMap = {};
 
-        // 4. 頁籤 3：訂單時效運算與級距
+        // 頁籤 3：時效級距
         const leadBrackets = {
           '0~4H (極速)': 0,
           '4~8H': 0,
@@ -313,12 +325,8 @@ module.exports = function(db) {
         const stageMinsCounts = { step1: 0, step2: 0, step3: 0, step4: 0, step5: 0 };
         const delayedOrdersList = [];
 
-        processRows.forEach(r => {
+        lowerProcessRows.forEach(r => {
           const reg = regions.includes(r.region) ? r.region : '其他/未識別';
-          const sType = shiftSummary[r.shift_type] ? r.shift_type : '日班';
-
-          shiftSummary[sType].count++;
-          shiftSummary[sType].regions[reg] = (shiftSummary[sType].regions[reg] || 0) + 1;
 
           const h = r.ship_time ? parseInt(r.ship_time.split(':')[0], 10) : -1;
           if (h >= 0 && h < 24) {
@@ -348,7 +356,7 @@ module.exports = function(db) {
           orderTimelineMap[key].total++;
           orderTimelineMap[key][reg]++;
 
-          // 計算時效
+          // 時效
           const orderDt = parseDateTime(r.order_date, r.order_time);
           const shipDt = parseDateTime(r.ship_date, r.ship_time);
 
@@ -374,7 +382,6 @@ module.exports = function(db) {
             }
           }
 
-          // 站點耗時計算 (分鐘)
           const whDt = parseDateTime(r.ship_date, r.wh_receive_time);
           const printPickDt = parseDateTime(r.ship_date, r.print_pick_time);
           const pickDt = parseDateTime(r.ship_date, r.pick_time);
@@ -401,7 +408,7 @@ module.exports = function(db) {
         const orderTimelineFlow = Object.values(orderTimelineMap).sort((a, b) => a.key.localeCompare(b.key));
 
         const avgLeadHours = leadHoursCount > 0 ? (totalLeadHoursSum / leadHoursCount).toFixed(1) : 0;
-        const rate24h = processRows.length > 0 ? ((is24hCount / processRows.length) * 100).toFixed(1) : 0;
+        const rate24h = lowerProcessRows.length > 0 ? ((is24hCount / lowerProcessRows.length) * 100).toFixed(1) : 0;
 
         const stageAvgMins = {
           step1: stageMinsCounts.step1 > 0 ? (stageMinsSums.step1 / stageMinsCounts.step1).toFixed(1) : 3.0,
@@ -411,18 +418,18 @@ module.exports = function(db) {
           step5: stageMinsCounts.step5 > 0 ? (stageMinsSums.step5 / stageMinsCounts.step5).toFixed(1) : 19.6
         };
 
-        const totalTrackingCount = rows.length;
-        const totalOrderCount = new Set(rows.map(r => r.order_no)).size;
+        const totalTrackingCount = lowerRows.length;
+        const totalOrderCount = new Set(lowerRows.map(r => r.order_no)).size;
 
         res.json({
           success: true,
           targetDate: effectiveDate,
           countMode,
-          totalCount: processRows.length,
-          totalOrders: processRows.length,
+          totalCount: lowerProcessRows.length,
+          totalOrders: lowerProcessRows.length,
           totalTrackingCount,
           totalOrderCount,
-          shiftSummary,
+          shiftSummary, // 始終保留三班各自總數
           hourlyFlow,
           orderTimelineFlow,
           leadAnalytics: {
@@ -449,7 +456,7 @@ module.exports = function(db) {
 
   // 穿透明細 API
   router.get('/orders-detail', (req, res) => {
-    const { targetDate, shift, hour, orderDate, orderInterval, region, carrier, deliveryType, is24h, leadBracket } = req.query;
+    const { targetDate, shift, hour, orderDate, orderInterval, region, carrier, deliveryType, is24h } = req.query;
     let sql = `SELECT * FROM delivery_order_tracking WHERE ship_date = ?`;
     const params = [targetDate];
 

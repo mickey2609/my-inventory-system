@@ -657,6 +657,7 @@ export default {
       return this.orderTimelineFlow.reduce((acc, row) => acc + (row[regKey] || 0), 0);
     },
     selectShiftCard(shiftKey) {
+      // 點擊卡片時，切換選中狀態，直接連動圖 2 的 selectedShift
       this.selectedShift = this.selectedShift === shiftKey ? 'all' : shiftKey;
       this.fetchData();
     },
