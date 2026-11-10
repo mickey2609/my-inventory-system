@@ -4,7 +4,6 @@ const express = require('express');
 module.exports = function(db) {
   const router = express.Router();
 
-  // 1. 區域分類函數 (對齊 process_region.py)
   function categorizeRegion(addr, zipCode) {
     const address = String(addr || '').trim();
     const zip = String(zipCode || '').trim();
@@ -29,7 +28,6 @@ module.exports = function(db) {
     return '其他/未識別';
   }
 
-  // 2. 班別判定函數：日班 (09~17)、夜班 (17~01)、大夜班 (01~09)
   function getShiftType(timeStr) {
     if (!timeStr) return '未知';
     const parts = String(timeStr).trim().split(':');
@@ -38,16 +36,15 @@ module.exports = function(db) {
     if (isNaN(hour)) return '未知';
 
     if (hour >= 9 && hour < 17) {
-      return '日班'; // 09:00:00 ~ 16:59:59
+      return '日班';
     } else if (hour >= 17 || hour === 0) {
-      return '夜班'; // 17:00:00 ~ 00:59:59
+      return '夜班';
     } else if (hour >= 1 && hour < 9) {
-      return '大夜班'; // 01:00:00 ~ 08:59:59
+      return '大夜班';
     }
     return '未知';
   }
 
-  // 3. 時段區間格式化 (01:22:40 -> 01~02)
   function getHourInterval(timeStr) {
     if (!timeStr) return '';
     const parts = String(timeStr).trim().split(':');
@@ -60,7 +57,7 @@ module.exports = function(db) {
     return '';
   }
 
-  // 初始化資料表與索引
+  // 初始化資料表與唯一索引
   db.serialize(() => {
     db.run(`
       CREATE TABLE IF NOT EXISTS delivery_order_tracking (
@@ -87,12 +84,13 @@ module.exports = function(db) {
       )
     `);
 
+    db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_deliv_conflict ON delivery_order_tracking(order_no, ship_date, ship_time)`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_ship_date ON delivery_order_tracking (ship_date)`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_shift ON delivery_order_tracking (shift_type)`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_region ON delivery_order_tracking (region)`);
   });
 
-  // 匯入 API (支援分批快速寫入)
+  // 匯入 API
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     if (!Array.isArray(items) || items.length === 0) {
@@ -130,7 +128,8 @@ module.exports = function(db) {
         };
 
         const order_no = getV('訂單編號', '訂單編號 ', 'order_no');
-        const ship_date = getV('出貨日期', 'ship_date').replace(/\//g, '-');
+        let ship_date = getV('出貨日期', 'ship_date').replace(/\//g, '-');
+        if (ship_date.includes(' ')) ship_date = ship_date.split(' ')[0];
         const ship_time = getV('出貨時間', 'ship_time');
 
         if (!order_no || !ship_date) continue;
@@ -141,7 +140,8 @@ module.exports = function(db) {
         const shift_type = getShiftType(ship_time);
 
         const ship_interval = getHourInterval(ship_time);
-        const order_date = getV('接單日期', 'order_date').replace(/\//g, '-');
+        let order_date = getV('接單日期', 'order_date').replace(/\//g, '-');
+        if (order_date.includes(' ')) order_date = order_date.split(' ')[0];
         const order_time = getV('接單時間', 'order_time');
         const order_interval = getHourInterval(order_time);
 
@@ -171,84 +171,122 @@ module.exports = function(db) {
     });
   });
 
-  // 日期選單 API
+  // 取得現有日期清單
   router.get('/dates', (req, res) => {
-    db.all(`SELECT ship_date, COUNT(*) as count FROM delivery_order_tracking GROUP BY ship_date ORDER BY ship_date DESC`, [], (err, rows) => {
+    db.all(`SELECT ship_date, COUNT(*) as count FROM delivery_order_tracking WHERE ship_date IS NOT NULL AND ship_date != '' GROUP BY ship_date ORDER BY ship_date DESC`, [], (err, rows) => {
       if (err) return res.status(500).json({ success: false, message: err.message });
       res.json({ success: true, list: rows || [] });
     });
   });
 
-  // 流線圖與三班分析 API
+  // 分析 API (支援 region 與 shift 過濾，並包含出貨時段 vs 接單時段交叉統計)
   router.get('/flow-analysis', (req, res) => {
-    const { targetDate } = req.query;
-    if (!targetDate) return res.status(400).json({ success: false, message: '請指定出貨日期 (YYYY-MM-DD)' });
+    let { targetDate, region, shift } = req.query;
 
-    const sql = `SELECT * FROM delivery_order_tracking WHERE ship_date = ?`;
-    db.all(sql, [targetDate], (err, rows) => {
-      if (err) return res.status(500).json({ success: false, message: err.message });
-      rows = rows || [];
+    const runAnalysis = (effectiveDate) => {
+      let sql = `SELECT * FROM delivery_order_tracking WHERE ship_date = ?`;
+      const params = [effectiveDate];
 
-      const regions = ['北北基桃', '中南部', '宜花東', '外島', '其他/未識別'];
-      const hourlyFlow = Array.from({ length: 24 }, (_, h) => {
-        const slot = `${String(h).padStart(2, '0')}~${String((h + 1) % 24).padStart(2, '0')}`;
-        const item = { hour: h, slot, total: 0 };
-        regions.forEach(r => { item[r] = 0; });
-        return item;
+      if (region && region !== 'all') {
+        sql += ` AND region = ?`;
+        params.push(region);
+      }
+      if (shift && shift !== 'all') {
+        sql += ` AND shift_type = ?`;
+        params.push(shift);
+      }
+
+      db.all(sql, params, (err, rows) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+        rows = rows || [];
+
+        const regions = ['北北基桃', '中南部', '宜花東', '外島', '其他/未識別'];
+        const hourlyFlow = Array.from({ length: 24 }, (_, h) => {
+          const slot = `${String(h).padStart(2, '0')}~${String((h + 1) % 24).padStart(2, '0')}`;
+          const item = { hour: h, slot, total: 0 };
+          regions.forEach(r => { item[r] = 0; });
+          return item;
+        });
+
+        const shiftSummary = {
+          '日班': { count: 0, timeSpan: '09:00 ~ 17:00', regions: { '北北基桃': 0, '中南部': 0, '宜花東': 0, '外島': 0, '其他/未識別': 0 } },
+          '夜班': { count: 0, timeSpan: '17:00 ~ 01:00', regions: { '北北基桃': 0, '中南部': 0, '宜花東': 0, '外島': 0, '其他/未識別': 0 } },
+          '大夜班': { count: 0, timeSpan: '01:00 ~ 09:00', regions: { '北北基桃': 0, '中南部': 0, '宜花東': 0, '外島': 0, '其他/未識別': 0 } }
+        };
+
+        // 🌟 追加功能：出貨時段 (ship_interval) vs 接單區間 (order_interval) 矩陣
+        // 結構：{ [ship_interval]: { total: N, [order_interval]: N } }
+        const leadTimeMatrix = {};
+
+        rows.forEach(r => {
+          const h = r.ship_time ? parseInt(r.ship_time.split(':')[0], 10) : -1;
+          const reg = regions.includes(r.region) ? r.region : '其他/未識別';
+
+          if (h >= 0 && h < 24) {
+            hourlyFlow[h].total++;
+            hourlyFlow[h][reg]++;
+          }
+
+          const sType = shiftSummary[r.shift_type] ? r.shift_type : '日班';
+          shiftSummary[sType].count++;
+          shiftSummary[sType].regions[reg] = (shiftSummary[sType].regions[reg] || 0) + 1;
+
+          // 統計出貨時段 vs 接單區間
+          const sSlot = r.ship_interval || (h >= 0 ? `${String(h).padStart(2, '0')}~${String((h + 1) % 24).padStart(2, '0')}` : '未記錄');
+          const oSlot = r.order_interval || '未記錄';
+
+          if (!leadTimeMatrix[sSlot]) {
+            leadTimeMatrix[sSlot] = { shipSlot: sSlot, shift: r.shift_type, total: 0, orderSlots: {} };
+          }
+          leadTimeMatrix[sSlot].total++;
+          leadTimeMatrix[sSlot].orderSlots[oSlot] = (leadTimeMatrix[sSlot].orderSlots[oSlot] || 0) + 1;
+        });
+
+        res.json({
+          success: true,
+          targetDate: effectiveDate,
+          totalOrders: rows.length,
+          shiftSummary,
+          hourlyFlow,
+          leadTimeMatrix
+        });
       });
+    };
 
-      // 三班指標結構
-      const shiftSummary = {
-        '日班': { count: 0, timeSpan: '09:00 ~ 17:00', regions: { '北北基桃': 0, '中南部': 0, '宜花東': 0, '外島': 0, '其他/未識別': 0 } },
-        '夜班': { count: 0, timeSpan: '17:00 ~ 01:00', regions: { '北北基桃': 0, '中南部': 0, '宜花東': 0, '外島': 0, '其他/未識別': 0 } },
-        '大夜班': { count: 0, timeSpan: '01:00 ~ 09:00', regions: { '北北基桃': 0, '中南部': 0, '宜花東': 0, '外島': 0, '其他/未識別': 0 } }
-      };
-
-      // 觀察表矩陣：某班別處理哪時接的訂單 (接單區間分佈)
-      const shiftOrderMap = { '日班': {}, '夜班': {}, '大夜班': {} };
-
-      rows.forEach(r => {
-        const h = r.ship_time ? parseInt(r.ship_time.split(':')[0], 10) : -1;
-        const reg = regions.includes(r.region) ? r.region : '其他/未識別';
-
-        if (h >= 0 && h < 24) {
-          hourlyFlow[h].total++;
-          hourlyFlow[h][reg]++;
-        }
-
-        const sType = shiftSummary[r.shift_type] ? r.shift_type : '日班';
-        shiftSummary[sType].count++;
-        shiftSummary[sType].regions[reg] = (shiftSummary[sType].regions[reg] || 0) + 1;
-
-        const oSlot = r.order_interval || '未記錄';
-        if (!shiftOrderMap[sType][oSlot]) shiftOrderMap[sType][oSlot] = 0;
-        shiftOrderMap[sType][oSlot]++;
+    if (!targetDate) {
+      db.get(`SELECT ship_date FROM delivery_order_tracking ORDER BY ship_date DESC LIMIT 1`, [], (dErr, dRow) => {
+        const d = (dRow && dRow.ship_date) ? dRow.ship_date : new Date().toISOString().split('T')[0];
+        runAnalysis(d);
       });
-
-      res.json({
-        success: true,
-        targetDate,
-        totalOrders: rows.length,
-        shiftSummary,
-        hourlyFlow,
-        shiftOrderMap
-      });
-    });
+    } else {
+      runAnalysis(targetDate);
+    }
   });
 
-  // 穿透訂單明細 API
+  // 穿透訂單明細 API (支援 orderInterval 接單區間精準穿透)
   router.get('/orders-detail', (req, res) => {
-    const { targetDate, shift, hour, region } = req.query;
+    const { targetDate, shift, hour, shipSlot, orderSlot, region } = req.query;
     let sql = `SELECT * FROM delivery_order_tracking WHERE ship_date = ?`;
     const params = [targetDate];
 
-    if (shift) { sql += ` AND shift_type = ?`; params.push(shift); }
+    if (shift && shift !== 'all') { sql += ` AND shift_type = ?`; params.push(shift); }
     if (hour !== undefined && hour !== null && hour !== '') {
       const hStr = String(hour).padStart(2, '0');
       sql += ` AND ship_time LIKE ?`;
       params.push(`${hStr}:%`);
     }
-    if (region && region !== 'all') { sql += ` AND region = ?`; params.push(region); }
+    if (shipSlot) {
+      sql += ` AND ship_interval = ?`;
+      params.push(shipSlot);
+    }
+    if (orderSlot) {
+      sql += ` AND order_interval = ?`;
+      params.push(orderSlot);
+    }
+    if (region && region !== 'all') {
+      sql += ` AND region = ?`;
+      params.push(region);
+    }
 
     sql += ` ORDER BY ship_time ASC LIMIT 2000`;
 
