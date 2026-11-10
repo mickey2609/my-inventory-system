@@ -57,7 +57,7 @@ module.exports = function(db) {
     return '';
   }
 
-  // 初始化資料表：以 tracking_no 為唯一依據
+  // 初始化資料表：以 tracking_no 為唯一依據，避免同秒多箱被吃掉
   db.serialize(() => {
     db.run(`
       CREATE TABLE IF NOT EXISTS delivery_order_tracking (
@@ -136,7 +136,7 @@ module.exports = function(db) {
         if (ship_date.includes(' ')) ship_date = ship_date.split(' ')[0];
         const ship_time = getV('出貨時間', 'ship_time');
 
-        // 過濾表尾合計列與空列
+        // 過濾 Excel 尾端統計列
         if (!tracking_no || tracking_no.includes('總計') || !ship_date) continue;
 
         const addr = getV('收件地址', 'address');
@@ -175,15 +175,25 @@ module.exports = function(db) {
     });
   });
 
-  // 日期選單 API
+  // 日期選單 API：同時回傳 count (相容前端)、tracking_count 與 order_count
   router.get('/dates', (req, res) => {
-    db.all(`SELECT ship_date, COUNT(*) as tracking_count, COUNT(DISTINCT order_no) as order_count FROM delivery_order_tracking WHERE ship_date IS NOT NULL AND ship_date != '' GROUP BY ship_date ORDER BY ship_date DESC`, [], (err, rows) => {
+    db.all(`
+      SELECT 
+        ship_date, 
+        COUNT(*) as count,
+        COUNT(*) as tracking_count, 
+        COUNT(DISTINCT order_no) as order_count 
+      FROM delivery_order_tracking 
+      WHERE ship_date IS NOT NULL AND ship_date != '' 
+      GROUP BY ship_date 
+      ORDER BY ship_date DESC
+    `, [], (err, rows) => {
       if (err) return res.status(500).json({ success: false, message: err.message });
       res.json({ success: true, list: rows || [] });
     });
   });
 
-  // 統計分析 API (支援 countMode: tracking 或 order)
+  // 統計分析 API
   router.get('/flow-analysis', (req, res) => {
     let { targetDate, region, shift, countMode } = req.query;
     countMode = countMode || 'tracking'; // tracking(宅單/箱數) 或 order(訂單數)
@@ -205,10 +215,9 @@ module.exports = function(db) {
         if (err) return res.status(500).json({ success: false, message: err.message });
         rows = rows || [];
 
-        // 依據 countMode 進行資料預處理
+        // 依據 countMode 進行資料分群
         let processRows = rows;
         if (countMode === 'order') {
-          // 依 order_no 去重，確保每筆訂單只計算一次
           const orderMap = new Map();
           rows.forEach(r => {
             if (!orderMap.has(r.order_no)) {
@@ -257,7 +266,6 @@ module.exports = function(db) {
           leadTimeMatrix[sSlot].orderSlots[oSlot] = (leadTimeMatrix[sSlot].orderSlots[oSlot] || 0) + 1;
         });
 
-        // 總計資訊（同時回傳箱數與單數）
         const totalTrackingCount = rows.length;
         const totalOrderCount = new Set(rows.map(r => r.order_no)).size;
 
@@ -266,6 +274,7 @@ module.exports = function(db) {
           targetDate: effectiveDate,
           countMode,
           totalCount: processRows.length,
+          totalOrders: processRows.length, // 兼容前端 totalOrders
           totalTrackingCount,
           totalOrderCount,
           shiftSummary,
@@ -285,7 +294,7 @@ module.exports = function(db) {
     }
   });
 
-  // 穿透訂單明細 API
+  // 穿透明細 API
   router.get('/orders-detail', (req, res) => {
     const { targetDate, shift, hour, shipSlot, orderSlot, region } = req.query;
     let sql = `SELECT * FROM delivery_order_tracking WHERE ship_date = ?`;

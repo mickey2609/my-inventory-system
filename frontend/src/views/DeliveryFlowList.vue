@@ -20,13 +20,13 @@
             v-if="availableDates.length > 0"
             v-model="targetDate"
             size="small"
-            style="width: 170px;"
+            style="width: 175px;"
             @change="fetchData"
           >
             <el-option
               v-for="d in availableDates"
               :key="d.ship_date"
-              :label="`${d.ship_date} (${formatNumber(countMode === 'order' ? d.order_count : d.tracking_count)} ${countMode === 'order' ? '單' : '箱'})`"
+              :label="`${d.ship_date} (${formatNumber(countMode === 'order' ? (d.order_count || d.count) : (d.tracking_count || d.count))} ${countMode === 'order' ? '單' : '箱'})`"
               :value="d.ship_date"
             />
           </el-select>
@@ -43,7 +43,7 @@
           />
         </div>
 
-        <!-- 🌟 統計維度：訂單 vs 宅單切換 -->
+        <!-- 🌟 統計維度：訂單 vs 宅單切換開關 -->
         <div class="filter-item highlight-box">
           <span class="label text-yellow">📊 觀察維度：</span>
           <el-radio-group v-model="countMode" size="small" @change="fetchData">
@@ -77,14 +77,14 @@
 
         <div class="btn-group">
           <span class="total-badge">
-            當前視角：<strong>{{ formatNumber(totalCount) }}</strong> {{ countMode === 'order' ? '單' : '箱' }}
+            總計：<strong>{{ formatNumber(totalOrders) }}</strong> {{ countMode === 'order' ? '單' : '箱' }}
           </span>
           <el-button type="info" size="small" icon="el-icon-refresh" :loading="loading" @click="fetchData">重新整理</el-button>
-          <el-button type="success" size="small" icon="el-icon-upload2" :loading="isUploading" @click="showUploadCard = true">📥 匯入 3BC1 / 出貨表</el-button>
+          <el-button type="success" size="small" icon="el-icon-upload2" :loading="isUploading" @click="showUploadCard = true">📥 匯入 3BC1 宅配單</el-button>
         </div>
       </div>
 
-      <!-- 2. 分頁切換頁籤 (Tab 切換模式) -->
+      <!-- 2. 分頁切換頁籤 -->
       <div class="sub-tabs-bar">
         <button
           class="sub-tab-btn"
@@ -213,7 +213,6 @@
                 <th class="sticky-col col-slot">出貨時段</th>
                 <th class="sticky-col col-shift">班別</th>
                 <th class="sticky-col col-total">總計({{ countMode === 'order' ? '單' : '箱' }})</th>
-                <!-- 24 小時接單區間欄位 -->
                 <th v-for="slot in allHourSlots" :key="slot" class="col-order-slot">
                   {{ slot }}<br><span class="sub-th">接單</span>
                 </th>
@@ -228,7 +227,6 @@
                 <td class="sticky-col col-total text-right font-bold text-yellow copyable" @click="openDetailModal({ shipSlot: row.shipSlot, title: `${targetDate} 出貨時段 ${row.shipSlot} 全量明細` })">
                   {{ formatNumber(row.total) }}
                 </td>
-                <!-- 接單區間各格子 -->
                 <td
                   v-for="slot in allHourSlots"
                   :key="slot"
@@ -261,8 +259,8 @@
           <el-input
             v-model="filterKeyword"
             size="mini"
-            placeholder="搜尋單號 / 宅配商 / 收件人"
-            style="width: 240px;"
+            placeholder="搜尋宅配單號 / 訂單編號 / 宅配商 / 收件人"
+            style="width: 280px;"
             clearable
           />
         </div>
@@ -315,7 +313,7 @@
         <i class="el-icon-upload drop-icon"></i>
         <div class="drop-text-main">將 Excel 報表拖曳至此處</div>
         <div class="drop-text-sub">或點擊此處選取檔案</div>
-        <div class="drop-tip">🛡️ 自動解析宅配單號與訂單編號，精準統計箱數與單數</div>
+        <div class="drop-tip">🛡️ 自動解析宅配單號與訂單編號，精確統計箱數與單數</div>
       </div>
     </el-dialog>
   </div>
@@ -332,14 +330,14 @@ export default {
   data() {
     return {
       activeTab: 'river_flow',
-      countMode: 'tracking', // tracking(宅配單/箱數) 或 order(訂單數)
+      countMode: 'tracking',
       loading: false,
       isUploading: false,
       targetDate: '',
       selectedRegion: 'all',
       selectedShift: 'all',
       availableDates: [],
-      totalCount: 0,
+      totalOrders: 0,
       totalTrackingCount: 0,
       totalOrderCount: 0,
 
@@ -468,9 +466,9 @@ export default {
         });
         if (res.data?.success) {
           this.targetDate = res.data.targetDate || this.targetDate;
-          this.totalCount = res.data.totalCount;
-          this.totalTrackingCount = res.data.totalTrackingCount;
-          this.totalOrderCount = res.data.totalOrderCount;
+          this.totalOrders = res.data.totalOrders || res.data.totalCount || 0;
+          this.totalTrackingCount = res.data.totalTrackingCount || 0;
+          this.totalOrderCount = res.data.totalOrderCount || 0;
           this.shiftSummary = res.data.shiftSummary;
           this.hourlyFlow = res.data.hourlyFlow;
           this.leadTimeMatrix = res.data.leadTimeMatrix || {};
