@@ -77,6 +77,7 @@ export default {
         'transfer_80_15': '🔄 跨庫調撥 80 ➔ 15',
         'transfer_15_80': '🔄 跨庫調撥 15 ➔ 80',
         'dispatch_fish': '📦 收發魚群出沒分析', // 🌟 加入這一行！
+        'delivery_flow': '🌊 宅配出貨流線魚群', // 🌟 補上這行！
         'settings_perm': '⚙️ 權限管理',
         'settings_log': '📜 日誌歷程查詢'
       };
