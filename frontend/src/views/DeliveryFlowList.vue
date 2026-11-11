@@ -84,9 +84,18 @@
         </div>
       </div>
 
-      <!-- 🌟 篩選列 2 (追加)：宅配商 / 宅配類別 / 24H送達 -->
+      <!-- 🌟 篩選列 2：庫別 / 宅配商 / 宅配類別 / 24H送達 -->
       <div class="filter-row filter-row-sub">
-        <!-- 1. 宅配商下拉選單 -->
+        <!-- 🌟 新增：庫別下拉選單 -->
+        <div class="filter-item">
+          <span class="label">🏢 庫別：</span>
+          <el-select v-model="selectedWarehouse" size="mini" placeholder="全部庫別" style="width: 120px;" @change="fetchData">
+            <el-option label="全部庫別" value="all" />
+            <el-option v-for="w in warehouseOptions" :key="w" :label="`${w} 庫`" :value="w" />
+          </el-select>
+        </div>
+
+        <!-- 宅配商下拉選單 -->
         <div class="filter-item">
           <span class="label">🚚 宅配商：</span>
           <el-select v-model="selectedCarrier" size="mini" placeholder="全部宅配商" style="width: 150px;" @change="fetchData">
@@ -95,7 +104,7 @@
           </el-select>
         </div>
 
-        <!-- 2. 宅配類別下拉選單 -->
+        <!-- 宅配類別下拉選單 -->
         <div class="filter-item">
           <span class="label">🏷️ 宅配類別：</span>
           <el-select v-model="selectedDeliveryType" size="mini" placeholder="全部類別" style="width: 140px;" @change="fetchData">
@@ -104,7 +113,7 @@
           </el-select>
         </div>
 
-        <!-- 3. 24H送達 -->
+        <!-- 24H送達 -->
         <div class="filter-item">
           <span class="label">⚡ 24H送達：</span>
           <el-radio-group v-model="selected24h" size="mini" @change="fetchData">
@@ -115,7 +124,7 @@
         </div>
       </div>
 
-      <!-- 🌟 頂部頁籤切換：三大模組頁籤 -->
+      <!-- 頂部頁籤切換：三大模組頁籤 -->
       <div class="sub-tabs-bar">
         <button
           class="sub-tab-btn"
@@ -169,9 +178,7 @@
         </div>
       </div>
 
-      <!-- ======================================================== -->
-      <!-- 頁籤 1：24 小時出貨時段觀察（算出貨單數與件數）           -->
-      <!-- ======================================================== -->
+      <!-- 頁籤 1：24 小時出貨時段觀察 -->
       <div v-show="activeTab === 'ship_flow'" class="tab-pane-box">
         <div class="chart-container" v-loading="loading">
           <div class="chart-header">
@@ -238,9 +245,7 @@
         </div>
       </div>
 
-      <!-- ======================================================== -->
-      <!-- 頁籤 2：班別出貨所消化之「接單日期與時段」觀察           -->
-      <!-- ======================================================== -->
+      <!-- 頁籤 2：班別出貨所消化之「接單日期與時段」觀察 -->
       <div v-show="activeTab === 'order_lead_time'" class="tab-pane-box">
         <div class="chart-container" v-loading="loading">
           <div class="chart-header">
@@ -336,11 +341,8 @@
         </div>
       </div>
 
-      <!-- ======================================================== -->
-      <!-- 🌟 頁籤 3 (全新追加)：訂單時效全景分析                   -->
-      <!-- ======================================================== -->
+      <!-- 頁籤 3：訂單時效全景分析 -->
       <div v-show="activeTab === 'lead_analytics'" class="tab-pane-box">
-        <!-- 頂部 4 大時效關鍵指標卡 -->
         <div class="lead-kpi-grid">
           <div class="lead-kpi-card border-blue">
             <div class="kpi-icon">⏱️</div>
@@ -379,9 +381,7 @@
           </div>
         </div>
 
-        <!-- 2 大核心分析圖：時效級距分佈 + 5 大作業節點耗時甘特 -->
         <div class="lead-charts-split">
-          <!-- 左側：時效級距分佈圖 -->
           <div class="chart-container half-chart" v-loading="loading">
             <div class="chart-header">
               <span class="chart-title">📊 訂單出貨時效級距分佈 (接單 ➔ 出貨)</span>
@@ -389,7 +389,6 @@
             <div ref="leadBracketChart" class="flow-echart"></div>
           </div>
 
-          <!-- 右側：倉庫 5 大站點耗時瓶頸剖析 -->
           <div class="chart-container half-chart" v-loading="loading">
             <div class="chart-header">
               <span class="chart-title">🏭 倉庫 5 大內部作業站點耗時剖析 (平均分鐘)</span>
@@ -398,7 +397,6 @@
           </div>
         </div>
 
-        <!-- 下方：異常延遲訂單追蹤清單 (>24小時出庫) -->
         <div class="table-container" v-loading="loading">
           <div class="table-header-bar">
             <span class="table-title">🚨 超時滯留訂單追蹤清單 (接單至出貨 > 24 小時)</span>
@@ -411,6 +409,7 @@
                 <tr>
                   <th style="width: 160px;">宅配單號</th>
                   <th style="width: 150px;">訂單編號</th>
+                  <th style="width: 70px;">庫別</th>
                   <th style="width: 80px;">區域</th>
                   <th style="width: 80px;">班別</th>
                   <th style="width: 110px;">總耗時 (小時)</th>
@@ -424,11 +423,12 @@
               </thead>
               <tbody>
                 <tr v-if="leadAnalytics.delayedOrdersList.length === 0">
-                  <td colspan="11" class="text-center text-dim" style="padding: 24px;">🎉 本日無超過 24 小時出貨之嚴重延遲訂單！</td>
+                  <td colspan="12" class="text-center text-dim" style="padding: 24px;">🎉 本日無超過 24 小時出貨之嚴重延遲訂單！</td>
                 </tr>
                 <tr v-for="d in leadAnalytics.delayedOrdersList" :key="d.tracking_no">
                   <td class="font-bold text-blue copyable" @click="copyText(d.tracking_no)">{{ d.tracking_no }}</td>
                   <td class="font-bold text-orange copyable" @click="copyText(d.order_no)">{{ d.order_no }}</td>
+                  <td class="text-center font-bold text-yellow">{{ d.wh_code ? `${d.wh_code}庫` : '-' }}</td>
                   <td class="text-center"><span class="reg-tag" :class="getRegTagClass(d.region)">{{ d.region }}</span></td>
                   <td class="text-center">{{ d.shift_type }}</td>
                   <td class="text-center font-bold text-red">{{ d.totalLeadHours }} H</td>
@@ -480,6 +480,11 @@
               <span class="font-bold text-orange copyable" @click="copyText(scope.row.order_no)">{{ scope.row.order_no }}</span>
             </template>
           </el-table-column>
+          <el-table-column prop="wh_code" label="庫別" width="80" align="center" sortable>
+            <template #default="scope">
+              <span class="font-bold text-yellow">{{ scope.row.wh_code ? `${scope.row.wh_code}庫` : '-' }}</span>
+            </template>
+          </el-table-column>
           <el-table-column prop="region" label="區域" width="95" align="center" sortable>
             <template #default="scope">
               <span class="reg-tag" :class="getRegTagClass(scope.row.region)">{{ scope.row.region }}</span>
@@ -518,7 +523,7 @@
         <i class="el-icon-upload drop-icon"></i>
         <div class="drop-text-main">將 Excel 報表拖曳至此處</div>
         <div class="drop-text-sub">或點擊此處選取檔案</div>
-        <div class="drop-tip">🛡️ 自動解析宅配商、類別、24H與全流程作業時效</div>
+        <div class="drop-tip">🛡️ 自動解析庫別、宅配商、類別、24H與全流程作業時效</div>
       </div>
     </el-dialog>
   </div>
@@ -539,12 +544,14 @@ export default {
       loading: false,
       isUploading: false,
       targetDate: '',
+      selectedWarehouse: 'all', // 🌟 新增：庫別篩選
       selectedRegion: 'all',
       selectedShift: 'all',
       selectedCarrier: 'all',
       selectedDeliveryType: 'all',
       selected24h: 'all',
 
+      warehouseOptions: [], // 🌟 庫別選項
       carrierOptions: [],
       deliveryTypeOptions: [],
       availableDates: [],
@@ -657,7 +664,6 @@ export default {
       return this.orderTimelineFlow.reduce((acc, row) => acc + (row[regKey] || 0), 0);
     },
     selectShiftCard(shiftKey) {
-      // 點擊卡片時，切換選中狀態，直接連動圖 2 的 selectedShift
       this.selectedShift = this.selectedShift === shiftKey ? 'all' : shiftKey;
       this.fetchData();
     },
@@ -676,6 +682,7 @@ export default {
         const res = await axios.get('/api/delivery/dates');
         if (res.data?.success) {
           this.availableDates = res.data.list || [];
+          this.warehouseOptions = res.data.warehouses || []; // 🌟 接收庫別清單
           this.carrierOptions = res.data.carriers || [];
           this.deliveryTypeOptions = res.data.deliveryTypes || [];
           if (!this.targetDate && this.availableDates.length > 0) {
@@ -691,6 +698,7 @@ export default {
         const res = await axios.get('/api/delivery/flow-analysis', {
           params: {
             targetDate: this.targetDate,
+            whCode: this.selectedWarehouse, // 🌟 傳送庫別篩選
             region: this.selectedRegion,
             shift: this.selectedShift,
             carrier: this.selectedCarrier,
@@ -735,6 +743,7 @@ export default {
           const hour = params.dataIndex;
           this.openDetailModal({
             hour,
+            whCode: this.selectedWarehouse !== 'all' ? this.selectedWarehouse : undefined,
             region: this.selectedRegion !== 'all' ? this.selectedRegion : undefined,
             title: `${this.targetDate} ${String(hour).padStart(2, '0')}:00 時段出貨明細`
           });
@@ -762,6 +771,7 @@ export default {
             this.openDetailModal({
               orderDate: item.orderDate,
               orderInterval: item.orderInterval,
+              whCode: this.selectedWarehouse !== 'all' ? this.selectedWarehouse : undefined,
               region: this.selectedRegion !== 'all' ? this.selectedRegion : undefined,
               title: `${this.targetDate} 出貨 [接單: ${item.timelineLabel}] 明細`
             });
@@ -781,7 +791,6 @@ export default {
     },
 
     renderLeadAnalyticsCharts() {
-      // 1. 渲染時效級距柱狀圖
       if (this.$refs.leadBracketChart) {
         if (!this.leadBracketChartInstance) {
           this.leadBracketChartInstance = echarts.init(this.$refs.leadBracketChart);
@@ -820,7 +829,6 @@ export default {
         this.leadBracketChartInstance.resize();
       }
 
-      // 2. 渲染 5 大站點耗時長條圖
       if (this.$refs.stageBottleneckChart) {
         if (!this.stageBottleneckChartInstance) {
           this.stageBottleneckChartInstance = echarts.init(this.$refs.stageBottleneckChart);
@@ -974,6 +982,7 @@ export default {
       try {
         const params = {
           targetDate: this.targetDate,
+          whCode: options.whCode || (this.selectedWarehouse !== 'all' ? this.selectedWarehouse : undefined),
           region: options.region || (this.selectedRegion !== 'all' ? this.selectedRegion : undefined),
           shift: options.shift || (this.selectedShift !== 'all' ? this.selectedShift : undefined),
           carrier: this.selectedCarrier !== 'all' ? this.selectedCarrier : undefined,
@@ -1018,8 +1027,14 @@ export default {
 
         for (const row of data) {
           const rawD = String(row['出貨日期'] || '').trim();
-          if (rawD && rawD.includes('/')) {
-            this.targetDate = rawD.replace(/\//g, '-').split(' ')[0];
+          if (rawD && (rawD.includes('/') || rawD.includes('-'))) {
+            const cleanD = rawD.replace(/\//g, '-').split(' ')[0];
+            const parts = cleanD.split('-');
+            if (parts.length === 3) {
+              this.targetDate = `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+            } else {
+              this.targetDate = cleanD;
+            }
             break;
           }
         }
@@ -1116,7 +1131,6 @@ export default {
 }
 .total-badge strong { color: #facc15; font-size: 15px; }
 
-/* 頂部頁籤切換 Bar */
 .sub-tabs-bar {
   display: flex;
   gap: 8px;
@@ -1162,7 +1176,6 @@ export default {
   gap: 12px;
 }
 
-/* 三班速覽卡 */
 .shift-cards-row {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -1198,7 +1211,6 @@ export default {
 .chip-east { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
 .chip-island { background: rgba(192, 132, 252, 0.2); color: #c084fc; }
 
-/* 🌟 時效 KPI 卡片網格 */
 .lead-kpi-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -1225,7 +1237,6 @@ export default {
 .kpi-value .unit { font-size: 12px; font-weight: normal; color: #94a3b8; }
 .kpi-sub { font-size: 11px; color: #64748b; margin-top: 2px; }
 
-/* 時效圖表雙欄排列 */
 .lead-charts-split {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1233,7 +1244,6 @@ export default {
 }
 .half-chart .flow-echart { height: 280px; }
 
-/* 圖表通用 */
 .chart-container {
   background: #1e293b;
   border: 1px solid #334155;
@@ -1249,7 +1259,6 @@ export default {
 .dot-island { color: #c084fc; font-weight: bold; }
 .flow-echart { width: 100%; height: 320px; }
 
-/* 表格通用 */
 .table-container {
   background: #1e293b;
   border: 1px solid #334155;

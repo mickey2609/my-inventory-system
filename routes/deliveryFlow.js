@@ -4,7 +4,7 @@ const express = require('express');
 module.exports = function(db) {
   const router = express.Router();
 
-  // 🌟 標準化日期格式（自動補零，如 2026/11/1 -> 2026-11-01）
+  // 1. 標準化日期格式（自動補零，如 2026/11/1 -> 2026-11-01）
   function normalizeDate(dStr) {
     if (!dStr) return '';
     const clean = String(dStr).trim().replace(/\//g, '-').split(' ')[0];
@@ -16,6 +16,13 @@ module.exports = function(db) {
       return `${y}-${m}-${d}`;
     }
     return clean;
+  }
+
+  function cleanWhCode(val) {
+    if (!val || val === 'nan' || val === 'null') return '';
+    let s = String(val).trim();
+    if (s.endsWith('.0')) s = s.slice(0, -2);
+    return s;
   }
 
   function categorizeRegion(addr, zipCode) {
@@ -79,13 +86,14 @@ module.exports = function(db) {
     return isNaN(dt.getTime()) ? null : dt;
   }
 
-  // 🌟 初始化資料表：自動檢測舊結構，徹底避免 no such column: tracking_no
+  // 初始化資料表結構
   db.serialize(() => {
     db.run(`
       CREATE TABLE IF NOT EXISTS delivery_order_tracking (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         tracking_no TEXT,
         order_no TEXT,
+        wh_code TEXT,
         region TEXT,
         shift_type TEXT,
         ship_date TEXT,
@@ -111,17 +119,16 @@ module.exports = function(db) {
         UNIQUE(tracking_no)
       )
     `, () => {
-      // 檢查 tracking_no 是否實際存在於資料表
       db.all(`PRAGMA table_info(delivery_order_tracking)`, [], (err, cols) => {
         const colNames = (cols || []).map(c => c.name);
         if (!colNames.includes('tracking_no')) {
-          console.log('⚠️ 偵測到舊版宅配表缺少 tracking_no，正在重構資料表...');
           db.run(`DROP TABLE IF EXISTS delivery_order_tracking`, () => {
             db.run(`
               CREATE TABLE delivery_order_tracking (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 tracking_no TEXT,
                 order_no TEXT,
+                wh_code TEXT,
                 region TEXT,
                 shift_type TEXT,
                 ship_date TEXT,
@@ -151,8 +158,9 @@ module.exports = function(db) {
             });
           });
         } else {
-          // 若欄位存在，確認補齊其他可能缺少的欄位
+          // 動態補齊新欄位
           const neededCols = [
+            'wh_code TEXT',
             'delivery_type TEXT',
             'is_24h TEXT',
             'wh_receive_time TEXT',
@@ -170,6 +178,7 @@ module.exports = function(db) {
     function createIndexes() {
       db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_deliv_tracking ON delivery_order_tracking(tracking_no)`);
       db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_order_no ON delivery_order_tracking (order_no)`);
+      db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_wh ON delivery_order_tracking (wh_code)`);
       db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_ship_date ON delivery_order_tracking (ship_date)`);
       db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_shift ON delivery_order_tracking (shift_type)`);
       db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_carrier ON delivery_order_tracking (carrier_name)`);
@@ -190,13 +199,14 @@ module.exports = function(db) {
 
       const stmt = db.prepare(`
         INSERT INTO delivery_order_tracking (
-          tracking_no, order_no, region, shift_type, ship_date, ship_time, ship_interval,
+          tracking_no, order_no, wh_code, region, shift_type, ship_date, ship_time, ship_interval,
           order_date, order_time, order_interval, pick_time, pick_interval,
           print_time, print_interval, carrier_name, delivery_type, is_24h,
           wh_receive_time, print_pick_time, out_time, receiver_name, zip_code, address
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(tracking_no) DO UPDATE SET
           order_no = EXCLUDED.order_no,
+          wh_code = EXCLUDED.wh_code,
           region = EXCLUDED.region,
           shift_type = EXCLUDED.shift_type,
           ship_date = EXCLUDED.ship_date,
@@ -224,7 +234,7 @@ module.exports = function(db) {
 
         const tracking_no = getV('宅配單號', 'tracking_no');
         const order_no = getV('訂單編號', '訂單編號 ', 'order_no');
-        // 🌟 強制補零標準化
+        const wh_code = cleanWhCode(getV('庫別', 'wh_code', 'warehouse'));
         const ship_date = normalizeDate(getV('出貨日期', 'ship_date'));
         const ship_time = getV('出貨時間', 'ship_time');
 
@@ -257,7 +267,7 @@ module.exports = function(db) {
         const receiver_name = getV('收件人', 'receiver_name');
 
         stmt.run(
-          tracking_no, order_no, region, shift_type, ship_date, ship_time, ship_interval,
+          tracking_no, order_no, wh_code, region, shift_type, ship_date, ship_time, ship_interval,
           order_date, order_time, order_interval, pick_time, pick_interval,
           print_time, print_interval, carrier_name, delivery_type, is_24h,
           wh_receive_time, print_pick_time, out_time, receiver_name, zip, addr
@@ -273,7 +283,7 @@ module.exports = function(db) {
     });
   });
 
-  // 日期與選單選項 API
+  // 日期與選單選項 API (加入庫別清單)
   router.get('/dates', (req, res) => {
     db.all(`
       SELECT 
@@ -288,13 +298,16 @@ module.exports = function(db) {
     `, [], (err, dateRows) => {
       if (err) return res.status(500).json({ success: false, message: err.message });
 
-      db.all(`SELECT DISTINCT carrier_name FROM delivery_order_tracking WHERE carrier_name IS NOT NULL AND carrier_name != ''`, [], (cErr, cRows) => {
-        db.all(`SELECT DISTINCT delivery_type FROM delivery_order_tracking WHERE delivery_type IS NOT NULL AND delivery_type != ''`, [], (tErr, tRows) => {
-          res.json({
-            success: true,
-            list: dateRows || [],
-            carriers: (cRows || []).map(r => r.carrier_name),
-            deliveryTypes: (tRows || []).map(r => r.delivery_type)
+      db.all(`SELECT DISTINCT wh_code FROM delivery_order_tracking WHERE wh_code IS NOT NULL AND wh_code != '' ORDER BY wh_code ASC`, [], (wErr, wRows) => {
+        db.all(`SELECT DISTINCT carrier_name FROM delivery_order_tracking WHERE carrier_name IS NOT NULL AND carrier_name != ''`, [], (cErr, cRows) => {
+          db.all(`SELECT DISTINCT delivery_type FROM delivery_order_tracking WHERE delivery_type IS NOT NULL AND delivery_type != ''`, [], (tErr, tRows) => {
+            res.json({
+              success: true,
+              list: dateRows || [],
+              warehouses: (wRows || []).map(r => r.wh_code),
+              carriers: (cRows || []).map(r => r.carrier_name),
+              deliveryTypes: (tRows || []).map(r => r.delivery_type)
+            });
           });
         });
       });
@@ -303,14 +316,14 @@ module.exports = function(db) {
 
   // 綜合分析 API
   router.get('/flow-analysis', (req, res) => {
-    let { targetDate, region, shift, carrier, deliveryType, is24h, countMode } = req.query;
+    let { targetDate, whCode, region, shift, carrier, deliveryType, is24h, countMode } = req.query;
     countMode = countMode || 'tracking';
 
     const runAnalysis = (effectiveDate) => {
-      // 🌟 第一步：撈出符合基礎條件（日期、區域、宅配商、類別、24H）的全量數據（不卡 shift）
       let baseSql = `SELECT * FROM delivery_order_tracking WHERE ship_date = ?`;
       const baseParams = [effectiveDate];
 
+      if (whCode && whCode !== 'all') { baseSql += ` AND wh_code = ?`; baseParams.push(whCode); }
       if (region && region !== 'all') { baseSql += ` AND region = ?`; baseParams.push(region); }
       if (carrier && carrier !== 'all') { baseSql += ` AND carrier_name = ?`; baseParams.push(carrier); }
       if (deliveryType && deliveryType !== 'all') { baseSql += ` AND delivery_type = ?`; baseParams.push(deliveryType); }
@@ -322,7 +335,6 @@ module.exports = function(db) {
 
         const regions = ['北北基桃', '中南部', '宜花東', '外島', '其他/未識別'];
 
-        // 🌟 1. 三班總覽指標卡：始終基於當天全量資料計算，不受「shift 班別按鈕」影響
         const shiftSummary = {
           '日班': { count: 0, timeSpan: '09:00 ~ 17:00', regions: { '北北基桃': 0, '中南部': 0, '宜花東': 0, '外島': 0, '其他/未識別': 0 } },
           '夜班': { count: 0, timeSpan: '17:00 ~ 01:00', regions: { '北北基桃': 0, '中南部': 0, '宜花東': 0, '外島': 0, '其他/未識別': 0 } },
@@ -343,7 +355,7 @@ module.exports = function(db) {
           shiftSummary[sType].regions[reg] = (shiftSummary[sType].regions[reg] || 0) + 1;
         });
 
-        // 🌟 2. 下方的圖表與表格數據：精準套用「shift 班別按鈕」過濾
+        // 依據 shift 篩選下方圖表與表格
         let lowerRows = allDateRows;
         if (shift && shift !== 'all') {
           lowerRows = allDateRows.filter(r => r.shift_type === shift);
@@ -356,7 +368,6 @@ module.exports = function(db) {
           lowerProcessRows = Array.from(m.values());
         }
 
-        // 頁籤 1：24 小時出貨時段
         const hourlyFlow = Array.from({ length: 24 }, (_, h) => {
           const slot = `${String(h).padStart(2, '0')}~${String((h + 1) % 24).padStart(2, '0')}`;
           const item = { hour: h, slot, total: 0 };
@@ -364,10 +375,7 @@ module.exports = function(db) {
           return item;
         });
 
-        // 頁籤 2：接單日期與時序
         const orderTimelineMap = {};
-
-        // 頁籤 3：時效級距
         const leadBrackets = {
           '0~4H (極速)': 0,
           '4~8H': 0,
@@ -417,7 +425,6 @@ module.exports = function(db) {
           orderTimelineMap[key].total++;
           orderTimelineMap[key][reg]++;
 
-          // 計算時效
           const orderDt = parseDateTime(r.order_date, r.order_time);
           const shipDt = parseDateTime(r.ship_date, r.ship_time);
 
@@ -517,10 +524,11 @@ module.exports = function(db) {
 
   // 穿透明細 API
   router.get('/orders-detail', (req, res) => {
-    const { targetDate, shift, hour, orderDate, orderInterval, region, carrier, deliveryType, is24h } = req.query;
+    const { targetDate, whCode, shift, hour, orderDate, orderInterval, region, carrier, deliveryType, is24h } = req.query;
     let sql = `SELECT * FROM delivery_order_tracking WHERE ship_date = ?`;
     const params = [targetDate];
 
+    if (whCode && whCode !== 'all') { sql += ` AND wh_code = ?`; params.push(whCode); }
     if (shift && shift !== 'all') { sql += ` AND shift_type = ?`; params.push(shift); }
     if (hour !== undefined && hour !== null && hour !== '') {
       const hStr = String(hour).padStart(2, '0');
