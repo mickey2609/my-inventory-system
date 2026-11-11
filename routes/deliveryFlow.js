@@ -154,11 +154,10 @@ module.exports = function(db) {
                 UNIQUE(tracking_no)
               )
             `, () => {
-              createIndexes();
+              createIndexesAndBackfill();
             });
           });
         } else {
-          // 動態補齊新欄位
           const neededCols = [
             'wh_code TEXT',
             'delivery_type TEXT',
@@ -170,12 +169,12 @@ module.exports = function(db) {
           neededCols.forEach(col => {
             db.run(`ALTER TABLE delivery_order_tracking ADD COLUMN ${col}`, () => {});
           });
-          createIndexes();
+          createIndexesAndBackfill();
         }
       });
     });
 
-    function createIndexes() {
+    function createIndexesAndBackfill() {
       db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_deliv_tracking ON delivery_order_tracking(tracking_no)`);
       db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_order_no ON delivery_order_tracking (order_no)`);
       db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_wh ON delivery_order_tracking (wh_code)`);
@@ -184,6 +183,9 @@ module.exports = function(db) {
       db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_carrier ON delivery_order_tracking (carrier_name)`);
       db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_type ON delivery_order_tracking (delivery_type)`);
       db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_24h ON delivery_order_tracking (is_24h)`);
+
+      // 🌟 自動為現有庫別為空白的歷史資料補齊為 80 庫
+      db.run(`UPDATE delivery_order_tracking SET wh_code = '80' WHERE wh_code IS NULL OR wh_code = '' OR wh_code = 'nan'`);
     }
   });
 
@@ -234,7 +236,8 @@ module.exports = function(db) {
 
         const tracking_no = getV('宅配單號', 'tracking_no');
         const order_no = getV('訂單編號', '訂單編號 ', 'order_no');
-        const wh_code = cleanWhCode(getV('庫別', 'wh_code', 'warehouse'));
+        let wh_code = cleanWhCode(getV('庫別', 'wh_code', 'warehouse'));
+        if (!wh_code) wh_code = '80'; // 預設 80 庫
         const ship_date = normalizeDate(getV('出貨日期', 'ship_date'));
         const ship_time = getV('出貨時間', 'ship_time');
 
@@ -283,7 +286,7 @@ module.exports = function(db) {
     });
   });
 
-  // 日期與選單選項 API (加入庫別清單)
+  // 日期與選單選項 API
   router.get('/dates', (req, res) => {
     db.all(`
       SELECT 
@@ -299,12 +302,16 @@ module.exports = function(db) {
       if (err) return res.status(500).json({ success: false, message: err.message });
 
       db.all(`SELECT DISTINCT wh_code FROM delivery_order_tracking WHERE wh_code IS NOT NULL AND wh_code != '' ORDER BY wh_code ASC`, [], (wErr, wRows) => {
+        let whList = (wRows || []).map(r => r.wh_code).filter(Boolean);
+        // 🌟 保底：若資料庫為空，預設提供 80 庫
+        if (whList.length === 0) whList = ['80'];
+
         db.all(`SELECT DISTINCT carrier_name FROM delivery_order_tracking WHERE carrier_name IS NOT NULL AND carrier_name != ''`, [], (cErr, cRows) => {
           db.all(`SELECT DISTINCT delivery_type FROM delivery_order_tracking WHERE delivery_type IS NOT NULL AND delivery_type != ''`, [], (tErr, tRows) => {
             res.json({
               success: true,
               list: dateRows || [],
-              warehouses: (wRows || []).map(r => r.wh_code),
+              warehouses: whList,
               carriers: (cRows || []).map(r => r.carrier_name),
               deliveryTypes: (tRows || []).map(r => r.delivery_type)
             });
@@ -355,7 +362,6 @@ module.exports = function(db) {
           shiftSummary[sType].regions[reg] = (shiftSummary[sType].regions[reg] || 0) + 1;
         });
 
-        // 依據 shift 篩選下方圖表與表格
         let lowerRows = allDateRows;
         if (shift && shift !== 'all') {
           lowerRows = allDateRows.filter(r => r.shift_type === shift);
