@@ -4,6 +4,20 @@ const express = require('express');
 module.exports = function(db) {
   const router = express.Router();
 
+  // 🌟 標準化日期格式（自動補零，如 2026/11/1 -> 2026-11-01）
+  function normalizeDate(dStr) {
+    if (!dStr) return '';
+    const clean = String(dStr).trim().replace(/\//g, '-').split(' ')[0];
+    const parts = clean.split('-');
+    if (parts.length === 3) {
+      const y = parts[0];
+      const m = parts[1].padStart(2, '0');
+      const d = parts[2].padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+    return clean;
+  }
+
   function categorizeRegion(addr, zipCode) {
     const address = String(addr || '').trim();
     const zip = String(zipCode || '').trim();
@@ -59,13 +73,13 @@ module.exports = function(db) {
 
   function parseDateTime(dStr, tStr) {
     if (!dStr || !tStr) return null;
-    const cleanD = String(dStr).trim().replace(/\//g, '-').split(' ')[0];
+    const cleanD = normalizeDate(dStr);
     const cleanT = String(tStr).trim();
     const dt = new Date(`${cleanD}T${cleanT}`);
     return isNaN(dt.getTime()) ? null : dt;
   }
 
-  // 初始化資料表與自動補齊新欄位
+  // 🌟 初始化資料表：自動檢測舊結構，徹底避免 no such column: tracking_no
   db.serialize(() => {
     db.run(`
       CREATE TABLE IF NOT EXISTS delivery_order_tracking (
@@ -96,23 +110,72 @@ module.exports = function(db) {
         imported_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(tracking_no)
       )
-    `);
-
-    const alterCols = [
-      'delivery_type TEXT',
-      'is_24h TEXT',
-      'wh_receive_time TEXT',
-      'print_pick_time TEXT',
-      'out_time TEXT'
-    ];
-    alterCols.forEach(colDef => {
-      db.run(`ALTER TABLE delivery_order_tracking ADD COLUMN ${colDef}`, (err) => {});
+    `, () => {
+      // 檢查 tracking_no 是否實際存在於資料表
+      db.all(`PRAGMA table_info(delivery_order_tracking)`, [], (err, cols) => {
+        const colNames = (cols || []).map(c => c.name);
+        if (!colNames.includes('tracking_no')) {
+          console.log('⚠️ 偵測到舊版宅配表缺少 tracking_no，正在重構資料表...');
+          db.run(`DROP TABLE IF EXISTS delivery_order_tracking`, () => {
+            db.run(`
+              CREATE TABLE delivery_order_tracking (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tracking_no TEXT,
+                order_no TEXT,
+                region TEXT,
+                shift_type TEXT,
+                ship_date TEXT,
+                ship_time TEXT,
+                ship_interval TEXT,
+                order_date TEXT,
+                order_time TEXT,
+                order_interval TEXT,
+                pick_time TEXT,
+                pick_interval TEXT,
+                print_time TEXT,
+                print_interval TEXT,
+                carrier_name TEXT,
+                delivery_type TEXT,
+                is_24h TEXT,
+                wh_receive_time TEXT,
+                print_pick_time TEXT,
+                out_time TEXT,
+                receiver_name TEXT,
+                zip_code TEXT,
+                address TEXT,
+                imported_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(tracking_no)
+              )
+            `, () => {
+              createIndexes();
+            });
+          });
+        } else {
+          // 若欄位存在，確認補齊其他可能缺少的欄位
+          const neededCols = [
+            'delivery_type TEXT',
+            'is_24h TEXT',
+            'wh_receive_time TEXT',
+            'print_pick_time TEXT',
+            'out_time TEXT'
+          ];
+          neededCols.forEach(col => {
+            db.run(`ALTER TABLE delivery_order_tracking ADD COLUMN ${col}`, () => {});
+          });
+          createIndexes();
+        }
+      });
     });
 
-    db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_deliv_tracking ON delivery_order_tracking(tracking_no)`);
-    db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_order_no ON delivery_order_tracking (order_no)`);
-    db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_ship_date ON delivery_order_tracking (ship_date)`);
-    db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_shift ON delivery_order_tracking (shift_type)`);
+    function createIndexes() {
+      db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_deliv_tracking ON delivery_order_tracking(tracking_no)`);
+      db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_order_no ON delivery_order_tracking (order_no)`);
+      db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_ship_date ON delivery_order_tracking (ship_date)`);
+      db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_shift ON delivery_order_tracking (shift_type)`);
+      db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_carrier ON delivery_order_tracking (carrier_name)`);
+      db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_type ON delivery_order_tracking (delivery_type)`);
+      db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_24h ON delivery_order_tracking (is_24h)`);
+    }
   });
 
   // 匯入 API
@@ -161,8 +224,8 @@ module.exports = function(db) {
 
         const tracking_no = getV('宅配單號', 'tracking_no');
         const order_no = getV('訂單編號', '訂單編號 ', 'order_no');
-        let ship_date = getV('出貨日期', 'ship_date').replace(/\//g, '-');
-        if (ship_date.includes(' ')) ship_date = ship_date.split(' ')[0];
+        // 🌟 強制補零標準化
+        const ship_date = normalizeDate(getV('出貨日期', 'ship_date'));
         const ship_time = getV('出貨時間', 'ship_time');
 
         if (!tracking_no || tracking_no.includes('總計') || !ship_date) continue;
@@ -173,8 +236,7 @@ module.exports = function(db) {
         const shift_type = getShiftType(ship_time);
 
         const ship_interval = getHourInterval(ship_time);
-        let order_date = getV('接單日期', 'order_date').replace(/\//g, '-');
-        if (order_date.includes(' ')) order_date = order_date.split(' ')[0];
+        const order_date = normalizeDate(getV('接單日期', 'order_date'));
         const order_time = getV('接單時間', 'order_time');
         const order_interval = getHourInterval(order_time);
 
@@ -245,7 +307,7 @@ module.exports = function(db) {
     countMode = countMode || 'tracking';
 
     const runAnalysis = (effectiveDate) => {
-      // 🌟 第一步：先撈出當天「符合基礎通用條件 (日期、宅配商、宅配類別、24H)」的全量資料 (不卡 shift 條件)
+      // 🌟 第一步：撈出符合基礎條件（日期、區域、宅配商、類別、24H）的全量數據（不卡 shift）
       let baseSql = `SELECT * FROM delivery_order_tracking WHERE ship_date = ?`;
       const baseParams = [effectiveDate];
 
@@ -260,14 +322,13 @@ module.exports = function(db) {
 
         const regions = ['北北基桃', '中南部', '宜花東', '外島', '其他/未識別'];
 
-        // 🌟 1. 三班總覽指標卡：始終基於當天全量資料計算，不受「shift 班別按鈕」影響！
+        // 🌟 1. 三班總覽指標卡：始終基於當天全量資料計算，不受「shift 班別按鈕」影響
         const shiftSummary = {
           '日班': { count: 0, timeSpan: '09:00 ~ 17:00', regions: { '北北基桃': 0, '中南部': 0, '宜花東': 0, '外島': 0, '其他/未識別': 0 } },
           '夜班': { count: 0, timeSpan: '17:00 ~ 01:00', regions: { '北北基桃': 0, '中南部': 0, '宜花東': 0, '外島': 0, '其他/未識別': 0 } },
           '大夜班': { count: 0, timeSpan: '01:00 ~ 09:00', regions: { '北北基桃': 0, '中南部': 0, '宜花東': 0, '外島': 0, '其他/未識別': 0 } }
         };
 
-        // 處理全日資料的去重（若為 order 模式）
         let allDateProcessRows = allDateRows;
         if (countMode === 'order') {
           const m = new Map();
@@ -282,7 +343,7 @@ module.exports = function(db) {
           shiftSummary[sType].regions[reg] = (shiftSummary[sType].regions[reg] || 0) + 1;
         });
 
-        // 🌟 2. 下方的圖表與表格數據：精準套用「shift 班別按鈕 (全部/日班/夜班/大夜班)」過濾！
+        // 🌟 2. 下方的圖表與表格數據：精準套用「shift 班別按鈕」過濾
         let lowerRows = allDateRows;
         if (shift && shift !== 'all') {
           lowerRows = allDateRows.filter(r => r.shift_type === shift);
@@ -356,7 +417,7 @@ module.exports = function(db) {
           orderTimelineMap[key].total++;
           orderTimelineMap[key][reg]++;
 
-          // 時效
+          // 計算時效
           const orderDt = parseDateTime(r.order_date, r.order_time);
           const shipDt = parseDateTime(r.ship_date, r.ship_time);
 
@@ -429,7 +490,7 @@ module.exports = function(db) {
           totalOrders: lowerProcessRows.length,
           totalTrackingCount,
           totalOrderCount,
-          shiftSummary, // 始終保留三班各自總數
+          shiftSummary,
           hourlyFlow,
           orderTimelineFlow,
           leadAnalytics: {
