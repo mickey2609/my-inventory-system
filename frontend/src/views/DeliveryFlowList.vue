@@ -1,11 +1,13 @@
 <!-- frontend/src/views/DeliveryFlowList.vue -->
 <template>
   <div class="delivery-flow-page dark-bg">
+    <!-- 🌟 加上 multiple 支援多檔案同時選取 -->
     <input
       type="file"
       ref="fileInput"
       style="display: none;"
       accept=".xls, .xlsx, .csv"
+      multiple
       @change="handleFileSelected"
     />
 
@@ -84,9 +86,8 @@
         </div>
       </div>
 
-      <!-- 🌟 篩選列 2：庫別 / 宅配商 / 宅配類別 / 24H送達 -->
+      <!-- 篩選列 2：庫別 / 宅配商 / 宅配類別 / 24H送達 -->
       <div class="filter-row filter-row-sub">
-        <!-- 🌟 新增：庫別下拉選單 -->
         <div class="filter-item">
           <span class="label">🏢 庫別：</span>
           <el-select v-model="selectedWarehouse" size="mini" placeholder="全部庫別" style="width: 120px;" @change="fetchData">
@@ -95,7 +96,6 @@
           </el-select>
         </div>
 
-        <!-- 宅配商下拉選單 -->
         <div class="filter-item">
           <span class="label">🚚 宅配商：</span>
           <el-select v-model="selectedCarrier" size="mini" placeholder="全部宅配商" style="width: 150px;" @change="fetchData">
@@ -104,7 +104,6 @@
           </el-select>
         </div>
 
-        <!-- 宅配類別下拉選單 -->
         <div class="filter-item">
           <span class="label">🏷️ 宅配類別：</span>
           <el-select v-model="selectedDeliveryType" size="mini" placeholder="全部類別" style="width: 140px;" @change="fetchData">
@@ -113,7 +112,6 @@
           </el-select>
         </div>
 
-        <!-- 24H送達 -->
         <div class="filter-item">
           <span class="label">⚡ 24H送達：</span>
           <el-radio-group v-model="selected24h" size="mini" @change="fetchData">
@@ -504,11 +502,11 @@
       </div>
     </el-dialog>
 
-    <!-- 4. 拖曳上傳 Modal -->
+    <!-- 4. 多檔案拖曳上傳 Modal -->
     <el-dialog
       v-model="showUploadCard"
-      title="📥 匯入宅配報表 (3BC1 / 出貨資訊80)"
-      width="500px"
+      title="📥 批次匯入宅配報表 (支援一次多檔上傳)"
+      width="520px"
       append-to-body
       custom-class="dark-dialog"
     >
@@ -521,9 +519,9 @@
         @click="$refs.fileInput.click()"
       >
         <i class="el-icon-upload drop-icon"></i>
-        <div class="drop-text-main">將 Excel 報表拖曳至此處</div>
-        <div class="drop-text-sub">或點擊此處選取檔案</div>
-        <div class="drop-tip">🛡️ 自動解析庫別、宅配商、類別、24H與全流程作業時效</div>
+        <div class="drop-text-main">將一個或多個 Excel 報表拖曳至此處</div>
+        <div class="drop-text-sub">或點擊此處（按住 Ctrl / Shift 可一次選取多個檔案）</div>
+        <div class="drop-tip">🛡️ 自動依序排隊解析多檔日期、庫別、宅配商與全流程時效</div>
       </div>
     </el-dialog>
   </div>
@@ -544,14 +542,14 @@ export default {
       loading: false,
       isUploading: false,
       targetDate: '',
-      selectedWarehouse: 'all', // 🌟 新增：庫別篩選
+      selectedWarehouse: 'all',
       selectedRegion: 'all',
       selectedShift: 'all',
       selectedCarrier: 'all',
       selectedDeliveryType: 'all',
       selected24h: 'all',
 
-      warehouseOptions: [], // 🌟 庫別選項
+      warehouseOptions: [],
       carrierOptions: [],
       deliveryTypeOptions: [],
       availableDates: [],
@@ -682,7 +680,7 @@ export default {
         const res = await axios.get('/api/delivery/dates');
         if (res.data?.success) {
           this.availableDates = res.data.list || [];
-          this.warehouseOptions = res.data.warehouses || []; // 🌟 接收庫別清單
+          this.warehouseOptions = res.data.warehouses || [];
           this.carrierOptions = res.data.carriers || [];
           this.deliveryTypeOptions = res.data.deliveryTypes || [];
           if (!this.targetDate && this.availableDates.length > 0) {
@@ -698,7 +696,7 @@ export default {
         const res = await axios.get('/api/delivery/flow-analysis', {
           params: {
             targetDate: this.targetDate,
-            whCode: this.selectedWarehouse, // 🌟 傳送庫別篩選
+            whCode: this.selectedWarehouse,
             region: this.selectedRegion,
             shift: this.selectedShift,
             carrier: this.selectedCarrier,
@@ -1002,55 +1000,89 @@ export default {
       }
     },
 
+    // 🌟 支援多檔案同時拖曳與批次選取
     handleDrop(e) {
       this.isDragging = false;
-      const file = e.dataTransfer.files[0];
-      if (file) this.processUpload(file);
+      const files = Array.from(e.dataTransfer.files || []);
+      if (files.length > 0) this.processMultiFiles(files);
     },
     handleFileSelected(e) {
-      const file = e.target.files[0];
-      if (file) this.processUpload(file);
+      const files = Array.from(e.target.files || []);
+      if (files.length > 0) this.processMultiFiles(files);
     },
-    async processUpload(file) {
+    async processMultiFiles(files) {
       this.showUploadCard = false;
       this.isUploading = true;
-      ElMessage.info('⚡ 正在讀取並解析宅配報表...');
+
+      const validFiles = files.filter(f => /\.(xls|xlsx|csv)$/i.test(f.name));
+      if (validFiles.length === 0) {
+        ElMessage.error('請選取有效的 Excel (.xls, .xlsx) 或 CSV 檔案！');
+        this.isUploading = false;
+        return;
+      }
+
+      const totalFiles = validFiles.length;
+      let totalSuccessRecords = 0;
+      let latestFoundDate = '';
+
+      const loadingMsg = ElMessage.info({
+        message: `⚡ 準備批次處理 ${totalFiles} 個報表檔案...`,
+        duration: 0
+      });
+
       try {
-        const buffer = await file.arrayBuffer();
-        const wb = XLSX.read(buffer, { type: 'array' });
-        const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
+        for (let fileIndex = 0; fileIndex < totalFiles; fileIndex++) {
+          const file = validFiles[fileIndex];
+          const fileNum = fileIndex + 1;
 
-        if (data.length === 0) {
-          ElMessage.error('檔案內無資料！');
-          return;
-        }
+          loadingMsg.message = `⚡ [${fileNum}/${totalFiles}] 正在讀取並解析：${file.name}...`;
 
-        for (const row of data) {
-          const rawD = String(row['出貨日期'] || '').trim();
-          if (rawD && (rawD.includes('/') || rawD.includes('-'))) {
-            const cleanD = rawD.replace(/\//g, '-').split(' ')[0];
-            const parts = cleanD.split('-');
-            if (parts.length === 3) {
-              this.targetDate = `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
-            } else {
-              this.targetDate = cleanD;
+          const buffer = await file.arrayBuffer();
+          const wb = XLSX.read(buffer, { type: 'array' });
+          const sheet = wb.Sheets[wb.SheetNames[0]];
+          const data = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+
+          if (!data || data.length === 0) continue;
+
+          // 解析該檔案的出貨日期
+          for (const row of data) {
+            const rawD = String(row['出貨日期'] || '').trim();
+            if (rawD && (rawD.includes('/') || rawD.includes('-'))) {
+              const cleanD = rawD.replace(/\//g, '-').split(' ')[0];
+              const parts = cleanD.split('-');
+              if (parts.length === 3) {
+                latestFoundDate = `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+              } else {
+                latestFoundDate = cleanD;
+              }
+              break;
             }
-            break;
           }
+
+          // 分批寫入後端（每批 3,000 筆）
+          const BATCH = 3000;
+          for (let i = 0; i < data.length; i += BATCH) {
+            const chunk = data.slice(i, i + BATCH);
+            const percent = Math.min(100, Math.round(((i + chunk.length) / data.length) * 100));
+            loadingMsg.message = `⚡ [${fileNum}/${totalFiles}] 寫入 ${file.name} (${percent}%)...`;
+            await axios.post('/api/delivery/import-json', { items: chunk });
+          }
+
+          totalSuccessRecords += data.length;
         }
 
-        ElMessage.info(`正在寫入 ${data.length.toLocaleString()} 筆宅配記錄...`);
-        const BATCH = 3000;
-        for (let i = 0; i < data.length; i += BATCH) {
-          const chunk = data.slice(i, i + BATCH);
-          await axios.post('/api/delivery/import-json', { items: chunk });
+        loadingMsg.close();
+        ElMessage.success(`🎉 批次匯入完成！共處理 ${totalFiles} 個檔案，累計寫入約 ${totalSuccessRecords.toLocaleString()} 筆資料！`);
+
+        if (latestFoundDate) {
+          this.targetDate = latestFoundDate;
         }
 
-        ElMessage.success(`🎉 宅配報表全量匯入成功！已切換至 ${this.targetDate}`);
         await this.fetchDates();
         await this.fetchData();
       } catch (e) {
-        ElMessage.error('匯入出錯：' + e.message);
+        loadingMsg.close();
+        ElMessage.error('批次匯入過程發生錯誤：' + e.message);
       } finally {
         this.isUploading = false;
         if (this.$refs.fileInput) this.$refs.fileInput.value = '';
