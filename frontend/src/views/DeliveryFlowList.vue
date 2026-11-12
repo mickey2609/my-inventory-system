@@ -1,7 +1,7 @@
 <!-- frontend/src/views/DeliveryFlowList.vue -->
 <template>
   <div class="delivery-flow-page dark-bg">
-    <!-- 🌟 加上 multiple 支援多檔案同時選取 -->
+    <!-- 支援多檔案同時選取 -->
     <input
       type="file"
       ref="fileInput"
@@ -524,6 +524,39 @@
         <div class="drop-tip">🛡️ 自動依序排隊解析多檔日期、庫別、宅配商與全流程時效</div>
       </div>
     </el-dialog>
+
+    <!-- 5. 批次匯入即時進度視窗 -->
+    <el-dialog
+      v-model="showBatchProgressModal"
+      title="⚡ 正在批次匯入宅配報表..."
+      width="500px"
+      :close-on-click-modal="false"
+      :close-on-press-escape="false"
+      :show-close="false"
+      append-to-body
+      custom-class="dark-dialog"
+    >
+      <div class="batch-progress-wrapper">
+        <div class="bp-top-row">
+          <span>📂 總檔案進度：<strong>第 {{ currentFileIdx }} / {{ totalFileCount }} 個</strong></span>
+          <span class="bp-total-rows">累計寫入：{{ formatNumber(batchSuccessRows) }} 筆</span>
+        </div>
+
+        <div class="bp-file-banner">
+          📄 目前處理：<strong>{{ currentFileName }}</strong>（{{ currentStepText }}）
+        </div>
+
+        <div class="bp-bar-group">
+          <div class="bp-bar-label">當前檔案寫入進度：</div>
+          <el-progress :percentage="currentFilePercent" :stroke-width="18" :text-inside="true" status="success" />
+        </div>
+
+        <div class="bp-bar-group">
+          <div class="bp-bar-label">整體批次總進度：</div>
+          <el-progress :percentage="overallBatchPercent" :stroke-width="18" :text-inside="true" />
+        </div>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -586,7 +619,17 @@ export default {
       loadingDetails: false,
 
       showUploadCard: false,
-      isDragging: false
+      isDragging: false,
+
+      // 多檔案即時進度追蹤狀態
+      showBatchProgressModal: false,
+      currentFileIdx: 0,
+      totalFileCount: 0,
+      currentFileName: '',
+      currentStepText: '',
+      currentFilePercent: 0,
+      overallBatchPercent: 0,
+      batchSuccessRows: 0
     }
   },
   computed: {
@@ -1000,7 +1043,7 @@ export default {
       }
     },
 
-    // 🌟 支援多檔案同時拖曳與批次選取
+    // 多檔案拖曳與選取入口
     handleDrop(e) {
       this.isDragging = false;
       const files = Array.from(e.dataTransfer.files || []);
@@ -1021,30 +1064,38 @@ export default {
         return;
       }
 
-      const totalFiles = validFiles.length;
-      let totalSuccessRecords = 0;
-      let latestFoundDate = '';
+      // 初始化進度視窗狀態
+      this.totalFileCount = validFiles.length;
+      this.currentFileIdx = 0;
+      this.batchSuccessRows = 0;
+      this.currentFilePercent = 0;
+      this.overallBatchPercent = 0;
+      this.showBatchProgressModal = true;
 
-      const loadingMsg = ElMessage.info({
-        message: `⚡ 準備批次處理 ${totalFiles} 個報表檔案...`,
-        duration: 0
-      });
+      let latestFoundDate = '';
+      const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
       try {
-        for (let fileIndex = 0; fileIndex < totalFiles; fileIndex++) {
+        for (let fileIndex = 0; fileIndex < this.totalFileCount; fileIndex++) {
           const file = validFiles[fileIndex];
-          const fileNum = fileIndex + 1;
-
-          loadingMsg.message = `⚡ [${fileNum}/${totalFiles}] 正在讀取並解析：${file.name}...`;
+          this.currentFileIdx = fileIndex + 1;
+          this.currentFileName = file.name;
+          this.currentFilePercent = 5;
+          this.currentStepText = '正在讀取並解析 Excel...';
+          this.overallBatchPercent = Math.round((fileIndex / this.totalFileCount) * 100);
+          await sleep(30); // 讓瀏覽器先渲染進度條與目前檔名
 
           const buffer = await file.arrayBuffer();
           const wb = XLSX.read(buffer, { type: 'array' });
           const sheet = wb.Sheets[wb.SheetNames[0]];
           const data = XLSX.utils.sheet_to_json(sheet, { defval: '' });
 
-          if (!data || data.length === 0) continue;
+          if (!data || data.length === 0) {
+            this.currentStepText = '無有效資料，已跳過';
+            continue;
+          }
 
-          // 解析該檔案的出貨日期
+          // 解析出貨日期
           for (const row of data) {
             const rawD = String(row['出貨日期'] || '').trim();
             if (rawD && (rawD.includes('/') || rawD.includes('-'))) {
@@ -1063,16 +1114,20 @@ export default {
           const BATCH = 3000;
           for (let i = 0; i < data.length; i += BATCH) {
             const chunk = data.slice(i, i + BATCH);
-            const percent = Math.min(100, Math.round(((i + chunk.length) / data.length) * 100));
-            loadingMsg.message = `⚡ [${fileNum}/${totalFiles}] 寫入 ${file.name} (${percent}%)...`;
+            this.currentStepText = `寫入資料庫 (${Math.min(i + chunk.length, data.length).toLocaleString()} / ${data.length.toLocaleString()} 筆)`;
             await axios.post('/api/delivery/import-json', { items: chunk });
-          }
 
-          totalSuccessRecords += data.length;
+            this.batchSuccessRows += chunk.length;
+            this.currentFilePercent = Math.min(100, Math.round(((i + chunk.length) / data.length) * 100));
+            this.overallBatchPercent = Math.min(99, Math.round(((fileIndex + (this.currentFilePercent / 100)) / this.totalFileCount) * 100));
+          }
         }
 
-        loadingMsg.close();
-        ElMessage.success(`🎉 批次匯入完成！共處理 ${totalFiles} 個檔案，累計寫入約 ${totalSuccessRecords.toLocaleString()} 筆資料！`);
+        this.overallBatchPercent = 100;
+        this.currentStepText = '全部檔案匯入完成！';
+        await sleep(300);
+
+        ElMessage.success(`🎉 批次匯入完成！共處理 ${this.totalFileCount} 個檔案，累計寫入 ${this.batchSuccessRows.toLocaleString()} 筆資料！`);
 
         if (latestFoundDate) {
           this.targetDate = latestFoundDate;
@@ -1081,10 +1136,10 @@ export default {
         await this.fetchDates();
         await this.fetchData();
       } catch (e) {
-        loadingMsg.close();
         ElMessage.error('批次匯入過程發生錯誤：' + e.message);
       } finally {
         this.isUploading = false;
+        this.showBatchProgressModal = false;
         if (this.$refs.fileInput) this.$refs.fileInput.value = '';
       }
     }
@@ -1382,4 +1437,41 @@ export default {
 .drop-text-main { font-size: 15px; font-weight: bold; color: #f8fafc; margin-top: 10px; }
 .drop-text-sub { font-size: 12px; color: #94a3b8; margin-top: 4px; }
 .drop-tip { margin-top: 12px; font-size: 11px; color: #38bdf8; background: rgba(56, 189, 248, 0.1); padding: 4px 8px; border-radius: 4px; display: inline-block; }
+
+/* 批次進度彈窗樣式 */
+.batch-progress-wrapper {
+  padding: 8px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.bp-top-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 14px;
+  color: #f8fafc;
+}
+.bp-total-rows {
+  color: #38bdf8;
+  font-weight: bold;
+}
+.bp-file-banner {
+  font-size: 13px;
+  color: #facc15;
+  background: #0f172a;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid #334155;
+  word-break: break-all;
+}
+.bp-bar-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.bp-bar-label {
+  font-size: 12px;
+  color: #94a3b8;
+}
 </style>
