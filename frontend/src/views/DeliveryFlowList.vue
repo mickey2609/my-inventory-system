@@ -124,7 +124,17 @@
             當前數量：<strong>{{ formatNumber(totalOrders) }}</strong> {{ countMode === 'order' ? '單' : '件' }}
           </span>
           <el-button type="info" size="mini" icon="el-icon-refresh" :loading="loading" @click="refreshActiveView">重新整理</el-button>
-          <el-button type="success" size="mini" icon="el-icon-upload2" :loading="isUploading" @click="showUploadCard = true">📥 匯入宅配單</el-button>
+          <!-- 🌟 僅限管理員顯示匯入按鈕，訪客模式自動隱藏 -->
+          <el-button
+            v-if="checkAdmin"
+            type="success"
+            size="mini"
+            icon="el-icon-upload2"
+            :loading="isUploading"
+            @click="showUploadCard = true"
+          >
+            📥 匯入宅配單
+          </el-button>
         </div>
       </div>
 
@@ -279,7 +289,7 @@
         </div>
       </div>
 
-      <!-- 🌟 頁籤 2：班別出貨所消化之「接單日期與時段」觀察（優化預購長尾收納） -->
+      <!-- 頁籤 2：班別出貨所消化之「接單日期與時段」觀察 -->
       <div v-show="activeTab === 'order_lead_time'" class="tab-pane-box">
         <div class="chart-container" v-loading="loading">
           <div class="chart-header">
@@ -490,7 +500,7 @@
         </div>
       </div>
 
-      <!-- 🌟 頁籤 4：每月每日總表 -->
+      <!-- 頁籤 4：每月每日總表 -->
       <div v-show="activeTab === 'monthly_summary'" class="tab-pane-box">
         <div class="table-container" v-loading="loadingMonthly">
           <div class="table-header-bar">
@@ -556,7 +566,7 @@
         </div>
       </div>
 
-      <!-- 🌟 頁籤 5：年度每月總表 -->
+      <!-- 頁籤 5：年度每月總表 -->
       <div v-show="activeTab === 'yearly_summary'" class="tab-pane-box">
         <div class="table-container" v-loading="loadingYearly">
           <div class="table-header-bar">
@@ -676,8 +686,9 @@
       </div>
     </el-dialog>
 
-    <!-- 4. 多檔案拖曳上傳 Modal -->
+    <!-- 4. 多檔案拖曳上傳 Modal (僅限管理員顯示) -->
     <el-dialog
+      v-if="checkAdmin"
       v-model="showUploadCard"
       title="📥 批次匯入宅配報表 (支援一次多檔上傳)"
       width="520px"
@@ -742,11 +753,15 @@ import * as echarts from 'echarts'
 
 export default {
   name: 'DeliveryFlowList',
+  props: {
+    isSysAdmin: { type: Boolean, default: false },
+    isAdmin: { type: Boolean, default: false }
+  },
   data() {
     return {
       activeTab: 'ship_flow',
       countMode: 'tracking',
-      groupPreorders: true, // 🌟 預設合併 >2 日的預購/遠期積單，避免波浪圖拉太長
+      groupPreorders: true,
       loading: false,
       loadingMonthly: false,
       loadingYearly: false,
@@ -816,6 +831,20 @@ export default {
     }
   },
   computed: {
+    // 🌟 訪客與一般帳號權限過濾：僅管理員可使用匯入功能
+    checkAdmin() {
+      if (this.isSysAdmin || this.isAdmin) return true;
+      try {
+        const authSessionStr = localStorage.getItem('auth_session');
+        if (authSessionStr) {
+          const session = JSON.parse(authSessionStr);
+          if (session.role === 'guest' || session.username === 'guest') return false;
+          if (session.username === 'admin' || session.role === 'sys_admin' || session.role === 'admin') return true;
+        }
+      } catch (e) {}
+      const username = localStorage.getItem('currentUser') || localStorage.getItem('username') || '';
+      return username === 'admin' || username === '系統管理員';
+    },
     isDailyTab() {
       return ['ship_flow', 'order_lead_time', 'lead_analytics'].includes(this.activeTab);
     },
@@ -823,13 +852,11 @@ export default {
       if (this.selectedShift === 'all') return this.hourlyFlow;
       return this.hourlyFlow.filter(h => this.getHourShift(h.hour) === this.selectedShift);
     },
-    // 🌟 智慧合併「預購/遠期積單 (>2日)」的接單時間序列
     displayOrderTimelineFlow() {
       if (!this.groupPreorders || !this.targetDate || this.orderTimelineFlow.length === 0) {
         return this.orderTimelineFlow;
       }
 
-      // 計算截止日（targetDate 往前推 1 天，即只展開「昨日」與「今日」，更早的合併）
       const tDateObj = new Date(this.targetDate);
       tDateObj.setDate(tDateObj.getDate() - 1);
       const cutoffStr = tDateObj.toISOString().split('T')[0];
@@ -973,13 +1000,10 @@ export default {
       if (this.stageBottleneckChartInstance) this.stageBottleneckChartInstance.resize();
     },
 
-    // 🌟 前一天 / 後一天 / 最新 日期步進邏輯
     shiftDay(offset) {
       if (this.availableDates.length > 0) {
-        // availableDates 依日期降冪排列 (索引 0 是最新日期，索引越大日期越舊)
         const idx = this.availableDates.findIndex(d => d.ship_date === this.targetDate);
         if (idx !== -1) {
-          // offset = -1 往更早一天 (idx + 1)；offset = +1 往更新一天 (idx - 1)
           const targetIdx = idx - offset;
           if (targetIdx >= 0 && targetIdx < this.availableDates.length) {
             this.targetDate = this.availableDates[targetIdx].ship_date;
@@ -1265,7 +1289,6 @@ export default {
     },
 
     buildChartOption(xData, north, south, east, island, isOrderTimeline) {
-      // 當全展開且標籤數量 > 48 時自動間隔顯示 X 軸文字，避免重疊
       const autoInterval = (isOrderTimeline && !this.groupPreorders && xData.length > 48) ? 'auto' : 0;
       return {
         backgroundColor: 'transparent',
@@ -1358,14 +1381,20 @@ export default {
 
     handleDrop(e) {
       this.isDragging = false;
+      if (!this.checkAdmin) return;
       const files = Array.from(e.dataTransfer.files || []);
       if (files.length > 0) this.processMultiFiles(files);
     },
     handleFileSelected(e) {
+      if (!this.checkAdmin) return;
       const files = Array.from(e.target.files || []);
       if (files.length > 0) this.processMultiFiles(files);
     },
     async processMultiFiles(files) {
+      if (!this.checkAdmin) {
+        ElMessage.warning('⚠️ 訪客模式僅供檢視分析，無匯入權限！');
+        return;
+      }
       this.showUploadCard = false;
       this.isUploading = true;
 
