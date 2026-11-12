@@ -61,10 +61,10 @@ module.exports = function(db) {
     return keywords.some(k => cleanRmk.includes(k)) || cleanRmk.length > 5;
   }
 
-  // 1. 初始化資料庫 Schema 與複合唯一索引 (支援 ON CONFLICT 與自動結案)
+  // 1. 初始化資料庫 Schema，並自動將舊版 2 欄唯一限制無損升級為 4 欄複合限制
   db.serialize(() => {
-    db.run(`
-      CREATE TABLE IF NOT EXISTS dispatch_fish_details (
+    const createTableDDL = `
+      CREATE TABLE dispatch_fish_details (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         fast_pass_info TEXT,
         item_type TEXT,
@@ -91,19 +91,54 @@ module.exports = function(db) {
         imported_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(order_no, item_id, rec_date, rec_time)
       )
-    `);
+    `;
 
-    // 固化複合唯一約束，避免 ON CONFLICT 錯誤
-    db.run(`
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_dispatch_composite_conflict 
-      ON dispatch_fish_details (order_no, item_id, rec_date, rec_time)
-    `);
+    function buildIndexes() {
+      db.run(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_dispatch_composite_conflict 
+        ON dispatch_fish_details (order_no, item_id, rec_date, rec_time)
+      `);
+      db.run(`CREATE INDEX IF NOT EXISTS idx_dispatch_rec_date ON dispatch_fish_details (rec_date)`);
+      db.run(`CREATE INDEX IF NOT EXISTS idx_dispatch_check_date ON dispatch_fish_details (check_date)`);
+      db.run(`CREATE INDEX IF NOT EXISTS idx_dispatch_order_no ON dispatch_fish_details (order_no)`);
+      db.run(`CREATE INDEX IF NOT EXISTS idx_dispatch_item_id ON dispatch_fish_details (item_id)`);
+      db.run(`CREATE INDEX IF NOT EXISTS idx_dispatch_status ON dispatch_fish_details (doc_status)`);
+    }
 
-    db.run(`CREATE INDEX IF NOT EXISTS idx_dispatch_rec_date ON dispatch_fish_details (rec_date)`);
-    db.run(`CREATE INDEX IF NOT EXISTS idx_dispatch_check_date ON dispatch_fish_details (check_date)`);
-    db.run(`CREATE INDEX IF NOT EXISTS idx_dispatch_order_no ON dispatch_fish_details (order_no)`);
-    db.run(`CREATE INDEX IF NOT EXISTS idx_dispatch_item_id ON dispatch_fish_details (item_id)`);
-    db.run(`CREATE INDEX IF NOT EXISTS idx_dispatch_status ON dispatch_fish_details (doc_status)`);
+    db.get(`SELECT sql FROM sqlite_master WHERE type='table' AND name='dispatch_fish_details'`, [], (err, row) => {
+      if (!row) {
+        db.run(createTableDDL, buildIndexes);
+      } else if (row.sql && !row.sql.includes('rec_date, rec_time')) {
+        console.log('🔄 偵測到舊版 dispatch_fish_details 2欄唯一約束，正在執行無損資料搬移升級...');
+        db.serialize(() => {
+          db.run(`DROP TABLE IF EXISTS dispatch_fish_details_old`);
+          db.run(`ALTER TABLE dispatch_fish_details RENAME TO dispatch_fish_details_old`);
+          db.run(createTableDDL);
+
+          db.all(`PRAGMA table_info(dispatch_fish_details_old)`, [], (colErr, oldCols) => {
+            const targetCols = [
+              'fast_pass_info', 'item_type', 'order_no', 'source_category', 'pcs', 'cost_total',
+              'item_id', 'item_name', 'pm_user', 'release_date', 'release_time',
+              'appoint_date', 'rec_date', 'rec_time', 'remark', 'check_date', 'check_time',
+              'supplier_id', 'supplier_name', 'doc_status', 'finish_user', 'finish_remark', 'imported_at'
+            ];
+            const oldNames = new Set((oldCols || []).map(c => c.name));
+            const commonCols = targetCols.filter(c => oldNames.has(c));
+
+            if (commonCols.length > 0) {
+              const colStr = commonCols.join(', ');
+              db.run(`INSERT OR IGNORE INTO dispatch_fish_details (${colStr}) SELECT ${colStr} FROM dispatch_fish_details_old`);
+            }
+            db.run(`DROP TABLE IF EXISTS dispatch_fish_details_old`, () => {
+              console.log('✅ dispatch_fish_details 結構升級與歷史資料搬移完成！');
+              buildIndexes();
+            });
+          });
+        });
+      } else {
+        buildIndexes();
+      }
+    });
   });
 
   function applyFilters(sql, params, query) {
@@ -208,7 +243,6 @@ module.exports = function(db) {
         const order_no = getVal('來源單號', 'order_no');
         const item_id = getVal('商品ID', '商品編號', 'item_id');
 
-        // 若無單號或非 BR/BY 單號，跳過不寫入有效明細
         if (!order_no || !item_id || !/^(BR|BY)/i.test(order_no)) {
           continue;
         }
@@ -231,7 +265,6 @@ module.exports = function(db) {
         const supplier_id = getVal('供應商編號', 'supplier_id');
         const supplier_name = getVal('供應商名稱', 'supplier_name');
 
-        // 收集本次有單據的 Key
         currentImportingBatchKeys.add(`${order_no}__${item_id}__${rec_date}__${rec_time}`);
 
         stmt.run(
@@ -253,7 +286,6 @@ module.exports = function(db) {
         const autoCloseDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
         const autoCloseTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
 
-        // 【核心邏輯 1】：每次匯入時，資料庫內任何無來源單號的歷史記錄一律直接結案
         db.run(`
           UPDATE dispatch_fish_details
           SET check_date = ?, check_time = ?, doc_status = '已銷案', finish_user = '系統自動結案', finish_remark = '自動結案：無來源單號/已上架完成'
@@ -261,7 +293,6 @@ module.exports = function(db) {
             AND (doc_status IS NULL OR doc_status != '已銷案')
         `, [autoCloseDate, autoCloseTime], () => {});
 
-        // 【核心邏輯 2】：若為最後一批，將已不在報表中的先前未驗收單據自動判定結案
         if (isLastChunk && currentImportingBatchKeys.size > 0) {
           const pendingCheckSql = `
             SELECT id, order_no, item_id, rec_date, rec_time 
@@ -564,7 +595,7 @@ module.exports = function(db) {
     });
   });
 
-  // 6. 未驗收日期選單 API (嚴格排除無來源單號之記錄)
+  // 6. 未驗收日期選單 API
   router.get('/pending-dates', (req, res) => {
     const sql = `
       SELECT rec_date, COUNT(*) as count 
@@ -582,7 +613,7 @@ module.exports = function(db) {
     });
   });
 
-  // 7. 未驗收明細 API (嚴格排除無單號及已結案單據)
+  // 7. 未驗收明細 API
   router.get('/pending-details', (req, res) => {
     let { targetDate, date, hour, month, year } = req.query;
 
@@ -627,7 +658,7 @@ module.exports = function(db) {
     });
   });
 
-  // 8. 手動銷案 API (支援依 ID 唯一銷案)
+  // 8. 手動銷案 API
   router.post('/close-order', (req, res) => {
     const { keys, ids, startDate, endDate, closeUser, closeRemark } = req.body;
 
