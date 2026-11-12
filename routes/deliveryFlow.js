@@ -4,7 +4,6 @@ const express = require('express');
 module.exports = function(db) {
   const router = express.Router();
 
-  // 1. 標準化日期格式（自動補零，如 2026/11/1 -> 2026-11-01）
   function normalizeDate(dStr) {
     if (!dStr) return '';
     const clean = String(dStr).trim().replace(/\//g, '-').split(' ')[0];
@@ -56,13 +55,9 @@ module.exports = function(db) {
     const hour = parseInt(parts[0], 10);
     if (isNaN(hour)) return '未知';
 
-    if (hour >= 9 && hour < 17) {
-      return '日班';
-    } else if (hour >= 17 || hour === 0) {
-      return '夜班';
-    } else if (hour >= 1 && hour < 9) {
-      return '大夜班';
-    }
+    if (hour >= 9 && hour < 17) return '日班';
+    else if (hour >= 17 || hour === 0) return '夜班';
+    else if (hour >= 1 && hour < 9) return '大夜班';
     return '未知';
   }
 
@@ -86,7 +81,19 @@ module.exports = function(db) {
     return isNaN(dt.getTime()) ? null : dt;
   }
 
-  // 初始化資料表結構
+  // 共用條件過濾器
+  function buildCommonWhere(query, baseSql, baseParams) {
+    const { whCode, region, shift, carrier, deliveryType, is24h } = query;
+    if (whCode && whCode !== 'all') { baseSql += ` AND wh_code = ?`; baseParams.push(whCode); }
+    if (region && region !== 'all') { baseSql += ` AND region = ?`; baseParams.push(region); }
+    if (shift && shift !== 'all') { baseSql += ` AND shift_type = ?`; baseParams.push(shift); }
+    if (carrier && carrier !== 'all') { baseSql += ` AND carrier_name = ?`; baseParams.push(carrier); }
+    if (deliveryType && deliveryType !== 'all') { baseSql += ` AND delivery_type = ?`; baseParams.push(deliveryType); }
+    if (is24h && is24h !== 'all') { baseSql += ` AND is_24h = ?`; baseParams.push(is24h); }
+    return baseSql;
+  }
+
+  // 初始化資料表
   db.serialize(() => {
     db.run(`
       CREATE TABLE IF NOT EXISTS delivery_order_tracking (
@@ -153,18 +160,12 @@ module.exports = function(db) {
                 imported_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(tracking_no)
               )
-            `, () => {
-              createIndexesAndBackfill();
-            });
+            `, () => createIndexesAndBackfill());
           });
         } else {
           const neededCols = [
-            'wh_code TEXT',
-            'delivery_type TEXT',
-            'is_24h TEXT',
-            'wh_receive_time TEXT',
-            'print_pick_time TEXT',
-            'out_time TEXT'
+            'wh_code TEXT', 'delivery_type TEXT', 'is_24h TEXT',
+            'wh_receive_time TEXT', 'print_pick_time TEXT', 'out_time TEXT'
           ];
           neededCols.forEach(col => {
             db.run(`ALTER TABLE delivery_order_tracking ADD COLUMN ${col}`, () => {});
@@ -183,8 +184,6 @@ module.exports = function(db) {
       db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_carrier ON delivery_order_tracking (carrier_name)`);
       db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_type ON delivery_order_tracking (delivery_type)`);
       db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_24h ON delivery_order_tracking (is_24h)`);
-
-      // 🌟 自動為現有庫別為空白的歷史資料補齊為 80 庫
       db.run(`UPDATE delivery_order_tracking SET wh_code = '80' WHERE wh_code IS NULL OR wh_code = '' OR wh_code = 'nan'`);
     }
   });
@@ -237,7 +236,7 @@ module.exports = function(db) {
         const tracking_no = getV('宅配單號', 'tracking_no');
         const order_no = getV('訂單編號', '訂單編號 ', 'order_no');
         let wh_code = cleanWhCode(getV('庫別', 'wh_code', 'warehouse'));
-        if (!wh_code) wh_code = '80'; // 預設 80 庫
+        if (!wh_code) wh_code = '80';
         const ship_date = normalizeDate(getV('出貨日期', 'ship_date'));
         const ship_time = getV('出貨時間', 'ship_time');
 
@@ -303,7 +302,6 @@ module.exports = function(db) {
 
       db.all(`SELECT DISTINCT wh_code FROM delivery_order_tracking WHERE wh_code IS NOT NULL AND wh_code != '' ORDER BY wh_code ASC`, [], (wErr, wRows) => {
         let whList = (wRows || []).map(r => r.wh_code).filter(Boolean);
-        // 🌟 保底：若資料庫為空，預設提供 80 庫
         if (whList.length === 0) whList = ['80'];
 
         db.all(`SELECT DISTINCT carrier_name FROM delivery_order_tracking WHERE carrier_name IS NOT NULL AND carrier_name != ''`, [], (cErr, cRows) => {
@@ -321,7 +319,7 @@ module.exports = function(db) {
     });
   });
 
-  // 綜合分析 API
+  // 單日綜合分析 API
   router.get('/flow-analysis', (req, res) => {
     let { targetDate, whCode, region, shift, carrier, deliveryType, is24h, countMode } = req.query;
     countMode = countMode || 'tracking';
@@ -480,7 +478,6 @@ module.exports = function(db) {
         });
 
         const orderTimelineFlow = Object.values(orderTimelineMap).sort((a, b) => a.key.localeCompare(b.key));
-
         const avgLeadHours = leadHoursCount > 0 ? (totalLeadHoursSum / leadHoursCount).toFixed(1) : 0;
         const rate24h = lowerProcessRows.length > 0 ? ((is24hCount / lowerProcessRows.length) * 100).toFixed(1) : 0;
 
@@ -528,9 +525,183 @@ module.exports = function(db) {
     }
   });
 
-  // 穿透明細 API
+  // 🌟 新增：每月每日總表 API
+  router.get('/monthly-summary', (req, res) => {
+    const { month } = req.query;
+    let countMode = req.query.countMode || 'tracking';
+    if (!month) return res.status(400).json({ success: false, message: '請提供月份 (YYYY-MM)' });
+
+    let sql = `SELECT * FROM delivery_order_tracking WHERE ship_date LIKE ?`;
+    const params = [`${month}%`];
+    sql = buildCommonWhere(req.query, sql, params);
+
+    db.all(sql, params, (err, rows) => {
+      if (err) return res.status(500).json({ success: false, message: err.message });
+      rows = rows || [];
+
+      const daysMap = {};
+      rows.forEach(r => {
+        const d = r.ship_date;
+        if (!d) return;
+        if (!daysMap[d]) {
+          daysMap[d] = {
+            date: d,
+            rawRows: [],
+            orderSet: new Set()
+          };
+        }
+        daysMap[d].rawRows.push(r);
+        if (r.order_no) daysMap[d].orderSet.add(r.order_no);
+      });
+
+      const dailyList = Object.keys(daysMap).sort().map(d => {
+        const bucket = daysMap[d];
+        let processRows = bucket.rawRows;
+        if (countMode === 'order') {
+          const m = new Map();
+          bucket.rawRows.forEach(r => { if (!m.has(r.order_no)) m.set(r.order_no, r); });
+          processRows = Array.from(m.values());
+        }
+
+        let dayShift = 0, nightShift = 0, graveyardShift = 0;
+        let north = 0, south = 0, east = 0, island = 0;
+        let is24hCnt = 0, leadSum = 0, leadCnt = 0;
+
+        processRows.forEach(r => {
+          if (r.shift_type === '日班') dayShift++;
+          else if (r.shift_type === '夜班') nightShift++;
+          else if (r.shift_type === '大夜班') graveyardShift++;
+
+          if (r.region === '北北基桃') north++;
+          else if (r.region === '中南部') south++;
+          else if (r.region === '宜花東') east++;
+          else if (r.region === '外島') island++;
+
+          if (r.is_24h === '是') is24hCnt++;
+
+          const oDt = parseDateTime(r.order_date, r.order_time);
+          const sDt = parseDateTime(r.ship_date, r.ship_time);
+          if (oDt && sDt && sDt >= oDt) {
+            leadSum += (sDt - oDt) / (1000 * 3600);
+            leadCnt++;
+          }
+        });
+
+        const total = processRows.length;
+        return {
+          date: d,
+          total,
+          trackingCount: bucket.rawRows.length,
+          orderCount: bucket.orderSet.size,
+          dayShift,
+          nightShift,
+          graveyardShift,
+          north,
+          south,
+          east,
+          island,
+          rate24h: total > 0 ? ((is24hCnt / total) * 100).toFixed(1) + '%' : '0.0%',
+          avgLeadHours: leadCnt > 0 ? (leadSum / leadCnt).toFixed(1) : '0.0'
+        };
+      });
+
+      res.json({ success: true, month, dailyList });
+    });
+  });
+
+  // 🌟 新增：年度每月總表 API
+  router.get('/yearly-summary', (req, res) => {
+    const { year } = req.query;
+    let countMode = req.query.countMode || 'tracking';
+    if (!year) return res.status(400).json({ success: false, message: '請提供年份 (YYYY)' });
+
+    let sql = `SELECT * FROM delivery_order_tracking WHERE ship_date LIKE ?`;
+    const params = [`${year}%`];
+    sql = buildCommonWhere(req.query, sql, params);
+
+    db.all(sql, params, (err, rows) => {
+      if (err) return res.status(500).json({ success: false, message: err.message });
+      rows = rows || [];
+
+      const monthMap = {};
+      for (let m = 1; m <= 12; m++) {
+        const mKey = `${year}-${String(m).padStart(2, '0')}`;
+        monthMap[mKey] = {
+          month: mKey,
+          monthLabel: `${String(m).padStart(2, '0')}月`,
+          rawRows: [],
+          orderSet: new Set()
+        };
+      }
+
+      rows.forEach(r => {
+        const d = r.ship_date || '';
+        const mKey = d.slice(0, 7);
+        if (monthMap[mKey]) {
+          monthMap[mKey].rawRows.push(r);
+          if (r.order_no) monthMap[mKey].orderSet.add(r.order_no);
+        }
+      });
+
+      const monthlyList = Object.keys(monthMap).sort().map(mKey => {
+        const bucket = monthMap[mKey];
+        let processRows = bucket.rawRows;
+        if (countMode === 'order') {
+          const m = new Map();
+          bucket.rawRows.forEach(r => { if (!m.has(r.order_no)) m.set(r.order_no, r); });
+          processRows = Array.from(m.values());
+        }
+
+        let dayShift = 0, nightShift = 0, graveyardShift = 0;
+        let north = 0, south = 0, east = 0, island = 0;
+        let is24hCnt = 0, leadSum = 0, leadCnt = 0;
+
+        processRows.forEach(r => {
+          if (r.shift_type === '日班') dayShift++;
+          else if (r.shift_type === '夜班') nightShift++;
+          else if (r.shift_type === '大夜班') graveyardShift++;
+
+          if (r.region === '北北基桃') north++;
+          else if (r.region === '中南部') south++;
+          else if (r.region === '宜花東') east++;
+          else if (r.region === '外島') island++;
+
+          if (r.is_24h === '是') is24hCnt++;
+
+          const oDt = parseDateTime(r.order_date, r.order_time);
+          const sDt = parseDateTime(r.ship_date, r.ship_time);
+          if (oDt && sDt && sDt >= oDt) {
+            leadSum += (sDt - oDt) / (1000 * 3600);
+            leadCnt++;
+          }
+        });
+
+        const total = processRows.length;
+        return {
+          month: mKey,
+          monthLabel: bucket.monthLabel,
+          total,
+          trackingCount: bucket.rawRows.length,
+          orderCount: bucket.orderSet.size,
+          dayShift,
+          nightShift,
+          graveyardShift,
+          north,
+          south,
+          east,
+          island,
+          rate24h: total > 0 ? ((is24hCnt / total) * 100).toFixed(1) + '%' : '0.0%',
+          avgLeadHours: leadCnt > 0 ? (leadSum / leadCnt).toFixed(1) : '0.0'
+        };
+      });
+
+      res.json({ success: true, year, monthlyList });
+    });
+  });
+
+  // 穿透明細 API（支援預購/遠期訂單穿透查詢）
   router.get('/orders-detail', (req, res) => {
-    const { targetDate, whCode, shift, hour, orderDate, orderInterval, region, carrier, deliveryType, is24h } = req.query;
+    const { targetDate, whCode, shift, hour, orderDate, orderBeforeDate, orderInterval, region, carrier, deliveryType, is24h } = req.query;
     let sql = `SELECT * FROM delivery_order_tracking WHERE ship_date = ?`;
     const params = [targetDate];
 
@@ -541,8 +712,14 @@ module.exports = function(db) {
       sql += ` AND ship_time LIKE ?`;
       params.push(`${hStr}:%`);
     }
-    if (orderDate) { sql += ` AND order_date = ?`; params.push(orderDate); }
-    if (orderInterval) { sql += ` AND order_interval = ?`; params.push(orderInterval); }
+    if (orderBeforeDate) {
+      // 🌟 穿透查看「預購/遠期積單 (<= 截止日)」
+      sql += ` AND order_date <= ?`;
+      params.push(orderBeforeDate);
+    } else {
+      if (orderDate) { sql += ` AND order_date = ?`; params.push(orderDate); }
+      if (orderInterval) { sql += ` AND order_interval = ?`; params.push(orderInterval); }
+    }
     if (region && region !== 'all') { sql += ` AND region = ?`; params.push(region); }
     if (carrier && carrier !== 'all') { sql += ` AND carrier_name = ?`; params.push(carrier); }
     if (deliveryType && deliveryType !== 'all') { sql += ` AND delivery_type = ?`; params.push(deliveryType); }

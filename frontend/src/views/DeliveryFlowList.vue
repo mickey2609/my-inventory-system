@@ -1,7 +1,6 @@
 <!-- frontend/src/views/DeliveryFlowList.vue -->
 <template>
   <div class="delivery-flow-page dark-bg">
-    <!-- 支援多檔案同時選取 -->
     <input
       type="file"
       ref="fileInput"
@@ -13,43 +12,86 @@
 
     <!-- 1. 頂部條件與導覽工具列 -->
     <div class="control-header-panel">
-      <!-- 篩選列 1：基礎維度 -->
+      <!-- 篩選列 1：智慧日期步進器 + 基礎維度 -->
       <div class="filter-row">
-        <!-- 出貨日期 -->
-        <div class="filter-item">
+        <!-- 單日分析模式：前一天 / 日期 / 後一天 / 最新 -->
+        <div class="filter-item" v-if="isDailyTab">
           <span class="label">📅 出貨日期：</span>
-          <el-select
-            v-if="availableDates.length > 0"
-            v-model="targetDate"
-            size="small"
-            style="width: 175px;"
-            @change="fetchData"
-          >
-            <el-option
-              v-for="d in availableDates"
-              :key="d.ship_date"
-              :label="`${d.ship_date} (${formatNumber(countMode === 'order' ? (d.order_count || d.count) : (d.tracking_count || d.count))} ${countMode === 'order' ? '單' : '件'})`"
-              :value="d.ship_date"
+          <div class="date-stepper-group">
+            <el-button size="mini" type="primary" plain class="step-btn" @click="shiftDay(-1)" title="切換至前一天">◀</el-button>
+            <el-select
+              v-if="availableDates.length > 0"
+              v-model="targetDate"
+              size="mini"
+              style="width: 170px;"
+              @change="fetchData"
+            >
+              <el-option
+                v-for="d in availableDates"
+                :key="d.ship_date"
+                :label="`${d.ship_date} (${formatNumber(countMode === 'order' ? (d.order_count || d.count) : (d.tracking_count || d.count))} ${countMode === 'order' ? '單' : '件'})`"
+                :value="d.ship_date"
+              />
+            </el-select>
+            <el-date-picker
+              v-else
+              v-model="targetDate"
+              type="date"
+              size="mini"
+              value-format="YYYY-MM-DD"
+              placeholder="選擇出貨日期"
+              style="width: 130px;"
+              :clearable="false"
+              @change="fetchData"
             />
-          </el-select>
-          <el-date-picker
-            v-else
-            v-model="targetDate"
-            type="date"
-            size="small"
-            value-format="YYYY-MM-DD"
-            placeholder="選擇出貨日期"
-            style="width: 140px;"
-            :clearable="false"
-            @change="fetchData"
-          />
+            <el-button size="mini" type="primary" plain class="step-btn" @click="shiftDay(1)" title="切換至後一天">▶</el-button>
+            <el-button size="mini" type="info" plain class="step-latest-btn" @click="jumpToLatestDate" title="跳至最新有資料的日期">最新</el-button>
+          </div>
+        </div>
+
+        <!-- 每月每日總表模式：月份選擇器 -->
+        <div class="filter-item" v-else-if="activeTab === 'monthly_summary'">
+          <span class="label">🗓️ 統計月份：</span>
+          <div class="date-stepper-group">
+            <el-button size="mini" type="primary" plain class="step-btn" @click="shiftMonth(-1)">◀</el-button>
+            <el-date-picker
+              v-model="targetMonth"
+              type="month"
+              size="mini"
+              value-format="YYYY-MM"
+              placeholder="選擇月份"
+              style="width: 125px;"
+              :clearable="false"
+              @change="fetchMonthlySummary"
+            />
+            <el-button size="mini" type="primary" plain class="step-btn" @click="shiftMonth(1)">▶</el-button>
+          </div>
+        </div>
+
+        <!-- 年度每月總表模式：年份選擇器 -->
+        <div class="filter-item" v-else-if="activeTab === 'yearly_summary'">
+          <span class="label">📅 統計年份：</span>
+          <div class="date-stepper-group">
+            <el-button size="mini" type="primary" plain class="step-btn" @click="shiftYear(-1)">◀</el-button>
+            <el-date-picker
+              v-model="targetYear"
+              type="year"
+              size="mini"
+              value-format="YYYY"
+              placeholder="選擇年份"
+              style="width: 105px;"
+              :clearable="false"
+              @change="fetchYearlySummary"
+            />
+            <el-button size="mini" type="primary" plain class="step-btn" @click="shiftYear(1)">▶</el-button>
+          </div>
         </div>
 
         <!-- 統計維度：件數 vs 單數 -->
         <div class="filter-item highlight-box">
-          <span class="label text-yellow">📊 觀察維度：</span>
-          <el-radio-group v-model="countMode" size="small" @change="fetchData">
-            <el-radio-button label="tracking">📦 宅配單 ({{ formatNumber(totalTrackingCount) }} 件/箱)</el-radio-button>
+          <span class="label text-yellow">📊 維度：</span>
+          <el-radio-group v-model="countMode" size="mini" @change="refreshActiveView">
+            <el-radio-button label="tracking">📦 宅配單 ({{ formatNumber(totalTrackingCount) }} 件)</el-radio-button>
             <el-radio-button label="order">📋 訂單 ({{ formatNumber(totalOrderCount) }} 單)</el-radio-button>
           </el-radio-group>
         </div>
@@ -57,7 +99,7 @@
         <!-- 班別篩選器 -->
         <div class="filter-item highlight-shift-box">
           <span class="label text-blue">⏰ 班別：</span>
-          <el-radio-group v-model="selectedShift" size="small" @change="fetchData">
+          <el-radio-group v-model="selectedShift" size="mini" @change="refreshActiveView">
             <el-radio-button label="all">全部班別</el-radio-button>
             <el-radio-button label="日班">☀️ 日班</el-radio-button>
             <el-radio-button label="夜班">🌆 夜班</el-radio-button>
@@ -68,7 +110,7 @@
         <!-- 區域篩選器 -->
         <div class="filter-item">
           <span class="label">📍 區域：</span>
-          <el-radio-group v-model="selectedRegion" size="small" @change="fetchData">
+          <el-radio-group v-model="selectedRegion" size="mini" @change="refreshActiveView">
             <el-radio-button label="all">全部</el-radio-button>
             <el-radio-button label="北北基桃">北北基桃</el-radio-button>
             <el-radio-button label="中南部">中南部</el-radio-button>
@@ -78,11 +120,11 @@
         </div>
 
         <div class="btn-group">
-          <span class="total-badge">
+          <span class="total-badge" v-if="isDailyTab">
             當前數量：<strong>{{ formatNumber(totalOrders) }}</strong> {{ countMode === 'order' ? '單' : '件' }}
           </span>
-          <el-button type="info" size="small" icon="el-icon-refresh" :loading="loading" @click="fetchData">重新整理</el-button>
-          <el-button type="success" size="small" icon="el-icon-upload2" :loading="isUploading" @click="showUploadCard = true">📥 匯入宅配單</el-button>
+          <el-button type="info" size="mini" icon="el-icon-refresh" :loading="loading" @click="refreshActiveView">重新整理</el-button>
+          <el-button type="success" size="mini" icon="el-icon-upload2" :loading="isUploading" @click="showUploadCard = true">📥 匯入宅配單</el-button>
         </div>
       </div>
 
@@ -90,7 +132,7 @@
       <div class="filter-row filter-row-sub">
         <div class="filter-item">
           <span class="label">🏢 庫別：</span>
-          <el-select v-model="selectedWarehouse" size="mini" placeholder="全部庫別" style="width: 120px;" @change="fetchData">
+          <el-select v-model="selectedWarehouse" size="mini" placeholder="全部庫別" style="width: 115px;" @change="refreshActiveView">
             <el-option label="全部庫別" value="all" />
             <el-option v-for="w in warehouseOptions" :key="w" :label="`${w} 庫`" :value="w" />
           </el-select>
@@ -98,7 +140,7 @@
 
         <div class="filter-item">
           <span class="label">🚚 宅配商：</span>
-          <el-select v-model="selectedCarrier" size="mini" placeholder="全部宅配商" style="width: 150px;" @change="fetchData">
+          <el-select v-model="selectedCarrier" size="mini" placeholder="全部宅配商" style="width: 145px;" @change="refreshActiveView">
             <el-option label="全部宅配商" value="all" />
             <el-option v-for="c in carrierOptions" :key="c" :label="c" :value="c" />
           </el-select>
@@ -106,7 +148,7 @@
 
         <div class="filter-item">
           <span class="label">🏷️ 宅配類別：</span>
-          <el-select v-model="selectedDeliveryType" size="mini" placeholder="全部類別" style="width: 140px;" @change="fetchData">
+          <el-select v-model="selectedDeliveryType" size="mini" placeholder="全部類別" style="width: 135px;" @change="refreshActiveView">
             <el-option label="全部類別" value="all" />
             <el-option v-for="t in deliveryTypeOptions" :key="t" :label="t" :value="t" />
           </el-select>
@@ -114,7 +156,7 @@
 
         <div class="filter-item">
           <span class="label">⚡ 24H送達：</span>
-          <el-radio-group v-model="selected24h" size="mini" @change="fetchData">
+          <el-radio-group v-model="selected24h" size="mini" @change="refreshActiveView">
             <el-radio-button label="all">全部</el-radio-button>
             <el-radio-button label="是">⚡ 是 (24H)</el-radio-button>
             <el-radio-button label="否">一般 (非24H)</el-radio-button>
@@ -122,36 +164,30 @@
         </div>
       </div>
 
-      <!-- 頂部頁籤切換：三大模組頁籤 -->
+      <!-- 頂部五大功能頁籤列 -->
       <div class="sub-tabs-bar">
-        <button
-          class="sub-tab-btn"
-          :class="{ active: activeTab === 'ship_flow' }"
-          @click="activeTab = 'ship_flow'"
-        >
-          🌊 24小時出貨時段觀察（算出貨單數/件數）
+        <button class="sub-tab-btn" :class="{ active: activeTab === 'ship_flow' }" @click="switchSubTab('ship_flow')">
+          🌊 24小時出貨時段觀察
         </button>
-        <button
-          class="sub-tab-btn"
-          :class="{ active: activeTab === 'order_lead_time' }"
-          @click="activeTab = 'order_lead_time'"
-        >
-          ⏱️ 班別出貨 × 接單時效觀察（消化歷史積單）
+        <button class="sub-tab-btn" :class="{ active: activeTab === 'order_lead_time' }" @click="switchSubTab('order_lead_time')">
+          ⏱️ 班別出貨 × 接單時效觀察
         </button>
-        <button
-          class="sub-tab-btn highlight-tab"
-          :class="{ active: activeTab === 'lead_analytics' }"
-          @click="activeTab = 'lead_analytics'"
-        >
-          🚀 訂單時效全景分析（時效級距 & 5大作業瓶頸）
+        <button class="sub-tab-btn highlight-tab" :class="{ active: activeTab === 'lead_analytics' }" @click="switchSubTab('lead_analytics')">
+          🚀 訂單時效全景分析
+        </button>
+        <button class="sub-tab-btn summary-tab" :class="{ active: activeTab === 'monthly_summary' }" @click="switchSubTab('monthly_summary')">
+          🗓️ 每月每日總表
+        </button>
+        <button class="sub-tab-btn summary-tab" :class="{ active: activeTab === 'yearly_summary' }" @click="switchSubTab('yearly_summary')">
+          📅 年度每月總表
         </button>
       </div>
     </div>
 
     <!-- 2. 主視圖內容 -->
     <div class="main-content-scroll">
-      <!-- 三班數據總覽指標卡 -->
-      <div class="shift-cards-row">
+      <!-- 三班數據總覽指標卡（僅單日分析顯示） -->
+      <div class="shift-cards-row" v-if="isDailyTab">
         <div
           v-for="(info, shiftKey) in shiftSummary"
           :key="shiftKey"
@@ -243,18 +279,24 @@
         </div>
       </div>
 
-      <!-- 頁籤 2：班別出貨所消化之「接單日期與時段」觀察 -->
+      <!-- 🌟 頁籤 2：班別出貨所消化之「接單日期與時段」觀察（優化預購長尾收納） -->
       <div v-show="activeTab === 'order_lead_time'" class="tab-pane-box">
         <div class="chart-container" v-loading="loading">
           <div class="chart-header">
             <span class="chart-title">
-              🌊 【{{ selectedShift === 'all' ? '全日出貨' : selectedShift }}】消化之「接單日期與時段」區域流線波浪圖
+              🌊 【{{ selectedShift === 'all' ? '全日出貨' : selectedShift }}】消化之「接單日期與時段」波浪圖
             </span>
-            <div class="legend-tags">
-              <span class="lg-dot dot-north">● 北北基桃</span>
-              <span class="lg-dot dot-south">● 中南部</span>
-              <span class="lg-dot dot-east">● 宜花東</span>
-              <span class="lg-dot dot-island">● 外島</span>
+            <div class="chart-controls-right">
+              <el-radio-group v-model="groupPreorders" size="mini" @change="renderOrderChart">
+                <el-radio-button :label="true">📦 預購/遠期合併 (>2日)</el-radio-button>
+                <el-radio-button :label="false">🔍 展開全部時間軸</el-radio-button>
+              </el-radio-group>
+              <div class="legend-tags">
+                <span class="lg-dot dot-north">● 北北基桃</span>
+                <span class="lg-dot dot-south">● 中南部</span>
+                <span class="lg-dot dot-east">● 宜花東</span>
+                <span class="lg-dot dot-island">● 外島</span>
+              </div>
             </div>
           </div>
           <div ref="orderChart" class="flow-echart"></div>
@@ -265,15 +307,15 @@
             <span class="table-title">
               📋 【{{ selectedShift === 'all' ? '全日各班' : selectedShift }}】出貨所消化之「接單日期 × 時段」明細表
             </span>
-            <span class="tip-text">💡 橫軸已按接單時間展開，紅色標籤代表消化歷史積單</span>
+            <span class="tip-text">💡 2 日前之預購/遠期訂單已智慧彙整於首列，點擊「穿透」仍可檢視所有明細</span>
           </div>
 
           <div class="table-scroll-wrapper">
             <table class="flow-matrix-table">
               <thead>
                 <tr>
-                  <th style="width: 110px;">接單日期</th>
-                  <th style="width: 95px;">接單區間</th>
+                  <th style="width: 145px;">接單日期</th>
+                  <th style="width: 110px;">接單區間</th>
                   <th>區域分佈密度長條 (藍:北基桃 / 橘:中南 / 綠:花東 / 紫:外島)</th>
                   <th style="width: 100px;">消化數量 ({{ countMode === 'order' ? '單' : '件' }})</th>
                   <th style="width: 95px;">北北基桃</th>
@@ -284,17 +326,20 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-if="orderTimelineFlow.length === 0">
+                <tr v-if="displayOrderTimelineFlow.length === 0">
                   <td colspan="9" class="text-center text-dim" style="padding: 30px;">該條件下暫無出貨資料</td>
                 </tr>
                 <tr
-                  v-for="(row, idx) in orderTimelineFlow"
+                  v-for="(row, idx) in displayOrderTimelineFlow"
                   :key="row.key"
-                  :class="{ 'row-zebra': idx % 2 === 1, 'row-delay': isDelayOrder(row.orderDate) }"
+                  :class="{ 'row-zebra': idx % 2 === 1, 'row-delay': isDelayOrder(row.orderDate), 'row-preorder': row.isPreorderSummary }"
                 >
                   <td class="text-center font-bold">
-                    {{ row.orderDate }}
-                    <span v-if="isDelayOrder(row.orderDate)" class="delay-tag">歷史積單</span>
+                    <span v-if="row.isPreorderSummary" class="preorder-badge">📦 預購/遠期積單</span>
+                    <template v-else>
+                      {{ row.orderDate }}
+                      <span v-if="isDelayOrder(row.orderDate)" class="delay-tag">積單</span>
+                    </template>
                   </td>
                   <td class="text-center font-bold text-yellow">{{ row.orderInterval }}</td>
                   <td>
@@ -315,14 +360,14 @@
                       size="mini"
                       type="primary"
                       plain
-                      @click="openDetailModal({ orderDate: row.orderDate, orderInterval: row.orderInterval, title: `${targetDate} 出貨 [接單: ${row.orderDate} ${row.orderInterval}] 明細` })"
+                      @click="handleOrderRowDrill(row)"
                     >
                       穿透
                     </el-button>
                   </td>
                 </tr>
               </tbody>
-              <tfoot v-if="orderTimelineFlow.length > 0">
+              <tfoot v-if="displayOrderTimelineFlow.length > 0">
                 <tr class="table-total-row">
                   <td colspan="2" class="text-center font-bold text-yellow">總計</td>
                   <td></td>
@@ -374,7 +419,7 @@
             <div class="kpi-info">
               <span class="kpi-title">超過 24H 滯留出貨數</span>
               <div class="kpi-value text-red">{{ formatNumber(leadAnalytics.delayOver24hCount) }} <span class="unit">{{ countMode === 'order' ? '單' : '件' }}</span></div>
-              <span class="kpi-sub">含 48H 以上積壓單</span>
+              <span class="kpi-sub">含預購與 48H 以上積壓單</span>
             </div>
           </div>
         </div>
@@ -397,8 +442,8 @@
 
         <div class="table-container" v-loading="loading">
           <div class="table-header-bar">
-            <span class="table-title">🚨 超時滯留訂單追蹤清單 (接單至出貨 > 24 小時)</span>
-            <span class="tip-text">共調閱 {{ leadAnalytics.delayedOrdersList.length }} 筆延遲單據</span>
+            <span class="table-title">🚨 超時滯留與預購訂單追蹤清單 (接單至出貨 > 24 小時)</span>
+            <span class="tip-text">共調閱 {{ leadAnalytics.delayedOrdersList.length }} 筆單據</span>
           </div>
 
           <div class="table-scroll-wrapper">
@@ -421,7 +466,7 @@
               </thead>
               <tbody>
                 <tr v-if="leadAnalytics.delayedOrdersList.length === 0">
-                  <td colspan="12" class="text-center text-dim" style="padding: 24px;">🎉 本日無超過 24 小時出貨之嚴重延遲訂單！</td>
+                  <td colspan="12" class="text-center text-dim" style="padding: 24px;">🎉 本日無超過 24 小時出貨之延遲訂單！</td>
                 </tr>
                 <tr v-for="d in leadAnalytics.delayedOrdersList" :key="d.tracking_no">
                   <td class="font-bold text-blue copyable" @click="copyText(d.tracking_no)">{{ d.tracking_no }}</td>
@@ -440,6 +485,135 @@
                   <td class="text-dim" style="max-width: 250px; overflow: hidden; text-overflow: ellipsis;">{{ d.address }}</td>
                 </tr>
               </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- 🌟 頁籤 4：每月每日總表 -->
+      <div v-show="activeTab === 'monthly_summary'" class="tab-pane-box">
+        <div class="table-container" v-loading="loadingMonthly">
+          <div class="table-header-bar">
+            <span class="table-title">🗓️ {{ targetMonth }} 月份每日出貨總表（點擊「看當日波浪」可直接跳轉該日明細）</span>
+            <span class="tip-text">全月共 {{ monthlyDailyList.length }} 個出貨日，累計 {{ formatNumber(monthlyTotalSummary.total) }} {{ countMode === 'order' ? '單' : '件' }}</span>
+          </div>
+
+          <div class="table-scroll-wrapper" style="max-height: calc(100vh - 230px);">
+            <table class="flow-matrix-table">
+              <thead>
+                <tr>
+                  <th style="width: 115px;">出貨日期</th>
+                  <th style="width: 105px;">總出貨 ({{ countMode === 'order' ? '單' : '件' }})</th>
+                  <th style="width: 95px;">☀️ 日班</th>
+                  <th style="width: 95px;">🌆 夜班</th>
+                  <th style="width: 95px;">🌙 大夜班</th>
+                  <th style="width: 95px;">北北基桃</th>
+                  <th style="width: 95px;">中南部</th>
+                  <th style="width: 80px;">宜花東</th>
+                  <th style="width: 70px;">外島</th>
+                  <th style="width: 90px;">24H佔比</th>
+                  <th style="width: 90px;">平均時效</th>
+                  <th style="width: 105px;">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="monthlyDailyList.length === 0">
+                  <td colspan="12" class="text-center text-dim" style="padding: 30px;">{{ targetMonth }} 月份尚無匯入出貨資料</td>
+                </tr>
+                <tr v-for="(d, idx) in monthlyDailyList" :key="d.date" :class="{ 'row-zebra': idx % 2 === 1 }">
+                  <td class="text-center font-bold">{{ d.date }}</td>
+                  <td class="text-right font-bold text-yellow">{{ formatNumber(d.total) }}</td>
+                  <td class="text-right text-blue">{{ formatNumber(d.dayShift) }}</td>
+                  <td class="text-right text-orange">{{ formatNumber(d.nightShift) }}</td>
+                  <td class="text-right text-purple">{{ formatNumber(d.graveyardShift) }}</td>
+                  <td class="text-right">{{ formatNumber(d.north) }}</td>
+                  <td class="text-right">{{ formatNumber(d.south) }}</td>
+                  <td class="text-right">{{ formatNumber(d.east) }}</td>
+                  <td class="text-right">{{ formatNumber(d.island) }}</td>
+                  <td class="text-center text-green font-bold">{{ d.rate24h }}</td>
+                  <td class="text-center">{{ d.avgLeadHours }} H</td>
+                  <td class="text-center">
+                    <el-button size="mini" type="primary" plain @click="jumpToDailyFromSummary(d.date)">看當日波浪</el-button>
+                  </td>
+                </tr>
+              </tbody>
+              <tfoot v-if="monthlyDailyList.length > 0">
+                <tr class="table-total-row">
+                  <td class="text-center font-bold text-yellow">全月總計</td>
+                  <td class="text-right font-bold text-yellow">{{ formatNumber(monthlyTotalSummary.total) }}</td>
+                  <td class="text-right font-bold text-blue">{{ formatNumber(monthlyTotalSummary.dayShift) }}</td>
+                  <td class="text-right font-bold text-orange">{{ formatNumber(monthlyTotalSummary.nightShift) }}</td>
+                  <td class="text-right font-bold text-purple">{{ formatNumber(monthlyTotalSummary.graveyardShift) }}</td>
+                  <td class="text-right font-bold">{{ formatNumber(monthlyTotalSummary.north) }}</td>
+                  <td class="text-right font-bold">{{ formatNumber(monthlyTotalSummary.south) }}</td>
+                  <td class="text-right font-bold">{{ formatNumber(monthlyTotalSummary.east) }}</td>
+                  <td class="text-right font-bold">{{ formatNumber(monthlyTotalSummary.island) }}</td>
+                  <td colspan="3"></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- 🌟 頁籤 5：年度每月總表 -->
+      <div v-show="activeTab === 'yearly_summary'" class="tab-pane-box">
+        <div class="table-container" v-loading="loadingYearly">
+          <div class="table-header-bar">
+            <span class="table-title">📅 {{ targetYear }} 年度每月出貨總表（點擊「看該月明細」可鑽取該月每日數據）</span>
+            <span class="tip-text">全年累計 {{ formatNumber(yearlyTotalSummary.total) }} {{ countMode === 'order' ? '單' : '件' }}</span>
+          </div>
+
+          <div class="table-scroll-wrapper" style="max-height: calc(100vh - 230px);">
+            <table class="flow-matrix-table">
+              <thead>
+                <tr>
+                  <th style="width: 115px;">統計月份</th>
+                  <th style="width: 110px;">月總出貨 ({{ countMode === 'order' ? '單' : '件' }})</th>
+                  <th style="width: 95px;">☀️ 日班</th>
+                  <th style="width: 95px;">🌆 夜班</th>
+                  <th style="width: 95px;">🌙 大夜班</th>
+                  <th style="width: 95px;">北北基桃</th>
+                  <th style="width: 95px;">中南部</th>
+                  <th style="width: 80px;">宜花東</th>
+                  <th style="width: 70px;">外島</th>
+                  <th style="width: 90px;">24H佔比</th>
+                  <th style="width: 90px;">平均時效</th>
+                  <th style="width: 105px;">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(m, idx) in yearlyMonthlyList" :key="m.month" :class="{ 'row-zebra': idx % 2 === 1 }">
+                  <td class="text-center font-bold">{{ m.monthLabel }} ({{ m.month }})</td>
+                  <td class="text-right font-bold text-yellow">{{ formatNumber(m.total) }}</td>
+                  <td class="text-right text-blue">{{ formatNumber(m.dayShift) }}</td>
+                  <td class="text-right text-orange">{{ formatNumber(m.nightShift) }}</td>
+                  <td class="text-right text-purple">{{ formatNumber(m.graveyardShift) }}</td>
+                  <td class="text-right">{{ formatNumber(m.north) }}</td>
+                  <td class="text-right">{{ formatNumber(m.south) }}</td>
+                  <td class="text-right">{{ formatNumber(m.east) }}</td>
+                  <td class="text-right">{{ formatNumber(m.island) }}</td>
+                  <td class="text-center text-green font-bold">{{ m.rate24h }}</td>
+                  <td class="text-center">{{ m.avgLeadHours }} H</td>
+                  <td class="text-center">
+                    <el-button size="mini" type="primary" plain :disabled="m.total === 0" @click="jumpToMonthlyFromYearly(m.month)">看該月明細</el-button>
+                  </td>
+                </tr>
+              </tbody>
+              <tfoot v-if="yearlyMonthlyList.length > 0">
+                <tr class="table-total-row">
+                  <td class="text-center font-bold text-yellow">全年總計</td>
+                  <td class="text-right font-bold text-yellow">{{ formatNumber(yearlyTotalSummary.total) }}</td>
+                  <td class="text-right font-bold text-blue">{{ formatNumber(yearlyTotalSummary.dayShift) }}</td>
+                  <td class="text-right font-bold text-orange">{{ formatNumber(yearlyTotalSummary.nightShift) }}</td>
+                  <td class="text-right font-bold text-purple">{{ formatNumber(yearlyTotalSummary.graveyardShift) }}</td>
+                  <td class="text-right font-bold">{{ formatNumber(yearlyTotalSummary.north) }}</td>
+                  <td class="text-right font-bold">{{ formatNumber(yearlyTotalSummary.south) }}</td>
+                  <td class="text-right font-bold">{{ formatNumber(yearlyTotalSummary.east) }}</td>
+                  <td class="text-right font-bold">{{ formatNumber(yearlyTotalSummary.island) }}</td>
+                  <td colspan="3"></td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         </div>
@@ -572,9 +746,16 @@ export default {
     return {
       activeTab: 'ship_flow',
       countMode: 'tracking',
+      groupPreorders: true, // 🌟 預設合併 >2 日的預購/遠期積單，避免波浪圖拉太長
       loading: false,
+      loadingMonthly: false,
+      loadingYearly: false,
       isUploading: false,
+
       targetDate: '',
+      targetMonth: new Date().toISOString().slice(0, 7),
+      targetYear: new Date().getFullYear().toString(),
+
       selectedWarehouse: 'all',
       selectedRegion: 'all',
       selectedShift: 'all',
@@ -598,6 +779,9 @@ export default {
       },
       hourlyFlow: [],
       orderTimelineFlow: [],
+      monthlyDailyList: [],
+      yearlyMonthlyList: [],
+
       leadAnalytics: {
         avgLeadHours: 0,
         rate24h: 0,
@@ -621,7 +805,6 @@ export default {
       showUploadCard: false,
       isDragging: false,
 
-      // 多檔案即時進度追蹤狀態
       showBatchProgressModal: false,
       currentFileIdx: 0,
       totalFileCount: 0,
@@ -633,9 +816,83 @@ export default {
     }
   },
   computed: {
+    isDailyTab() {
+      return ['ship_flow', 'order_lead_time', 'lead_analytics'].includes(this.activeTab);
+    },
     filteredHourlyFlow() {
       if (this.selectedShift === 'all') return this.hourlyFlow;
       return this.hourlyFlow.filter(h => this.getHourShift(h.hour) === this.selectedShift);
+    },
+    // 🌟 智慧合併「預購/遠期積單 (>2日)」的接單時間序列
+    displayOrderTimelineFlow() {
+      if (!this.groupPreorders || !this.targetDate || this.orderTimelineFlow.length === 0) {
+        return this.orderTimelineFlow;
+      }
+
+      // 計算截止日（targetDate 往前推 1 天，即只展開「昨日」與「今日」，更早的合併）
+      const tDateObj = new Date(this.targetDate);
+      tDateObj.setDate(tDateObj.getDate() - 1);
+      const cutoffStr = tDateObj.toISOString().split('T')[0];
+
+      const preorderBucket = {
+        key: '0000-00-00_preorder',
+        isPreorderSummary: true,
+        orderBeforeDate: this.getDayBeforeCutoff(cutoffStr),
+        orderDate: `<= ${this.getDayBeforeCutoff(cutoffStr)}`,
+        orderInterval: '預購/遠期彙總',
+        timelineLabel: `預購/遠期 (<= ${this.getDayBeforeCutoff(cutoffStr).slice(5)})`,
+        total: 0,
+        '北北基桃': 0,
+        '中南部': 0,
+        '宜花東': 0,
+        '外島': 0,
+        '其他/未識別': 0
+      };
+
+      const recentRows = [];
+      let hasPreorders = false;
+
+      this.orderTimelineFlow.forEach(row => {
+        if (row.orderDate && row.orderDate !== '未記錄日期' && row.orderDate < cutoffStr) {
+          hasPreorders = true;
+          preorderBucket.total += row.total || 0;
+          preorderBucket['北北基桃'] += row['北北基桃'] || 0;
+          preorderBucket['中南部'] += row['中南部'] || 0;
+          preorderBucket['宜花東'] += row['宜花東'] || 0;
+          preorderBucket['外島'] += row['外島'] || 0;
+          preorderBucket['其他/未識別'] += row['其他/未識別'] || 0;
+        } else {
+          recentRows.push(row);
+        }
+      });
+
+      return hasPreorders ? [preorderBucket, ...recentRows] : recentRows;
+    },
+    monthlyTotalSummary() {
+      return this.monthlyDailyList.reduce((acc, d) => {
+        acc.total += d.total || 0;
+        acc.dayShift += d.dayShift || 0;
+        acc.nightShift += d.nightShift || 0;
+        acc.graveyardShift += d.graveyardShift || 0;
+        acc.north += d.north || 0;
+        acc.south += d.south || 0;
+        acc.east += d.east || 0;
+        acc.island += d.island || 0;
+        return acc;
+      }, { total: 0, dayShift: 0, nightShift: 0, graveyardShift: 0, north: 0, south: 0, east: 0, island: 0 });
+    },
+    yearlyTotalSummary() {
+      return this.yearlyMonthlyList.reduce((acc, m) => {
+        acc.total += m.total || 0;
+        acc.dayShift += m.dayShift || 0;
+        acc.nightShift += m.nightShift || 0;
+        acc.graveyardShift += m.graveyardShift || 0;
+        acc.north += m.north || 0;
+        acc.south += m.south || 0;
+        acc.east += m.east || 0;
+        acc.island += m.island || 0;
+        return acc;
+      }, { total: 0, dayShift: 0, nightShift: 0, graveyardShift: 0, north: 0, south: 0, east: 0, island: 0 });
     },
     filteredModalList() {
       if (!this.filterKeyword.trim()) return this.modalList;
@@ -646,13 +903,6 @@ export default {
         (r.carrier_name && r.carrier_name.toLowerCase().includes(kw)) ||
         (r.receiver_name && r.receiver_name.toLowerCase().includes(kw))
       );
-    }
-  },
-  watch: {
-    activeTab() {
-      this.$nextTick(() => {
-        this.renderAllCharts();
-      });
     }
   },
   mounted() {
@@ -670,6 +920,11 @@ export default {
   },
   methods: {
     formatNumber(v) { return Number(v || 0).toLocaleString(); },
+    getDayBeforeCutoff(cutoffStr) {
+      const d = new Date(cutoffStr);
+      d.setDate(d.getDate() - 1);
+      return d.toISOString().split('T')[0];
+    },
     getShiftClass(s) {
       if (s === '日班') return 'shift-day';
       if (s === '夜班') return 'shift-night';
@@ -702,7 +957,7 @@ export default {
       return orderDate < this.targetDate;
     },
     sumRegion(regKey) {
-      return this.orderTimelineFlow.reduce((acc, row) => acc + (row[regKey] || 0), 0);
+      return this.displayOrderTimelineFlow.reduce((acc, row) => acc + (row[regKey] || 0), 0);
     },
     selectShiftCard(shiftKey) {
       this.selectedShift = this.selectedShift === shiftKey ? 'all' : shiftKey;
@@ -716,6 +971,91 @@ export default {
       if (this.orderChartInstance) this.orderChartInstance.resize();
       if (this.leadBracketChartInstance) this.leadBracketChartInstance.resize();
       if (this.stageBottleneckChartInstance) this.stageBottleneckChartInstance.resize();
+    },
+
+    // 🌟 前一天 / 後一天 / 最新 日期步進邏輯
+    shiftDay(offset) {
+      if (this.availableDates.length > 0) {
+        // availableDates 依日期降冪排列 (索引 0 是最新日期，索引越大日期越舊)
+        const idx = this.availableDates.findIndex(d => d.ship_date === this.targetDate);
+        if (idx !== -1) {
+          // offset = -1 往更早一天 (idx + 1)；offset = +1 往更新一天 (idx - 1)
+          const targetIdx = idx - offset;
+          if (targetIdx >= 0 && targetIdx < this.availableDates.length) {
+            this.targetDate = this.availableDates[targetIdx].ship_date;
+            this.fetchData();
+          } else {
+            ElMessage.info(offset < 0 ? '已是最早一筆匯入日期' : '已是最新一筆匯入日期');
+          }
+          return;
+        }
+      }
+      const d = new Date(this.targetDate || new Date());
+      d.setDate(d.getDate() + offset);
+      this.targetDate = d.toISOString().split('T')[0];
+      this.fetchData();
+    },
+    jumpToLatestDate() {
+      if (this.availableDates.length > 0) {
+        this.targetDate = this.availableDates[0].ship_date;
+      } else {
+        this.targetDate = new Date().toISOString().split('T')[0];
+      }
+      this.fetchData();
+    },
+    shiftMonth(offset) {
+      const parts = (this.targetMonth || '').split('-');
+      let y = parseInt(parts[0], 10) || new Date().getFullYear();
+      let m = (parseInt(parts[1], 10) || (new Date().getMonth() + 1)) + offset;
+      if (m < 1) { m = 12; y--; }
+      else if (m > 12) { m = 1; y++; }
+      this.targetMonth = `${y}-${String(m).padStart(2, '0')}`;
+      this.fetchMonthlySummary();
+    },
+    shiftYear(offset) {
+      const y = (parseInt(this.targetYear, 10) || new Date().getFullYear()) + offset;
+      this.targetYear = String(y);
+      this.fetchYearlySummary();
+    },
+
+    switchSubTab(tabName) {
+      this.activeTab = tabName;
+      if (tabName === 'monthly_summary') {
+        if (this.targetDate) this.targetMonth = this.targetDate.slice(0, 7);
+        this.fetchMonthlySummary();
+      } else if (tabName === 'yearly_summary') {
+        if (this.targetDate) this.targetYear = this.targetDate.slice(0, 4);
+        this.fetchYearlySummary();
+      } else {
+        this.$nextTick(() => this.renderAllCharts());
+      }
+    },
+    refreshActiveView() {
+      if (this.activeTab === 'monthly_summary') this.fetchMonthlySummary();
+      else if (this.activeTab === 'yearly_summary') this.fetchYearlySummary();
+      else this.fetchData();
+    },
+    jumpToDailyFromSummary(dateStr) {
+      this.targetDate = dateStr;
+      this.activeTab = 'ship_flow';
+      this.fetchData();
+    },
+    jumpToMonthlyFromYearly(monthStr) {
+      this.targetMonth = monthStr;
+      this.activeTab = 'monthly_summary';
+      this.fetchMonthlySummary();
+    },
+
+    getFilterParams() {
+      return {
+        whCode: this.selectedWarehouse,
+        region: this.selectedRegion,
+        shift: this.selectedShift,
+        carrier: this.selectedCarrier,
+        deliveryType: this.selectedDeliveryType,
+        is24h: this.selected24h,
+        countMode: this.countMode
+      };
     },
 
     async fetchDates() {
@@ -737,16 +1077,7 @@ export default {
       this.loading = true;
       try {
         const res = await axios.get('/api/delivery/flow-analysis', {
-          params: {
-            targetDate: this.targetDate,
-            whCode: this.selectedWarehouse,
-            region: this.selectedRegion,
-            shift: this.selectedShift,
-            carrier: this.selectedCarrier,
-            deliveryType: this.selectedDeliveryType,
-            is24h: this.selected24h,
-            countMode: this.countMode
-          }
+          params: { targetDate: this.targetDate, ...this.getFilterParams() }
         });
         if (res.data?.success) {
           this.targetDate = res.data.targetDate || this.targetDate;
@@ -766,14 +1097,42 @@ export default {
       }
     },
 
-    renderAllCharts() {
-      if (this.activeTab === 'ship_flow') {
-        this.renderShipChart();
-      } else if (this.activeTab === 'order_lead_time') {
-        this.renderOrderChart();
-      } else if (this.activeTab === 'lead_analytics') {
-        this.renderLeadAnalyticsCharts();
+    async fetchMonthlySummary() {
+      this.loadingMonthly = true;
+      try {
+        const res = await axios.get('/api/delivery/monthly-summary', {
+          params: { month: this.targetMonth, ...this.getFilterParams() }
+        });
+        if (res.data?.success) {
+          this.monthlyDailyList = res.data.dailyList || [];
+        }
+      } catch (e) {
+        ElMessage.error('取得月度總表失敗：' + e.message);
+      } finally {
+        this.loadingMonthly = false;
       }
+    },
+
+    async fetchYearlySummary() {
+      this.loadingYearly = true;
+      try {
+        const res = await axios.get('/api/delivery/yearly-summary', {
+          params: { year: this.targetYear, ...this.getFilterParams() }
+        });
+        if (res.data?.success) {
+          this.yearlyMonthlyList = res.data.monthlyList || [];
+        }
+      } catch (e) {
+        ElMessage.error('取得年度總表失敗：' + e.message);
+      } finally {
+        this.loadingYearly = false;
+      }
+    },
+
+    renderAllCharts() {
+      if (this.activeTab === 'ship_flow') this.renderShipChart();
+      else if (this.activeTab === 'order_lead_time') this.renderOrderChart();
+      else if (this.activeTab === 'lead_analytics') this.renderLeadAnalyticsCharts();
     },
 
     renderShipChart() {
@@ -784,8 +1143,6 @@ export default {
           const hour = params.dataIndex;
           this.openDetailModal({
             hour,
-            whCode: this.selectedWarehouse !== 'all' ? this.selectedWarehouse : undefined,
-            region: this.selectedRegion !== 'all' ? this.selectedRegion : undefined,
             title: `${this.targetDate} ${String(hour).padStart(2, '0')}:00 時段出貨明細`
           });
         });
@@ -807,28 +1164,36 @@ export default {
       if (!this.orderChartInstance) {
         this.orderChartInstance = echarts.init(this.$refs.orderChart);
         this.orderChartInstance.on('click', (params) => {
-          const item = this.orderTimelineFlow[params.dataIndex];
-          if (item) {
-            this.openDetailModal({
-              orderDate: item.orderDate,
-              orderInterval: item.orderInterval,
-              whCode: this.selectedWarehouse !== 'all' ? this.selectedWarehouse : undefined,
-              region: this.selectedRegion !== 'all' ? this.selectedRegion : undefined,
-              title: `${this.targetDate} 出貨 [接單: ${item.timelineLabel}] 明細`
-            });
-          }
+          const item = this.displayOrderTimelineFlow[params.dataIndex];
+          if (item) this.handleOrderRowDrill(item);
         });
       }
 
-      const xLabels = this.orderTimelineFlow.map(item => item.timelineLabel);
-      const northData = this.orderTimelineFlow.map(item => item['北北基桃']);
-      const southData = this.orderTimelineFlow.map(item => item['中南部']);
-      const eastData = this.orderTimelineFlow.map(item => item['宜花東']);
-      const islandData = this.orderTimelineFlow.map(item => item['外島']);
+      const sourceList = this.displayOrderTimelineFlow;
+      const xLabels = sourceList.map(item => item.timelineLabel);
+      const northData = sourceList.map(item => item['北北基桃']);
+      const southData = sourceList.map(item => item['中南部']);
+      const eastData = sourceList.map(item => item['宜花東']);
+      const islandData = sourceList.map(item => item['外島']);
 
       const option = this.buildChartOption(xLabels, northData, southData, eastData, islandData, true);
       this.orderChartInstance.setOption(option, true);
       this.orderChartInstance.resize();
+    },
+
+    handleOrderRowDrill(row) {
+      if (row.isPreorderSummary) {
+        this.openDetailModal({
+          orderBeforeDate: row.orderBeforeDate,
+          title: `${this.targetDate} 出貨 [預購/遠期積單 (${row.orderDate})] 明細`
+        });
+      } else {
+        this.openDetailModal({
+          orderDate: row.orderDate,
+          orderInterval: row.orderInterval,
+          title: `${this.targetDate} 出貨 [接單: ${row.timelineLabel}] 明細`
+        });
+      }
     },
 
     renderLeadAnalyticsCharts() {
@@ -844,16 +1209,8 @@ export default {
           backgroundColor: 'transparent',
           tooltip: { trigger: 'axis' },
           grid: { top: '10%', left: '4%', right: '4%', bottom: '10%', containLabel: true },
-          xAxis: {
-            type: 'category',
-            data: xCats,
-            axisLabel: { color: '#cbd5e1', fontSize: 11 }
-          },
-          yAxis: {
-            type: 'value',
-            splitLine: { lineStyle: { color: 'rgba(255,255,255,0.06)' } },
-            axisLabel: { color: '#94a3b8' }
-          },
+          xAxis: { type: 'category', data: xCats, axisLabel: { color: '#cbd5e1', fontSize: 11 } },
+          yAxis: { type: 'value', splitLine: { lineStyle: { color: 'rgba(255,255,255,0.06)' } }, axisLabel: { color: '#94a3b8' } },
           series: [{
             type: 'bar',
             barWidth: '45%',
@@ -888,18 +1245,8 @@ export default {
           backgroundColor: 'transparent',
           tooltip: { trigger: 'axis', formatter: '{b}: {c} 分鐘' },
           grid: { top: '8%', left: '4%', right: '8%', bottom: '8%', containLabel: true },
-          xAxis: {
-            type: 'value',
-            name: '平均分鐘',
-            nameTextStyle: { color: '#94a3b8' },
-            splitLine: { lineStyle: { color: 'rgba(255,255,255,0.06)' } },
-            axisLabel: { color: '#94a3b8' }
-          },
-          yAxis: {
-            type: 'category',
-            data: stages,
-            axisLabel: { color: '#cbd5e1', fontSize: 11 }
-          },
+          xAxis: { type: 'value', name: '平均分鐘', nameTextStyle: { color: '#94a3b8' }, splitLine: { lineStyle: { color: 'rgba(255,255,255,0.06)' } }, axisLabel: { color: '#94a3b8' } },
+          yAxis: { type: 'category', data: stages, axisLabel: { color: '#cbd5e1', fontSize: 11 } },
           series: [{
             type: 'bar',
             barWidth: '40%',
@@ -917,14 +1264,19 @@ export default {
       }
     },
 
-    buildChartOption(xData, north, south, east, island, isRotated) {
+    buildChartOption(xData, north, south, east, island, isOrderTimeline) {
+      // 當全展開且標籤數量 > 48 時自動間隔顯示 X 軸文字，避免重疊
+      const autoInterval = (isOrderTimeline && !this.groupPreorders && xData.length > 48) ? 'auto' : 0;
       return {
         backgroundColor: 'transparent',
         tooltip: {
           trigger: 'axis',
           axisPointer: { type: 'cross', label: { backgroundColor: '#334155' } }
         },
-        grid: { top: '8%', left: '3%', right: '3%', bottom: isRotated ? '15%' : '8%', containLabel: true },
+        dataZoom: isOrderTimeline ? [
+          { type: 'inside', start: 0, end: 100 }
+        ] : [],
+        grid: { top: '8%', left: '3%', right: '3%', bottom: isOrderTimeline ? '16%' : '8%', containLabel: true },
         xAxis: {
           type: 'category',
           boundaryGap: false,
@@ -933,8 +1285,8 @@ export default {
           axisLabel: {
             color: '#cbd5e1',
             fontSize: 11,
-            rotate: isRotated ? 35 : 0,
-            interval: 0
+            rotate: isOrderTimeline ? 35 : 0,
+            interval: autoInterval
           }
         },
         yAxis: {
@@ -946,67 +1298,27 @@ export default {
         },
         series: [
           {
-            name: '北北基桃',
-            type: 'line',
-            smooth: true,
-            stack: 'Total',
-            lineStyle: { width: 2, color: '#38bdf8' },
-            showSymbol: false,
-            areaStyle: {
-              opacity: 0.8,
-              color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                { offset: 0, color: 'rgba(56, 189, 248, 0.85)' },
-                { offset: 1, color: 'rgba(56, 189, 248, 0.1)' }
-              ])
-            },
+            name: '北北基桃', type: 'line', smooth: true, stack: 'Total',
+            lineStyle: { width: 2, color: '#38bdf8' }, showSymbol: false,
+            areaStyle: { opacity: 0.8, color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: 'rgba(56, 189, 248, 0.85)' }, { offset: 1, color: 'rgba(56, 189, 248, 0.1)' }]) },
             data: north
           },
           {
-            name: '中南部',
-            type: 'line',
-            smooth: true,
-            stack: 'Total',
-            lineStyle: { width: 2, color: '#fb923c' },
-            showSymbol: false,
-            areaStyle: {
-              opacity: 0.8,
-              color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                { offset: 0, color: 'rgba(251, 146, 60, 0.85)' },
-                { offset: 1, color: 'rgba(251, 146, 60, 0.1)' }
-              ])
-            },
+            name: '中南部', type: 'line', smooth: true, stack: 'Total',
+            lineStyle: { width: 2, color: '#fb923c' }, showSymbol: false,
+            areaStyle: { opacity: 0.8, color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: 'rgba(251, 146, 60, 0.85)' }, { offset: 1, color: 'rgba(251, 146, 60, 0.1)' }]) },
             data: south
           },
           {
-            name: '宜花東',
-            type: 'line',
-            smooth: true,
-            stack: 'Total',
-            lineStyle: { width: 2, color: '#4ade80' },
-            showSymbol: false,
-            areaStyle: {
-              opacity: 0.8,
-              color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                { offset: 0, color: 'rgba(74, 222, 128, 0.85)' },
-                { offset: 1, color: 'rgba(74, 222, 128, 0.1)' }
-              ])
-            },
+            name: '宜花東', type: 'line', smooth: true, stack: 'Total',
+            lineStyle: { width: 2, color: '#4ade80' }, showSymbol: false,
+            areaStyle: { opacity: 0.8, color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: 'rgba(74, 222, 128, 0.85)' }, { offset: 1, color: 'rgba(74, 222, 128, 0.1)' }]) },
             data: east
           },
           {
-            name: '外島',
-            type: 'line',
-            smooth: true,
-            stack: 'Total',
-            lineStyle: { width: 2, color: '#c084fc' },
-            showSymbol: false,
-            areaStyle: {
-              opacity: 0.8,
-              color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                { offset: 0, color: 'rgba(192, 132, 252, 0.85)' },
-                { offset: 1, color: 'rgba(192, 132, 252, 0.1)' }
-              ])
-            },
+            name: '外島', type: 'line', smooth: true, stack: 'Total',
+            lineStyle: { width: 2, color: '#c084fc' }, showSymbol: false,
+            areaStyle: { opacity: 0.8, color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: 'rgba(192, 132, 252, 0.85)' }, { offset: 1, color: 'rgba(192, 132, 252, 0.1)' }]) },
             data: island
           }
         ]
@@ -1023,14 +1335,15 @@ export default {
       try {
         const params = {
           targetDate: this.targetDate,
-          whCode: options.whCode || (this.selectedWarehouse !== 'all' ? this.selectedWarehouse : undefined),
-          region: options.region || (this.selectedRegion !== 'all' ? this.selectedRegion : undefined),
-          shift: options.shift || (this.selectedShift !== 'all' ? this.selectedShift : undefined),
+          whCode: this.selectedWarehouse !== 'all' ? this.selectedWarehouse : undefined,
+          region: this.selectedRegion !== 'all' ? this.selectedRegion : undefined,
+          shift: this.selectedShift !== 'all' ? this.selectedShift : undefined,
           carrier: this.selectedCarrier !== 'all' ? this.selectedCarrier : undefined,
           deliveryType: this.selectedDeliveryType !== 'all' ? this.selectedDeliveryType : undefined,
           is24h: this.selected24h !== 'all' ? this.selected24h : undefined,
           hour: options.hour,
           orderDate: options.orderDate,
+          orderBeforeDate: options.orderBeforeDate,
           orderInterval: options.orderInterval
         };
 
@@ -1043,7 +1356,6 @@ export default {
       }
     },
 
-    // 多檔案拖曳與選取入口
     handleDrop(e) {
       this.isDragging = false;
       const files = Array.from(e.dataTransfer.files || []);
@@ -1064,7 +1376,6 @@ export default {
         return;
       }
 
-      // 初始化進度視窗狀態
       this.totalFileCount = validFiles.length;
       this.currentFileIdx = 0;
       this.batchSuccessRows = 0;
@@ -1083,7 +1394,7 @@ export default {
           this.currentFilePercent = 5;
           this.currentStepText = '正在讀取並解析 Excel...';
           this.overallBatchPercent = Math.round((fileIndex / this.totalFileCount) * 100);
-          await sleep(30); // 讓瀏覽器先渲染進度條與目前檔名
+          await sleep(30);
 
           const buffer = await file.arrayBuffer();
           const wb = XLSX.read(buffer, { type: 'array' });
@@ -1095,7 +1406,6 @@ export default {
             continue;
           }
 
-          // 解析出貨日期
           for (const row of data) {
             const rawD = String(row['出貨日期'] || '').trim();
             if (rawD && (rawD.includes('/') || rawD.includes('-'))) {
@@ -1110,7 +1420,6 @@ export default {
             }
           }
 
-          // 分批寫入後端（每批 3,000 筆）
           const BATCH = 3000;
           for (let i = 0; i < data.length; i += BATCH) {
             const chunk = data.slice(i, i + BATCH);
@@ -1134,7 +1443,7 @@ export default {
         }
 
         await this.fetchDates();
-        await this.fetchData();
+        await this.refreshActiveView();
       } catch (e) {
         ElMessage.error('批次匯入過程發生錯誤：' + e.message);
       } finally {
@@ -1173,7 +1482,7 @@ export default {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
 }
 .filter-row-sub {
   border-top: 1px dashed #334155;
@@ -1189,6 +1498,19 @@ export default {
   font-weight: bold;
   color: #cbd5e1;
 }
+
+.date-stepper-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #0f172a;
+  padding: 2px 5px;
+  border-radius: 6px;
+  border: 1px solid #334155;
+}
+.step-btn { padding: 5px 8px !important; font-weight: bold; }
+.step-latest-btn { padding: 5px 8px !important; font-weight: bold; }
+
 .highlight-box {
   background: rgba(250, 204, 21, 0.08);
   padding: 2px 8px;
@@ -1206,23 +1528,24 @@ export default {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 .total-badge {
   font-size: 13px;
   color: #cbd5e1;
   background: #0f172a;
-  padding: 4px 10px;
+  padding: 3px 10px;
   border-radius: 4px;
   border: 1px solid #334155;
 }
-.total-badge strong { color: #facc15; font-size: 15px; }
+.total-badge strong { color: #facc15; font-size: 14px; }
 
 .sub-tabs-bar {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   border-top: 1px solid #334155;
   padding-top: 6px;
+  flex-wrap: wrap;
 }
 .sub-tab-btn {
   background: transparent;
@@ -1231,7 +1554,7 @@ export default {
   color: #94a3b8;
   font-size: 13px;
   font-weight: bold;
-  padding: 8px 16px;
+  padding: 6px 14px;
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -1246,6 +1569,11 @@ export default {
   color: #facc15;
   border-bottom-color: #facc15;
   background: rgba(250, 204, 21, 0.08);
+}
+.summary-tab.active {
+  color: #4ade80;
+  border-bottom-color: #4ade80;
+  background: rgba(74, 222, 128, 0.08);
 }
 
 .main-content-scroll {
@@ -1337,8 +1665,9 @@ export default {
   border-radius: 8px;
   padding: 12px;
 }
-.chart-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.chart-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px; }
 .chart-title { font-size: 14px; font-weight: bold; color: #f8fafc; }
+.chart-controls-right { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .legend-tags { display: flex; gap: 12px; font-size: 11px; }
 .dot-north { color: #38bdf8; font-weight: bold; }
 .dot-south { color: #fb923c; font-weight: bold; }
@@ -1373,6 +1702,15 @@ export default {
 .row-zebra td { background: rgba(255, 255, 255, 0.02); }
 
 .row-delay td { background: rgba(239, 68, 68, 0.06); }
+.row-preorder td { background: rgba(168, 85, 247, 0.12) !important; }
+.preorder-badge {
+  background: rgba(168, 85, 247, 0.25);
+  color: #e9d5ff;
+  border: 1px solid rgba(168, 85, 247, 0.5);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+}
 .delay-tag {
   background: rgba(239, 68, 68, 0.2);
   color: #f87171;
@@ -1386,6 +1724,9 @@ export default {
   background: #1e293b !important;
   font-size: 13px;
   border-top: 2px solid #38bdf8;
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
 }
 
 .multi-bar-wrapper {
@@ -1438,7 +1779,6 @@ export default {
 .drop-text-sub { font-size: 12px; color: #94a3b8; margin-top: 4px; }
 .drop-tip { margin-top: 12px; font-size: 11px; color: #38bdf8; background: rgba(56, 189, 248, 0.1); padding: 4px 8px; border-radius: 4px; display: inline-block; }
 
-/* 批次進度彈窗樣式 */
 .batch-progress-wrapper {
   padding: 8px 4px;
   display: flex;
@@ -1452,10 +1792,7 @@ export default {
   font-size: 14px;
   color: #f8fafc;
 }
-.bp-total-rows {
-  color: #38bdf8;
-  font-weight: bold;
-}
+.bp-total-rows { color: #38bdf8; font-weight: bold; }
 .bp-file-banner {
   font-size: 13px;
   color: #facc15;
@@ -1465,13 +1802,6 @@ export default {
   border: 1px solid #334155;
   word-break: break-all;
 }
-.bp-bar-group {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.bp-bar-label {
-  font-size: 12px;
-  color: #94a3b8;
-}
+.bp-bar-group { display: flex; flex-direction: column; gap: 6px; }
+.bp-bar-label { font-size: 12px; color: #94a3b8; }
 </style>
