@@ -8,14 +8,15 @@ const Jimp = require('jimp');
 module.exports = function(db) {
   const router = express.Router();
 
+  // 預熱地端 Tesseract Worker（常駐記憶體）
   let ocrWorkerPromise = null;
-
   function getOcrWorker() {
     if (!ocrWorkerPromise) {
       ocrWorkerPromise = (async () => {
-        return await Tesseract.createWorker('chi_tra+eng', 1, {
+        const worker = await Tesseract.createWorker('chi_tra+eng', 1, {
           cachePath: path.join(__dirname, '..', '.ocr_cache')
         });
+        return worker;
       })().catch(err => {
         ocrWorkerPromise = null;
         throw err;
@@ -54,138 +55,131 @@ module.exports = function(db) {
     return s;
   }
 
-  // 清除圖片中的長直線格線（避免垂直格線被當成 1）
-  function eraseGridLines(jimpImg) {
-    const w = jimpImg.bitmap.width;
-    const h = jimpImg.bitmap.height;
-    const data = jimpImg.bitmap.data;
-
-    const isDark = (x, y) => {
-      const idx = (y * w + x) * 4;
-      return data[idx] < 160 && data[idx + 1] < 160 && data[idx + 2] < 160;
-    };
-
-    for (let y = 0; y < h; y++) {
-      let darkCount = 0;
-      for (let x = 0; x < w; x++) {
-        if (isDark(x, y)) darkCount++;
-      }
-      if (darkCount > w * 0.50) {
-        for (let x = 0; x < w; x++) {
-          const idx = (y * w + x) * 4;
-          data[idx] = 255; data[idx + 1] = 255; data[idx + 2] = 255;
-        }
-      }
-    }
-
-    for (let x = 0; x < w; x++) {
-      let darkCount = 0;
-      for (let y = 0; y < h; y++) {
-        if (isDark(x, y)) darkCount++;
-      }
-      if (darkCount > h * 0.50) {
-        for (let y = 0; y < h; y++) {
-          const idx = (y * w + x) * 4;
-          data[idx] = 255; data[idx + 1] = 255; data[idx + 2] = 255;
-        }
-      }
-    }
+  function cleanDigitStr(str) {
+    return String(str || '')
+      .replace(/[OoQq]/g, '0')
+      .replace(/[Il|]/g, '1')
+      .replace(/[Zz]/g, '2')
+      .replace(/[Ss]/g, '5')
+      .replace(/[Bb]/g, '8');
   }
 
-  // 利用 Tesseract 回傳的單字座標 (words bbox) 進行二維空間還原，完全不靠硬編碼切欄
-  function extractStructuredDataFromWords(words, rawText, imgW, imgH) {
-    const compactAll = String(rawText || '').replace(/[ \t]+/g, '');
+  // 解析左側條件區 + 右側 24 小時表格區（保留整行穩定解析 + 3項精準修補）
+  function parseWmsSplitOcrText(leftText, rightText) {
+    // 修補 3：去除中文與日期數字間多餘空格（避免 "完 成 出 貨" 或 "2026 / 11 / 12" 匹配失敗）
+    const compactLeft = String(leftText || '').replace(/[ \t]+/g, '');
+    const compactAll = `${compactLeft}\n${String(rightText || '').replace(/[ \t]+/g, '')}`;
 
-    // 1. 解析左側條件參數（只取 X 座標在圖片左側 25% 內的文字）
-    const leftWordsText = words
-      .filter(w => w.bbox.x0 < imgW * 0.25)
-      .map(w => w.text)
-      .join('');
-    const compactLeft = leftWordsText.replace(/[ \t]+/g, '');
-
+    // 1. 解析左側日期
     let date = '';
-    const dateMatch = (compactLeft + '\n' + compactAll).match(/(20\d{2})[\/\-．.](\d{1,2})[\/\-．.](\d{1,2})/);
+    const cleanedDateSource = cleanDigitStr(compactLeft);
+    const dateMatch = cleanedDateSource.match(/(20\d{2})[\/\-．.](\d{1,2})[\/\-．.](\d{1,2})/);
     if (dateMatch) {
       date = `${dateMatch[1]}-${dateMatch[2].padStart(2, '0')}-${dateMatch[3].padStart(2, '0')}`;
     }
 
+    // 2. 解析類別
     let category = '轉單時間';
-    if (/完成出貨|出貨/.test(compactLeft)) category = '完成出貨';
-    else if (/完成[撿揀]貨|[撿揀]貨/.test(compactLeft)) category = '完成撿貨';
-    else if (/轉單時間|轉單/.test(compactLeft)) category = '轉單時間';
+    if (/完成出貨|出貨/.test(compactAll)) category = '完成出貨';
+    else if (/完成[撿揀]貨|[撿揀]貨/.test(compactAll)) category = '完成撿貨';
+    else if (/轉單時間|轉單/.test(compactAll)) category = '轉單時間';
 
+    // 3. 解析庫別
     let wh_code = '15';
-    const whMatch = compactLeft.match(/庫別[^\d\n]{0,4}(\d{1,2})(?!\d)/);
+    const whMatch = cleanDigitStr(compactLeft).match(/庫別[^\d\n]{0,4}(\d{1,3})/);
     if (whMatch) wh_code = whMatch[1];
 
+    // 4. 解析配送區域與需24H到貨
     let region = '全部';
     const regMatch = compactLeft.match(/配送區域[^\u4e00-\u9fa5\n]{0,4}([\u4e00-\u9fa5]+)/);
     if (regMatch && regMatch[1]) region = regMatch[1];
 
-    // 2. 篩選出主表格區域（X > 圖片寬度 50% 的所有數字單字，包含百分比、筆數、PCS數）
-    const tableWords = words
-      .filter(w => w.bbox.x0 > imgW * 0.50 && w.bbox.y0 > imgH * 0.06)
-      .map(w => ({
-        text: String(w.text || '').trim(),
-        x0: w.bbox.x0,
-        x1: w.bbox.x1,
-        yc: (w.bbox.y0 + w.bbox.y1) / 2,
-        h: w.bbox.y1 - w.bbox.y0
-      }))
-      .filter(w => /\d/.test(w.text));
+    let is_24h = '全部';
+    const h24Match = compactLeft.match(/24H到貨[^\u4e00-\u9fa5\n]{0,4}(全部|是|否)/);
+    if (h24Match) is_24h = h24Match[1];
 
-    // 按垂直中心點 yc 由上到下排序，並將同一橫列的單字聚類（容差約為字高的 65%）
-    tableWords.sort((a, b) => a.yc - b.yc);
-    const rowClusters = [];
-    for (const item of tableWords) {
-      const tol = Math.max(8, item.h * 0.65);
-      const lastCluster = rowClusters[rowClusters.length - 1];
-      if (lastCluster && Math.abs(item.yc - lastCluster.avgY) <= tol) {
-        lastCluster.items.push(item);
-        lastCluster.avgY = lastCluster.items.reduce((s, it) => s + it.yc, 0) / lastCluster.items.length;
-      } else {
-        rowClusters.push({ avgY: item.yc, items: [item] });
-      }
-    }
+    // 5. 解析右側 24 小時表格（00 ~ 01 到 23 ~ 24）
+    const rightLines = String(rightText || '').replace(/\r/g, '').split('\n').map(l => l.trim()).filter(Boolean);
+    const hourlyMap = new Map();
+    const fallbackSequentialRows = [];
+    let lastValidPctRow = null;
 
-    // 每一橫列依 X 座標由左到右排序，合併相距極近的同一格碎片，再取最後兩欄（筆數、PCS數）
-    const parsedRows = [];
-    for (const cluster of rowClusters) {
-      const sorted = cluster.items.sort((a, b) => a.x0 - b.x0);
-      // 過濾掉帶有 % 或小數點的百分比欄位
-      const nonPctItems = sorted.filter(it => !it.text.includes('%') && !/\d+\.\d+/.test(it.text));
+    for (const rawLine of rightLines) {
+      if (/時間|百分比|筆數|PCS|合計|總計/.test(rawLine)) continue;
 
-      // 若同一儲存格的數字被空格拆成兩段（例如 "1," 和 "356"），根據 X 距離合併
-      const mergedCells = [];
-      for (const it of nonPctItems) {
-        const cleanDigits = it.text.replace(/[^0-9]/g, '');
-        if (!cleanDigits) continue;
-        const prev = mergedCells[mergedCells.length - 1];
-        if (prev && (it.x0 - prev.x1) < Math.max(12, it.h * 0.8)) {
-          prev.digits += cleanDigits;
-          prev.x1 = it.x1;
-        } else {
-          mergedCells.push({ digits: cleanDigits, x0: it.x0, x1: it.x1 });
+      // 修補 1：放寬開頭時段匹配，只要第一個小時 sH 落在 0~23 且後面有分隔符號或空白與結束小時即認出
+      const slotMatch = rawLine.match(/^[^\d]{0,4}([012OoQqIl|]?\d)\s*(?:[~\-～—_]+|\s+)\s*([012OoQqIl|SsBbZz]?\d)(?:\s|$)/);
+      let startH = -1;
+      let afterSlot = rawLine;
+
+      if (slotMatch) {
+        const sH = parseInt(cleanDigitStr(slotMatch[1]), 10);
+        const eH = parseInt(cleanDigitStr(slotMatch[2]), 10);
+        if (!isNaN(sH) && sH >= 0 && sH <= 23 && (!isNaN(eH) && eH >= 1 && eH <= 29)) {
+          startH = sH;
+          afterSlot = rawLine.slice(slotMatch[0].length);
         }
       }
 
-      if (mergedCells.length >= 2) {
-        const orderVal = parseInt(mergedCells[mergedCells.length - 2].digits, 10);
-        const pcsVal = parseInt(mergedCells[mergedCells.length - 1].digits, 10);
-        if (!isNaN(orderVal) && !isNaN(pcsVal)) {
-          parsedRows.push({ order_count: orderVal, pcs_count: pcsVal });
+      const hasPct = /%/.test(afterSlot);
+      // 去除帶有 % 的百分比欄位
+      const withoutPct = afterSlot.replace(/\d+(?:[.,]\d+)?\s*%/g, ' ');
+      const numTokens = withoutPct.match(/\d[\d,.]*/g) || [];
+      const ints = numTokens
+        .map(tok => parseInt(tok.replace(/[,.]/g, ''), 10))
+        .filter(n => !isNaN(n));
+
+      if (ints.length >= 2) {
+        const order_count = ints[ints.length - 2];
+        const pcs_count = ints[ints.length - 1];
+
+        if (startH >= 0 && startH <= 23) {
+          hourlyMap.set(startH, {
+            hour_index: startH,
+            hour_slot: `${String(startH).padStart(2, '0')}~${String(startH + 1).padStart(2, '0')}`,
+            order_count,
+            pcs_count
+          });
+        }
+        fallbackSequentialRows.push({ order_count, pcs_count });
+        if (hasPct) {
+          lastValidPctRow = { order_count, pcs_count };
         }
       }
     }
 
-    const final24 = parsedRows.length > 24 ? parsedRows.slice(parsedRows.length - 24) : parsedRows;
+    // 修補 2：若最後一列（23~24 黃底列）開頭時段被粗體黏住未認出，將最後一列帶 % 的數據自動補入第 23 小時
+    if (!hourlyMap.has(23) && lastValidPctRow) {
+      hourlyMap.set(23, {
+        hour_index: 23,
+        hour_slot: '23~24',
+        order_count: lastValidPctRow.order_count,
+        pcs_count: lastValidPctRow.pcs_count
+      });
+    }
 
-    const hourly = Array.from({ length: 24 }, (_, idx) => ({
-      hour_index: idx,
-      hour_slot: `${String(idx).padStart(2, '0')}~${String(idx + 1).padStart(2, '0')}`,
-      order_count: final24[idx] ? final24[idx].order_count : 0,
-      pcs_count: final24[idx] ? final24[idx].pcs_count : 0
-    }));
+    const useSequentialFallback = fallbackSequentialRows.length === 24;
+
+    const normalizedHourly = Array.from({ length: 24 }, (_, idx) => {
+      const slot = `${String(idx).padStart(2, '0')}~${String(idx + 1).padStart(2, '0')}`;
+      if (hourlyMap.has(idx)) {
+        return hourlyMap.get(idx);
+      }
+      if (useSequentialFallback && fallbackSequentialRows[idx]) {
+        return {
+          hour_index: idx,
+          hour_slot: slot,
+          order_count: fallbackSequentialRows[idx].order_count,
+          pcs_count: fallbackSequentialRows[idx].pcs_count
+        };
+      }
+      return {
+        hour_index: idx,
+        hour_slot: slot,
+        order_count: 0,
+        pcs_count: 0
+      };
+    });
 
     const allShipTypes = [
       '當日配、貨到付款、郵箱', '大材積、大材積 (貨到付款)', '安裝', '海外',
@@ -199,8 +193,8 @@ module.exports = function(db) {
       order_type: '揀貨單號',
       region,
       ship_types: allShipTypes,
-      is_24h: '全部',
-      hourly
+      is_24h,
+      hourly: normalizedHourly
     };
   }
 
@@ -257,7 +251,7 @@ module.exports = function(db) {
     );
   });
 
-  // 3. 截圖辨識 API（全圖二維單字座標矩陣還原，完全免疫雙螢幕比例與切欄偏移）
+  // 3. 截圖辨識 API（地端分區裁切 + 黃底自動漂白 + 整行高穩定度離線 OCR）
   router.post('/recognize', async (req, res) => {
     const { imageBase64 } = req.body;
     if (!imageBase64) {
@@ -268,36 +262,48 @@ module.exports = function(db) {
       const base64Data = imageBase64.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '');
       const imgBuffer = Buffer.from(base64Data, 'base64');
       const fullImg = await Jimp.read(imgBuffer);
+      const W = fullImg.bitmap.width;
+      const H = fullImg.bitmap.height;
 
-      // 僅漂白亮黃色底色列 (R>180, G>180, B<145)，完整保留灰階抗鋸齒數字
-      fullImg.scan(0, 0, fullImg.bitmap.width, fullImg.bitmap.height, function(x, y, idx) {
+      // 1) 左側條件區（最左側 18% 寬度）放大 3 倍
+      const leftCrop = fullImg.clone()
+        .crop(0, 0, Math.round(W * 0.18), H)
+        .scale(3)
+        .greyscale()
+        .contrast(0.2);
+
+      // 2) 右側 24 小時數據區（從 15% 寬度到最右邊），僅漂白亮黃色底色列
+      const rightCrop = fullImg.clone()
+        .crop(Math.round(W * 0.15), 0, W - Math.round(W * 0.15), H);
+
+      rightCrop.scan(0, 0, rightCrop.bitmap.width, rightCrop.bitmap.height, function(x, y, idx) {
         const r = this.bitmap.data[idx];
         const g = this.bitmap.data[idx + 1];
         const b = this.bitmap.data[idx + 2];
-        if (r > 180 && g > 180 && b < 145) {
+        // 偵測亮黃色底色（R>180, G>180, B<140），直接漂白為純白 (255,255,255)
+        if (r > 180 && g > 180 && b < 140) {
           this.bitmap.data[idx] = 255;
           this.bitmap.data[idx + 1] = 255;
           this.bitmap.data[idx + 2] = 255;
         }
       });
 
-      eraseGridLines(fullImg);
-      fullImg.scale(2.5, Jimp.RESIZE_BICUBIC).greyscale().contrast(0.25);
+      rightCrop.scale(2.5).greyscale().contrast(0.25);
 
-      const processedBuf = await fullImg.getBufferAsync(Jimp.MIME_PNG);
+      const [leftBuf, rightBuf] = await Promise.all([
+        leftCrop.getBufferAsync(Jimp.MIME_PNG),
+        rightCrop.getBufferAsync(Jimp.MIME_PNG)
+      ]);
+
       const worker = await getOcrWorker();
-      const { data } = await worker.recognize(processedBuf);
+      const leftRes = await worker.recognize(leftBuf);
+      const rightRes = await worker.recognize(rightBuf);
 
-      const parsed = extractStructuredDataFromWords(
-        data.words || [],
-        data.text || '',
-        fullImg.bitmap.width,
-        fullImg.bitmap.height
-      );
+      const parsed = parseWmsSplitOcrText(leftRes.data.text, rightRes.data.text);
 
       return res.json({
         success: true,
-        engineUsed: 'local_ocr_bbox_matrix',
+        engineUsed: 'local_ocr_split_v2',
         parsed
       });
     } catch (err) {
