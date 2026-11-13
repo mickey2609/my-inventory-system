@@ -17,6 +17,34 @@ module.exports = function(db) {
     return clean;
   }
 
+  function shiftDateStr(dStr, offsetDays) {
+    const dt = new Date(`${dStr}T00:00:00`);
+    if (isNaN(dt.getTime())) return dStr;
+    dt.setDate(dt.getDate() + offsetDays);
+    const y = dt.getFullYear();
+    const m = String(dt.getMonth() + 1).padStart(2, '0');
+    const d = String(dt.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  // 作業日（01:00 ~ 隔日 01:00）歸屬日期：凌晨 00:00~00:59 歸屬前一日夜班
+  function getOperationalDate(shipDate, shipTime) {
+    const d = normalizeDate(shipDate);
+    if (!d) return '';
+    const hh = shipTime ? parseInt(String(shipTime).trim().split(':')[0], 10) : -1;
+    if (hh === 0) {
+      return shiftDateStr(d, -1);
+    }
+    return d;
+  }
+
+  // 單日作業日 SQL 條件：當日 01:00~23:59 或 隔日 00:00~00:59
+  function buildOperationalDayClause(targetDate, params) {
+    const nextDate = shiftDateStr(targetDate, 1);
+    params.push(targetDate, nextDate);
+    return `((ship_date = ? AND ship_time >= '01:00:00') OR (ship_date = ? AND ship_time < '01:00:00'))`;
+  }
+
   function cleanWhCode(val) {
     if (!val || val === 'nan' || val === 'null') return '';
     let s = String(val).trim();
@@ -285,20 +313,27 @@ module.exports = function(db) {
     });
   });
 
-  // 日期與選單選項 API
+  // 日期與選單選項 API（依三班作業日 01:00 ~ 隔日 01:00 統計每日單量）
   router.get('/dates', (req, res) => {
     db.all(`
       SELECT 
-        ship_date, 
+        CASE WHEN ship_time < '01:00:00' THEN date(ship_date, '-1 day') ELSE ship_date END as op_date,
         COUNT(*) as count,
         COUNT(*) as tracking_count, 
         COUNT(DISTINCT order_no) as order_count 
       FROM delivery_order_tracking 
       WHERE ship_date IS NOT NULL AND ship_date != '' 
-      GROUP BY ship_date 
-      ORDER BY ship_date DESC
+      GROUP BY op_date 
+      ORDER BY op_date DESC
     `, [], (err, dateRows) => {
       if (err) return res.status(500).json({ success: false, message: err.message });
+
+      const formattedDates = (dateRows || []).map(r => ({
+        ship_date: r.op_date,
+        count: r.count,
+        tracking_count: r.tracking_count,
+        order_count: r.order_count
+      }));
 
       db.all(`SELECT DISTINCT wh_code FROM delivery_order_tracking WHERE wh_code IS NOT NULL AND wh_code != '' ORDER BY wh_code ASC`, [], (wErr, wRows) => {
         let whList = (wRows || []).map(r => r.wh_code).filter(Boolean);
@@ -308,7 +343,7 @@ module.exports = function(db) {
           db.all(`SELECT DISTINCT delivery_type FROM delivery_order_tracking WHERE delivery_type IS NOT NULL AND delivery_type != ''`, [], (tErr, tRows) => {
             res.json({
               success: true,
-              list: dateRows || [],
+              list: formattedDates,
               warehouses: whList,
               carriers: (cRows || []).map(r => r.carrier_name),
               deliveryTypes: (tRows || []).map(r => r.delivery_type)
@@ -319,14 +354,15 @@ module.exports = function(db) {
     });
   });
 
-  // 單日綜合分析 API
+  // 單日綜合分析 API（作業日：當日 01:00~23:59 + 隔日 00:00~00:59）
   router.get('/flow-analysis', (req, res) => {
     let { targetDate, whCode, region, shift, carrier, deliveryType, is24h, countMode } = req.query;
     countMode = countMode || 'tracking';
 
     const runAnalysis = (effectiveDate) => {
-      let baseSql = `SELECT * FROM delivery_order_tracking WHERE ship_date = ?`;
-      const baseParams = [effectiveDate];
+      const baseParams = [];
+      const opDayWhere = buildOperationalDayClause(effectiveDate, baseParams);
+      let baseSql = `SELECT * FROM delivery_order_tracking WHERE ${opDayWhere}`;
 
       if (whCode && whCode !== 'all') { baseSql += ` AND wh_code = ?`; baseParams.push(whCode); }
       if (region && region !== 'all') { baseSql += ` AND region = ?`; baseParams.push(region); }
@@ -342,7 +378,7 @@ module.exports = function(db) {
 
         const shiftSummary = {
           '日班': { count: 0, timeSpan: '09:00 ~ 17:00', regions: { '北北基桃': 0, '中南部': 0, '宜花東': 0, '外島': 0, '其他/未識別': 0 } },
-          '夜班': { count: 0, timeSpan: '17:00 ~ 01:00', regions: { '北北基桃': 0, '中南部': 0, '宜花東': 0, '外島': 0, '其他/未識別': 0 } },
+          '夜班': { count: 0, timeSpan: '17:00 ~ 隔日 01:00', regions: { '北北基桃': 0, '中南部': 0, '宜花東': 0, '外島': 0, '其他/未識別': 0 } },
           '大夜班': { count: 0, timeSpan: '01:00 ~ 09:00', regions: { '北北基桃': 0, '中南部': 0, '宜花東': 0, '外島': 0, '其他/未識別': 0 } }
         };
 
@@ -495,6 +531,7 @@ module.exports = function(db) {
         res.json({
           success: true,
           targetDate: effectiveDate,
+          nextDate: shiftDateStr(effectiveDate, 1),
           countMode,
           totalCount: lowerProcessRows.length,
           totalOrders: lowerProcessRows.length,
@@ -516,8 +553,8 @@ module.exports = function(db) {
     };
 
     if (!targetDate) {
-      db.get(`SELECT ship_date FROM delivery_order_tracking ORDER BY ship_date DESC LIMIT 1`, [], (dErr, dRow) => {
-        const d = (dRow && dRow.ship_date) ? dRow.ship_date : new Date().toISOString().split('T')[0];
+      db.get(`SELECT CASE WHEN ship_time < '01:00:00' THEN date(ship_date, '-1 day') ELSE ship_date END as op_date FROM delivery_order_tracking ORDER BY op_date DESC LIMIT 1`, [], (dErr, dRow) => {
+        const d = (dRow && dRow.op_date) ? dRow.op_date : new Date().toISOString().split('T')[0];
         runAnalysis(d);
       });
     } else {
@@ -525,14 +562,15 @@ module.exports = function(db) {
     }
   });
 
-  // 🌟 新增：每月每日總表 API
+  // 每月每日總表 API（依三班作業日歸屬日期統計）
   router.get('/monthly-summary', (req, res) => {
     const { month } = req.query;
     let countMode = req.query.countMode || 'tracking';
     if (!month) return res.status(400).json({ success: false, message: '請提供月份 (YYYY-MM)' });
 
-    let sql = `SELECT * FROM delivery_order_tracking WHERE ship_date LIKE ?`;
-    const params = [`${month}%`];
+    const nextMonthStart = shiftDateStr(`${month}-28`, 5).slice(0, 7) + '-01';
+    let sql = `SELECT * FROM delivery_order_tracking WHERE (ship_date LIKE ? OR (ship_date = ? AND ship_time < '01:00:00'))`;
+    const params = [`${month}%`, nextMonthStart];
     sql = buildCommonWhere(req.query, sql, params);
 
     db.all(sql, params, (err, rows) => {
@@ -541,17 +579,17 @@ module.exports = function(db) {
 
       const daysMap = {};
       rows.forEach(r => {
-        const d = r.ship_date;
-        if (!d) return;
-        if (!daysMap[d]) {
-          daysMap[d] = {
-            date: d,
+        const opDate = getOperationalDate(r.ship_date, r.ship_time);
+        if (!opDate || !opDate.startsWith(month)) return;
+        if (!daysMap[opDate]) {
+          daysMap[opDate] = {
+            date: opDate,
             rawRows: [],
             orderSet: new Set()
           };
         }
-        daysMap[d].rawRows.push(r);
-        if (r.order_no) daysMap[d].orderSet.add(r.order_no);
+        daysMap[opDate].rawRows.push(r);
+        if (r.order_no) daysMap[opDate].orderSet.add(r.order_no);
       });
 
       const dailyList = Object.keys(daysMap).sort().map(d => {
@@ -609,14 +647,15 @@ module.exports = function(db) {
     });
   });
 
-  // 🌟 新增：年度每月總表 API
+  // 年度每月總表 API（依三班作業日歸屬月份統計）
   router.get('/yearly-summary', (req, res) => {
     const { year } = req.query;
     let countMode = req.query.countMode || 'tracking';
     if (!year) return res.status(400).json({ success: false, message: '請提供年份 (YYYY)' });
 
-    let sql = `SELECT * FROM delivery_order_tracking WHERE ship_date LIKE ?`;
-    const params = [`${year}%`];
+    const nextYearJan1 = `${Number(year) + 1}-01-01`;
+    let sql = `SELECT * FROM delivery_order_tracking WHERE (ship_date LIKE ? OR (ship_date = ? AND ship_time < '01:00:00'))`;
+    const params = [`${year}%`, nextYearJan1];
     sql = buildCommonWhere(req.query, sql, params);
 
     db.all(sql, params, (err, rows) => {
@@ -635,8 +674,8 @@ module.exports = function(db) {
       }
 
       rows.forEach(r => {
-        const d = r.ship_date || '';
-        const mKey = d.slice(0, 7);
+        const opDate = getOperationalDate(r.ship_date, r.ship_time);
+        const mKey = opDate.slice(0, 7);
         if (monthMap[mKey]) {
           monthMap[mKey].rawRows.push(r);
           if (r.order_no) monthMap[mKey].orderSet.add(r.order_no);
@@ -699,21 +738,27 @@ module.exports = function(db) {
     });
   });
 
-  // 穿透明細 API（支援預購/遠期訂單穿透查詢）
+  // 穿透明細 API（支援作業日跨日 00:00~00:59 抓隔日凌晨單據）
   router.get('/orders-detail', (req, res) => {
     const { targetDate, whCode, shift, hour, orderDate, orderBeforeDate, orderInterval, region, carrier, deliveryType, is24h } = req.query;
-    let sql = `SELECT * FROM delivery_order_tracking WHERE ship_date = ?`;
-    const params = [targetDate];
+    const params = [];
+    let sql = `SELECT * FROM delivery_order_tracking WHERE 1=1`;
+
+    if (hour !== undefined && hour !== null && hour !== '') {
+      const hNum = parseInt(hour, 10);
+      const queryShipDate = (hNum === 0) ? shiftDateStr(targetDate, 1) : targetDate;
+      const hStr = String(hNum).padStart(2, '0');
+      sql += ` AND ship_date = ? AND ship_time LIKE ?`;
+      params.push(queryShipDate, `${hStr}:%`);
+    } else {
+      const opDayWhere = buildOperationalDayClause(targetDate, params);
+      sql += ` AND ${opDayWhere}`;
+    }
 
     if (whCode && whCode !== 'all') { sql += ` AND wh_code = ?`; params.push(whCode); }
     if (shift && shift !== 'all') { sql += ` AND shift_type = ?`; params.push(shift); }
-    if (hour !== undefined && hour !== null && hour !== '') {
-      const hStr = String(hour).padStart(2, '0');
-      sql += ` AND ship_time LIKE ?`;
-      params.push(`${hStr}:%`);
-    }
+
     if (orderBeforeDate) {
-      // 🌟 穿透查看「預購/遠期積單 (<= 截止日)」
       sql += ` AND order_date <= ?`;
       params.push(orderBeforeDate);
     } else {
@@ -725,7 +770,7 @@ module.exports = function(db) {
     if (deliveryType && deliveryType !== 'all') { sql += ` AND delivery_type = ?`; params.push(deliveryType); }
     if (is24h && is24h !== 'all') { sql += ` AND is_24h = ?`; params.push(is24h); }
 
-    sql += ` ORDER BY order_date ASC, order_time ASC LIMIT 3000`;
+    sql += ` ORDER BY ship_date ASC, ship_time ASC LIMIT 3000`;
 
     db.all(sql, params, (err, rows) => {
       if (err) return res.status(500).json({ success: false, message: err.message });

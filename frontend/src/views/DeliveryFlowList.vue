@@ -124,7 +124,6 @@
             當前數量：<strong>{{ formatNumber(totalOrders) }}</strong> {{ countMode === 'order' ? '單' : '件' }}
           </span>
           <el-button type="info" size="mini" icon="el-icon-refresh" :loading="loading" @click="refreshActiveView">重新整理</el-button>
-          <!-- 🌟 僅限管理員顯示匯入按鈕，訪客模式自動隱藏 -->
           <el-button
             v-if="checkAdmin"
             type="success"
@@ -228,8 +227,8 @@
           <div class="chart-header">
             <span class="chart-title">
               📈 {{ selectedShift === '夜班'
-                ? '夜班出貨時段波浪流線圖（跨日動線：17~18 到 隔日 00~01）'
-                : '24 小時出貨時段波浪流線圖（橫軸：00~01 到 23~00 出貨時間）' }}
+                ? `夜班出貨時段波浪流線圖（跨日動線：${targetDate} 17~18 到 隔日 ${nextTargetDateShort} 00~01）`
+                : `作業日出貨時段波浪流線圖（${targetDate} 01~02 到 隔日 ${nextTargetDateShort} 00~01）` }}
             </span>
             <div class="legend-tags">
               <span class="lg-dot dot-north">● 北北基桃</span>
@@ -249,7 +248,7 @@
             <table class="flow-matrix-table">
               <thead>
                 <tr>
-                  <th style="width: 115px;">出貨時段</th>
+                  <th style="width: 135px;">出貨時段</th>
                   <th style="width: 85px;">班別</th>
                   <th>出貨密度圖形 (藍:北基桃 / 橘:中南 / 綠:花東 / 紫:外島)</th>
                   <th style="width: 100px;">出貨數量 ({{ countMode === 'order' ? '單' : '件' }})</th>
@@ -264,7 +263,7 @@
                 <tr v-for="(h, idx) in filteredHourlyFlow" :key="h.hour" :class="{ 'row-zebra': idx % 2 === 1 }">
                   <td class="text-center font-bold">
                     {{ h.slot }}
-                    <span v-if="selectedShift === '夜班' && h.hour === 0" class="text-yellow" style="font-size: 11px;">(隔日)</span>
+                    <span v-if="h.hour === 0" class="text-yellow" style="font-size: 11px;">(隔日 {{ nextTargetDateShort }})</span>
                   </td>
                   <td class="text-center">
                     <span class="shift-badge" :class="getShiftClass(getHourShift(h.hour))">{{ getHourShift(h.hour) }}</span>
@@ -289,7 +288,7 @@
                       plain
                       @click="openDetailModal({
                         hour: h.hour,
-                        title: `${targetDate} ${h.slot}${(selectedShift === '夜班' && h.hour === 0) ? ' (隔日)' : ''} 時段明細`
+                        title: `${h.hour === 0 ? nextTargetDate : targetDate} ${h.slot}${h.hour === 0 ? ' (夜班隔日)' : ''} 時段明細`
                       })"
                     >
                       穿透
@@ -689,10 +688,10 @@
           <el-table-column prop="carrier_name" label="宅配商" width="120" sortable />
           <el-table-column prop="delivery_type" label="宅配類別" width="105" align="center" sortable />
           <el-table-column prop="is_24h" label="24H送達" width="85" align="center" sortable />
+          <el-table-column prop="ship_date" label="實際出貨日" width="105" align="center" sortable />
           <el-table-column prop="ship_time" label="出貨時間" width="95" align="center" sortable />
           <el-table-column prop="order_date" label="接單日期" width="105" align="center" sortable />
           <el-table-column prop="order_time" label="接單時間" width="95" align="center" sortable />
-          <el-table-column prop="order_interval" label="接單區間" width="95" align="center" sortable />
           <el-table-column prop="receiver_name" label="收件人" width="95" />
           <el-table-column prop="address" label="收件地址" min-width="220" show-overflow-tooltip />
         </el-table>
@@ -802,7 +801,7 @@ export default {
 
       shiftSummary: {
         '日班': { count: 0, timeSpan: '09:00 ~ 17:00', regions: {} },
-        '夜班': { count: 0, timeSpan: '17:00 ~ 01:00', regions: {} },
+        '夜班': { count: 0, timeSpan: '17:00 ~ 隔日 01:00', regions: {} },
         '大夜班': { count: 0, timeSpan: '01:00 ~ 09:00', regions: {} }
       },
       hourlyFlow: [],
@@ -844,7 +843,6 @@ export default {
     }
   },
   computed: {
-    // 🌟 訪客與一般帳號權限過濾：僅管理員可使用匯入功能
     checkAdmin() {
       if (this.isSysAdmin || this.isAdmin) return true;
       try {
@@ -861,14 +859,22 @@ export default {
     isDailyTab() {
       return ['ship_flow', 'order_lead_time', 'lead_analytics'].includes(this.activeTab);
     },
+    nextTargetDate() {
+      if (!this.targetDate) return '';
+      const d = new Date(`${this.targetDate}T00:00:00`);
+      if (isNaN(d.getTime())) return '';
+      d.setDate(d.getDate() + 1);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    },
+    nextTargetDateShort() {
+      return this.nextTargetDate ? this.nextTargetDate.slice(5) : '隔日';
+    },
     filteredHourlyFlow() {
-      if (this.selectedShift === 'all') return this.hourlyFlow;
-      const list = this.hourlyFlow.filter(h => this.getHourShift(h.hour) === this.selectedShift);
-      if (this.selectedShift === '夜班') {
-        // 夜班跨日排序：17~18 到 23~00 在前，隔日 00~01 排在最右邊
-        return [...list].sort((a, b) => (a.hour === 0 ? 24 : a.hour) - (b.hour === 0 ? 24 : b.hour));
-      }
-      return list;
+      const list = this.selectedShift === 'all'
+        ? this.hourlyFlow
+        : this.hourlyFlow.filter(h => this.getHourShift(h.hour) === this.selectedShift);
+      // 依作業日連續時間軸排序：01~02 ➔ 23~00 ➔ 隔日 00~01 排在最右邊
+      return [...list].sort((a, b) => (a.hour === 0 ? 24 : a.hour) - (b.hour === 0 ? 24 : b.hour));
     },
     displayOrderTimelineFlow() {
       if (!this.groupPreorders || !this.targetDate || this.orderTimelineFlow.length === 0) {
@@ -1184,16 +1190,17 @@ export default {
         this.shipChartInstance.on('click', (params) => {
           const item = this.filteredHourlyFlow[params.dataIndex];
           if (!item) return;
-          const slotLabel = (this.selectedShift === '夜班' && item.hour === 0) ? `${item.slot} (隔日)` : item.slot;
+          const actualDate = item.hour === 0 ? this.nextTargetDate : this.targetDate;
+          const slotLabel = item.hour === 0 ? `${item.slot} (夜班隔日)` : item.slot;
           this.openDetailModal({
             hour: item.hour,
-            title: `${this.targetDate} ${slotLabel} 時段出貨明細`
+            title: `${actualDate} ${slotLabel} 時段出貨明細`
           });
         });
       }
 
       const xHours = this.filteredHourlyFlow.map(h =>
-        (this.selectedShift === '夜班' && h.hour === 0) ? `${h.slot}\n(隔日)` : h.slot
+        h.hour === 0 ? `${h.slot}\n(隔日 ${this.nextTargetDateShort})` : h.slot
       );
       const northData = this.filteredHourlyFlow.map(h => h['北北基桃']);
       const southData = this.filteredHourlyFlow.map(h => h['中南部']);
@@ -1231,13 +1238,13 @@ export default {
       if (row.isPreorderSummary) {
         this.openDetailModal({
           orderBeforeDate: row.orderBeforeDate,
-          title: `${this.targetDate} 出貨 [預購/遠期積單 (${row.orderDate})] 明細`
+          title: `${this.targetDate} 作業日出貨 [預購/遠期積單 (${row.orderDate})] 明細`
         });
       } else {
         this.openDetailModal({
           orderDate: row.orderDate,
           orderInterval: row.orderInterval,
-          title: `${this.targetDate} 出貨 [接單: ${row.timelineLabel}] 明細`
+          title: `${this.targetDate} 作業日出貨 [接單: ${row.timelineLabel}] 明細`
         });
       }
     },
@@ -1321,7 +1328,7 @@ export default {
         dataZoom: isOrderTimeline ? [
           { type: 'inside', start: 0, end: 100 }
         ] : [],
-        grid: { top: '8%', left: '3%', right: '3%', bottom: isOrderTimeline ? '16%' : '11%', containLabel: true },
+        grid: { top: '8%', left: '3%', right: '3%', bottom: isOrderTimeline ? '16%' : '12%', containLabel: true },
         xAxis: {
           type: 'category',
           boundaryGap: false,
