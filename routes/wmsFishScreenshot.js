@@ -8,21 +8,41 @@ const Jimp = require('jimp');
 module.exports = function(db) {
   const router = express.Router();
 
-  // 預熱地端 Tesseract Worker（常駐記憶體）
-  let ocrWorkerPromise = null;
-  function getOcrWorker() {
-    if (!ocrWorkerPromise) {
-      ocrWorkerPromise = (async () => {
-        const worker = await Tesseract.createWorker('chi_tra+eng', 1, {
+  // 雙 Worker 常駐：一個辨識中文條件區，一個開啟純數字白名單專攻右側數據表
+  let textWorkerPromise = null;
+  let numWorkerPromise = null;
+
+  function getTextWorker() {
+    if (!textWorkerPromise) {
+      textWorkerPromise = (async () => {
+        return await Tesseract.createWorker('chi_tra+eng', 1, {
           cachePath: path.join(__dirname, '..', '.ocr_cache')
         });
-        return worker;
       })().catch(err => {
-        ocrWorkerPromise = null;
+        textWorkerPromise = null;
         throw err;
       });
     }
-    return ocrWorkerPromise;
+    return textWorkerPromise;
+  }
+
+  function getNumWorker() {
+    if (!numWorkerPromise) {
+      numWorkerPromise = (async () => {
+        const worker = await Tesseract.createWorker('eng', 1, {
+          cachePath: path.join(__dirname, '..', '.ocr_cache')
+        });
+        await worker.setParameters({
+          tessedit_pageseg_mode: '6', // 統一區塊逐行辨識
+          tessedit_char_whitelist: '0123456789.,%'
+        });
+        return worker;
+      })().catch(err => {
+        numWorkerPromise = null;
+        throw err;
+      });
+    }
+    return numWorkerPromise;
   }
 
   function getGeminiApiKey(callback) {
@@ -64,29 +84,35 @@ module.exports = function(db) {
       .replace(/[Bb]/g, '8');
   }
 
-  // 解析左側條件區 + 右側純數字三欄（利用 Y 軸座標精準分出 24 列，不再受時段波浪號誤判影響）
-  function parseWmsOcrResult(leftText, rightData) {
+  // 解析左側條件區 + 右側純數字三欄（百分比 / 筆數 / PCS數）
+  function parseWmsOcrResult(leftText, rightNumText) {
     const compactLeft = String(leftText || '').replace(/[ \t]+/g, '');
-    const rightText = String(rightData?.text || '');
-    const compactAll = `${compactLeft}\n${rightText.replace(/[ \t]+/g, '')}`;
 
-    // 1. 解析左側條件參數
+    // 1. 解析日期（支援 2026/11/12 或 2026-11-12 或 20261112）
     let date = '';
     const cleanedDateSource = cleanDigitStr(compactLeft);
     const dateMatch = cleanedDateSource.match(/(20\d{2})[\/\-．.](\d{1,2})[\/\-．.](\d{1,2})/);
     if (dateMatch) {
       date = `${dateMatch[1]}-${dateMatch[2].padStart(2, '0')}-${dateMatch[3].padStart(2, '0')}`;
+    } else {
+      const compact8 = cleanedDateSource.match(/(20\d{2})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])/);
+      if (compact8) {
+        date = `${compact8[1]}-${compact8[2]}-${compact8[3]}`;
+      }
     }
 
+    // 2. 解析類別
     let category = '轉單時間';
-    if (/完成出貨|出貨/.test(compactAll)) category = '完成出貨';
-    else if (/完成[撿揀]貨|[撿揀]貨/.test(compactAll)) category = '完成撿貨';
-    else if (/轉單時間|轉單/.test(compactAll)) category = '轉單時間';
+    if (/完成出貨|出貨/.test(compactLeft)) category = '完成出貨';
+    else if (/完成[撿揀]貨|[撿揀]貨/.test(compactLeft)) category = '完成撿貨';
+    else if (/轉單時間|轉單/.test(compactLeft)) category = '轉單時間';
 
+    // 3. 解析庫別
     let wh_code = '15';
     const whMatch = cleanDigitStr(compactLeft).match(/庫別[^\d\n]{0,4}(\d{1,3})/);
     if (whMatch) wh_code = whMatch[1];
 
+    // 4. 解析配送區域與需24H到貨
     let region = '全部';
     const regMatch = compactLeft.match(/配送區域[^\u4e00-\u9fa5\n]{0,4}([\u4e00-\u9fa5]+)/);
     if (regMatch && regMatch[1]) region = regMatch[1];
@@ -95,34 +121,28 @@ module.exports = function(db) {
     const h24Match = compactLeft.match(/24H到貨[^\u4e00-\u9fa5\n]{0,4}(全部|是|否)/);
     if (h24Match) is_24h = h24Match[1];
 
-    // 2. 利用 Tesseract 行級/單字級結果解析右半邊（百分比、筆數、PCS數）
-    const rawLines = rightText.replace(/\r/g, '').split('\n').map(l => l.trim()).filter(Boolean);
-    const extractedRows = [];
+    // 5. 解析右側純數字三欄（每列固定結構：[百分比%] [筆數] [PCS數]）
+    const lines = String(rightNumText || '').replace(/\r/g, '').split('\n').map(l => l.trim()).filter(Boolean);
+    const dataRows = [];
 
-    for (const line of rawLines) {
-      // 跳過表頭與非數據列
-      if (/倉庫|魚群|時間|圖形|百分比|筆數|PCS|合計|總計/.test(line)) continue;
-
-      // 去除帶有 % 的百分比欄位（例如 4.50%、1.79%、4.87%）
-      const withoutPct = line.replace(/\d+(?:[.,]\d+)?\s*%/g, ' ');
-      // 抓出所有數字區塊（例如 1,356  3,138 或 539  1,299）
-      const numTokens = withoutPct.match(/\d[\d,.]*/g) || [];
-      const ints = numTokens
-        .map(tok => parseInt(tok.replace(/[,.]/g, ''), 10))
+    for (const line of lines) {
+      // 去除帶有 % 的百分比欄位（例如 4.50%、4.87%）
+      const withoutPct = line.replace(/\d+(?:[.,]\d+)?%/g, ' ');
+      const tokens = withoutPct.match(/\d[\d,.]*/g) || [];
+      const ints = tokens
+        .map(t => parseInt(t.replace(/[,.]/g, ''), 10))
         .filter(n => !isNaN(n));
 
       if (ints.length >= 2) {
-        extractedRows.push({
+        dataRows.push({
           order_count: ints[ints.length - 2],
           pcs_count: ints[ints.length - 1]
         });
       }
     }
 
-    // 從上到下依序對應 00~01 到 23~24（若超過 24 列則取最後 24 列數據列）
-    const final24 = extractedRows.length > 24
-      ? extractedRows.slice(extractedRows.length - 24)
-      : extractedRows;
+    // 若抓到超過 24 列（例如表頭雜訊），取最後 24 列完整數據
+    const final24 = dataRows.length > 24 ? dataRows.slice(dataRows.length - 24) : dataRows;
 
     const normalizedHourly = Array.from({ length: 24 }, (_, idx) => {
       const slot = `${String(idx).padStart(2, '0')}~${String(idx + 1).padStart(2, '0')}`;
@@ -205,7 +225,7 @@ module.exports = function(db) {
     );
   });
 
-  // 3. 截圖辨識 API（左側條件區 + 右側純數字三欄裁切 + 黃底自動漂白）
+  // 3. 截圖辨識 API（左側條件區 + 右側 54%~100% 純數字白名單辨識）
   router.post('/recognize', async (req, res) => {
     const { imageBase64 } = req.body;
     if (!imageBase64) {
@@ -219,47 +239,53 @@ module.exports = function(db) {
       const W = fullImg.bitmap.width;
       const H = fullImg.bitmap.height;
 
-      // 1) 左側條件區（最左側 18% 寬度）放大 3 倍
+      // 1) 左側條件區（最左側 15% 寬度）放大 3.5 倍
       const leftCrop = fullImg.clone()
-        .crop(0, 0, Math.round(W * 0.18), H)
-        .scale(3)
+        .crop(0, 0, Math.round(W * 0.15), H)
+        .scale(3.5)
         .greyscale()
-        .contrast(0.2);
+        .contrast(0.15);
 
-      // 2) 右側純數字三欄（從 62% 寬度到最右邊：只切「百分比 / 筆數 / PCS數」，完全避開時段波浪號與藍色長條圖）
-      const rightStartX = Math.round(W * 0.62);
+      // 2) 右側三欄數據區（從 54% 寬度到 100%：完整保留「百分比 / 筆數 / PCS數」，完全避開左邊長條圖與時段波浪號）
+      const rightStartX = Math.round(W * 0.54);
       const rightCrop = fullImg.clone()
         .crop(rightStartX, 0, W - rightStartX, H);
 
-      // 將 23~24 列的亮黃底色漂白為純白底黑字，同時消除淺灰色表格格線干擾
+      // 將亮黃色高亮底色（23~24列）與表頭米黃底色統一轉成純白底，消除底色與格線干擾
       rightCrop.scan(0, 0, rightCrop.bitmap.width, rightCrop.bitmap.height, function(x, y, idx) {
         const r = this.bitmap.data[idx];
         const g = this.bitmap.data[idx + 1];
         const b = this.bitmap.data[idx + 2];
-        // 亮黃色底色 (R>170, G>170, B<150) 漂白成純白
-        if (r > 170 && g > 170 && b < 150) {
+        // 任何亮度較高的淺灰/米黃/亮黃背景像素一律漂白成純白，只留下深色文字
+        if (r > 140 && g > 140) {
           this.bitmap.data[idx] = 255;
           this.bitmap.data[idx + 1] = 255;
           this.bitmap.data[idx + 2] = 255;
         }
       });
 
-      rightCrop.scale(3).greyscale().contrast(0.25);
+      rightCrop.scale(3).greyscale().contrast(0.3);
 
       const [leftBuf, rightBuf] = await Promise.all([
         leftCrop.getBufferAsync(Jimp.MIME_PNG),
         rightCrop.getBufferAsync(Jimp.MIME_PNG)
       ]);
 
-      const worker = await getOcrWorker();
-      const leftRes = await worker.recognize(leftBuf);
-      const rightRes = await worker.recognize(rightBuf);
+      const [textWorker, numWorker] = await Promise.all([
+        getTextWorker(),
+        getNumWorker()
+      ]);
 
-      const parsed = parseWmsOcrResult(leftRes.data.text, rightRes.data);
+      const [leftRes, rightRes] = await Promise.all([
+        textWorker.recognize(leftBuf),
+        numWorker.recognize(rightBuf)
+      ]);
+
+      const parsed = parseWmsOcrResult(leftRes.data.text, rightRes.data.text);
 
       return res.json({
         success: true,
-        engineUsed: 'local_ocr_columns',
+        engineUsed: 'local_ocr_whitelist',
         parsed
       });
     } catch (err) {
