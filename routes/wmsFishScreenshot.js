@@ -145,26 +145,37 @@ module.exports = function(db) {
           }
         };
 
-        const candidateModels = ['gemini-3.8-flash', 'gemini-3.5-flash', 'gemini-3.0-flash'];
+        const candidateModels = [
+          'gemini-3.8-flash',
+          'gemini-3.8-flash-lite',
+          'gemini-3.5-flash',
+          'gemini-3.0-flash'
+        ];
         let result = null;
         let lastErrMsg = '';
 
         for (const modelName of candidateModels) {
-          const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${encodeURIComponent(apiKey)}`;
-          const response = await fetch(apiUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-          });
-          const data = await response.json();
-          if (response.ok) {
-            result = data;
+          for (let attempt = 1; attempt <= 2; attempt++) {
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${encodeURIComponent(apiKey)}`;
+            const response = await fetch(apiUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+            const data = await response.json();
+            if (response.ok) {
+              result = data;
+              break;
+            }
+            lastErrMsg = data?.error?.message || `HTTP ${response.status}`;
+            const isTransient = /high demand|overloaded|unavailable|try again|rate limit/i.test(lastErrMsg) || response.status === 503 || response.status === 429;
+            if (isTransient && attempt < 2) {
+              await new Promise(r => setTimeout(r, 1500));
+              continue;
+            }
             break;
           }
-          lastErrMsg = data?.error?.message || `HTTP ${response.status}`;
-          if (!lastErrMsg.includes('no longer available') && !lastErrMsg.includes('not found')) {
-            break;
-          }
+          if (result) break;
         }
 
         if (!result) {
