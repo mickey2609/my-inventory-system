@@ -61,6 +61,13 @@ module.exports = function(db) {
     return keywords.some(k => cleanRmk.includes(k)) || cleanRmk.length > 5;
   }
 
+  // 判斷是否為人工/系統批次銷案（非現場真實刷驗收）
+  function isBatchClosedRow(row) {
+    if (!row || !row.finish_user) return false;
+    const u = String(row.finish_user).trim();
+    return u.includes('系統自動') || u.includes('主管銷案');
+  }
+
   // 1. 初始化資料庫 Schema，並自動將舊版 2 欄唯一限制無損升級為 4 欄複合限制
   db.serialize(() => {
     const createTableDDL = `
@@ -93,7 +100,7 @@ module.exports = function(db) {
       )
     `;
 
-    function buildIndexes() {
+    function buildIndexesAndCleanup() {
       db.run(`
         CREATE UNIQUE INDEX IF NOT EXISTS idx_dispatch_composite_conflict 
         ON dispatch_fish_details (order_no, item_id, rec_date, rec_time)
@@ -103,11 +110,19 @@ module.exports = function(db) {
       db.run(`CREATE INDEX IF NOT EXISTS idx_dispatch_order_no ON dispatch_fish_details (order_no)`);
       db.run(`CREATE INDEX IF NOT EXISTS idx_dispatch_item_id ON dispatch_fish_details (item_id)`);
       db.run(`CREATE INDEX IF NOT EXISTS idx_dispatch_status ON dispatch_fish_details (doc_status)`);
+
+      // 清理先前因自動銷案寫入的虛假驗收時間，避免影響歷史時段圖表
+      db.run(`
+        UPDATE dispatch_fish_details
+        SET check_time = ''
+        WHERE (finish_user LIKE '系統自動%' OR finish_user = '主管銷案')
+          AND check_time IS NOT NULL AND check_time != ''
+      `);
     }
 
     db.get(`SELECT sql FROM sqlite_master WHERE type='table' AND name='dispatch_fish_details'`, [], (err, row) => {
       if (!row) {
-        db.run(createTableDDL, buildIndexes);
+        db.run(createTableDDL, buildIndexesAndCleanup);
       } else if (row.sql && !row.sql.includes('rec_date, rec_time')) {
         console.log('🔄 偵測到舊版 dispatch_fish_details 2欄唯一約束，正在執行無損資料搬移升級...');
         db.serialize(() => {
@@ -131,12 +146,12 @@ module.exports = function(db) {
             }
             db.run(`DROP TABLE IF EXISTS dispatch_fish_details_old`, () => {
               console.log('✅ dispatch_fish_details 結構升級與歷史資料搬移完成！');
-              buildIndexes();
+              buildIndexesAndCleanup();
             });
           });
         });
       } else {
-        buildIndexes();
+        buildIndexesAndCleanup();
       }
     });
   });
@@ -216,8 +231,10 @@ module.exports = function(db) {
           release_time = EXCLUDED.release_time,
           appoint_date = EXCLUDED.appoint_date,
           remark = EXCLUDED.remark,
-          check_date = EXCLUDED.check_date,
-          check_time = EXCLUDED.check_time,
+          check_date = CASE WHEN EXCLUDED.check_date != '' THEN EXCLUDED.check_date ELSE dispatch_fish_details.check_date END,
+          check_time = CASE WHEN EXCLUDED.check_time != '' THEN EXCLUDED.check_time ELSE dispatch_fish_details.check_time END,
+          doc_status = CASE WHEN EXCLUDED.check_date != '' THEN '已驗收' ELSE dispatch_fish_details.doc_status END,
+          finish_user = CASE WHEN EXCLUDED.check_date != '' THEN '' ELSE dispatch_fish_details.finish_user END,
           supplier_id = EXCLUDED.supplier_id,
           supplier_name = EXCLUDED.supplier_name,
           imported_at = CURRENT_TIMESTAMP
@@ -284,15 +301,16 @@ module.exports = function(db) {
 
         const now = new Date();
         const autoCloseDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-        const autoCloseTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
 
+        // 【核心邏輯 1】：無來源單號記錄直接結案（不寫入假 check_time，避免干擾時段魚群）
         db.run(`
           UPDATE dispatch_fish_details
-          SET check_date = ?, check_time = ?, doc_status = '已銷案', finish_user = '系統自動結案', finish_remark = '自動結案：無來源單號/已上架完成'
+          SET check_date = ?, check_time = '', doc_status = '已銷案', finish_user = '系統自動結案', finish_remark = '自動結案：無來源單號/已上架完成'
           WHERE (order_no IS NULL OR TRIM(order_no) = '' OR order_no = 'null')
             AND (doc_status IS NULL OR doc_status != '已銷案')
-        `, [autoCloseDate, autoCloseTime], () => {});
+        `, [autoCloseDate], () => {});
 
+        // 【核心邏輯 2】：已不在報表中的先前未驗收單據自動判定結案（不寫入假 check_time）
         if (isLastChunk && currentImportingBatchKeys.size > 0) {
           const pendingCheckSql = `
             SELECT id, order_no, item_id, rec_date, rec_time 
@@ -311,12 +329,12 @@ module.exports = function(db) {
                   db.run('BEGIN TRANSACTION');
                   const closeStmt = db.prepare(`
                     UPDATE dispatch_fish_details
-                    SET check_date = ?, check_time = ?, doc_status = '已銷案', finish_user = '系統自動銷案', finish_remark = '匯入檔無此分批單據，判定已驗收上架'
+                    SET check_date = ?, check_time = '', doc_status = '已銷案', finish_user = '系統自動銷案', finish_remark = '匯入檔無此分批單據，判定已驗收上架'
                     WHERE id = ?
                   `);
 
                   toAutoClose.forEach(c => {
-                    closeStmt.run(autoCloseDate, autoCloseTime, c.id);
+                    closeStmt.run(autoCloseDate, c.id);
                   });
 
                   closeStmt.finalize();
@@ -389,6 +407,7 @@ module.exports = function(db) {
         const isAbnormal = checkIsAbnormal(r.remark);
         const isFastPass = !!(r.fast_pass_info && String(r.fast_pass_info).trim() !== '');
         const isUncheck = (!hasCheck && r.doc_status !== '已銷案');
+        const isBatchClosed = isBatchClosedRow(r);
 
         if (isOnTime) onTimeCount++;
         if (isAbnormal) abnormalCount++;
@@ -410,7 +429,8 @@ module.exports = function(db) {
           }
         }
 
-        if (r.check_date === targetDate && r.check_time) {
+        // 右側驗收時段只統計現場真實驗收（排除系統批次自動銷案）
+        if (!isBatchClosed && r.check_date === targetDate && r.check_time) {
           const timeClean = String(r.check_time).trim();
           const hourPart = timeClean.split(':')[0];
           const h = parseInt(hourPart, 10);
@@ -474,6 +494,7 @@ module.exports = function(db) {
         const rDate = (r.rec_date || '').trim();
         const cDate = (r.check_date || '').trim();
         const hasCheck = !!((cDate && cDate !== '' && cDate !== 'NaT') || r.doc_status === '已銷案');
+        const isBatchClosed = isBatchClosedRow(r);
 
         if (rDate && rDate.startsWith(month)) {
           const day = getDayObj(rDate);
@@ -487,7 +508,8 @@ module.exports = function(db) {
           }
         }
 
-        if (cDate && cDate.startsWith(month)) {
+        // 右側當日真實驗收排除系統自動銷案
+        if (!isBatchClosed && cDate && cDate.startsWith(month)) {
           const day = getDayObj(cDate);
           if (orderNo) day.finOrderSet.add(orderNo);
           day.finPcs += (r.pcs || 0);
@@ -550,6 +572,7 @@ module.exports = function(db) {
         const rDate = (r.rec_date || '').trim();
         const cDate = (r.check_date || '').trim();
         const hasCheck = !!((cDate && cDate !== '' && cDate !== 'NaT') || r.doc_status === '已銷案');
+        const isBatchClosed = isBatchClosedRow(r);
 
         if (rDate && rDate.startsWith(year)) {
           const mKey = rDate.substring(0, 7);
@@ -565,7 +588,8 @@ module.exports = function(db) {
           }
         }
 
-        if (cDate && cDate.startsWith(year)) {
+        // 右側當月真實驗收排除系統自動銷案
+        if (!isBatchClosed && cDate && cDate.startsWith(year)) {
           const mKey = cDate.substring(0, 7);
           if (monthMap[mKey]) {
             if (orderNo) monthMap[mKey].finOrderSet.add(orderNo);
@@ -664,17 +688,16 @@ module.exports = function(db) {
 
     const now = new Date();
     const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-    const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
 
     if (startDate && endDate) {
       const sql = `
         UPDATE dispatch_fish_details
-        SET check_date = ?, check_time = ?, finish_user = ?, finish_remark = ?, doc_status = '已銷案'
+        SET check_date = ?, check_time = '', finish_user = ?, finish_remark = ?, doc_status = '已銷案'
         WHERE (check_date IS NULL OR check_date = '' OR check_date = 'NaT')
           AND (doc_status IS NULL OR doc_status != '已銷案')
           AND rec_date BETWEEN ? AND ?
       `;
-      db.run(sql, [todayStr, timeStr, closeUser || '主管銷案', closeRemark || '依區間銷案', startDate, endDate], function(err) {
+      db.run(sql, [todayStr, closeUser || '主管銷案', closeRemark || '依區間銷案', startDate, endDate], function(err) {
         if (err) return res.status(500).json({ success: false, message: err.message });
         res.json({ success: true, message: `🎉 成功結案 ${this.changes} 筆於 ${startDate} ~ ${endDate} 之未完成單據！`, count: this.changes });
       });
@@ -686,12 +709,12 @@ module.exports = function(db) {
         db.run('BEGIN TRANSACTION');
         const stmt = db.prepare(`
           UPDATE dispatch_fish_details
-          SET check_date = ?, check_time = ?, finish_user = ?, finish_remark = ?, doc_status = '已銷案'
+          SET check_date = ?, check_time = '', finish_user = ?, finish_remark = ?, doc_status = '已銷案'
           WHERE id = ?
         `);
         let count = 0;
         for (const id of ids) {
-          stmt.run(todayStr, timeStr, closeUser || '主管銷案', closeRemark || '批次勾選銷案', id);
+          stmt.run(todayStr, closeUser || '主管銷案', closeRemark || '批次勾選銷案', id);
           count++;
         }
         stmt.finalize();
@@ -708,12 +731,12 @@ module.exports = function(db) {
         db.run('BEGIN TRANSACTION');
         const stmt = db.prepare(`
           UPDATE dispatch_fish_details
-          SET check_date = ?, check_time = ?, finish_user = ?, finish_remark = ?, doc_status = '已銷案'
+          SET check_date = ?, check_time = '', finish_user = ?, finish_remark = ?, doc_status = '已銷案'
           WHERE order_no = ? AND item_id = ?
         `);
         let count = 0;
         for (const k of keys) {
-          stmt.run(todayStr, timeStr, closeUser || '主管銷案', closeRemark || '批次勾選銷案', k.orderNo, k.itemId);
+          stmt.run(todayStr, closeUser || '主管銷案', closeRemark || '批次勾選銷案', k.orderNo, k.itemId);
           count++;
         }
         stmt.finalize();
