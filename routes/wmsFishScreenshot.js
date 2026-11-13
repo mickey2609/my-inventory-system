@@ -90,7 +90,7 @@ module.exports = function(db) {
     );
   });
 
-  // 3. 呼叫 Gemini Vision API 辨識 WMS 魚群截圖
+  // 3. 呼叫 Gemini Vision API 辨識 WMS 魚群截圖（使用 gemini-3.8-flash 並支援備援）
   router.post('/recognize', (req, res) => {
     const { imageBase64 } = req.body;
     if (!imageBase64) {
@@ -117,7 +117,7 @@ module.exports = function(db) {
 
         const promptText = `你是一個精準的台灣倉庫 WMS 系統「倉庫 魚群出沒時間」截圖資料擷取器。
 請仔細辨識圖片中的左側查詢條件與右側 24 小時（00 ~ 01 到 23 ~ 24）表格數據，並嚴格回傳 JSON 格式（不要包含 markdown 標記或其他多餘文字）：
-1. date: 左側「日期」欄位的值，轉換為 YYYY-MM-DD 格式（例如 2026/11/11 -> 2026-11-11）。
+1. date: 左側「日期」欄位的值，轉換為 YYYY-MM-DD 格式（例如 2026/11/12 -> 2026-11-12）。
 2. category: 左側「類別」下拉選單的值（例如：轉單時間、完成出貨、完成撿貨）。
 3. wh_code: 左側「庫別」的值（例如：15 或 80）。
 4. order_type: 左側「單別」的值（例如：揀貨單號）。
@@ -145,17 +145,30 @@ module.exports = function(db) {
           }
         };
 
-        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
-        const response = await fetch(apiUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
+        const candidateModels = ['gemini-3.8-flash', 'gemini-3.5-flash', 'gemini-3.0-flash'];
+        let result = null;
+        let lastErrMsg = '';
 
-        const result = await response.json();
-        if (!response.ok) {
-          const errMsg = result?.error?.message || `HTTP ${response.status}`;
-          return res.status(500).json({ success: false, message: `Gemini API 辨識失敗：${errMsg}` });
+        for (const modelName of candidateModels) {
+          const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${encodeURIComponent(apiKey)}`;
+          const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          const data = await response.json();
+          if (response.ok) {
+            result = data;
+            break;
+          }
+          lastErrMsg = data?.error?.message || `HTTP ${response.status}`;
+          if (!lastErrMsg.includes('no longer available') && !lastErrMsg.includes('not found')) {
+            break;
+          }
+        }
+
+        if (!result) {
+          return res.status(500).json({ success: false, message: `Gemini API 辨識失敗：${lastErrMsg}` });
         }
 
         const rawText = result?.candidates?.[0]?.content?.parts?.[0]?.text || '';
