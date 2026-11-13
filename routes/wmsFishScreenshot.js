@@ -74,43 +74,55 @@ module.exports = function(db) {
     return s;
   }
 
-  // 動態偵測整張圖中的垂直表格邊框線 X 座標（免疫雙螢幕解析度與視窗縮放差異）
+  // 動態偵測整張圖中的垂直表格邊框線 X 座標（過濾過近的偽線，免疫雙螢幕與縮放差異）
   function detectVerticalGridLines(jimpImg) {
     const w = jimpImg.bitmap.width;
     const h = jimpImg.bitmap.height;
     const data = jimpImg.bitmap.data;
 
-    // 統計每個 X 座標在垂直方向上深色格線像素的數量
-    const colDarkCounts = new Array(w).fill(0);
+    // 表格邊框線是連續貫穿上下列的深色直線（判斷最大連續垂直深色長度，而非總數，徹底排除數字筆畫）
+    const maxRunLengths = new Array(w).fill(0);
     for (let x = 0; x < w; x++) {
-      let count = 0;
+      let currentRun = 0;
+      let maxRun = 0;
       for (let y = 0; y < h; y++) {
         const idx = (y * w + x) * 4;
-        // 表格邊框線通常為深灰或黑色 (R,G,B 皆小於 160)
-        if (data[idx] < 160 && data[idx + 1] < 160 && data[idx + 2] < 160) {
-          count++;
+        if (data[idx] < 175 && data[idx + 1] < 175 && data[idx + 2] < 175) {
+          currentRun++;
+          if (currentRun > maxRun) maxRun = currentRun;
+        } else {
+          currentRun = 0;
         }
       }
-      colDarkCounts[x] = count;
+      maxRunLengths[x] = maxRun;
     }
 
-    // 找出深色像素超過高度 55% 的垂直直線，並合併相鄰 1~3px 的粗線
-    const lines = [];
+    // 真正的表格分隔線必須「單段連續垂直長度」超過圖片高度的 50%
+    const rawLines = [];
     let inLine = false;
     let lineStart = 0;
     for (let x = 0; x < w; x++) {
-      if (colDarkCounts[x] > h * 0.55) {
+      if (maxRunLengths[x] > h * 0.50) {
         if (!inLine) {
           inLine = true;
           lineStart = x;
         }
       } else if (inLine) {
-        lines.push(Math.round((lineStart + x - 1) / 2));
+        rawLines.push(Math.round((lineStart + x - 1) / 2));
         inLine = false;
       }
     }
-    if (inLine) lines.push(Math.round((lineStart + w - 1) / 2));
-    return lines;
+    if (inLine) rawLines.push(Math.round((lineStart + w - 1) / 2));
+
+    // 合併距離小於圖片寬度 4% 的相鄰線條
+    const merged = [];
+    const minGap = Math.max(15, Math.round(w * 0.04));
+    for (const lx of rawLines) {
+      if (merged.length === 0 || lx - merged[merged.length - 1] >= minGap) {
+        merged.push(lx);
+      }
+    }
+    return merged;
   }
 
   // 清除圖片中的水平與垂直長直線（徹底消滅表格黑線被誤認為 1 的問題）
@@ -121,16 +133,16 @@ module.exports = function(db) {
 
     const isDark = (x, y) => {
       const idx = (y * w + x) * 4;
-      return data[idx] < 150 && data[idx + 1] < 150 && data[idx + 2] < 150;
+      return data[idx] < 165 && data[idx + 1] < 165 && data[idx + 2] < 165;
     };
 
-    // 1. 清除水平橫線（連續超過 45% 寬度都是深色像素的整列直接塗白）
+    // 1. 清除水平橫線（連續超過 55% 寬度都是深色像素的整列直接塗白）
     for (let y = 0; y < h; y++) {
       let darkCount = 0;
       for (let x = 0; x < w; x++) {
         if (isDark(x, y)) darkCount++;
       }
-      if (darkCount > w * 0.45) {
+      if (darkCount > w * 0.55) {
         for (let x = 0; x < w; x++) {
           const idx = (y * w + x) * 4;
           data[idx] = 255; data[idx + 1] = 255; data[idx + 2] = 255;
@@ -138,13 +150,13 @@ module.exports = function(db) {
       }
     }
 
-    // 2. 清除垂直直線（連續超過 45% 高度都是深色像素的整行直接塗白）
+    // 2. 清除垂直直線（連續超過 55% 高度都是深色像素的整行直接塗白）
     for (let x = 0; x < w; x++) {
       let darkCount = 0;
       for (let y = 0; y < h; y++) {
         if (isDark(x, y)) darkCount++;
       }
-      if (darkCount > h * 0.45) {
+      if (darkCount > h * 0.55) {
         for (let y = 0; y < h; y++) {
           const idx = (y * w + x) * 4;
           data[idx] = 255; data[idx + 1] = 255; data[idx + 2] = 255;
@@ -153,20 +165,21 @@ module.exports = function(db) {
     }
   }
 
-  // 預處理單一數字直欄（放大 4 倍 + 去除格線 + 漂白底色）
+  // 預處理單一數字直欄（只漂白亮黃色底色，完整保留灰階抗鋸齒數字筆畫）
   async function prepareNumericColumn(img) {
     img.scan(0, 0, img.bitmap.width, img.bitmap.height, function(x, y, idx) {
       const r = this.bitmap.data[idx];
       const g = this.bitmap.data[idx + 1];
-      // 所有淺灰/米黃/亮黃底色一律轉純白，只保留深黑色數字
-      if (r > 135 && g > 135) {
+      const b = this.bitmap.data[idx + 2];
+      // 僅針對亮黃色底色列 (R>180, G>180, B<145) 漂白成純白，絕不傷及灰色抗鋸齒數字邊緣
+      if (r > 180 && g > 180 && b < 145) {
         this.bitmap.data[idx] = 255;
         this.bitmap.data[idx + 1] = 255;
         this.bitmap.data[idx + 2] = 255;
       }
     });
     eraseGridLines(img);
-    img.scale(4, Jimp.RESIZE_BICUBIC).greyscale().contrast(0.35);
+    img.scale(4, Jimp.RESIZE_BICUBIC).greyscale().contrast(0.25);
     return await img.getBufferAsync(Jimp.MIME_PNG);
   }
 
@@ -238,7 +251,7 @@ module.exports = function(db) {
     );
   });
 
-  // 3. 截圖辨識 API（動態偵測垂直表格線 + 消除格線 + 4倍放大 OCR）
+  // 3. 截圖辨識 API（連續垂直邊框線偵測 + 無損抗鋸齒漂白 + 4倍放大 OCR）
   router.post('/recognize', async (req, res) => {
     const { imageBase64 } = req.body;
     if (!imageBase64) {
@@ -252,29 +265,24 @@ module.exports = function(db) {
       const W = fullImg.bitmap.width;
       const H = fullImg.bitmap.height;
 
-      // 自動偵測所有貫穿表格的垂直線 X 座標
       const vLines = detectVerticalGridLines(fullImg);
 
-      // 預設 fallback 比例（若截圖裁掉最右邊框線時的保底）
       let leftPanelRightX = Math.round(W * 0.165);
       let ordersLeftX = Math.round(W * 0.745);
       let pcsLeftX = Math.round(W * 0.872);
       let pcsRightX = W - 2;
 
-      // 若成功偵測到表格垂直線（從右往左數：PCS左線、筆數左線）
-      if (vLines.length >= 4) {
-        const innerLines = vLines.filter(x => x < W - 3);
-        if (innerLines.length >= 2) {
-          pcsLeftX = innerLines[innerLines.length - 1];
-          ordersLeftX = innerLines[innerLines.length - 2];
-          const firstTableLine = innerLines.find(x => x > W * 0.08 && x < W * 0.35);
-          if (firstTableLine) {
-            leftPanelRightX = firstTableLine;
-          }
+      const innerLines = vLines.filter(x => x < W - 4);
+      if (innerLines.length >= 2) {
+        pcsLeftX = innerLines[innerLines.length - 1];
+        ordersLeftX = innerLines[innerLines.length - 2];
+        const firstTableLine = innerLines.find(x => x > W * 0.08 && x < W * 0.35);
+        if (firstTableLine) {
+          leftPanelRightX = firstTableLine;
         }
       }
 
-      // 1) 左側條件區（動態對齊主表格左邊界）
+      // 1) 左側條件區
       const leftTopCrop = fullImg.clone()
         .crop(0, 0, Math.max(50, leftPanelRightX), Math.round(H * 0.35));
       eraseGridLines(leftTopCrop);
@@ -285,15 +293,15 @@ module.exports = function(db) {
       const tableH = H - tableTopY;
 
       const ordersColImg = fullImg.clone().crop(
-        ordersLeftX + 2,
+        ordersLeftX + 3,
         tableTopY,
-        Math.max(20, pcsLeftX - ordersLeftX - 4),
+        Math.max(20, pcsLeftX - ordersLeftX - 6),
         tableH
       );
       const pcsColImg = fullImg.clone().crop(
-        pcsLeftX + 2,
+        pcsLeftX + 3,
         tableTopY,
-        Math.max(20, pcsRightX - pcsLeftX - 4),
+        Math.max(20, pcsRightX - pcsLeftX - 6),
         tableH
       );
 
@@ -349,8 +357,8 @@ module.exports = function(db) {
 
       return res.json({
         success: true,
-        engineUsed: 'local_ocr_dynamic_grid',
-        detectedLines: { leftPanelRightX, ordersLeftX, pcsLeftX },
+        engineUsed: 'local_ocr_dynamic_grid_v2',
+        detectedLines: { vLines, leftPanelRightX, ordersLeftX, pcsLeftX },
         parsed: {
           date: date || new Date().toISOString().split('T')[0],
           category,
