@@ -8,40 +8,20 @@ const Jimp = require('jimp');
 module.exports = function(db) {
   const router = express.Router();
 
-  let textWorkerPromise = null;
-  let colWorkerPromise = null;
+  let ocrWorkerPromise = null;
 
-  function getTextWorker() {
-    if (!textWorkerPromise) {
-      textWorkerPromise = (async () => {
+  function getOcrWorker() {
+    if (!ocrWorkerPromise) {
+      ocrWorkerPromise = (async () => {
         return await Tesseract.createWorker('chi_tra+eng', 1, {
           cachePath: path.join(__dirname, '..', '.ocr_cache')
         });
       })().catch(err => {
-        textWorkerPromise = null;
+        ocrWorkerPromise = null;
         throw err;
       });
     }
-    return textWorkerPromise;
-  }
-
-  function getColWorker() {
-    if (!colWorkerPromise) {
-      colWorkerPromise = (async () => {
-        const worker = await Tesseract.createWorker('eng', 1, {
-          cachePath: path.join(__dirname, '..', '.ocr_cache')
-        });
-        await worker.setParameters({
-          tessedit_pageseg_mode: '6', // 單欄垂直列表逐行辨識
-          tessedit_char_whitelist: '0123456789,'
-        });
-        return worker;
-      })().catch(err => {
-        colWorkerPromise = null;
-        throw err;
-      });
-    }
-    return colWorkerPromise;
+    return ocrWorkerPromise;
   }
 
   function getGeminiApiKey(callback) {
@@ -74,58 +54,7 @@ module.exports = function(db) {
     return s;
   }
 
-  // 動態偵測整張圖中的垂直表格邊框線 X 座標（過濾過近的偽線，免疫雙螢幕與縮放差異）
-  function detectVerticalGridLines(jimpImg) {
-    const w = jimpImg.bitmap.width;
-    const h = jimpImg.bitmap.height;
-    const data = jimpImg.bitmap.data;
-
-    // 表格邊框線是連續貫穿上下列的深色直線（判斷最大連續垂直深色長度，而非總數，徹底排除數字筆畫）
-    const maxRunLengths = new Array(w).fill(0);
-    for (let x = 0; x < w; x++) {
-      let currentRun = 0;
-      let maxRun = 0;
-      for (let y = 0; y < h; y++) {
-        const idx = (y * w + x) * 4;
-        if (data[idx] < 175 && data[idx + 1] < 175 && data[idx + 2] < 175) {
-          currentRun++;
-          if (currentRun > maxRun) maxRun = currentRun;
-        } else {
-          currentRun = 0;
-        }
-      }
-      maxRunLengths[x] = maxRun;
-    }
-
-    // 真正的表格分隔線必須「單段連續垂直長度」超過圖片高度的 50%
-    const rawLines = [];
-    let inLine = false;
-    let lineStart = 0;
-    for (let x = 0; x < w; x++) {
-      if (maxRunLengths[x] > h * 0.50) {
-        if (!inLine) {
-          inLine = true;
-          lineStart = x;
-        }
-      } else if (inLine) {
-        rawLines.push(Math.round((lineStart + x - 1) / 2));
-        inLine = false;
-      }
-    }
-    if (inLine) rawLines.push(Math.round((lineStart + w - 1) / 2));
-
-    // 合併距離小於圖片寬度 4% 的相鄰線條
-    const merged = [];
-    const minGap = Math.max(15, Math.round(w * 0.04));
-    for (const lx of rawLines) {
-      if (merged.length === 0 || lx - merged[merged.length - 1] >= minGap) {
-        merged.push(lx);
-      }
-    }
-    return merged;
-  }
-
-  // 清除圖片中的水平與垂直長直線（徹底消滅表格黑線被誤認為 1 的問題）
+  // 清除圖片中的長直線格線（避免垂直格線被當成 1）
   function eraseGridLines(jimpImg) {
     const w = jimpImg.bitmap.width;
     const h = jimpImg.bitmap.height;
@@ -133,16 +62,15 @@ module.exports = function(db) {
 
     const isDark = (x, y) => {
       const idx = (y * w + x) * 4;
-      return data[idx] < 165 && data[idx + 1] < 165 && data[idx + 2] < 165;
+      return data[idx] < 160 && data[idx + 1] < 160 && data[idx + 2] < 160;
     };
 
-    // 1. 清除水平橫線（連續超過 55% 寬度都是深色像素的整列直接塗白）
     for (let y = 0; y < h; y++) {
       let darkCount = 0;
       for (let x = 0; x < w; x++) {
         if (isDark(x, y)) darkCount++;
       }
-      if (darkCount > w * 0.55) {
+      if (darkCount > w * 0.50) {
         for (let x = 0; x < w; x++) {
           const idx = (y * w + x) * 4;
           data[idx] = 255; data[idx + 1] = 255; data[idx + 2] = 255;
@@ -150,13 +78,12 @@ module.exports = function(db) {
       }
     }
 
-    // 2. 清除垂直直線（連續超過 55% 高度都是深色像素的整行直接塗白）
     for (let x = 0; x < w; x++) {
       let darkCount = 0;
       for (let y = 0; y < h; y++) {
         if (isDark(x, y)) darkCount++;
       }
-      if (darkCount > h * 0.55) {
+      if (darkCount > h * 0.50) {
         for (let y = 0; y < h; y++) {
           const idx = (y * w + x) * 4;
           data[idx] = 255; data[idx + 1] = 255; data[idx + 2] = 255;
@@ -165,37 +92,116 @@ module.exports = function(db) {
     }
   }
 
-  // 預處理單一數字直欄（只漂白亮黃色底色，完整保留灰階抗鋸齒數字筆畫）
-  async function prepareNumericColumn(img) {
-    img.scan(0, 0, img.bitmap.width, img.bitmap.height, function(x, y, idx) {
-      const r = this.bitmap.data[idx];
-      const g = this.bitmap.data[idx + 1];
-      const b = this.bitmap.data[idx + 2];
-      // 僅針對亮黃色底色列 (R>180, G>180, B<145) 漂白成純白，絕不傷及灰色抗鋸齒數字邊緣
-      if (r > 180 && g > 180 && b < 145) {
-        this.bitmap.data[idx] = 255;
-        this.bitmap.data[idx + 1] = 255;
-        this.bitmap.data[idx + 2] = 255;
-      }
-    });
-    eraseGridLines(img);
-    img.scale(4, Jimp.RESIZE_BICUBIC).greyscale().contrast(0.25);
-    return await img.getBufferAsync(Jimp.MIME_PNG);
-  }
+  // 利用 Tesseract 回傳的單字座標 (words bbox) 進行二維空間還原，完全不靠硬編碼切欄
+  function extractStructuredDataFromWords(words, rawText, imgW, imgH) {
+    const compactAll = String(rawText || '').replace(/[ \t]+/g, '');
 
-  // 解析單欄垂直數字列表（預期 24 個數字）
-  function parseColumnNumbers(rawText) {
-    const lines = String(rawText || '').replace(/\r/g, '').split('\n').map(l => l.trim()).filter(Boolean);
-    const nums = [];
-    for (const line of lines) {
-      const cleaned = line.replace(/[^0-9,]/g, '');
-      if (!cleaned) continue;
-      const val = parseInt(cleaned.replace(/,/g, ''), 10);
-      if (!isNaN(val)) {
-        nums.push(val);
+    // 1. 解析左側條件參數（只取 X 座標在圖片左側 25% 內的文字）
+    const leftWordsText = words
+      .filter(w => w.bbox.x0 < imgW * 0.25)
+      .map(w => w.text)
+      .join('');
+    const compactLeft = leftWordsText.replace(/[ \t]+/g, '');
+
+    let date = '';
+    const dateMatch = (compactLeft + '\n' + compactAll).match(/(20\d{2})[\/\-．.](\d{1,2})[\/\-．.](\d{1,2})/);
+    if (dateMatch) {
+      date = `${dateMatch[1]}-${dateMatch[2].padStart(2, '0')}-${dateMatch[3].padStart(2, '0')}`;
+    }
+
+    let category = '轉單時間';
+    if (/完成出貨|出貨/.test(compactLeft)) category = '完成出貨';
+    else if (/完成[撿揀]貨|[撿揀]貨/.test(compactLeft)) category = '完成撿貨';
+    else if (/轉單時間|轉單/.test(compactLeft)) category = '轉單時間';
+
+    let wh_code = '15';
+    const whMatch = compactLeft.match(/庫別[^\d\n]{0,4}(\d{1,2})(?!\d)/);
+    if (whMatch) wh_code = whMatch[1];
+
+    let region = '全部';
+    const regMatch = compactLeft.match(/配送區域[^\u4e00-\u9fa5\n]{0,4}([\u4e00-\u9fa5]+)/);
+    if (regMatch && regMatch[1]) region = regMatch[1];
+
+    // 2. 篩選出主表格區域（X > 圖片寬度 50% 的所有數字單字，包含百分比、筆數、PCS數）
+    const tableWords = words
+      .filter(w => w.bbox.x0 > imgW * 0.50 && w.bbox.y0 > imgH * 0.06)
+      .map(w => ({
+        text: String(w.text || '').trim(),
+        x0: w.bbox.x0,
+        x1: w.bbox.x1,
+        yc: (w.bbox.y0 + w.bbox.y1) / 2,
+        h: w.bbox.y1 - w.bbox.y0
+      }))
+      .filter(w => /\d/.test(w.text));
+
+    // 按垂直中心點 yc 由上到下排序，並將同一橫列的單字聚類（容差約為字高的 65%）
+    tableWords.sort((a, b) => a.yc - b.yc);
+    const rowClusters = [];
+    for (const item of tableWords) {
+      const tol = Math.max(8, item.h * 0.65);
+      const lastCluster = rowClusters[rowClusters.length - 1];
+      if (lastCluster && Math.abs(item.yc - lastCluster.avgY) <= tol) {
+        lastCluster.items.push(item);
+        lastCluster.avgY = lastCluster.items.reduce((s, it) => s + it.yc, 0) / lastCluster.items.length;
+      } else {
+        rowClusters.push({ avgY: item.yc, items: [item] });
       }
     }
-    return nums.length > 24 ? nums.slice(nums.length - 24) : nums;
+
+    // 每一橫列依 X 座標由左到右排序，合併相距極近的同一格碎片，再取最後兩欄（筆數、PCS數）
+    const parsedRows = [];
+    for (const cluster of rowClusters) {
+      const sorted = cluster.items.sort((a, b) => a.x0 - b.x0);
+      // 過濾掉帶有 % 或小數點的百分比欄位
+      const nonPctItems = sorted.filter(it => !it.text.includes('%') && !/\d+\.\d+/.test(it.text));
+
+      // 若同一儲存格的數字被空格拆成兩段（例如 "1," 和 "356"），根據 X 距離合併
+      const mergedCells = [];
+      for (const it of nonPctItems) {
+        const cleanDigits = it.text.replace(/[^0-9]/g, '');
+        if (!cleanDigits) continue;
+        const prev = mergedCells[mergedCells.length - 1];
+        if (prev && (it.x0 - prev.x1) < Math.max(12, it.h * 0.8)) {
+          prev.digits += cleanDigits;
+          prev.x1 = it.x1;
+        } else {
+          mergedCells.push({ digits: cleanDigits, x0: it.x0, x1: it.x1 });
+        }
+      }
+
+      if (mergedCells.length >= 2) {
+        const orderVal = parseInt(mergedCells[mergedCells.length - 2].digits, 10);
+        const pcsVal = parseInt(mergedCells[mergedCells.length - 1].digits, 10);
+        if (!isNaN(orderVal) && !isNaN(pcsVal)) {
+          parsedRows.push({ order_count: orderVal, pcs_count: pcsVal });
+        }
+      }
+    }
+
+    const final24 = parsedRows.length > 24 ? parsedRows.slice(parsedRows.length - 24) : parsedRows;
+
+    const hourly = Array.from({ length: 24 }, (_, idx) => ({
+      hour_index: idx,
+      hour_slot: `${String(idx).padStart(2, '0')}~${String(idx + 1).padStart(2, '0')}`,
+      order_count: final24[idx] ? final24[idx].order_count : 0,
+      pcs_count: final24[idx] ? final24[idx].pcs_count : 0
+    }));
+
+    const allShipTypes = [
+      '當日配、貨到付款、郵箱', '大材積、大材積 (貨到付款)', '安裝', '海外',
+      '超商(7-11)', '超商(全家)', '超大', 'OK超取', '萊爾富超取', '超速配'
+    ];
+
+    return {
+      date: date || new Date().toISOString().split('T')[0],
+      category,
+      wh_code,
+      order_type: '揀貨單號',
+      region,
+      ship_types: allShipTypes,
+      is_24h: '全部',
+      hourly
+    };
   }
 
   // 1. 初始化資料表
@@ -251,7 +257,7 @@ module.exports = function(db) {
     );
   });
 
-  // 3. 截圖辨識 API（連續垂直邊框線偵測 + 無損抗鋸齒漂白 + 4倍放大 OCR）
+  // 3. 截圖辨識 API（全圖二維單字座標矩陣還原，完全免疫雙螢幕比例與切欄偏移）
   router.post('/recognize', async (req, res) => {
     const { imageBase64 } = req.body;
     if (!imageBase64) {
@@ -262,113 +268,37 @@ module.exports = function(db) {
       const base64Data = imageBase64.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '');
       const imgBuffer = Buffer.from(base64Data, 'base64');
       const fullImg = await Jimp.read(imgBuffer);
-      const W = fullImg.bitmap.width;
-      const H = fullImg.bitmap.height;
 
-      const vLines = detectVerticalGridLines(fullImg);
-
-      let leftPanelRightX = Math.round(W * 0.165);
-      let ordersLeftX = Math.round(W * 0.745);
-      let pcsLeftX = Math.round(W * 0.872);
-      let pcsRightX = W - 2;
-
-      const innerLines = vLines.filter(x => x < W - 4);
-      if (innerLines.length >= 2) {
-        pcsLeftX = innerLines[innerLines.length - 1];
-        ordersLeftX = innerLines[innerLines.length - 2];
-        const firstTableLine = innerLines.find(x => x > W * 0.08 && x < W * 0.35);
-        if (firstTableLine) {
-          leftPanelRightX = firstTableLine;
+      // 僅漂白亮黃色底色列 (R>180, G>180, B<145)，完整保留灰階抗鋸齒數字
+      fullImg.scan(0, 0, fullImg.bitmap.width, fullImg.bitmap.height, function(x, y, idx) {
+        const r = this.bitmap.data[idx];
+        const g = this.bitmap.data[idx + 1];
+        const b = this.bitmap.data[idx + 2];
+        if (r > 180 && g > 180 && b < 145) {
+          this.bitmap.data[idx] = 255;
+          this.bitmap.data[idx + 1] = 255;
+          this.bitmap.data[idx + 2] = 255;
         }
-      }
+      });
 
-      // 1) 左側條件區
-      const leftTopCrop = fullImg.clone()
-        .crop(0, 0, Math.max(50, leftPanelRightX), Math.round(H * 0.35));
-      eraseGridLines(leftTopCrop);
-      leftTopCrop.scale(4, Jimp.RESIZE_BICUBIC).greyscale().contrast(0.2);
+      eraseGridLines(fullImg);
+      fullImg.scale(2.5, Jimp.RESIZE_BICUBIC).greyscale().contrast(0.25);
 
-      // 2) 數據表垂直範圍：跳過頂部兩列表頭（約從 7.5% 高度到底部 100%）
-      const tableTopY = Math.round(H * 0.075);
-      const tableH = H - tableTopY;
+      const processedBuf = await fullImg.getBufferAsync(Jimp.MIME_PNG);
+      const worker = await getOcrWorker();
+      const { data } = await worker.recognize(processedBuf);
 
-      const ordersColImg = fullImg.clone().crop(
-        ordersLeftX + 3,
-        tableTopY,
-        Math.max(20, pcsLeftX - ordersLeftX - 6),
-        tableH
+      const parsed = extractStructuredDataFromWords(
+        data.words || [],
+        data.text || '',
+        fullImg.bitmap.width,
+        fullImg.bitmap.height
       );
-      const pcsColImg = fullImg.clone().crop(
-        pcsLeftX + 3,
-        tableTopY,
-        Math.max(20, pcsRightX - pcsLeftX - 6),
-        tableH
-      );
-
-      const [leftBuf, ordersBuf, pcsBuf] = await Promise.all([
-        leftTopCrop.getBufferAsync(Jimp.MIME_PNG),
-        prepareNumericColumn(ordersColImg),
-        prepareNumericColumn(pcsColImg)
-      ]);
-
-      const [textWorker, colWorker] = await Promise.all([
-        getTextWorker(),
-        getColWorker()
-      ]);
-
-      const leftRes = await textWorker.recognize(leftBuf);
-      const ordersRes = await colWorker.recognize(ordersBuf);
-      const pcsRes = await colWorker.recognize(pcsBuf);
-
-      const compactLeft = String(leftRes.data.text || '').replace(/[ \t]+/g, '');
-      let date = '';
-      const dateMatch = compactLeft.match(/(20\d{2})[\/\-．.](\d{1,2})[\/\-．.](\d{1,2})/);
-      if (dateMatch) {
-        date = `${dateMatch[1]}-${dateMatch[2].padStart(2, '0')}-${dateMatch[3].padStart(2, '0')}`;
-      }
-
-      let category = '轉單時間';
-      if (/完成出貨|出貨/.test(compactLeft)) category = '完成出貨';
-      else if (/完成[撿揀]貨|[撿揀]貨/.test(compactLeft)) category = '完成撿貨';
-      else if (/轉單時間|轉單/.test(compactLeft)) category = '轉單時間';
-
-      let wh_code = '15';
-      const whMatch = compactLeft.match(/庫別[^\d\n]{0,3}(\d{1,2})(?!\d)/);
-      if (whMatch) wh_code = whMatch[1];
-
-      let region = '全部';
-      const regMatch = compactLeft.match(/配送區域[^\u4e00-\u9fa5\n]{0,3}([\u4e00-\u9fa5]+)/);
-      if (regMatch && regMatch[1]) region = regMatch[1];
-
-      const ordersList = parseColumnNumbers(ordersRes.data.text);
-      const pcsList = parseColumnNumbers(pcsRes.data.text);
-
-      const hourly = Array.from({ length: 24 }, (_, idx) => ({
-        hour_index: idx,
-        hour_slot: `${String(idx).padStart(2, '0')}~${String(idx + 1).padStart(2, '0')}`,
-        order_count: ordersList[idx] !== undefined ? ordersList[idx] : 0,
-        pcs_count: pcsList[idx] !== undefined ? pcsList[idx] : 0
-      }));
-
-      const allShipTypes = [
-        '當日配、貨到付款、郵箱', '大材積、大材積 (貨到付款)', '安裝', '海外',
-        '超商(7-11)', '超商(全家)', '超大', 'OK超取', '萊爾富超取', '超速配'
-      ];
 
       return res.json({
         success: true,
-        engineUsed: 'local_ocr_dynamic_grid_v2',
-        detectedLines: { vLines, leftPanelRightX, ordersLeftX, pcsLeftX },
-        parsed: {
-          date: date || new Date().toISOString().split('T')[0],
-          category,
-          wh_code,
-          order_type: '揀貨單號',
-          region,
-          ship_types: allShipTypes,
-          is_24h: '全部',
-          hourly
-        }
+        engineUsed: 'local_ocr_bbox_matrix',
+        parsed
       });
     } catch (err) {
       res.status(500).json({ success: false, message: '地端 OCR 辨識異常：' + err.message });
