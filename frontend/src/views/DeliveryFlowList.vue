@@ -227,7 +227,9 @@
         <div class="chart-container" v-loading="loading">
           <div class="chart-header">
             <span class="chart-title">
-              📈 24 小時出貨時段波浪流線圖（橫軸：00~01 到 23~00 出貨時間）
+              📈 {{ selectedShift === '夜班'
+                ? '夜班出貨時段波浪流線圖（跨日動線：17~18 到 隔日 00~01）'
+                : '24 小時出貨時段波浪流線圖（橫軸：00~01 到 23~00 出貨時間）' }}
             </span>
             <div class="legend-tags">
               <span class="lg-dot dot-north">● 北北基桃</span>
@@ -247,7 +249,7 @@
             <table class="flow-matrix-table">
               <thead>
                 <tr>
-                  <th style="width: 90px;">出貨時段</th>
+                  <th style="width: 115px;">出貨時段</th>
                   <th style="width: 85px;">班別</th>
                   <th>出貨密度圖形 (藍:北基桃 / 橘:中南 / 綠:花東 / 紫:外島)</th>
                   <th style="width: 100px;">出貨數量 ({{ countMode === 'order' ? '單' : '件' }})</th>
@@ -259,8 +261,11 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="h in filteredHourlyFlow" :key="h.hour" :class="{ 'row-zebra': h.hour % 2 === 1 }">
-                  <td class="text-center font-bold">{{ h.slot }}</td>
+                <tr v-for="(h, idx) in filteredHourlyFlow" :key="h.hour" :class="{ 'row-zebra': idx % 2 === 1 }">
+                  <td class="text-center font-bold">
+                    {{ h.slot }}
+                    <span v-if="selectedShift === '夜班' && h.hour === 0" class="text-yellow" style="font-size: 11px;">(隔日)</span>
+                  </td>
                   <td class="text-center">
                     <span class="shift-badge" :class="getShiftClass(getHourShift(h.hour))">{{ getHourShift(h.hour) }}</span>
                   </td>
@@ -278,7 +283,15 @@
                   <td class="text-right text-green">{{ formatNumber(h['宜花東']) }}</td>
                   <td class="text-right text-purple">{{ formatNumber(h['外島']) }}</td>
                   <td class="text-center">
-                    <el-button size="mini" type="primary" plain @click="openDetailModal({ hour: h.hour, title: `${targetDate} ${h.slot} 時段明細` })">
+                    <el-button
+                      size="mini"
+                      type="primary"
+                      plain
+                      @click="openDetailModal({
+                        hour: h.hour,
+                        title: `${targetDate} ${h.slot}${(selectedShift === '夜班' && h.hour === 0) ? ' (隔日)' : ''} 時段明細`
+                      })"
+                    >
                       穿透
                     </el-button>
                   </td>
@@ -850,7 +863,12 @@ export default {
     },
     filteredHourlyFlow() {
       if (this.selectedShift === 'all') return this.hourlyFlow;
-      return this.hourlyFlow.filter(h => this.getHourShift(h.hour) === this.selectedShift);
+      const list = this.hourlyFlow.filter(h => this.getHourShift(h.hour) === this.selectedShift);
+      if (this.selectedShift === '夜班') {
+        // 夜班跨日排序：17~18 到 23~00 在前，隔日 00~01 排在最右邊
+        return [...list].sort((a, b) => (a.hour === 0 ? 24 : a.hour) - (b.hour === 0 ? 24 : b.hour));
+      }
+      return list;
     },
     displayOrderTimelineFlow() {
       if (!this.groupPreorders || !this.targetDate || this.orderTimelineFlow.length === 0) {
@@ -1164,15 +1182,19 @@ export default {
       if (!this.shipChartInstance) {
         this.shipChartInstance = echarts.init(this.$refs.shipChart);
         this.shipChartInstance.on('click', (params) => {
-          const hour = params.dataIndex;
+          const item = this.filteredHourlyFlow[params.dataIndex];
+          if (!item) return;
+          const slotLabel = (this.selectedShift === '夜班' && item.hour === 0) ? `${item.slot} (隔日)` : item.slot;
           this.openDetailModal({
-            hour,
-            title: `${this.targetDate} ${String(hour).padStart(2, '0')}:00 時段出貨明細`
+            hour: item.hour,
+            title: `${this.targetDate} ${slotLabel} 時段出貨明細`
           });
         });
       }
 
-      const xHours = this.filteredHourlyFlow.map(h => h.slot);
+      const xHours = this.filteredHourlyFlow.map(h =>
+        (this.selectedShift === '夜班' && h.hour === 0) ? `${h.slot}\n(隔日)` : h.slot
+      );
       const northData = this.filteredHourlyFlow.map(h => h['北北基桃']);
       const southData = this.filteredHourlyFlow.map(h => h['中南部']);
       const eastData = this.filteredHourlyFlow.map(h => h['宜花東']);
@@ -1299,7 +1321,7 @@ export default {
         dataZoom: isOrderTimeline ? [
           { type: 'inside', start: 0, end: 100 }
         ] : [],
-        grid: { top: '8%', left: '3%', right: '3%', bottom: isOrderTimeline ? '16%' : '8%', containLabel: true },
+        grid: { top: '8%', left: '3%', right: '3%', bottom: isOrderTimeline ? '16%' : '11%', containLabel: true },
         xAxis: {
           type: 'category',
           boundaryGap: false,
@@ -1308,6 +1330,7 @@ export default {
           axisLabel: {
             color: '#cbd5e1',
             fontSize: 11,
+            lineHeight: 15,
             rotate: isOrderTimeline ? 35 : 0,
             interval: autoInterval
           }
