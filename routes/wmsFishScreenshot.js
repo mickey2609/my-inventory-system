@@ -74,6 +74,45 @@ module.exports = function(db) {
     return s;
   }
 
+  // 動態偵測整張圖中的垂直表格邊框線 X 座標（免疫雙螢幕解析度與視窗縮放差異）
+  function detectVerticalGridLines(jimpImg) {
+    const w = jimpImg.bitmap.width;
+    const h = jimpImg.bitmap.height;
+    const data = jimpImg.bitmap.data;
+
+    // 統計每個 X 座標在垂直方向上深色格線像素的數量
+    const colDarkCounts = new Array(w).fill(0);
+    for (let x = 0; x < w; x++) {
+      let count = 0;
+      for (let y = 0; y < h; y++) {
+        const idx = (y * w + x) * 4;
+        // 表格邊框線通常為深灰或黑色 (R,G,B 皆小於 160)
+        if (data[idx] < 160 && data[idx + 1] < 160 && data[idx + 2] < 160) {
+          count++;
+        }
+      }
+      colDarkCounts[x] = count;
+    }
+
+    // 找出深色像素超過高度 55% 的垂直直線，並合併相鄰 1~3px 的粗線
+    const lines = [];
+    let inLine = false;
+    let lineStart = 0;
+    for (let x = 0; x < w; x++) {
+      if (colDarkCounts[x] > h * 0.55) {
+        if (!inLine) {
+          inLine = true;
+          lineStart = x;
+        }
+      } else if (inLine) {
+        lines.push(Math.round((lineStart + x - 1) / 2));
+        inLine = false;
+      }
+    }
+    if (inLine) lines.push(Math.round((lineStart + w - 1) / 2));
+    return lines;
+  }
+
   // 清除圖片中的水平與垂直長直線（徹底消滅表格黑線被誤認為 1 的問題）
   function eraseGridLines(jimpImg) {
     const w = jimpImg.bitmap.width;
@@ -136,7 +175,6 @@ module.exports = function(db) {
     const lines = String(rawText || '').replace(/\r/g, '').split('\n').map(l => l.trim()).filter(Boolean);
     const nums = [];
     for (const line of lines) {
-      // 移除非數字與逗號，合併同列數字
       const cleaned = line.replace(/[^0-9,]/g, '');
       if (!cleaned) continue;
       const val = parseInt(cleaned.replace(/,/g, ''), 10);
@@ -144,7 +182,6 @@ module.exports = function(db) {
         nums.push(val);
       }
     }
-    // 若表頭有雜訊多抓到 1 筆，取最後 24 筆
     return nums.length > 24 ? nums.slice(nums.length - 24) : nums;
   }
 
@@ -201,7 +238,7 @@ module.exports = function(db) {
     );
   });
 
-  // 3. 截圖辨識 API（獨立切欄 + 消除格線 + 4倍放大抗鋸齒 OCR）
+  // 3. 截圖辨識 API（動態偵測垂直表格線 + 消除格線 + 4倍放大 OCR）
   router.post('/recognize', async (req, res) => {
     const { imageBase64 } = req.body;
     if (!imageBase64) {
@@ -215,9 +252,31 @@ module.exports = function(db) {
       const W = fullImg.bitmap.width;
       const H = fullImg.bitmap.height;
 
-      // 1) 左側條件區（僅取左上角 0~16.5% 寬度、0~32% 高度：包含日期、類別、庫別、配送區域）
+      // 自動偵測所有貫穿表格的垂直線 X 座標
+      const vLines = detectVerticalGridLines(fullImg);
+
+      // 預設 fallback 比例（若截圖裁掉最右邊框線時的保底）
+      let leftPanelRightX = Math.round(W * 0.165);
+      let ordersLeftX = Math.round(W * 0.745);
+      let pcsLeftX = Math.round(W * 0.872);
+      let pcsRightX = W - 2;
+
+      // 若成功偵測到表格垂直線（從右往左數：PCS左線、筆數左線）
+      if (vLines.length >= 4) {
+        const innerLines = vLines.filter(x => x < W - 3);
+        if (innerLines.length >= 2) {
+          pcsLeftX = innerLines[innerLines.length - 1];
+          ordersLeftX = innerLines[innerLines.length - 2];
+          const firstTableLine = innerLines.find(x => x > W * 0.08 && x < W * 0.35);
+          if (firstTableLine) {
+            leftPanelRightX = firstTableLine;
+          }
+        }
+      }
+
+      // 1) 左側條件區（動態對齊主表格左邊界）
       const leftTopCrop = fullImg.clone()
-        .crop(0, 0, Math.round(W * 0.165), Math.round(H * 0.32));
+        .crop(0, 0, Math.max(50, leftPanelRightX), Math.round(H * 0.35));
       eraseGridLines(leftTopCrop);
       leftTopCrop.scale(4, Jimp.RESIZE_BICUBIC).greyscale().contrast(0.2);
 
@@ -225,17 +284,16 @@ module.exports = function(db) {
       const tableTopY = Math.round(H * 0.075);
       const tableH = H - tableTopY;
 
-      // 獨立切出「筆數欄」（寬度 74.5% ~ 87.2%）與「PCS數欄」（寬度 87.2% ~ 99.8%）
       const ordersColImg = fullImg.clone().crop(
-        Math.round(W * 0.745),
+        ordersLeftX + 2,
         tableTopY,
-        Math.round(W * 0.127),
+        Math.max(20, pcsLeftX - ordersLeftX - 4),
         tableH
       );
       const pcsColImg = fullImg.clone().crop(
-        Math.round(W * 0.872),
+        pcsLeftX + 2,
         tableTopY,
-        W - Math.round(W * 0.872) - 2,
+        Math.max(20, pcsRightX - pcsLeftX - 4),
         tableH
       );
 
@@ -251,11 +309,9 @@ module.exports = function(db) {
       ]);
 
       const leftRes = await textWorker.recognize(leftBuf);
-      // 依序辨識兩條純數字垂直欄
       const ordersRes = await colWorker.recognize(ordersBuf);
       const pcsRes = await colWorker.recognize(pcsBuf);
 
-      // 解析左側文字
       const compactLeft = String(leftRes.data.text || '').replace(/[ \t]+/g, '');
       let date = '';
       const dateMatch = compactLeft.match(/(20\d{2})[\/\-．.](\d{1,2})[\/\-．.](\d{1,2})/);
@@ -276,7 +332,6 @@ module.exports = function(db) {
       const regMatch = compactLeft.match(/配送區域[^\u4e00-\u9fa5\n]{0,3}([\u4e00-\u9fa5]+)/);
       if (regMatch && regMatch[1]) region = regMatch[1];
 
-      // 解析兩條純數字直欄
       const ordersList = parseColumnNumbers(ordersRes.data.text);
       const pcsList = parseColumnNumbers(pcsRes.data.text);
 
@@ -294,7 +349,8 @@ module.exports = function(db) {
 
       return res.json({
         success: true,
-        engineUsed: 'local_ocr_grid_columns',
+        engineUsed: 'local_ocr_dynamic_grid',
+        detectedLines: { leftPanelRightX, ordersLeftX, pcsLeftX },
         parsed: {
           date: date || new Date().toISOString().split('T')[0],
           category,
