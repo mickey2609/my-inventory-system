@@ -90,7 +90,7 @@ module.exports = function(db) {
     );
   });
 
-  // 3. 呼叫 Gemini Vision API 辨識 WMS 魚群截圖（使用 gemini-3.8-flash 並支援備援）
+  // 3. 呼叫 Gemini Vision API 辨識 WMS 魚群截圖（極速版：flash-lite 優先 + 關閉 thinkingBudget + 10秒自動切換）
   router.post('/recognize', (req, res) => {
     const { imageBase64 } = req.body;
     if (!imageBase64) {
@@ -107,7 +107,7 @@ module.exports = function(db) {
       }
 
       try {
-        let mimeType = 'image/png';
+        let mimeType = 'image/jpeg';
         let base64Data = imageBase64;
         const dataUrlMatch = imageBase64.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
         if (dataUrlMatch) {
@@ -140,42 +140,42 @@ module.exports = function(db) {
             }
           ],
           generationConfig: {
-            temperature: 0.1,
-            responseMimeType: 'application/json'
+            temperature: 0,
+            responseMimeType: 'application/json',
+            thinkingConfig: { thinkingBudget: 0 }
           }
         };
 
         const candidateModels = [
-          'gemini-3.8-flash',
           'gemini-3.8-flash-lite',
-          'gemini-3.5-flash',
-          'gemini-3.0-flash'
+          'gemini-3.8-flash',
+          'gemini-3.5-flash'
         ];
         let result = null;
         let lastErrMsg = '';
 
         for (const modelName of candidateModels) {
-          for (let attempt = 1; attempt <= 2; attempt++) {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 10000);
+          try {
             const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${encodeURIComponent(apiKey)}`;
             const response = await fetch(apiUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload)
+              body: JSON.stringify(payload),
+              signal: controller.signal
             });
+            clearTimeout(timer);
             const data = await response.json();
             if (response.ok) {
               result = data;
               break;
             }
             lastErrMsg = data?.error?.message || `HTTP ${response.status}`;
-            const isTransient = /high demand|overloaded|unavailable|try again|rate limit/i.test(lastErrMsg) || response.status === 503 || response.status === 429;
-            if (isTransient && attempt < 2) {
-              await new Promise(r => setTimeout(r, 1500));
-              continue;
-            }
-            break;
+          } catch (fetchErr) {
+            clearTimeout(timer);
+            lastErrMsg = fetchErr.name === 'AbortError' ? `${modelName} 回應逾時，自動切換模型` : fetchErr.message;
           }
-          if (result) break;
         }
 
         if (!result) {
