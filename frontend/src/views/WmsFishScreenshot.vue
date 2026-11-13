@@ -193,7 +193,7 @@
       append-to-body
       custom-class="dark-dialog"
     >
-      <div class="preview-split-layout" v-loading="recognizing" element-loading-text="🧠 Gemini 視覺 AI 正在高速解析截圖條件與 24 小時數據...">
+      <div class="preview-split-layout" v-loading="recognizing" element-loading-text="⚡ Gemini 極速視覺 AI 正在解析截圖條件與 24 小時數據...">
         <!-- 左側：截圖貼上區 / 原圖預覽 -->
         <div class="preview-left-img">
           <div
@@ -307,8 +307,8 @@
     <!-- 4. 設定 Gemini API Key 彈窗 -->
     <el-dialog v-model="showKeyModal" title="🔑 設定 Google Gemini Vision API Key" width="460px" append-to-body custom-class="dark-dialog">
       <div style="display: flex; flex-direction: column; gap: 10px; font-size: 13px; color: #cbd5e1;">
-        <p style="margin: 0;">地端伺服器將直接透過 HTTPS 呼叫 Gemini 2.5 Flash 視覺模型辨識截圖（資料僅存於您地端 SQLite）。</p>
-        <el-input v-model="inputApiKey" placeholder="請貼上 AIzaSy 開頭的 Gemini API Key" show-password />
+        <p style="margin: 0;">地端伺服器將直接透過 HTTPS 呼叫 Gemini 視覺模型辨識截圖（資料僅存於您地端 SQLite）。</p>
+        <el-input v-model="inputApiKey" placeholder="請貼上 Google AI Studio API Key" show-password />
       </div>
       <template #footer>
         <el-button size="small" @click="showKeyModal = false">取消</el-button>
@@ -597,7 +597,7 @@ export default {
       this.chartInstance.resize();
     },
 
-    // 貼上截圖處理邏輯
+    // 貼上截圖與自動壓縮優化（加快上傳與辨識速度）
     openPasteModal() {
       this.previewImageUrl = '';
       this.formParsed.hourly = createEmptyHourly();
@@ -630,9 +630,20 @@ export default {
     loadImageFile(file) {
       const reader = new FileReader();
       reader.onload = (ev) => {
-        this.previewImageUrl = ev.target.result;
-        this.showPreviewModal = true;
-        this.runAiRecognition();
+        const img = new Image();
+        img.onload = () => {
+          const maxWidth = 1400;
+          const scale = img.width > maxWidth ? maxWidth / img.width : 1;
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.round(img.width * scale);
+          canvas.height = Math.round(img.height * scale);
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          this.previewImageUrl = canvas.toDataURL('image/jpeg', 0.88);
+          this.showPreviewModal = true;
+          this.runAiRecognition();
+        };
+        img.src = ev.target.result;
       };
       reader.readAsDataURL(file);
     },
