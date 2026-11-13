@@ -25,7 +25,7 @@
         </button>
       </div>
 
-      <!-- 🌟 右側區域：方案一（頂部狀態膠囊 + 懸浮/點擊卡片）與身分標籤 -->
+      <!-- 右側區域：頂部狀態膠囊與身分標籤 -->
       <div class="header-right-zone">
         <el-popover
           placement="bottom-end"
@@ -44,7 +44,6 @@
             </div>
           </template>
 
-          <!-- 方案一懸浮卡片內容 -->
           <div class="popover-content">
             <div class="popover-title">🖥️ 地端伺服器即時負載</div>
             
@@ -121,7 +120,7 @@
       </div>
     </div>
 
-    <!-- 快捷功能入口區 (權限過濾 v-if) -->
+    <!-- 快捷功能入口區 -->
     <div class="quick-actions-panel">
       <h3 class="panel-title">⚡ 系統功能快捷入口</h3>
       <div class="actions-grid">
@@ -179,18 +178,22 @@
           <div class="action-desc">集貨調撥魚群及未完成追蹤</div>
         </div>
 
-        <!-- 🌟 收發魚群出沒分析快捷入口小卡 -->
         <div v-if="hasPermission('dispatch_fish')" class="action-card" @click="openTab('dispatch_fish')">
           <div class="action-icon">📦</div>
           <div class="action-title">收發魚群出沒分析</div>
           <div class="action-desc">借貨(BR)與採購(BY)收貨驗收時段分析及未完成追蹤</div>
         </div>
 
-        <!-- 🌊 宅配出貨流線魚群快捷入口小卡 (新增) -->
         <div v-if="hasPermission('delivery_flow')" class="action-card" @click="openTab('delivery_flow')">
           <div class="action-icon">🌊</div>
           <div class="action-title">宅配出貨流線魚群</div>
           <div class="action-desc">3BC1宅配單三班出貨時段與四大區域流線波浪觀察</div>
+        </div>
+
+        <div v-if="hasPermission('wms_fish_screenshot')" class="action-card" @click="openTab('wms_fish_screenshot')">
+          <div class="action-icon">📸</div>
+          <div class="action-title">WMS 魚群截圖辨識</div>
+          <div class="action-desc">Ctrl+V 貼上魚群出沒截圖，AI 自動辨識轉單/撿貨/出貨趨勢</div>
         </div>
 
         <div v-if="hasPermission('item_sales_history')" class="action-card" @click="openTab('item_sales_history')">
@@ -253,7 +256,6 @@ export default {
       tempAnnouncement: '',
       savingAnnounce: false,
 
-      // 方案一：硬體監控資料
       sysTimer: null,
       sysMetrics: {
         cpu: 0,
@@ -378,7 +380,6 @@ export default {
       }
     },
 
-    // 方案一：硬體監控 API 調用與格式化
     async fetchSystemMetrics() {
       try {
         const res = await axios.get('/api/system/metrics');

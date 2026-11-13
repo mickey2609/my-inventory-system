@@ -5,7 +5,7 @@
       <h1 class="app-title">庫存儲位管理系統</h1>
       <span class="version-tag">{{ appVersion }}</span>
 
-      <!-- 🌟 歡迎登入使用者標示區塊 -->
+      <!-- 歡迎登入使用者標示區塊 -->
       <div v-if="currentUser" class="user-welcome-tag">
         👋 <span class="user-name">{{ currentUser }}</span>，歡迎登入
       </div>
@@ -76,8 +76,9 @@ export default {
         'replenish_fish': '🐟 立即補貨單魚群',
         'transfer_80_15': '🔄 跨庫調撥 80 ➔ 15',
         'transfer_15_80': '🔄 跨庫調撥 15 ➔ 80',
-        'dispatch_fish': '📦 收發魚群出沒分析', // 🌟 加入這一行！
-        'delivery_flow': '🌊 宅配出貨流線魚群', // 🌟 補上這行！
+        'dispatch_fish': '📦 收發魚群出沒分析',
+        'delivery_flow': '🌊 宅配出貨流線魚群',
+        'wms_fish_screenshot': '📸 WMS 魚群截圖辨識',
         'settings_perm': '⚙️ 權限管理',
         'settings_log': '📜 日誌歷程查詢'
       };

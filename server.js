@@ -70,6 +70,10 @@ app.use('/api/dispatch', dispatchFishRouter);
 const deliveryFlowRouter = require('./routes/deliveryFlow');
 app.use('/api/delivery', deliveryFlowRouter(db));
 
+// 5.5 🌟 WMS 魚群出沒時間截圖 AI 辨識 API
+const wmsFishScreenshotRouter = require('./routes/wmsFishScreenshot')(db);
+app.use('/api/wms-fish-screenshot', wmsFishScreenshotRouter);
+
 // 6. 庫存與儲位分析模組 API
 const inventory15Module = require('./routes/inventory15');
 const locationStatsModule = require('./routes/locationStats');
