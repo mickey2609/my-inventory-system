@@ -8,7 +8,7 @@ const Jimp = require('jimp');
 module.exports = function(db) {
   const router = express.Router();
 
-  // 預熱地端 Tesseract Worker（常駐記憶體，後續每次截圖 1~2 秒內完成）
+  // 預熱地端 Tesseract Worker（常駐記憶體）
   let ocrWorkerPromise = null;
   function getOcrWorker() {
     if (!ocrWorkerPromise) {
@@ -55,80 +55,110 @@ module.exports = function(db) {
     return s;
   }
 
-  // 解析地端 OCR 辨識出的整張畫面文字
-  function parseWmsOcrText(rawText) {
-    const cleanText = String(rawText || '').replace(/\r/g, '');
-    const lines = cleanText.split('\n').map(l => l.trim()).filter(Boolean);
+  // 修正常見 OCR 數字誤判（例如 O->0, I/l->1, S->5, B->8）
+  function cleanDigitStr(str) {
+    return String(str || '')
+      .replace(/[OoQq]/g, '0')
+      .replace(/[Il|]/g, '1')
+      .replace(/[Zz]/g, '2')
+      .replace(/[Ss]/g, '5')
+      .replace(/[Bb]/g, '8');
+  }
+
+  // 解析左側條件區 + 右側 24 小時表格區
+  function parseWmsSplitOcrText(leftText, rightText) {
+    const combined = `${leftText}\n${rightText}`.replace(/\r/g, '');
 
     // 1. 解析左側條件參數
     let date = '';
-    const dateMatch = cleanText.match(/(20\d{2})\s*[\/\-]\s*(\d{1,2})\s*[\/\-]\s*(\d{1,2})/);
+    const cleanedDateSource = cleanDigitStr(leftText);
+    const dateMatch = cleanedDateSource.match(/(20\d{2})\s*[\/\-．.]\s*(\d{1,2})\s*[\/\-．.]\s*(\d{1,2})/);
     if (dateMatch) {
       date = `${dateMatch[1]}-${dateMatch[2].padStart(2, '0')}-${dateMatch[3].padStart(2, '0')}`;
     }
 
     let category = '轉單時間';
-    if (/完成出貨/.test(cleanText)) category = '完成出貨';
-    else if (/完成[撿揀]貨/.test(cleanText)) category = '完成撿貨';
-    else if (/轉單時間/.test(cleanText)) category = '轉單時間';
+    if (/完成出貨|完成出/.test(combined)) category = '完成出貨';
+    else if (/完成[撿揀]貨|完成[撿揀]/.test(combined)) category = '完成撿貨';
+    else if (/轉單時間|轉單/.test(combined)) category = '轉單時間';
 
     let wh_code = '15';
-    const whMatch = cleanText.match(/庫別[^\d\n]{0,6}(\d{1,3})/);
+    const whMatch = cleanDigitStr(leftText).match(/庫別[^\d\n]{0,8}(\d{1,3})/);
     if (whMatch) wh_code = whMatch[1];
 
     let region = '全部';
-    const regMatch = cleanText.match(/配送區域[^\u4e00-\u9fa5\n]{0,6}([\u4e00-\u9fa5]+)/);
+    const regMatch = leftText.match(/配送區域[^\u4e00-\u9fa5\n]{0,6}([\u4e00-\u9fa5]+)/);
     if (regMatch && regMatch[1]) region = regMatch[1];
 
     let is_24h = '全部';
-    const h24Match = cleanText.match(/24H到貨[^\u4e00-\u9fa5\n]{0,6}(全部|是|否)/);
+    const h24Match = leftText.match(/24H到貨[^\u4e00-\u9fa5\n]{0,6}(全部|是|否)/);
     if (h24Match) is_24h = h24Match[1];
 
     // 2. 解析右側 24 小時（00 ~ 01 到 23 ~ 24）每一列的「百分比 / 筆數 / PCS數」
+    const rightLines = String(rightText || '').replace(/\r/g, '').split('\n').map(l => l.trim()).filter(Boolean);
     const hourlyMap = new Map();
+    const fallbackSequentialRows = [];
 
-    for (const line of lines) {
-      // 匹配開頭為 "00 ~ 01" 或 "00~01" 或 "00 - 01" 的資料列
-      const slotMatch = line.match(/(?:^|\s)([012]?\d)\s*[~\-～—]\s*([012]?\d)(?:\s|$)/);
-      if (!slotMatch) continue;
+    for (const rawLine of rightLines) {
+      // 跳過表頭與合計列
+      if (/時間|百分比|筆數|PCS|合計|總計/.test(rawLine)) continue;
 
-      const startH = parseInt(slotMatch[1], 10);
-      const endH = parseInt(slotMatch[2], 10);
-      if (isNaN(startH) || startH < 0 || startH > 23 || endH !== startH + 1) continue;
+      // 嘗試匹配時段開頭（容許 ~ - ～ — 甚至空白分隔的兩個兩位數，如 "05 ~ 06" 或 "05 06"）
+      const slotMatch = rawLine.match(/^[^\d]{0,4}([012Oo]?\d)\s*(?:[~\-～—_]+|\s+)\s*([012Oo]?\d)(?:\s|$)/);
+      let startH = -1;
+      let afterSlot = rawLine;
 
-      // 取出時段後面的所有數字片段（例如：12.58%  2,357  5,135）
-      const afterSlot = line.slice(line.indexOf(slotMatch[0]) + slotMatch[0].length);
-      // 排除帶有 % 的百分比數字，抓後面的整數（允許千分位逗號或空格誤判）
-      const withoutPct = afterSlot.replace(/\d+(?:\.\d+)?\s*%/g, ' ');
+      if (slotMatch) {
+        const sH = parseInt(cleanDigitStr(slotMatch[1]), 10);
+        const eH = parseInt(cleanDigitStr(slotMatch[2]), 10);
+        if (!isNaN(sH) && sH >= 0 && sH <= 23 && (eH === sH + 1 || Math.abs(eH - sH) <= 2)) {
+          startH = sH;
+          afterSlot = rawLine.slice(slotMatch[0].length);
+        }
+      }
+
+      // 去除帶有 % 的百分比數字（例如 1.31% 或 4.50%）
+      const withoutPct = afterSlot.replace(/\d+(?:[.,]\d+)?\s*%/g, ' ');
+      // 抓取後面的數字片段（包含千分位逗號，例如 1,637 或 4,343）
       const numTokens = withoutPct.match(/\d[\d,.]*/g) || [];
-
       const ints = numTokens
         .map(tok => parseInt(tok.replace(/[,.]/g, ''), 10))
         .filter(n => !isNaN(n));
 
-      let order_count = 0;
-      let pcs_count = 0;
       if (ints.length >= 2) {
-        // 表格最後兩欄固定為：倒數第二欄=筆數、最後一欄=PCS數
-        order_count = ints[ints.length - 2];
-        pcs_count = ints[ints.length - 1];
-      } else if (ints.length === 1) {
-        order_count = ints[0];
-        pcs_count = ints[0];
+        const order_count = ints[ints.length - 2];
+        const pcs_count = ints[ints.length - 1];
+        if (startH >= 0 && startH <= 23) {
+          hourlyMap.set(startH, {
+            hour_index: startH,
+            hour_slot: `${String(startH).padStart(2, '0')}~${String(startH + 1).padStart(2, '0')}`,
+            order_count,
+            pcs_count
+          });
+        }
+        fallbackSequentialRows.push({ order_count, pcs_count });
       }
-
-      hourlyMap.set(startH, {
-        hour_index: startH,
-        hour_slot: `${String(startH).padStart(2, '0')}~${String(startH + 1).padStart(2, '0')}`,
-        order_count,
-        pcs_count
-      });
     }
 
+    // 若剛好識別出完整的 24 列資料，針對個別漏抓時段名稱的行用順序自動補齊
+    const useSequentialFallback = fallbackSequentialRows.length === 24;
+
     const normalizedHourly = Array.from({ length: 24 }, (_, idx) => {
-      return hourlyMap.get(idx) || {
+      const slot = `${String(idx).padStart(2, '0')}~${String(idx + 1).padStart(2, '0')}`;
+      if (hourlyMap.has(idx)) {
+        return hourlyMap.get(idx);
+      }
+      if (useSequentialFallback && fallbackSequentialRows[idx]) {
+        return {
+          hour_index: idx,
+          hour_slot: slot,
+          order_count: fallbackSequentialRows[idx].order_count,
+          pcs_count: fallbackSequentialRows[idx].pcs_count
+        };
+      }
+      return {
         hour_index: idx,
-        hour_slot: `${String(idx).padStart(2, '0')}~${String(idx + 1).padStart(2, '0')}`,
+        hour_slot: slot,
         order_count: 0,
         pcs_count: 0
       };
@@ -204,9 +234,9 @@ module.exports = function(db) {
     );
   });
 
-  // 3. 截圖辨識 API（預設使用地端高速離線 OCR，1~3秒完成、免連外網）
+  // 3. 截圖辨識 API（地端分區裁切 + 高精度離線 OCR）
   router.post('/recognize', async (req, res) => {
-    const { imageBase64, engine } = req.body;
+    const { imageBase64 } = req.body;
     if (!imageBase64) {
       return res.status(400).json({ success: false, message: '未接收到圖片資料' });
     }
@@ -214,102 +244,39 @@ module.exports = function(db) {
     try {
       const base64Data = imageBase64.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, '');
       const imgBuffer = Buffer.from(base64Data, 'base64');
+      const fullImg = await Jimp.read(imgBuffer);
+      const W = fullImg.bitmap.width;
+      const H = fullImg.bitmap.height;
 
-      // 預設使用地端 Tesseract.js 離線高速辨識
-      if (engine !== 'gemini') {
-        const image = await Jimp.read(imgBuffer);
-        // 放大 2 倍 + 灰階 + 高對比強化，讓表格數字辨識極度清晰
-        if (image.bitmap.width < 2200) {
-          image.scale(2);
-        }
-        image.greyscale().contrast(0.35);
-        const processedBuffer = await image.getBufferAsync(Jimp.MIME_PNG);
+      // 裁切左半邊（前 25% 寬度：日期 / 類別 / 庫別）並放大 3 倍提高文字清晰度
+      const leftCrop = fullImg.clone()
+        .crop(0, 0, Math.round(W * 0.25), H)
+        .scale(3)
+        .greyscale()
+        .contrast(0.25);
 
-        const worker = await getOcrWorker();
-        const { data } = await worker.recognize(processedBuffer);
-        const parsed = parseWmsOcrText(data.text);
+      // 裁切右半邊（從 20% 寬度到最右邊：完整 24 小時表格）並放大 2.5 倍
+      const rightCrop = fullImg.clone()
+        .crop(Math.round(W * 0.20), 0, W - Math.round(W * 0.20), H)
+        .scale(2.5)
+        .greyscale()
+        .contrast(0.3);
 
-        return res.json({
-          success: true,
-          engineUsed: 'local_ocr',
-          parsed
-        });
-      }
+      const [leftBuf, rightBuf] = await Promise.all([
+        leftCrop.getBufferAsync(Jimp.MIME_PNG),
+        rightCrop.getBufferAsync(Jimp.MIME_PNG)
+      ]);
 
-      // 若手動指定切換為 Gemini 雲端 AI 辨識
-      getGeminiApiKey(async (apiKey) => {
-        if (!apiKey) {
-          return res.status(400).json({
-            success: false,
-            needKey: true,
-            message: '尚未設定 GEMINI_API_KEY'
-          });
-        }
+      const worker = await getOcrWorker();
+      const leftRes = await worker.recognize(leftBuf);
+      const rightRes = await worker.recognize(rightBuf);
 
-        const promptText = `擷取台灣倉庫 WMS「倉庫 魚群出沒時間」截圖數據，嚴格回傳 JSON（無 markdown）：
-{
-  "date": "左側日期 YYYY-MM-DD",
-  "category": "左側類別(轉單時間/完成出貨/完成撿貨)",
-  "wh_code": "左側庫別純字串(如15或80)",
-  "order_type": "左側單別(如揀貨單號)",
-  "region": "左側配送區域(如全部)",
-  "ship_types": ["左側出貨類別有打勾(☑)的項目名稱陣列"],
-  "is_24h": "左側需24H到貨(如全部)",
-  "rows": [[00~01筆數, 00~01PCS數], ... 共24組整數陣列，依序對應 00~01 到 23~24，無逗號，空白填0]
-}`;
+      const parsed = parseWmsSplitOcrText(leftRes.data.text, rightRes.data.text);
 
-        const payload = {
-          contents: [
-            {
-              parts: [
-                { text: promptText },
-                { inline_data: { mime_type: 'image/jpeg', data: base64Data } }
-              ]
-            }
-          ],
-          generationConfig: {
-            temperature: 0,
-            responseMimeType: 'application/json',
-            thinkingConfig: { thinkingBudget: 0 }
-          }
-        };
-
-        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
-        const response = await fetch(apiUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        const data = await response.json();
-        if (!response.ok) {
-          return res.status(500).json({ success: false, message: data?.error?.message || `HTTP ${response.status}` });
-        }
-
-        const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-        const parsed = JSON.parse(rawText.replace(/```json\s*|```/g, '').trim());
-        const rawRows = Array.isArray(parsed.rows) ? parsed.rows : [];
-        const normalizedHourly = Array.from({ length: 24 }, (_, idx) => {
-          const slot = `${String(idx).padStart(2, '0')}~${String(idx + 1).padStart(2, '0')}`;
-          const item = rawRows[idx];
-          return Array.isArray(item)
-            ? { hour_index: idx, hour_slot: slot, order_count: parseInt(item[0], 10) || 0, pcs_count: parseInt(item[1], 10) || 0 }
-            : { hour_index: idx, hour_slot: slot, order_count: 0, pcs_count: 0 };
-        });
-
-        res.json({
-          success: true,
-          engineUsed: 'gemini',
-          parsed: {
-            date: normalizeDate(parsed.date) || new Date().toISOString().split('T')[0],
-            category: String(parsed.category || '轉單時間').trim(),
-            wh_code: String(parsed.wh_code || '15').trim(),
-            order_type: String(parsed.order_type || '揀貨單號').trim(),
-            region: String(parsed.region || '全部').trim(),
-            ship_types: Array.isArray(parsed.ship_types) ? parsed.ship_types : [],
-            is_24h: String(parsed.is_24h || '全部').trim(),
-            hourly: normalizedHourly
-          }
-        });
+      return res.json({
+        success: true,
+        engineUsed: 'local_ocr_split',
+        parsed
       });
     } catch (err) {
       res.status(500).json({ success: false, message: '地端 OCR 辨識異常：' + err.message });
