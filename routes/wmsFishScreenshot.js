@@ -6,7 +6,6 @@ const path = require('path');
 module.exports = function(db) {
   const router = express.Router();
 
-  // 讀取 .env 或資料庫中儲存的 GEMINI_API_KEY（零外部依賴）
   function getGeminiApiKey(callback) {
     if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim()) {
       return callback(process.env.GEMINI_API_KEY.trim());
@@ -62,7 +61,7 @@ module.exports = function(db) {
     db.run(`CREATE INDEX IF NOT EXISTS idx_wms_fish_cat ON wms_fish_screenshot_stats(category)`);
   });
 
-  // 2. 檢查/儲存 API Key 狀態（僅管理員可用）
+  // 2. 檢查/儲存 API Key 狀態
   router.get('/key-status', (req, res) => {
     getGeminiApiKey((key) => {
       res.json({
@@ -90,7 +89,7 @@ module.exports = function(db) {
     );
   });
 
-  // 3. 呼叫 Gemini Vision API 辨識 WMS 魚群截圖（極速版：flash-lite 優先 + 關閉 thinkingBudget + 10秒自動切換）
+  // 3. 呼叫 Gemini Vision API 辨識 WMS 魚群截圖（極簡 Token + 25秒逾時穩定版）
   router.post('/recognize', (req, res) => {
     const { imageBase64 } = req.body;
     if (!imageBase64) {
@@ -115,20 +114,18 @@ module.exports = function(db) {
           base64Data = dataUrlMatch[2];
         }
 
-        const promptText = `你是一個精準的台灣倉庫 WMS 系統「倉庫 魚群出沒時間」截圖資料擷取器。
-請仔細辨識圖片中的左側查詢條件與右側 24 小時（00 ~ 01 到 23 ~ 24）表格數據，並嚴格回傳 JSON 格式（不要包含 markdown 標記或其他多餘文字）：
-1. date: 左側「日期」欄位的值，轉換為 YYYY-MM-DD 格式（例如 2026/11/12 -> 2026-11-12）。
-2. category: 左側「類別」下拉選單的值（例如：轉單時間、完成出貨、完成撿貨）。
-3. wh_code: 左側「庫別」的值（例如：15 或 80）。
-4. order_type: 左側「單別」的值（例如：揀貨單號）。
-5. region: 左側「配送區域」的值（例如：全部、北北基桃 等）。
-6. ship_types: 陣列，列出左側「出貨類別（可複選）」中有打勾（☑）的項目名稱（例如：["當日配、貨到付款、郵箱", "大材積、大材積 (貨到付款)", "安裝", "海外", "超商(7-11)", "超商(全家)", "超大", "OK超取", "萊爾富超取", "超速配"]）。請務必只包含有打勾的項目。
-7. is_24h: 左側「需24H到貨」下拉選單的值（例如：全部、是、否）。
-8. hourly: 固定 24 筆陣列（hour_index 從 0 到 23），對應右側表格從 "00 ~ 01" 到 "23 ~ 24" 的每一列：
-   - hour_index: 整數 0~23
-   - hour_slot: 字串 "00~01" 到 "23~24"
-   - order_count: 「筆數」欄位的純整數（去除逗號，空白或無數字填 0）
-   - pcs_count: 「PCS數」欄位的純整數（去除逗號，空白或無數字填 0）`;
+        // 精簡化 Prompt：要求回傳純數字二維陣列 rows: [[筆數, PCS數], ...] 共24列，大幅減少輸出 Token 加速回傳
+        const promptText = `擷取台灣倉庫 WMS「倉庫 魚群出沒時間」截圖數據，嚴格回傳 JSON（無 markdown）：
+{
+  "date": "左側日期 YYYY-MM-DD",
+  "category": "左側類別(轉單時間/完成出貨/完成撿貨)",
+  "wh_code": "左側庫別純字串(如15或80)",
+  "order_type": "左側單別(如揀貨單號)",
+  "region": "左側配送區域(如全部)",
+  "ship_types": ["左側出貨類別有打勾(☑)的項目名稱陣列"],
+  "is_24h": "左側需24H到貨(如全部)",
+  "rows": [[00~01筆數, 00~01PCS數], ... 共24組整數陣列，依序對應 00~01 到 23~24，無逗號，空白填0]
+}`;
 
         const payload = {
           contents: [
@@ -147,16 +144,16 @@ module.exports = function(db) {
         };
 
         const candidateModels = [
-          'gemini-3.8-flash-lite',
           'gemini-3.8-flash',
+          'gemini-3.8-flash-lite',
           'gemini-3.5-flash'
         ];
         let result = null;
-        let lastErrMsg = '';
+        const errorLogs = [];
 
         for (const modelName of candidateModels) {
           const controller = new AbortController();
-          const timer = setTimeout(() => controller.abort(), 10000);
+          const timer = setTimeout(() => controller.abort(), 25000); // 放寬至 25 秒避免圖解析一半被中斷
           try {
             const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${encodeURIComponent(apiKey)}`;
             const response = await fetch(apiUrl, {
@@ -171,42 +168,40 @@ module.exports = function(db) {
               result = data;
               break;
             }
-            lastErrMsg = data?.error?.message || `HTTP ${response.status}`;
+            const errMsg = data?.error?.message || `HTTP ${response.status}`;
+            errorLogs.push(`${modelName}: ${errMsg}`);
           } catch (fetchErr) {
             clearTimeout(timer);
-            lastErrMsg = fetchErr.name === 'AbortError' ? `${modelName} 回應逾時，自動切換模型` : fetchErr.message;
+            const errMsg = fetchErr.name === 'AbortError' ? '超過 25 秒逾時' : fetchErr.message;
+            errorLogs.push(`${modelName}: ${errMsg}`);
           }
         }
 
         if (!result) {
-          return res.status(500).json({ success: false, message: `Gemini API 辨識失敗：${lastErrMsg}` });
+          return res.status(500).json({
+            success: false,
+            message: `Gemini API 辨識失敗（${errorLogs.join(' | ')}）`
+          });
         }
 
         const rawText = result?.candidates?.[0]?.content?.parts?.[0]?.text || '';
         const cleanedJson = rawText.replace(/```json\s*|```/g, '').trim();
         const parsed = JSON.parse(cleanedJson);
 
-        // 標準化 24 小時陣列防呆補齊
-        const hourlyMap = new Map();
-        (parsed.hourly || []).forEach(h => {
-          const idx = parseInt(h.hour_index, 10);
-          if (!isNaN(idx) && idx >= 0 && idx < 24) {
-            hourlyMap.set(idx, {
-              hour_index: idx,
-              hour_slot: `${String(idx).padStart(2, '0')}~${String(idx + 1).padStart(2, '0')}`,
-              order_count: parseInt(String(h.order_count || 0).replace(/,/g, ''), 10) || 0,
-              pcs_count: parseInt(String(h.pcs_count || 0).replace(/,/g, ''), 10) || 0
-            });
-          }
-        });
-
+        // 相容 rows 二維陣列或 hourly 物件陣列
+        const rawRows = Array.isArray(parsed.rows) ? parsed.rows : [];
         const normalizedHourly = Array.from({ length: 24 }, (_, idx) => {
-          return hourlyMap.get(idx) || {
-            hour_index: idx,
-            hour_slot: `${String(idx).padStart(2, '0')}~${String(idx + 1).padStart(2, '0')}`,
-            order_count: 0,
-            pcs_count: 0
-          };
+          const slot = `${String(idx).padStart(2, '0')}~${String(idx + 1).padStart(2, '0')}`;
+          const item = rawRows[idx];
+          if (Array.isArray(item)) {
+            return {
+              hour_index: idx,
+              hour_slot: slot,
+              order_count: parseInt(String(item[0] || 0).replace(/,/g, ''), 10) || 0,
+              pcs_count: parseInt(String(item[1] || 0).replace(/,/g, ''), 10) || 0
+            };
+          }
+          return { hour_index: idx, hour_slot: slot, order_count: 0, pcs_count: 0 };
         });
 
         const allShipTypes = [
@@ -299,7 +294,7 @@ module.exports = function(db) {
     });
   });
 
-  // 6. 取得指定條件的 24 小時數據（支援同日多類別「轉單 / 撿貨 / 出貨」並排對比）
+  // 6. 取得指定條件的 24 小時數據
   router.get('/analysis', (req, res) => {
     const { statDate, whCode, region, is24h } = req.query;
     if (!statDate) return res.json({ success: true, rows: [] });
