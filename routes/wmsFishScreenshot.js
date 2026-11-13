@@ -55,7 +55,6 @@ module.exports = function(db) {
     return s;
   }
 
-  // 修正常見 OCR 數字誤判（例如 O->0, I/l->1, S->5, B->8）
   function cleanDigitStr(str) {
     return String(str || '')
       .replace(/[OoQq]/g, '0')
@@ -67,43 +66,47 @@ module.exports = function(db) {
 
   // 解析左側條件區 + 右側 24 小時表格區
   function parseWmsSplitOcrText(leftText, rightText) {
-    const combined = `${leftText}\n${rightText}`.replace(/\r/g, '');
+    // 去除中文間多餘空白（避免 "完 成 出 貨" 匹配失敗）
+    const compactLeft = String(leftText || '').replace(/[ \t]+/g, '');
+    const compactAll = `${compactLeft}\n${String(rightText || '').replace(/[ \t]+/g, '')}`;
 
-    // 1. 解析左側條件參數
+    // 1. 解析左側日期
     let date = '';
-    const cleanedDateSource = cleanDigitStr(leftText);
-    const dateMatch = cleanedDateSource.match(/(20\d{2})\s*[\/\-．.]\s*(\d{1,2})\s*[\/\-．.]\s*(\d{1,2})/);
+    const cleanedDateSource = cleanDigitStr(compactLeft);
+    const dateMatch = cleanedDateSource.match(/(20\d{2})[\/\-．.](\d{1,2})[\/\-．.](\d{1,2})/);
     if (dateMatch) {
       date = `${dateMatch[1]}-${dateMatch[2].padStart(2, '0')}-${dateMatch[3].padStart(2, '0')}`;
     }
 
+    // 2. 解析類別
     let category = '轉單時間';
-    if (/完成出貨|完成出/.test(combined)) category = '完成出貨';
-    else if (/完成[撿揀]貨|完成[撿揀]/.test(combined)) category = '完成撿貨';
-    else if (/轉單時間|轉單/.test(combined)) category = '轉單時間';
+    if (/完成出貨|出貨/.test(compactAll)) category = '完成出貨';
+    else if (/完成[撿揀]貨|[撿揀]貨/.test(compactAll)) category = '完成撿貨';
+    else if (/轉單時間|轉單/.test(compactAll)) category = '轉單時間';
 
+    // 3. 解析庫別
     let wh_code = '15';
-    const whMatch = cleanDigitStr(leftText).match(/庫別[^\d\n]{0,8}(\d{1,3})/);
+    const whMatch = cleanDigitStr(compactLeft).match(/庫別[^\d\n]{0,4}(\d{1,3})/);
     if (whMatch) wh_code = whMatch[1];
 
+    // 4. 解析配送區域與需24H到貨
     let region = '全部';
-    const regMatch = leftText.match(/配送區域[^\u4e00-\u9fa5\n]{0,6}([\u4e00-\u9fa5]+)/);
+    const regMatch = compactLeft.match(/配送區域[^\u4e00-\u9fa5\n]{0,4}([\u4e00-\u9fa5]+)/);
     if (regMatch && regMatch[1]) region = regMatch[1];
 
     let is_24h = '全部';
-    const h24Match = leftText.match(/24H到貨[^\u4e00-\u9fa5\n]{0,6}(全部|是|否)/);
+    const h24Match = compactLeft.match(/24H到貨[^\u4e00-\u9fa5\n]{0,4}(全部|是|否)/);
     if (h24Match) is_24h = h24Match[1];
 
-    // 2. 解析右側 24 小時（00 ~ 01 到 23 ~ 24）每一列的「百分比 / 筆數 / PCS數」
+    // 5. 解析右側 24 小時表格（00 ~ 01 到 23 ~ 24）
     const rightLines = String(rightText || '').replace(/\r/g, '').split('\n').map(l => l.trim()).filter(Boolean);
     const hourlyMap = new Map();
     const fallbackSequentialRows = [];
 
     for (const rawLine of rightLines) {
-      // 跳過表頭與合計列
       if (/時間|百分比|筆數|PCS|合計|總計/.test(rawLine)) continue;
 
-      // 嘗試匹配時段開頭（容許 ~ - ～ — 甚至空白分隔的兩個兩位數，如 "05 ~ 06" 或 "05 06"）
+      // 匹配開頭時段（支援 "23 ~ 24"、"23 24"、"23~24"、"05 - 06" 等）
       const slotMatch = rawLine.match(/^[^\d]{0,4}([012Oo]?\d)\s*(?:[~\-～—_]+|\s+)\s*([012Oo]?\d)(?:\s|$)/);
       let startH = -1;
       let afterSlot = rawLine;
@@ -111,15 +114,14 @@ module.exports = function(db) {
       if (slotMatch) {
         const sH = parseInt(cleanDigitStr(slotMatch[1]), 10);
         const eH = parseInt(cleanDigitStr(slotMatch[2]), 10);
-        if (!isNaN(sH) && sH >= 0 && sH <= 23 && (eH === sH + 1 || Math.abs(eH - sH) <= 2)) {
+        if (!isNaN(sH) && sH >= 0 && sH <= 23 && eH === sH + 1) {
           startH = sH;
           afterSlot = rawLine.slice(slotMatch[0].length);
         }
       }
 
-      // 去除帶有 % 的百分比數字（例如 1.31% 或 4.50%）
+      // 去除帶有 % 的百分比欄位
       const withoutPct = afterSlot.replace(/\d+(?:[.,]\d+)?\s*%/g, ' ');
-      // 抓取後面的數字片段（包含千分位逗號，例如 1,637 或 4,343）
       const numTokens = withoutPct.match(/\d[\d,.]*/g) || [];
       const ints = numTokens
         .map(tok => parseInt(tok.replace(/[,.]/g, ''), 10))
@@ -140,7 +142,6 @@ module.exports = function(db) {
       }
     }
 
-    // 若剛好識別出完整的 24 列資料，針對個別漏抓時段名稱的行用順序自動補齊
     const useSequentialFallback = fallbackSequentialRows.length === 24;
 
     const normalizedHourly = Array.from({ length: 24 }, (_, idx) => {
@@ -234,7 +235,7 @@ module.exports = function(db) {
     );
   });
 
-  // 3. 截圖辨識 API（地端分區裁切 + 高精度離線 OCR）
+  // 3. 截圖辨識 API（地端分區裁切 + 黃底自動漂白 + 高精度離線 OCR）
   router.post('/recognize', async (req, res) => {
     const { imageBase64 } = req.body;
     if (!imageBase64) {
@@ -248,19 +249,31 @@ module.exports = function(db) {
       const W = fullImg.bitmap.width;
       const H = fullImg.bitmap.height;
 
-      // 裁切左半邊（前 25% 寬度：日期 / 類別 / 庫別）並放大 3 倍提高文字清晰度
+      // 自動找出畫面內容上下左右有效邊界（去掉黑邊或白邊），再精準切左右欄
+      // 1) 左側條件區（最左側 18% 寬度）放大 3 倍
       const leftCrop = fullImg.clone()
-        .crop(0, 0, Math.round(W * 0.25), H)
+        .crop(0, 0, Math.round(W * 0.18), H)
         .scale(3)
         .greyscale()
-        .contrast(0.25);
+        .contrast(0.2);
 
-      // 裁切右半邊（從 20% 寬度到最右邊：完整 24 小時表格）並放大 2.5 倍
+      // 2) 右側 24 小時數據區（從 15% 寬度到最右邊），先將最後一列的亮黃底色漂白成純白底黑字
       const rightCrop = fullImg.clone()
-        .crop(Math.round(W * 0.20), 0, W - Math.round(W * 0.20), H)
-        .scale(2.5)
-        .greyscale()
-        .contrast(0.3);
+        .crop(Math.round(W * 0.15), 0, W - Math.round(W * 0.15), H);
+
+      rightCrop.scan(0, 0, rightCrop.bitmap.width, rightCrop.bitmap.height, function(x, y, idx) {
+        const r = this.bitmap.data[idx];
+        const g = this.bitmap.data[idx + 1];
+        const b = this.bitmap.data[idx + 2];
+        // 偵測亮黃色底色（R>180, G>180, B<140），直接漂白為純白 (255,255,255)
+        if (r > 180 && g > 180 && b < 140) {
+          this.bitmap.data[idx] = 255;
+          this.bitmap.data[idx + 1] = 255;
+          this.bitmap.data[idx + 2] = 255;
+        }
+      });
+
+      rightCrop.scale(2.5).greyscale().contrast(0.25);
 
       const [leftBuf, rightBuf] = await Promise.all([
         leftCrop.getBufferAsync(Jimp.MIME_PNG),
