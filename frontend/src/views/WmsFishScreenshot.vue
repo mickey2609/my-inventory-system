@@ -1,7 +1,7 @@
 <!-- frontend/src/views/WmsFishScreenshot.vue -->
 <template>
-  <div class="wms-fish-page dark-bg" @paste="handleGlobalPaste">
-    <!-- 隱藏圖片選擇器 -->
+  <div class="wms-fish-page dark-bg">
+    <!-- 隱藏圖片選擇器（僅點擊「選擇圖片檔案」按鈕時才觸發） -->
     <input
       type="file"
       ref="imgInput"
@@ -184,34 +184,39 @@
       </div>
     </div>
 
-    <!-- 3. 貼上截圖 & AI 辨識預覽確認彈窗 -->
+    <!-- 3. 貼上截圖 & 辨識預覽確認彈窗 -->
     <el-dialog
       v-model="showPreviewModal"
-      title="🤖 WMS 魚群截圖 AI 視覺辨識與核對確認"
+      title="🤖 WMS 魚群截圖辨識與核對確認"
       width="92%"
       top="3vh"
       append-to-body
       custom-class="dark-dialog"
+      @opened="focusPasteZone"
     >
-      <div class="preview-split-layout" v-loading="recognizing" element-loading-text="⚡ Gemini 極速視覺 AI 正在解析截圖條件與 24 小時數據...">
-        <!-- 左側：截圖貼上區 / 原圖預覽 -->
+      <div class="preview-split-layout" v-loading="recognizing" element-loading-text="⚡ 正在高速解析截圖條件與 24 小時數據...">
+        <!-- 左側：純 Ctrl+V 截圖貼上區（點擊只會取得焦點，絕不跳出選檔視窗） -->
         <div class="preview-left-img">
           <div
+            ref="pasteZone"
+            tabindex="0"
             class="paste-drop-zone"
+            @click="focusPasteZone"
+            @paste="handleGlobalPaste"
             @dragover.prevent
             @drop.prevent="handleImageDrop"
-            @click="$refs.imgInput.click()"
           >
             <img v-if="previewImageUrl" :src="previewImageUrl" class="uploaded-preview-img" />
             <div v-else class="paste-placeholder">
               <div style="font-size: 46px;">📋</div>
               <div class="p-main">請直接按 <strong>Ctrl + V</strong> 貼上 WMS 截圖</div>
-              <div class="p-sub">或點擊此處選擇圖片 / 將截圖拖曳至此</div>
+              <div class="p-sub">已自動鎖定剪貼簿接收，直接按 Ctrl + V 即可（不會跳出檔案視窗）</div>
             </div>
           </div>
-          <div class="img-actions" v-if="previewImageUrl">
-            <el-button size="mini" type="primary" plain @click="$refs.imgInput.click()">重新選圖</el-button>
-            <el-button size="mini" type="warning" plain @click="runAiRecognition">🔄 重新 AI 辨識</el-button>
+          <div class="img-actions">
+            <el-button size="mini" type="success" plain @click="readClipboardDirectly">📋 一鍵讀取剪貼簿貼上</el-button>
+            <el-button size="mini" type="info" plain @click="$refs.imgInput.click()">📂 選擇圖片檔</el-button>
+            <el-button v-if="previewImageUrl" size="mini" type="warning" plain @click="runAiRecognition">🔄 重新辨識</el-button>
           </div>
         </div>
 
@@ -434,11 +439,11 @@ export default {
   },
   mounted() {
     this.initLoad();
-    window.addEventListener('paste', this.handleGlobalPaste);
+    document.addEventListener('paste', this.handleGlobalPaste, true);
     window.addEventListener('resize', this.handleResize);
   },
   beforeUnmount() {
-    window.removeEventListener('paste', this.handleGlobalPaste);
+    document.removeEventListener('paste', this.handleGlobalPaste, true);
     window.removeEventListener('resize', this.handleResize);
     if (this.chartInstance) this.chartInstance.dispose();
   },
@@ -597,23 +602,53 @@ export default {
       this.chartInstance.resize();
     },
 
-    // 貼上截圖與自動壓縮優化（加快上傳與辨識速度）
+    // 貼上截圖與自動焦點控制（絕不自動觸發選檔視窗）
     openPasteModal() {
       this.previewImageUrl = '';
       this.formParsed.hourly = createEmptyHourly();
       this.showPreviewModal = true;
+      this.$nextTick(() => this.focusPasteZone());
+    },
+    focusPasteZone() {
+      if (this.$refs.pasteZone) {
+        this.$refs.pasteZone.focus();
+      }
     },
     handleGlobalPaste(e) {
       if (!this.checkAdmin) return;
       const items = e.clipboardData?.items || [];
       for (const item of items) {
-        if (item.type.startsWith('image/')) {
+        if (item.type && item.type.startsWith('image/')) {
+          e.preventDefault();
+          e.stopPropagation();
           const file = item.getAsFile();
           if (file) {
             this.loadImageFile(file);
             break;
           }
         }
+      }
+    },
+    async readClipboardDirectly() {
+      try {
+        if (!navigator.clipboard || !navigator.clipboard.read) {
+          ElMessage.info('請直接按鍵盤 Ctrl + V 貼上截圖！');
+          this.focusPasteZone();
+          return;
+        }
+        const clipboardItems = await navigator.clipboard.read();
+        for (const item of clipboardItems) {
+          const imgType = item.types.find(t => t.startsWith('image/'));
+          if (imgType) {
+            const blob = await item.getType(imgType);
+            this.loadImageFile(blob);
+            return;
+          }
+        }
+        ElMessage.warning('剪貼簿內目前沒有圖片，請先截圖後再按 Ctrl + V！');
+      } catch (err) {
+        ElMessage.info('請直接按鍵盤 Ctrl + V 貼上截圖！');
+        this.focusPasteZone();
       }
     },
     handleFileSelect(e) {
@@ -632,14 +667,14 @@ export default {
       reader.onload = (ev) => {
         const img = new Image();
         img.onload = () => {
-          const maxWidth = 1400;
+          const maxWidth = 1600;
           const scale = img.width > maxWidth ? maxWidth / img.width : 1;
           const canvas = document.createElement('canvas');
           canvas.width = Math.round(img.width * scale);
           canvas.height = Math.round(img.height * scale);
           const ctx = canvas.getContext('2d');
           ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          this.previewImageUrl = canvas.toDataURL('image/jpeg', 0.88);
+          this.previewImageUrl = canvas.toDataURL('image/png');
           this.showPreviewModal = true;
           this.runAiRecognition();
         };
@@ -664,14 +699,11 @@ export default {
         });
         if (res.data?.success && res.data.parsed) {
           this.formParsed = res.data.parsed;
-          ElMessage.success('🎉 截圖 AI 辨識完成！請核對右側數據後點擊「確認寫入資料庫」');
+          ElMessage.success('🎉 地端高速 OCR 辨識完成！請核對右側數據後點擊「確認寫入資料庫」');
         }
       } catch (e) {
         const msg = e.response?.data?.message || e.message;
         ElMessage.error(msg);
-        if (e.response?.data?.needKey) {
-          this.showKeyModal = true;
-        }
       } finally {
         this.recognizing = false;
       }
@@ -832,9 +864,14 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
   overflow: hidden;
   min-height: 460px;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.paste-drop-zone:focus {
+  border-color: #4ade80;
+  box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.25);
 }
 .uploaded-preview-img {
   max-width: 100%;
@@ -847,7 +884,7 @@ export default {
 }
 .p-main { font-size: 16px; color: #f8fafc; margin-top: 10px; }
 .p-sub { font-size: 12px; color: #94a3b8; margin-top: 6px; }
-.img-actions { display: flex; gap: 8px; justify-content: center; }
+.img-actions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
 
 .preview-right-form {
   display: flex;
