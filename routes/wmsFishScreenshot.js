@@ -8,9 +8,8 @@ const Jimp = require('jimp');
 module.exports = function(db) {
   const router = express.Router();
 
-  // 雙 Worker 常駐：一個辨識中文條件區，一個開啟純數字白名單專攻右側數據表
   let textWorkerPromise = null;
-  let numWorkerPromise = null;
+  let colWorkerPromise = null;
 
   function getTextWorker() {
     if (!textWorkerPromise) {
@@ -26,23 +25,23 @@ module.exports = function(db) {
     return textWorkerPromise;
   }
 
-  function getNumWorker() {
-    if (!numWorkerPromise) {
-      numWorkerPromise = (async () => {
+  function getColWorker() {
+    if (!colWorkerPromise) {
+      colWorkerPromise = (async () => {
         const worker = await Tesseract.createWorker('eng', 1, {
           cachePath: path.join(__dirname, '..', '.ocr_cache')
         });
         await worker.setParameters({
-          tessedit_pageseg_mode: '6', // 統一區塊逐行辨識
-          tessedit_char_whitelist: '0123456789.,%'
+          tessedit_pageseg_mode: '6', // 單欄垂直列表逐行辨識
+          tessedit_char_whitelist: '0123456789,'
         });
         return worker;
       })().catch(err => {
-        numWorkerPromise = null;
+        colWorkerPromise = null;
         throw err;
       });
     }
-    return numWorkerPromise;
+    return colWorkerPromise;
   }
 
   function getGeminiApiKey(callback) {
@@ -75,101 +74,78 @@ module.exports = function(db) {
     return s;
   }
 
-  function cleanDigitStr(str) {
-    return String(str || '')
-      .replace(/[OoQq]/g, '0')
-      .replace(/[Il|]/g, '1')
-      .replace(/[Zz]/g, '2')
-      .replace(/[Ss]/g, '5')
-      .replace(/[Bb]/g, '8');
+  // 清除圖片中的水平與垂直長直線（徹底消滅表格黑線被誤認為 1 的問題）
+  function eraseGridLines(jimpImg) {
+    const w = jimpImg.bitmap.width;
+    const h = jimpImg.bitmap.height;
+    const data = jimpImg.bitmap.data;
+
+    const isDark = (x, y) => {
+      const idx = (y * w + x) * 4;
+      return data[idx] < 150 && data[idx + 1] < 150 && data[idx + 2] < 150;
+    };
+
+    // 1. 清除水平橫線（連續超過 45% 寬度都是深色像素的整列直接塗白）
+    for (let y = 0; y < h; y++) {
+      let darkCount = 0;
+      for (let x = 0; x < w; x++) {
+        if (isDark(x, y)) darkCount++;
+      }
+      if (darkCount > w * 0.45) {
+        for (let x = 0; x < w; x++) {
+          const idx = (y * w + x) * 4;
+          data[idx] = 255; data[idx + 1] = 255; data[idx + 2] = 255;
+        }
+      }
+    }
+
+    // 2. 清除垂直直線（連續超過 45% 高度都是深色像素的整行直接塗白）
+    for (let x = 0; x < w; x++) {
+      let darkCount = 0;
+      for (let y = 0; y < h; y++) {
+        if (isDark(x, y)) darkCount++;
+      }
+      if (darkCount > h * 0.45) {
+        for (let y = 0; y < h; y++) {
+          const idx = (y * w + x) * 4;
+          data[idx] = 255; data[idx + 1] = 255; data[idx + 2] = 255;
+        }
+      }
+    }
   }
 
-  // 解析左側條件區 + 右側純數字三欄（百分比 / 筆數 / PCS數）
-  function parseWmsOcrResult(leftText, rightNumText) {
-    const compactLeft = String(leftText || '').replace(/[ \t]+/g, '');
-
-    // 1. 解析日期（支援 2026/11/12 或 2026-11-12 或 20261112）
-    let date = '';
-    const cleanedDateSource = cleanDigitStr(compactLeft);
-    const dateMatch = cleanedDateSource.match(/(20\d{2})[\/\-．.](\d{1,2})[\/\-．.](\d{1,2})/);
-    if (dateMatch) {
-      date = `${dateMatch[1]}-${dateMatch[2].padStart(2, '0')}-${dateMatch[3].padStart(2, '0')}`;
-    } else {
-      const compact8 = cleanedDateSource.match(/(20\d{2})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])/);
-      if (compact8) {
-        date = `${compact8[1]}-${compact8[2]}-${compact8[3]}`;
+  // 預處理單一數字直欄（放大 4 倍 + 去除格線 + 漂白底色）
+  async function prepareNumericColumn(img) {
+    img.scan(0, 0, img.bitmap.width, img.bitmap.height, function(x, y, idx) {
+      const r = this.bitmap.data[idx];
+      const g = this.bitmap.data[idx + 1];
+      // 所有淺灰/米黃/亮黃底色一律轉純白，只保留深黑色數字
+      if (r > 135 && g > 135) {
+        this.bitmap.data[idx] = 255;
+        this.bitmap.data[idx + 1] = 255;
+        this.bitmap.data[idx + 2] = 255;
       }
-    }
-
-    // 2. 解析類別
-    let category = '轉單時間';
-    if (/完成出貨|出貨/.test(compactLeft)) category = '完成出貨';
-    else if (/完成[撿揀]貨|[撿揀]貨/.test(compactLeft)) category = '完成撿貨';
-    else if (/轉單時間|轉單/.test(compactLeft)) category = '轉單時間';
-
-    // 3. 解析庫別
-    let wh_code = '15';
-    const whMatch = cleanDigitStr(compactLeft).match(/庫別[^\d\n]{0,4}(\d{1,3})/);
-    if (whMatch) wh_code = whMatch[1];
-
-    // 4. 解析配送區域與需24H到貨
-    let region = '全部';
-    const regMatch = compactLeft.match(/配送區域[^\u4e00-\u9fa5\n]{0,4}([\u4e00-\u9fa5]+)/);
-    if (regMatch && regMatch[1]) region = regMatch[1];
-
-    let is_24h = '全部';
-    const h24Match = compactLeft.match(/24H到貨[^\u4e00-\u9fa5\n]{0,4}(全部|是|否)/);
-    if (h24Match) is_24h = h24Match[1];
-
-    // 5. 解析右側純數字三欄（每列固定結構：[百分比%] [筆數] [PCS數]）
-    const lines = String(rightNumText || '').replace(/\r/g, '').split('\n').map(l => l.trim()).filter(Boolean);
-    const dataRows = [];
-
-    for (const line of lines) {
-      // 去除帶有 % 的百分比欄位（例如 4.50%、4.87%）
-      const withoutPct = line.replace(/\d+(?:[.,]\d+)?%/g, ' ');
-      const tokens = withoutPct.match(/\d[\d,.]*/g) || [];
-      const ints = tokens
-        .map(t => parseInt(t.replace(/[,.]/g, ''), 10))
-        .filter(n => !isNaN(n));
-
-      if (ints.length >= 2) {
-        dataRows.push({
-          order_count: ints[ints.length - 2],
-          pcs_count: ints[ints.length - 1]
-        });
-      }
-    }
-
-    // 若抓到超過 24 列（例如表頭雜訊），取最後 24 列完整數據
-    const final24 = dataRows.length > 24 ? dataRows.slice(dataRows.length - 24) : dataRows;
-
-    const normalizedHourly = Array.from({ length: 24 }, (_, idx) => {
-      const slot = `${String(idx).padStart(2, '0')}~${String(idx + 1).padStart(2, '0')}`;
-      const row = final24[idx];
-      return {
-        hour_index: idx,
-        hour_slot: slot,
-        order_count: row ? row.order_count : 0,
-        pcs_count: row ? row.pcs_count : 0
-      };
     });
+    eraseGridLines(img);
+    img.scale(4, Jimp.RESIZE_BICUBIC).greyscale().contrast(0.35);
+    return await img.getBufferAsync(Jimp.MIME_PNG);
+  }
 
-    const allShipTypes = [
-      '當日配、貨到付款、郵箱', '大材積、大材積 (貨到付款)', '安裝', '海外',
-      '超商(7-11)', '超商(全家)', '超大', 'OK超取', '萊爾富超取', '超速配'
-    ];
-
-    return {
-      date: date || new Date().toISOString().split('T')[0],
-      category,
-      wh_code,
-      order_type: '揀貨單號',
-      region,
-      ship_types: allShipTypes,
-      is_24h,
-      hourly: normalizedHourly
-    };
+  // 解析單欄垂直數字列表（預期 24 個數字）
+  function parseColumnNumbers(rawText) {
+    const lines = String(rawText || '').replace(/\r/g, '').split('\n').map(l => l.trim()).filter(Boolean);
+    const nums = [];
+    for (const line of lines) {
+      // 移除非數字與逗號，合併同列數字
+      const cleaned = line.replace(/[^0-9,]/g, '');
+      if (!cleaned) continue;
+      const val = parseInt(cleaned.replace(/,/g, ''), 10);
+      if (!isNaN(val)) {
+        nums.push(val);
+      }
+    }
+    // 若表頭有雜訊多抓到 1 筆，取最後 24 筆
+    return nums.length > 24 ? nums.slice(nums.length - 24) : nums;
   }
 
   // 1. 初始化資料表
@@ -225,7 +201,7 @@ module.exports = function(db) {
     );
   });
 
-  // 3. 截圖辨識 API（左側條件區 + 右側 54%~100% 純數字白名單辨識）
+  // 3. 截圖辨識 API（獨立切欄 + 消除格線 + 4倍放大抗鋸齒 OCR）
   router.post('/recognize', async (req, res) => {
     const { imageBase64 } = req.body;
     if (!imageBase64) {
@@ -239,54 +215,96 @@ module.exports = function(db) {
       const W = fullImg.bitmap.width;
       const H = fullImg.bitmap.height;
 
-      // 1) 左側條件區（最左側 15% 寬度）放大 3.5 倍
-      const leftCrop = fullImg.clone()
-        .crop(0, 0, Math.round(W * 0.15), H)
-        .scale(3.5)
-        .greyscale()
-        .contrast(0.15);
+      // 1) 左側條件區（僅取左上角 0~16.5% 寬度、0~32% 高度：包含日期、類別、庫別、配送區域）
+      const leftTopCrop = fullImg.clone()
+        .crop(0, 0, Math.round(W * 0.165), Math.round(H * 0.32));
+      eraseGridLines(leftTopCrop);
+      leftTopCrop.scale(4, Jimp.RESIZE_BICUBIC).greyscale().contrast(0.2);
 
-      // 2) 右側三欄數據區（從 54% 寬度到 100%：完整保留「百分比 / 筆數 / PCS數」，完全避開左邊長條圖與時段波浪號）
-      const rightStartX = Math.round(W * 0.54);
-      const rightCrop = fullImg.clone()
-        .crop(rightStartX, 0, W - rightStartX, H);
+      // 2) 數據表垂直範圍：跳過頂部兩列表頭（約從 7.5% 高度到底部 100%）
+      const tableTopY = Math.round(H * 0.075);
+      const tableH = H - tableTopY;
 
-      // 將亮黃色高亮底色（23~24列）與表頭米黃底色統一轉成純白底，消除底色與格線干擾
-      rightCrop.scan(0, 0, rightCrop.bitmap.width, rightCrop.bitmap.height, function(x, y, idx) {
-        const r = this.bitmap.data[idx];
-        const g = this.bitmap.data[idx + 1];
-        const b = this.bitmap.data[idx + 2];
-        // 任何亮度較高的淺灰/米黃/亮黃背景像素一律漂白成純白，只留下深色文字
-        if (r > 140 && g > 140) {
-          this.bitmap.data[idx] = 255;
-          this.bitmap.data[idx + 1] = 255;
-          this.bitmap.data[idx + 2] = 255;
-        }
-      });
+      // 獨立切出「筆數欄」（寬度 74.5% ~ 87.2%）與「PCS數欄」（寬度 87.2% ~ 99.8%）
+      const ordersColImg = fullImg.clone().crop(
+        Math.round(W * 0.745),
+        tableTopY,
+        Math.round(W * 0.127),
+        tableH
+      );
+      const pcsColImg = fullImg.clone().crop(
+        Math.round(W * 0.872),
+        tableTopY,
+        W - Math.round(W * 0.872) - 2,
+        tableH
+      );
 
-      rightCrop.scale(3).greyscale().contrast(0.3);
-
-      const [leftBuf, rightBuf] = await Promise.all([
-        leftCrop.getBufferAsync(Jimp.MIME_PNG),
-        rightCrop.getBufferAsync(Jimp.MIME_PNG)
+      const [leftBuf, ordersBuf, pcsBuf] = await Promise.all([
+        leftTopCrop.getBufferAsync(Jimp.MIME_PNG),
+        prepareNumericColumn(ordersColImg),
+        prepareNumericColumn(pcsColImg)
       ]);
 
-      const [textWorker, numWorker] = await Promise.all([
+      const [textWorker, colWorker] = await Promise.all([
         getTextWorker(),
-        getNumWorker()
+        getColWorker()
       ]);
 
-      const [leftRes, rightRes] = await Promise.all([
-        textWorker.recognize(leftBuf),
-        numWorker.recognize(rightBuf)
-      ]);
+      const leftRes = await textWorker.recognize(leftBuf);
+      // 依序辨識兩條純數字垂直欄
+      const ordersRes = await colWorker.recognize(ordersBuf);
+      const pcsRes = await colWorker.recognize(pcsBuf);
 
-      const parsed = parseWmsOcrResult(leftRes.data.text, rightRes.data.text);
+      // 解析左側文字
+      const compactLeft = String(leftRes.data.text || '').replace(/[ \t]+/g, '');
+      let date = '';
+      const dateMatch = compactLeft.match(/(20\d{2})[\/\-．.](\d{1,2})[\/\-．.](\d{1,2})/);
+      if (dateMatch) {
+        date = `${dateMatch[1]}-${dateMatch[2].padStart(2, '0')}-${dateMatch[3].padStart(2, '0')}`;
+      }
+
+      let category = '轉單時間';
+      if (/完成出貨|出貨/.test(compactLeft)) category = '完成出貨';
+      else if (/完成[撿揀]貨|[撿揀]貨/.test(compactLeft)) category = '完成撿貨';
+      else if (/轉單時間|轉單/.test(compactLeft)) category = '轉單時間';
+
+      let wh_code = '15';
+      const whMatch = compactLeft.match(/庫別[^\d\n]{0,3}(\d{1,2})(?!\d)/);
+      if (whMatch) wh_code = whMatch[1];
+
+      let region = '全部';
+      const regMatch = compactLeft.match(/配送區域[^\u4e00-\u9fa5\n]{0,3}([\u4e00-\u9fa5]+)/);
+      if (regMatch && regMatch[1]) region = regMatch[1];
+
+      // 解析兩條純數字直欄
+      const ordersList = parseColumnNumbers(ordersRes.data.text);
+      const pcsList = parseColumnNumbers(pcsRes.data.text);
+
+      const hourly = Array.from({ length: 24 }, (_, idx) => ({
+        hour_index: idx,
+        hour_slot: `${String(idx).padStart(2, '0')}~${String(idx + 1).padStart(2, '0')}`,
+        order_count: ordersList[idx] !== undefined ? ordersList[idx] : 0,
+        pcs_count: pcsList[idx] !== undefined ? pcsList[idx] : 0
+      }));
+
+      const allShipTypes = [
+        '當日配、貨到付款、郵箱', '大材積、大材積 (貨到付款)', '安裝', '海外',
+        '超商(7-11)', '超商(全家)', '超大', 'OK超取', '萊爾富超取', '超速配'
+      ];
 
       return res.json({
         success: true,
-        engineUsed: 'local_ocr_whitelist',
-        parsed
+        engineUsed: 'local_ocr_grid_columns',
+        parsed: {
+          date: date || new Date().toISOString().split('T')[0],
+          category,
+          wh_code,
+          order_type: '揀貨單號',
+          region,
+          ship_types: allShipTypes,
+          is_24h: '全部',
+          hourly
+        }
       });
     } catch (err) {
       res.status(500).json({ success: false, message: '地端 OCR 辨識異常：' + err.message });
