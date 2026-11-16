@@ -78,6 +78,7 @@ export default {
         'transfer_15_80': '🔄 跨庫調撥 15 ➔ 80',
         'dispatch_fish': '📦 收發魚群出沒分析',
         'delivery_flow': '🌊 宅配出貨流線魚群',
+        'delivery_cost': '💰 物流費與包材成本分析',
         'wms_fish_screenshot': '📸 WMS 魚群截圖辨識',
         'settings_perm': '⚙️ 權限管理',
         'settings_log': '📜 日誌歷程查詢'
