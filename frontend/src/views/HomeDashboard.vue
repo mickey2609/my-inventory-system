@@ -190,6 +190,12 @@
           <div class="action-desc">3BC1宅配單三班出貨時段與四大區域流線波浪觀察</div>
         </div>
 
+        <div v-if="hasPermission('delivery_cost')" class="action-card" @click="openTab('delivery_cost')">
+          <div class="action-icon">💰</div>
+          <div class="action-title">物流費與包材成本分析</div>
+          <div class="action-desc">物流商均價、紙箱單價耗用、一單多箱拆箱成本與遲到率稽核</div>
+        </div>
+
         <div v-if="hasPermission('wms_fish_screenshot')" class="action-card" @click="openTab('wms_fish_screenshot')">
           <div class="action-icon">📸</div>
           <div class="action-title">WMS 魚群截圖辨識</div>

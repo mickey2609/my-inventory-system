@@ -124,6 +124,10 @@
             :is-sys-admin="isSysAdmin"
           />
 
+          <DeliveryCostAnalysis 
+            v-else-if="currentTab === 'delivery_cost'" key="delivery_cost"
+          />
+
           <WmsFishScreenshot 
             v-else-if="currentTab === 'wms_fish_screenshot'" key="wms_fish_screenshot"
             :is-admin="isAdmin"
@@ -252,6 +256,7 @@ import Transfer8015FishList from './views/Transfer8015FishList.vue'
 import Transfer1580FishList from './views/Transfer1580FishList.vue'
 import DispatchFishList from './views/DispatchFishList.vue'
 import DeliveryFlowList from './views/DeliveryFlowList.vue'
+import DeliveryCostAnalysis from './views/DeliveryCostAnalysis.vue'
 import WmsFishScreenshot from './views/WmsFishScreenshot.vue'
 import SettingsPerm from './views/SettingsPerm.vue'
 import SettingsLog from './views/SettingsLog.vue'
@@ -276,6 +281,7 @@ const TAB_PATH_MAP = {
   'transfer_15_80': '/transfer-1580',
   'dispatch_fish': '/dispatch-fish',
   'delivery_flow': '/delivery-flow',
+  'delivery_cost': '/delivery-cost',
   'wms_fish_screenshot': '/wms-fish-screenshot',
   'settings_perm': '/settings-perm',
   'settings_log': '/settings-log'
@@ -292,7 +298,7 @@ export default {
     ImportTipModal, UserManagementModals, InventorySearchModal, HomeDashboard,
     LoginOverlay, InvQuery80, InvSearch15, LocSummary, ItemSalesHistory, TurnoverList, AbnormalPurchase,
     InboundFishList, ReplenishFishList, Transfer8015FishList, Transfer1580FishList, DispatchFishList,
-    DeliveryFlowList, WmsFishScreenshot,
+    DeliveryFlowList, DeliveryCostAnalysis, WmsFishScreenshot,
     SettingsPerm, SettingsLog
   },
   setup() {
@@ -377,6 +383,7 @@ export default {
         { key: 'transfer_15_80', name: '🔄 跨庫調撥 15 ➔ 80' },
         { key: 'dispatch_fish', name: '📦 收發魚群出沒分析' },
         { key: 'delivery_flow', name: '🌊 宅配出貨流線魚群' },
+        { key: 'delivery_cost', name: '💰 物流費與包材成本分析' },
         { key: 'wms_fish_screenshot', name: '📸 WMS 魚群截圖辨識' }
       ],
 
@@ -983,6 +990,7 @@ export default {
         'transfer_15_80': '🔄 跨庫調撥 15 ➔ 80',
         'dispatch_fish': '📦 收發魚群出沒分析',
         'delivery_flow': '🌊 宅配出貨流線魚群',
+        'delivery_cost': '💰 物流費與包材成本分析',
         'wms_fish_screenshot': '📸 WMS 魚群截圖辨識',
         'settings_perm': '⚙️ 權限管理',
         'settings_log': '📜 日誌歷程查詢'
