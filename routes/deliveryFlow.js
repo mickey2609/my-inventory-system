@@ -138,17 +138,18 @@ module.exports = function(db) {
   }
 
   function buildCommonWhere(query, baseSql, baseParams) {
-    const { whCode, region, shift, carrier, deliveryType, is24h } = query;
+    const { whCode, region, shift, carrier, deliveryType, is24h, boxNo } = query;
     if (whCode && whCode !== 'all') { baseSql += ` AND wh_code = ?`; baseParams.push(whCode); }
     if (region && region !== 'all') { baseSql += ` AND region = ?`; baseParams.push(region); }
     if (shift && shift !== 'all') { baseSql += ` AND shift_type = ?`; baseParams.push(shift); }
     if (carrier && carrier !== 'all') { baseSql += ` AND carrier_name = ?`; baseParams.push(carrier); }
     if (deliveryType && deliveryType !== 'all') { baseSql += ` AND delivery_type = ?`; baseParams.push(deliveryType); }
     if (is24h && is24h !== 'all') { baseSql += ` AND is_24h = ?`; baseParams.push(is24h); }
+    if (boxNo && boxNo !== 'all') { baseSql += ` AND box_no = ?`; baseParams.push(boxNo); }
     return baseSql;
   }
 
-  // 初始化資料表（含成本、箱號、拆箱、遲到欄位）
+  // 初始化資料表
   db.serialize(() => {
     db.run(`
       CREATE TABLE IF NOT EXISTS delivery_order_tracking (
@@ -184,6 +185,10 @@ module.exports = function(db) {
         shipping_fee REAL DEFAULT 0,
         base_fee REAL DEFAULT 0,
         extra_fee REAL DEFAULT 0,
+        holiday_fee REAL DEFAULT 0,
+        weight_fee REAL DEFAULT 0,
+        oversize_fee REAL DEFAULT 0,
+        remote_fee REAL DEFAULT 0,
         is_late TEXT,
         cod_type TEXT,
         imported_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -228,6 +233,10 @@ module.exports = function(db) {
                 shipping_fee REAL DEFAULT 0,
                 base_fee REAL DEFAULT 0,
                 extra_fee REAL DEFAULT 0,
+                holiday_fee REAL DEFAULT 0,
+                weight_fee REAL DEFAULT 0,
+                oversize_fee REAL DEFAULT 0,
+                remote_fee REAL DEFAULT 0,
                 is_late TEXT,
                 cod_type TEXT,
                 imported_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -241,7 +250,8 @@ module.exports = function(db) {
             'wh_receive_time TEXT', 'print_pick_time TEXT', 'out_time TEXT',
             "is_first_box TEXT DEFAULT 'Y'", 'box_no TEXT', 'box_volume REAL DEFAULT 0',
             'box_price REAL DEFAULT 0', 'shipping_fee REAL DEFAULT 0', 'base_fee REAL DEFAULT 0',
-            'extra_fee REAL DEFAULT 0', 'is_late TEXT', 'cod_type TEXT'
+            'extra_fee REAL DEFAULT 0', 'holiday_fee REAL DEFAULT 0', 'weight_fee REAL DEFAULT 0',
+            'oversize_fee REAL DEFAULT 0', 'remote_fee REAL DEFAULT 0', 'is_late TEXT', 'cod_type TEXT'
           ];
           neededCols.forEach(col => {
             db.run(`ALTER TABLE delivery_order_tracking ADD COLUMN ${col}`, () => {});
@@ -264,7 +274,7 @@ module.exports = function(db) {
     }
   });
 
-  // 匯入 API（一次寫入流向時效＋物流費＋箱號＋箱子單價＋是否第一箱＋是否遲到）
+  // 匯入 API
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     if (!Array.isArray(items) || items.length === 0) {
@@ -280,8 +290,9 @@ module.exports = function(db) {
           order_date, order_time, order_interval, pick_time, pick_interval,
           print_time, print_interval, carrier_name, delivery_type, is_24h,
           wh_receive_time, print_pick_time, out_time, receiver_name, zip_code, address,
-          is_first_box, box_no, box_volume, box_price, shipping_fee, base_fee, extra_fee, is_late, cod_type
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          is_first_box, box_no, box_volume, box_price, shipping_fee, base_fee, extra_fee,
+          holiday_fee, weight_fee, oversize_fee, remote_fee, is_late, cod_type
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(tracking_no) DO UPDATE SET
           order_no = EXCLUDED.order_no,
           wh_code = EXCLUDED.wh_code,
@@ -305,6 +316,10 @@ module.exports = function(db) {
           shipping_fee = EXCLUDED.shipping_fee,
           base_fee = EXCLUDED.base_fee,
           extra_fee = EXCLUDED.extra_fee,
+          holiday_fee = EXCLUDED.holiday_fee,
+          weight_fee = EXCLUDED.weight_fee,
+          oversize_fee = EXCLUDED.oversize_fee,
+          remote_fee = EXCLUDED.remote_fee,
           is_late = EXCLUDED.is_late,
           cod_type = EXCLUDED.cod_type,
           imported_at = CURRENT_TIMESTAMP
@@ -355,18 +370,17 @@ module.exports = function(db) {
         const out_time = getV('出庫時間', 'out_time');
         const receiver_name = getV('收件人', 'receiver_name');
 
-        // 成本、箱號、拆箱與遲到欄位
         const is_first_box = getV('是否為第一箱', 'is_first_box') || 'Y';
         const box_no = getV('箱號', 'box_no') || '未記錄';
         const box_volume = toNum(getV('箱號材積和', 'box_volume'));
         const box_price = toNum(getV('箱子單價', 'box_price'));
         const shipping_fee = toNum(getV('物流費總計', 'shipping_fee'));
         const base_fee = toNum(getV('基本運費', 'base_fee'));
-        const extra_fee =
-          toNum(getV('假日加價')) +
-          toNum(getV('重量加價')) +
-          toNum(getV('超材加價')) +
-          toNum(getV('地區加價'));
+        const holiday_fee = toNum(getV('假日加價'));
+        const weight_fee = toNum(getV('重量加價'));
+        const oversize_fee = toNum(getV('超材加價'));
+        const remote_fee = toNum(getV('地區加價'));
+        const extra_fee = holiday_fee + weight_fee + oversize_fee + remote_fee;
         const is_late = getV('是否遲到', 'is_late') || 'N';
         const cod_type = getV('貨到付款種類', 'cod_type') || '無代收款';
 
@@ -375,7 +389,8 @@ module.exports = function(db) {
           order_date, order_time, order_interval, pick_time, pick_interval,
           print_time, print_interval, carrier_name, delivery_type, is_24h,
           wh_receive_time, print_pick_time, out_time, receiver_name, zip, addr,
-          is_first_box, box_no, box_volume, box_price, shipping_fee, base_fee, extra_fee, is_late, cod_type
+          is_first_box, box_no, box_volume, box_price, shipping_fee, base_fee, extra_fee,
+          holiday_fee, weight_fee, oversize_fee, remote_fee, is_late, cod_type
         );
         count++;
       }
@@ -655,9 +670,10 @@ module.exports = function(db) {
     }
   });
 
-  // 物流費與包材成本專屬分析 API（供獨立模組 DeliveryCostAnalysis.vue 呼叫）
+  // 物流費與包材成本專屬分析 API（高單價運費與額外加價已獨立拆開）
   router.get('/cost-analysis', (req, res) => {
-    const { startDate, endDate, whCode, carrier, deliveryType, boxNo, region, onlySplitBox, onlyLate } = req.query;
+    const { startDate, endDate, whCode, carrier, deliveryType, boxNo, region, onlySplitBox, onlyLate, highFeeThreshold } = req.query;
+    const feeThreshold = Number(highFeeThreshold) || 120;
 
     const runCostQuery = (sDate, eDate) => {
       const params = [sDate, eDate];
@@ -680,7 +696,7 @@ module.exports = function(db) {
         let totalShippingFee = 0;
         let totalBoxCost = 0;
         let totalExtraFee = 0;
-        let billedPackages = 0; // 排除超取 0 元月結件的實際計費件數
+        let billedPackages = 0;
         let billedShippingFee = 0;
 
         let splitBoxCount = 0;
@@ -694,7 +710,8 @@ module.exports = function(db) {
         const typeMap = {};
         const districtMap = {};
         const splitOrderIds = new Set();
-        const highCostAlerts = [];
+        const highShippingList = [];
+        const extraFeeList = [];
 
         rows.forEach(r => {
           if (r.order_no) orderSet.add(r.order_no);
@@ -724,7 +741,6 @@ module.exports = function(db) {
           if (r.is_late === 'Y') lateCount++;
           if (r.cod_type && r.cod_type !== '無代收款') codCashCount++;
 
-          // 1. 物流商彙總
           const cName = r.carrier_name || '未分類物流商';
           if (!carrierMap[cName]) {
             carrierMap[cName] = {
@@ -749,7 +765,6 @@ module.exports = function(db) {
           if (r.is_late === 'Y') cb.lateCount++;
           if (r.is_first_box === 'N') cb.splitCount++;
 
-          // 2. 箱號彙總
           const bCode = r.box_no || '未記錄';
           if (!boxMap[bCode]) {
             boxMap[bCode] = {
@@ -772,7 +787,6 @@ module.exports = function(db) {
           bb.totalCostSum += totalCost;
           if (r.is_first_box === 'N') bb.splitCount++;
 
-          // 3. 宅配類別彙總
           const dType = r.delivery_type || '未分類';
           if (!typeMap[dType]) {
             typeMap[dType] = {
@@ -793,7 +807,6 @@ module.exports = function(db) {
           tb.totalCost += totalCost;
           if (r.is_late === 'Y') tb.lateCount++;
 
-          // 4. 行政區 / 郵遞區號彙總
           const { city, district } = extractCityDistrict(r.address);
           const zip3 = String(r.zip_code || '').slice(0, 3) || '-';
           const distKey = `${district}|${zip3}`;
@@ -817,16 +830,26 @@ module.exports = function(db) {
           dbucket.boxCost += boxPrice;
           dbucket.totalCost += totalCost;
 
-          // 5. 高運費或額外加價預警清單（運費 >= 120 或有額外加價）
-          if ((shipFee >= 120 || extraFee > 0) && highCostAlerts.length < 300) {
-            highCostAlerts.push({
+          // 獨立收集 1：高單價運費件（例如 >= $120）
+          if (shipFee >= feeThreshold) {
+            highShippingList.push({
+              ...r,
+              totalCost: Number(totalCost.toFixed(2))
+            });
+          }
+
+          // 獨立收集 2：含額外加價件（假日 / 重量 / 超材 / 地區加價 > 0）
+          if (extraFee > 0) {
+            extraFeeList.push({
               ...r,
               totalCost: Number(totalCost.toFixed(2))
             });
           }
         });
 
-        // 整理輸出列表
+        highShippingList.sort((a, b) => Number(b.shipping_fee || 0) - Number(a.shipping_fee || 0));
+        extraFeeList.sort((a, b) => Number(b.extra_fee || 0) - Number(a.extra_fee || 0));
+
         const carrierList = Object.values(carrierMap)
           .map(c => ({
             ...c,
@@ -877,11 +900,10 @@ module.exports = function(db) {
           .sort((a, b) => b.count - a.count)
           .slice(0, 30);
 
-        // 整理拆箱訂單明細（找出同訂單編號的所有箱子對照）
         const splitOrdersDetail = rows
           .filter(r => splitOrderIds.has(r.order_no))
           .sort((a, b) => String(a.order_no).localeCompare(String(b.order_no)) || String(b.is_first_box).localeCompare(String(a.is_first_box)))
-          .slice(0, 400)
+          .slice(0, 500)
           .map(r => ({
             ...r,
             totalCost: Number((Number(r.shipping_fee || 0) + Number(r.box_price || 0)).toFixed(2))
@@ -907,14 +929,17 @@ module.exports = function(db) {
             splitBoxTotalLoss: Number((splitBoxShippingLoss + splitBoxMaterialLoss).toFixed(2)),
             lateCount,
             lateRate: totalPackages > 0 ? Number(((lateCount / totalPackages) * 100).toFixed(1)) : 0,
-            codCashCount
+            codCashCount,
+            highShippingTotalCount: highShippingList.length,
+            extraFeeTotalCount: extraFeeList.length
           },
           carrierList,
           boxList,
           deliveryTypeList,
           districtTopList,
           splitOrdersDetail,
-          highCostAlerts
+          highShippingList: highShippingList.slice(0, 1000),
+          extraFeeList: extraFeeList.slice(0, 1000)
         });
       });
     };
@@ -929,7 +954,102 @@ module.exports = function(db) {
     }
   });
 
-  // 每月每日總表 API
+  // 成本模組專屬：每月每日成本總表 API
+  router.get('/cost-monthly-summary', (req, res) => {
+    const { month } = req.query;
+    if (!month) return res.status(400).json({ success: false, message: '請提供月份 (YYYY-MM)' });
+
+    let sql = `
+      SELECT 
+        ship_date as date,
+        COUNT(*) as totalPackages,
+        COUNT(DISTINCT order_no) as totalOrders,
+        SUM(CASE WHEN shipping_fee > 0 THEN 1 ELSE 0 END) as billedPackages,
+        ROUND(SUM(IFNULL(shipping_fee, 0)), 2) as shippingFee,
+        ROUND(SUM(IFNULL(extra_fee, 0)), 2) as extraFee,
+        ROUND(SUM(IFNULL(box_price, 0)), 2) as boxCost,
+        ROUND(SUM(IFNULL(shipping_fee, 0) + IFNULL(box_price, 0)), 2) as totalCost,
+        SUM(CASE WHEN is_first_box = 'N' THEN 1 ELSE 0 END) as splitBoxCount,
+        ROUND(SUM(CASE WHEN is_first_box = 'N' THEN (IFNULL(shipping_fee, 0) + IFNULL(box_price, 0)) ELSE 0 END), 2) as splitBoxLoss,
+        SUM(CASE WHEN is_late = 'Y' THEN 1 ELSE 0 END) as lateCount
+      FROM delivery_order_tracking
+      WHERE ship_date LIKE ?
+    `;
+    const params = [`${month}%`];
+    sql = buildCommonWhere(req.query, sql, params);
+    sql += ` GROUP BY ship_date ORDER BY ship_date ASC`;
+
+    db.all(sql, params, (err, rows) => {
+      if (err) return res.status(500).json({ success: false, message: err.message });
+      const dailyList = (rows || []).map(r => ({
+        ...r,
+        avgBilledShippingFee: r.billedPackages > 0 ? Number((r.shippingFee / r.billedPackages).toFixed(2)) : 0,
+        avgTotalCost: r.totalPackages > 0 ? Number((r.totalCost / r.totalPackages).toFixed(2)) : 0,
+        lateRate: r.totalPackages > 0 ? Number(((r.lateCount / r.totalPackages) * 100).toFixed(1)) : 0
+      }));
+      res.json({ success: true, month, dailyList });
+    });
+  });
+
+  // 成本模組專屬：年度每月成本總表 API
+  router.get('/cost-yearly-summary', (req, res) => {
+    const { year } = req.query;
+    if (!year) return res.status(400).json({ success: false, message: '請提供年份 (YYYY)' });
+
+    let sql = `
+      SELECT 
+        SUBSTR(ship_date, 1, 7) as month,
+        COUNT(*) as totalPackages,
+        COUNT(DISTINCT order_no) as totalOrders,
+        SUM(CASE WHEN shipping_fee > 0 THEN 1 ELSE 0 END) as billedPackages,
+        ROUND(SUM(IFNULL(shipping_fee, 0)), 2) as shippingFee,
+        ROUND(SUM(IFNULL(extra_fee, 0)), 2) as extraFee,
+        ROUND(SUM(IFNULL(box_price, 0)), 2) as boxCost,
+        ROUND(SUM(IFNULL(shipping_fee, 0) + IFNULL(box_price, 0)), 2) as totalCost,
+        SUM(CASE WHEN is_first_box = 'N' THEN 1 ELSE 0 END) as splitBoxCount,
+        ROUND(SUM(CASE WHEN is_first_box = 'N' THEN (IFNULL(shipping_fee, 0) + IFNULL(box_price, 0)) ELSE 0 END), 2) as splitBoxLoss,
+        SUM(CASE WHEN is_late = 'Y' THEN 1 ELSE 0 END) as lateCount
+      FROM delivery_order_tracking
+      WHERE ship_date LIKE ?
+    `;
+    const params = [`${year}%`];
+    sql = buildCommonWhere(req.query, sql, params);
+    sql += ` GROUP BY SUBSTR(ship_date, 1, 7) ORDER BY month ASC`;
+
+    db.all(sql, params, (err, rows) => {
+      if (err) return res.status(500).json({ success: false, message: err.message });
+      const rowMap = new Map((rows || []).map(r => [r.month, r]));
+
+      const monthlyList = Array.from({ length: 12 }, (_, idx) => {
+        const mNum = String(idx + 1).padStart(2, '0');
+        const mKey = `${year}-${mNum}`;
+        const r = rowMap.get(mKey) || {
+          month: mKey,
+          totalPackages: 0,
+          totalOrders: 0,
+          billedPackages: 0,
+          shippingFee: 0,
+          extraFee: 0,
+          boxCost: 0,
+          totalCost: 0,
+          splitBoxCount: 0,
+          splitBoxLoss: 0,
+          lateCount: 0
+        };
+        return {
+          ...r,
+          monthLabel: `${mNum}月`,
+          avgBilledShippingFee: r.billedPackages > 0 ? Number((r.shippingFee / r.billedPackages).toFixed(2)) : 0,
+          avgTotalCost: r.totalPackages > 0 ? Number((r.totalCost / r.totalPackages).toFixed(2)) : 0,
+          lateRate: r.totalPackages > 0 ? Number(((r.lateCount / r.totalPackages) * 100).toFixed(1)) : 0
+        };
+      });
+
+      res.json({ success: true, year, monthlyList });
+    });
+  });
+
+  // 每月每日流向總表 API
   router.get('/monthly-summary', (req, res) => {
     const { month } = req.query;
     const countMode = req.query.countMode || 'tracking';
@@ -1019,7 +1139,7 @@ module.exports = function(db) {
     });
   });
 
-  // 年度每月總表 API
+  // 年度每月流向總表 API
   router.get('/yearly-summary', (req, res) => {
     const { year } = req.query;
     const countMode = req.query.countMode || 'tracking';

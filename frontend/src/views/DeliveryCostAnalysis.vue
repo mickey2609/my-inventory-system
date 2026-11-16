@@ -4,7 +4,8 @@
     <!-- 1. 頂部篩選控制面板 -->
     <div class="control-header-panel">
       <div class="filter-row">
-        <div class="filter-item">
+        <!-- 區間查詢模式（前 5 個細部頁籤顯示） -->
+        <div class="filter-item" v-if="isRangeTab">
           <span class="label">📅 查詢區間：</span>
           <el-date-picker
             v-model="dateRange"
@@ -22,9 +23,47 @@
           <el-button size="mini" type="info" plain @click="setCurrentMonth">本月累計</el-button>
         </div>
 
+        <!-- 每月每日成本總表模式：月份選擇器 -->
+        <div class="filter-item" v-else-if="activeTab === 'monthly_cost'">
+          <span class="label">🗓️ 統計月份：</span>
+          <div class="date-stepper-group">
+            <el-button size="mini" type="primary" plain class="step-btn" @click="shiftMonth(-1)">◀</el-button>
+            <el-date-picker
+              v-model="targetMonth"
+              type="month"
+              size="mini"
+              value-format="YYYY-MM"
+              placeholder="選擇月份"
+              style="width: 125px;"
+              :clearable="false"
+              @change="fetchMonthlyCost"
+            />
+            <el-button size="mini" type="primary" plain class="step-btn" @click="shiftMonth(1)">▶</el-button>
+          </div>
+        </div>
+
+        <!-- 年度每月成本總表模式：年份選擇器 -->
+        <div class="filter-item" v-else-if="activeTab === 'yearly_cost'">
+          <span class="label">📅 統計年份：</span>
+          <div class="date-stepper-group">
+            <el-button size="mini" type="primary" plain class="step-btn" @click="shiftYear(-1)">◀</el-button>
+            <el-date-picker
+              v-model="targetYear"
+              type="year"
+              size="mini"
+              value-format="YYYY"
+              placeholder="選擇年份"
+              style="width: 105px;"
+              :clearable="false"
+              @change="fetchYearlyCost"
+            />
+            <el-button size="mini" type="primary" plain class="step-btn" @click="shiftYear(1)">▶</el-button>
+          </div>
+        </div>
+
         <div class="filter-item">
           <span class="label">🏢 庫別：</span>
-          <el-select v-model="selectedWarehouse" size="mini" style="width: 110px;" @change="fetchCostAnalysis">
+          <el-select v-model="selectedWarehouse" size="mini" style="width: 110px;" @change="refreshActiveTab">
             <el-option label="全部庫別" value="all" />
             <el-option v-for="w in warehouseOptions" :key="w" :label="`${w} 庫`" :value="w" />
           </el-select>
@@ -32,7 +71,7 @@
 
         <div class="filter-item">
           <span class="label">🚚 物流商：</span>
-          <el-select v-model="selectedCarrier" size="mini" style="width: 145px;" @change="fetchCostAnalysis">
+          <el-select v-model="selectedCarrier" size="mini" style="width: 145px;" @change="refreshActiveTab">
             <el-option label="全部物流商" value="all" />
             <el-option v-for="c in carrierOptions" :key="c" :label="c" :value="c" />
           </el-select>
@@ -40,7 +79,7 @@
 
         <div class="filter-item">
           <span class="label">📦 箱號：</span>
-          <el-select v-model="selectedBoxNo" size="mini" filterable style="width: 130px;" @change="fetchCostAnalysis">
+          <el-select v-model="selectedBoxNo" size="mini" filterable style="width: 130px;" @change="refreshActiveTab">
             <el-option label="全部箱號" value="all" />
             <el-option v-for="b in boxNoOptions" :key="b" :label="b" :value="b" />
           </el-select>
@@ -48,27 +87,27 @@
 
         <div class="filter-item">
           <span class="label">🏷️ 類別：</span>
-          <el-select v-model="selectedDeliveryType" size="mini" style="width: 125px;" @change="fetchCostAnalysis">
+          <el-select v-model="selectedDeliveryType" size="mini" style="width: 125px;" @change="refreshActiveTab">
             <el-option label="全部類別" value="all" />
             <el-option v-for="t in deliveryTypeOptions" :key="t" :label="t" :value="t" />
           </el-select>
         </div>
 
-        <div class="filter-item">
+        <div class="filter-item" v-if="isRangeTab">
           <el-checkbox v-model="onlySplitBox" @change="fetchCostAnalysis">
-            <span class="text-purple font-bold">僅看拆箱 (非第一箱)</span>
+            <span class="text-purple font-bold">僅看拆箱</span>
           </el-checkbox>
           <el-checkbox v-model="onlyLate" @change="fetchCostAnalysis">
-            <span class="text-red font-bold">僅看遲到件</span>
+            <span class="text-red font-bold">僅看遲到</span>
           </el-checkbox>
         </div>
 
         <div class="btn-group">
-          <el-button type="primary" size="mini" icon="el-icon-refresh" :loading="loading" @click="fetchCostAnalysis">重新計算</el-button>
+          <el-button type="primary" size="mini" icon="el-icon-refresh" :loading="loading" @click="refreshActiveTab">重新計算</el-button>
         </div>
       </div>
 
-      <!-- 子頁籤切換 -->
+      <!-- 子頁籤切換（高運費與額外加價已獨立分開，並新增月/年總表） -->
       <div class="sub-tabs-bar">
         <button class="sub-tab-btn" :class="{ active: activeTab === 'carrier_box' }" @click="switchTab('carrier_box')">
           💰 物流商與包材成本總覽
@@ -77,18 +116,27 @@
           📮 行政區熱點與宅配類別
         </button>
         <button class="sub-tab-btn warn-tab" :class="{ active: activeTab === 'split_audit' }" @click="switchTab('split_audit')">
-          🔀 一單多箱拆箱成本稽核 ({{ kpi.splitBoxCount }} 箱)
+          🔀 一單多箱拆箱稽核 ({{ formatNumber(kpi.splitBoxCount) }})
         </button>
-        <button class="sub-tab-btn alert-tab" :class="{ active: activeTab === 'high_cost' }" @click="switchTab('high_cost')">
-          🚨 高運費／額外加價預警 ({{ highCostAlerts.length }} 筆)
+        <button class="sub-tab-btn high-fee-tab" :class="{ active: activeTab === 'high_shipping' }" @click="switchTab('high_shipping')">
+          🔥 高單價運費 (≥${{ highFeeThreshold }} / {{ formatNumber(kpi.highShippingTotalCount || highShippingList.length) }} 筆)
+        </button>
+        <button class="sub-tab-btn extra-fee-tab" :class="{ active: activeTab === 'extra_fee' }" @click="switchTab('extra_fee')">
+          ➕ 額外加價明細 ({{ formatNumber(kpi.extraFeeTotalCount || extraFeeList.length) }} 筆)
+        </button>
+        <button class="sub-tab-btn summary-tab" :class="{ active: activeTab === 'monthly_cost' }" @click="switchTab('monthly_cost')">
+          🗓️ 每月每日成本總表
+        </button>
+        <button class="sub-tab-btn summary-tab" :class="{ active: activeTab === 'yearly_cost' }" @click="switchTab('yearly_cost')">
+          📅 年度每月成本總表
         </button>
       </div>
     </div>
 
     <!-- 2. 主內容區 -->
     <div class="main-content-scroll" v-loading="loading">
-      <!-- 四大核心財務 KPI 卡片 -->
-      <div class="kpi-cards-row">
+      <!-- 四大核心財務 KPI 卡片（區間分析頁籤顯示） -->
+      <div class="kpi-cards-row" v-if="isRangeTab">
         <div class="kpi-card border-gold">
           <div class="kpi-head">
             <span class="kpi-title">💵 總履約成本 (物流＋包材)</span>
@@ -137,7 +185,6 @@
 
       <!-- 頁籤 1：物流商與包材成本總覽 -->
       <div v-show="activeTab === 'carrier_box'" class="tab-pane-box">
-        <!-- 圖表雙欄 -->
         <div class="charts-grid-2">
           <div class="chart-card">
             <div class="chart-title">📊 各物流商「物流費 vs 包材費」堆疊對比</div>
@@ -149,7 +196,6 @@
           </div>
         </div>
 
-        <!-- 物流商成本與準點率明細表 -->
         <div class="table-card">
           <div class="table-header">
             <span class="table-title">🚚 物流商成本結構與遲到率對比表</span>
@@ -195,7 +241,6 @@
           </div>
         </div>
 
-        <!-- 箱號耗用與單件總成本排行表 -->
         <div class="table-card">
           <div class="table-header">
             <span class="table-title">📦 箱號規格耗用、包材費與平均物流費排行表</span>
@@ -317,7 +362,7 @@
         <div class="table-card">
           <div class="table-header">
             <span class="table-title">🔀 一單多箱（拆箱）完整對照明細（含同訂單第一箱與後續拆箱）</span>
-            <span class="tip-text">額外多拆 {{ kpi.splitBoxCount }} 箱，累計多支出 ${{ formatMoney(kpi.splitBoxTotalLoss) }} 元</span>
+            <span class="tip-text">額外多拆 {{ formatNumber(kpi.splitBoxCount) }} 箱，累計多支出 ${{ formatMoney(kpi.splitBoxTotalLoss) }} 元</span>
           </div>
           <div class="table-scroll" style="max-height: 560px;">
             <table class="data-table">
@@ -328,7 +373,7 @@
                   <th>宅配單號</th>
                   <th>物流商</th>
                   <th>箱號</th>
-                  <th>實際重量</th>
+                  <th>箱號材積和</th>
                   <th>箱子單價</th>
                   <th>物流費總計</th>
                   <th>單箱總成本</th>
@@ -354,7 +399,7 @@
                   <td class="font-bold text-blue copyable" @click="copyText(s.tracking_no)">{{ s.tracking_no }}</td>
                   <td>{{ s.carrier_name }}</td>
                   <td class="text-center font-bold text-green">{{ s.box_no }}</td>
-                  <td class="text-right">{{ s.actual_weight || '-' }}</td>
+                  <td class="text-right">{{ s.box_volume }}</td>
                   <td class="text-right text-green">${{ Number(s.box_price || 0).toFixed(2) }}</td>
                   <td class="text-right text-blue font-bold">${{ formatMoney(s.shipping_fee) }}</td>
                   <td class="text-right text-yellow font-bold">${{ Number(s.totalCost || 0).toFixed(2) }}</td>
@@ -367,11 +412,20 @@
         </div>
       </div>
 
-      <!-- 頁籤 4：高運費／額外加價預警 -->
-      <div v-show="activeTab === 'high_cost'" class="tab-pane-box">
+      <!-- 頁籤 4：高單價運費明細（獨立頁籤） -->
+      <div v-show="activeTab === 'high_shipping'" class="tab-pane-box">
         <div class="table-card">
           <div class="table-header">
-            <span class="table-title">🚨 高單價運費 (≥$120) 或 含額外加價（假日／超材／地區加價）明細</span>
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span class="table-title">🔥 高單價運費明細（單件物流費 ≥ ${{ highFeeThreshold }}，依金額由高至低排序）</span>
+              <el-select v-model="highFeeThreshold" size="mini" style="width: 115px;" @change="fetchCostAnalysis">
+                <el-option label="門檻 ≥ $100" :value="100" />
+                <el-option label="門檻 ≥ $120" :value="120" />
+                <el-option label="門檻 ≥ $150" :value="150" />
+                <el-option label="門檻 ≥ $200" :value="200" />
+              </el-select>
+            </div>
+            <span class="tip-text">共 {{ formatNumber(kpi.highShippingTotalCount || highShippingList.length) }} 筆高運費件</span>
           </div>
           <div class="table-scroll" style="max-height: 560px;">
             <table class="data-table">
@@ -380,6 +434,7 @@
                   <th>宅配單號</th>
                   <th>訂單編號</th>
                   <th>物流商</th>
+                  <th>宅配類別</th>
                   <th>箱號</th>
                   <th>箱號材積和</th>
                   <th>基本運費</th>
@@ -392,24 +447,221 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-if="highCostAlerts.length === 0">
-                  <td colspan="12" class="text-center text-dim" style="padding: 28px;">查詢區間內無高運費或額外加價紀錄</td>
+                <tr v-if="highShippingList.length === 0">
+                  <td colspan="13" class="text-center text-dim" style="padding: 28px;">查詢區間內無單件運費 ≥ ${{ highFeeThreshold }} 之高運費紀錄</td>
                 </tr>
-                <tr v-for="h in highCostAlerts" :key="h.tracking_no">
+                <tr v-for="h in highShippingList" :key="h.tracking_no">
                   <td class="font-bold text-blue copyable" @click="copyText(h.tracking_no)">{{ h.tracking_no }}</td>
                   <td class="font-bold text-orange copyable" @click="copyText(h.order_no)">{{ h.order_no }}</td>
                   <td>{{ h.carrier_name }}</td>
+                  <td class="text-center">{{ h.delivery_type }}</td>
                   <td class="text-center font-bold text-green">{{ h.box_no }}</td>
                   <td class="text-right">{{ h.box_volume }}</td>
                   <td class="text-right">${{ formatMoney(h.base_fee) }}</td>
-                  <td class="text-right text-red font-bold">${{ formatMoney(h.extra_fee) }}</td>
-                  <td class="text-right text-blue font-bold">${{ formatMoney(h.shipping_fee) }}</td>
+                  <td class="text-right text-orange">${{ formatMoney(h.extra_fee) }}</td>
+                  <td class="text-right text-red font-bold">${{ formatMoney(h.shipping_fee) }}</td>
                   <td class="text-right text-green">${{ Number(h.box_price || 0).toFixed(2) }}</td>
                   <td class="text-right text-yellow font-bold">${{ Number(h.totalCost || 0).toFixed(2) }}</td>
                   <td class="text-center">{{ h.zip_code }}</td>
                   <td class="text-dim">{{ h.address }}</td>
                 </tr>
               </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- 頁籤 5：額外加價明細（獨立頁籤，拆解假日/重量/超材/地區加價） -->
+      <div v-show="activeTab === 'extra_fee'" class="tab-pane-box">
+        <div class="table-card">
+          <div class="table-header">
+            <span class="table-title">➕ 額外加價明細（假日加價 / 重量加價 / 超材加價 / 地區加價 &gt; 0）</span>
+            <span class="tip-text">
+              共 {{ formatNumber(kpi.extraFeeTotalCount || extraFeeList.length) }} 筆，額外加價總計 ${{ formatMoney(kpi.totalExtraFee) }} 元
+            </span>
+          </div>
+          <div class="table-scroll" style="max-height: 560px;">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>宅配單號</th>
+                  <th>訂單編號</th>
+                  <th>出貨日期</th>
+                  <th>物流商</th>
+                  <th>箱號</th>
+                  <th>基本運費</th>
+                  <th>假日加價</th>
+                  <th>重量加價</th>
+                  <th>超材加價</th>
+                  <th>地區加價</th>
+                  <th>加價合計</th>
+                  <th>物流費總計</th>
+                  <th>郵遞區號</th>
+                  <th>收件地址</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="extraFeeList.length === 0">
+                  <td colspan="14" class="text-center text-dim" style="padding: 28px;">查詢區間內無任何額外加價紀錄</td>
+                </tr>
+                <tr v-for="e in extraFeeList" :key="e.tracking_no">
+                  <td class="font-bold text-blue copyable" @click="copyText(e.tracking_no)">{{ e.tracking_no }}</td>
+                  <td class="font-bold text-orange copyable" @click="copyText(e.order_no)">{{ e.order_no }}</td>
+                  <td class="text-center">{{ e.ship_date }}</td>
+                  <td>{{ e.carrier_name }}</td>
+                  <td class="text-center font-bold text-green">{{ e.box_no }}</td>
+                  <td class="text-right">${{ formatMoney(e.base_fee) }}</td>
+                  <td class="text-right" :class="Number(e.holiday_fee) > 0 ? 'text-yellow font-bold' : 'text-dim'">${{ formatMoney(e.holiday_fee) }}</td>
+                  <td class="text-right" :class="Number(e.weight_fee) > 0 ? 'text-orange font-bold' : 'text-dim'">${{ formatMoney(e.weight_fee) }}</td>
+                  <td class="text-right" :class="Number(e.oversize_fee) > 0 ? 'text-purple font-bold' : 'text-dim'">${{ formatMoney(e.oversize_fee) }}</td>
+                  <td class="text-right" :class="Number(e.remote_fee) > 0 ? 'text-red font-bold' : 'text-dim'">${{ formatMoney(e.remote_fee) }}</td>
+                  <td class="text-right text-red font-bold">${{ formatMoney(e.extra_fee) }}</td>
+                  <td class="text-right text-blue font-bold">${{ formatMoney(e.shipping_fee) }}</td>
+                  <td class="text-center">{{ e.zip_code }}</td>
+                  <td class="text-dim">{{ e.address }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- 頁籤 6：每月每日成本總表 -->
+      <div v-show="activeTab === 'monthly_cost'" class="tab-pane-box">
+        <div class="table-card" v-loading="loadingMonthly">
+          <div class="table-header">
+            <span class="table-title">🗓️ {{ targetMonth }} 月份每日物流與包材成本總表</span>
+            <span class="tip-text">
+              全月共 {{ monthlyDailyList.length }} 個出貨日，累計總履約成本 ${{ formatMoney(monthlyTotalSummary.totalCost) }} 元
+            </span>
+          </div>
+          <div class="table-scroll" style="max-height: calc(100vh - 210px);">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>出貨日期</th>
+                  <th>總件數</th>
+                  <th>總訂單數</th>
+                  <th>物流運費總計</th>
+                  <th>額外加價合計</th>
+                  <th>紙箱包材總計</th>
+                  <th>總履約成本</th>
+                  <th>計費件均運費</th>
+                  <th>單件總成本</th>
+                  <th>拆箱件數</th>
+                  <th>拆箱流失金額</th>
+                  <th>遲到率</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="monthlyDailyList.length === 0">
+                  <td colspan="13" class="text-center text-dim" style="padding: 30px;">{{ targetMonth }} 月份尚無匯入出貨資料</td>
+                </tr>
+                <tr v-for="(d, idx) in monthlyDailyList" :key="d.date" :class="{ 'row-zebra': idx % 2 === 1 }">
+                  <td class="text-center font-bold">{{ d.date }}</td>
+                  <td class="text-right font-bold">{{ formatNumber(d.totalPackages) }}</td>
+                  <td class="text-right text-dim">{{ formatNumber(d.totalOrders) }}</td>
+                  <td class="text-right text-blue font-bold">${{ formatMoney(d.shippingFee) }}</td>
+                  <td class="text-right text-orange">${{ formatMoney(d.extraFee) }}</td>
+                  <td class="text-right text-green">${{ formatMoney(d.boxCost) }}</td>
+                  <td class="text-right text-yellow font-bold">${{ formatMoney(d.totalCost) }}</td>
+                  <td class="text-right">${{ Number(d.avgBilledShippingFee || 0).toFixed(2) }}</td>
+                  <td class="text-right">${{ Number(d.avgTotalCost || 0).toFixed(2) }}</td>
+                  <td class="text-right text-purple">{{ formatNumber(d.splitBoxCount) }}</td>
+                  <td class="text-right text-purple font-bold">${{ formatMoney(d.splitBoxLoss) }}</td>
+                  <td class="text-center">
+                    <span class="rate-badge" :class="d.lateRate >= 10 ? 'rate-high' : (d.lateRate >= 3 ? 'rate-mid' : 'rate-ok')">
+                      {{ d.lateRate }}%
+                    </span>
+                  </td>
+                  <td class="text-center">
+                    <el-button size="mini" type="primary" plain @click="jumpToDailyCost(d.date)">看當日明細</el-button>
+                  </td>
+                </tr>
+              </tbody>
+              <tfoot v-if="monthlyDailyList.length > 0">
+                <tr class="table-total-row">
+                  <td class="text-center font-bold text-yellow">全月總計</td>
+                  <td class="text-right font-bold">{{ formatNumber(monthlyTotalSummary.totalPackages) }}</td>
+                  <td class="text-right font-bold">{{ formatNumber(monthlyTotalSummary.totalOrders) }}</td>
+                  <td class="text-right font-bold text-blue">${{ formatMoney(monthlyTotalSummary.shippingFee) }}</td>
+                  <td class="text-right font-bold text-orange">${{ formatMoney(monthlyTotalSummary.extraFee) }}</td>
+                  <td class="text-right font-bold text-green">${{ formatMoney(monthlyTotalSummary.boxCost) }}</td>
+                  <td class="text-right font-bold text-yellow">${{ formatMoney(monthlyTotalSummary.totalCost) }}</td>
+                  <td colspan="2"></td>
+                  <td class="text-right font-bold text-purple">{{ formatNumber(monthlyTotalSummary.splitBoxCount) }}</td>
+                  <td class="text-right font-bold text-purple">${{ formatMoney(monthlyTotalSummary.splitBoxLoss) }}</td>
+                  <td colspan="2"></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- 頁籤 7：年度每月成本總表 -->
+      <div v-show="activeTab === 'yearly_cost'" class="tab-pane-box">
+        <div class="table-card" v-loading="loadingYearly">
+          <div class="table-header">
+            <span class="table-title">📅 {{ targetYear }} 年度每月物流與包材成本總表</span>
+            <span class="tip-text">
+              全年累計 {{ formatNumber(yearlyTotalSummary.totalPackages) }} 件，總履約成本 ${{ formatMoney(yearlyTotalSummary.totalCost) }} 元
+            </span>
+          </div>
+          <div class="table-scroll" style="max-height: calc(100vh - 210px);">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>統計月份</th>
+                  <th>總件數</th>
+                  <th>總訂單數</th>
+                  <th>物流運費總計</th>
+                  <th>額外加價合計</th>
+                  <th>紙箱包材總計</th>
+                  <th>總履約成本</th>
+                  <th>計費件均運費</th>
+                  <th>單件總成本</th>
+                  <th>拆箱件數</th>
+                  <th>拆箱流失金額</th>
+                  <th>遲到率</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(m, idx) in yearlyMonthlyList" :key="m.month" :class="{ 'row-zebra': idx % 2 === 1 }">
+                  <td class="text-center font-bold">{{ m.monthLabel }} ({{ m.month }})</td>
+                  <td class="text-right font-bold">{{ formatNumber(m.totalPackages) }}</td>
+                  <td class="text-right text-dim">{{ formatNumber(m.totalOrders) }}</td>
+                  <td class="text-right text-blue font-bold">${{ formatMoney(m.shippingFee) }}</td>
+                  <td class="text-right text-orange">${{ formatMoney(m.extraFee) }}</td>
+                  <td class="text-right text-green">${{ formatMoney(m.boxCost) }}</td>
+                  <td class="text-right text-yellow font-bold">${{ formatMoney(m.totalCost) }}</td>
+                  <td class="text-right">${{ Number(m.avgBilledShippingFee || 0).toFixed(2) }}</td>
+                  <td class="text-right">${{ Number(m.avgTotalCost || 0).toFixed(2) }}</td>
+                  <td class="text-right text-purple">{{ formatNumber(m.splitBoxCount) }}</td>
+                  <td class="text-right text-purple font-bold">${{ formatMoney(m.splitBoxLoss) }}</td>
+                  <td class="text-center">{{ m.lateRate }}%</td>
+                  <td class="text-center">
+                    <el-button size="mini" type="primary" plain :disabled="m.totalPackages === 0" @click="jumpToMonthlyCost(m.month)">看該月明細</el-button>
+                  </td>
+                </tr>
+              </tbody>
+              <tfoot v-if="yearlyMonthlyList.length > 0">
+                <tr class="table-total-row">
+                  <td class="text-center font-bold text-yellow">全年總計</td>
+                  <td class="text-right font-bold">{{ formatNumber(yearlyTotalSummary.totalPackages) }}</td>
+                  <td class="text-right font-bold">{{ formatNumber(yearlyTotalSummary.totalOrders) }}</td>
+                  <td class="text-right font-bold text-blue">${{ formatMoney(yearlyTotalSummary.shippingFee) }}</td>
+                  <td class="text-right font-bold text-orange">${{ formatMoney(yearlyTotalSummary.extraFee) }}</td>
+                  <td class="text-right font-bold text-green">${{ formatMoney(yearlyTotalSummary.boxCost) }}</td>
+                  <td class="text-right font-bold text-yellow">${{ formatMoney(yearlyTotalSummary.totalCost) }}</td>
+                  <td colspan="2"></td>
+                  <td class="text-right font-bold text-purple">{{ formatNumber(yearlyTotalSummary.splitBoxCount) }}</td>
+                  <td class="text-right font-bold text-purple">${{ formatMoney(yearlyTotalSummary.splitBoxLoss) }}</td>
+                  <td colspan="2"></td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         </div>
@@ -428,9 +680,14 @@ export default {
   data() {
     return {
       loading: false,
+      loadingMonthly: false,
+      loadingYearly: false,
       activeTab: 'carrier_box',
       dateRange: [],
       latestAvailableDate: '',
+      targetMonth: new Date().toISOString().slice(0, 7),
+      targetYear: new Date().getFullYear().toString(),
+      highFeeThreshold: 120,
 
       selectedWarehouse: 'all',
       selectedCarrier: 'all',
@@ -460,17 +717,53 @@ export default {
         splitBoxTotalLoss: 0,
         lateCount: 0,
         lateRate: 0,
-        codCashCount: 0
+        codCashCount: 0,
+        highShippingTotalCount: 0,
+        extraFeeTotalCount: 0
       },
       carrierList: [],
       boxList: [],
       deliveryTypeList: [],
       districtTopList: [],
       splitOrdersDetail: [],
-      highCostAlerts: [],
+      highShippingList: [],
+      extraFeeList: [],
+      monthlyDailyList: [],
+      yearlyMonthlyList: [],
 
       carrierChartInstance: null,
       boxChartInstance: null
+    }
+  },
+  computed: {
+    isRangeTab() {
+      return ['carrier_box', 'district_type', 'split_audit', 'high_shipping', 'extra_fee'].includes(this.activeTab);
+    },
+    monthlyTotalSummary() {
+      return this.monthlyDailyList.reduce((acc, d) => {
+        acc.totalPackages += Number(d.totalPackages || 0);
+        acc.totalOrders += Number(d.totalOrders || 0);
+        acc.shippingFee += Number(d.shippingFee || 0);
+        acc.extraFee += Number(d.extraFee || 0);
+        acc.boxCost += Number(d.boxCost || 0);
+        acc.totalCost += Number(d.totalCost || 0);
+        acc.splitBoxCount += Number(d.splitBoxCount || 0);
+        acc.splitBoxLoss += Number(d.splitBoxLoss || 0);
+        return acc;
+      }, { totalPackages: 0, totalOrders: 0, shippingFee: 0, extraFee: 0, boxCost: 0, totalCost: 0, splitBoxCount: 0, splitBoxLoss: 0 });
+    },
+    yearlyTotalSummary() {
+      return this.yearlyMonthlyList.reduce((acc, m) => {
+        acc.totalPackages += Number(m.totalPackages || 0);
+        acc.totalOrders += Number(m.totalOrders || 0);
+        acc.shippingFee += Number(m.shippingFee || 0);
+        acc.extraFee += Number(m.extraFee || 0);
+        acc.boxCost += Number(m.boxCost || 0);
+        acc.totalCost += Number(m.totalCost || 0);
+        acc.splitBoxCount += Number(m.splitBoxCount || 0);
+        acc.splitBoxLoss += Number(m.splitBoxLoss || 0);
+        return acc;
+      }, { totalPackages: 0, totalOrders: 0, shippingFee: 0, extraFee: 0, boxCost: 0, totalCost: 0, splitBoxCount: 0, splitBoxLoss: 0 });
     }
   },
   mounted() {
@@ -498,9 +791,44 @@ export default {
     },
     switchTab(tab) {
       this.activeTab = tab;
-      if (tab === 'carrier_box') {
+      if (tab === 'monthly_cost') {
+        if (this.dateRange && this.dateRange[0]) this.targetMonth = this.dateRange[0].slice(0, 7);
+        this.fetchMonthlyCost();
+      } else if (tab === 'yearly_cost') {
+        if (this.dateRange && this.dateRange[0]) this.targetYear = this.dateRange[0].slice(0, 4);
+        this.fetchYearlyCost();
+      } else if (tab === 'carrier_box') {
         this.$nextTick(() => this.renderCharts());
       }
+    },
+    refreshActiveTab() {
+      if (this.activeTab === 'monthly_cost') this.fetchMonthlyCost();
+      else if (this.activeTab === 'yearly_cost') this.fetchYearlyCost();
+      else this.fetchCostAnalysis();
+    },
+    shiftMonth(offset) {
+      const parts = (this.targetMonth || '').split('-');
+      let y = parseInt(parts[0], 10) || new Date().getFullYear();
+      let m = (parseInt(parts[1], 10) || (new Date().getMonth() + 1)) + offset;
+      if (m < 1) { m = 12; y--; }
+      else if (m > 12) { m = 1; y++; }
+      this.targetMonth = `${y}-${String(m).padStart(2, '0')}`;
+      this.fetchMonthlyCost();
+    },
+    shiftYear(offset) {
+      const y = (parseInt(this.targetYear, 10) || new Date().getFullYear()) + offset;
+      this.targetYear = String(y);
+      this.fetchYearlyCost();
+    },
+    jumpToDailyCost(dateStr) {
+      this.dateRange = [dateStr, dateStr];
+      this.activeTab = 'carrier_box';
+      this.fetchCostAnalysis();
+    },
+    jumpToMonthlyCost(monthStr) {
+      this.targetMonth = monthStr;
+      this.activeTab = 'monthly_cost';
+      this.fetchMonthlyCost();
     },
     setLatestDay() {
       if (this.latestAvailableDate) {
@@ -514,6 +842,14 @@ export default {
       this.dateRange = [`${ym}-01`, `${ym}-31`];
       this.fetchCostAnalysis();
     },
+    getCommonFilterParams() {
+      return {
+        whCode: this.selectedWarehouse,
+        carrier: this.selectedCarrier,
+        boxNo: this.selectedBoxNo,
+        deliveryType: this.selectedDeliveryType
+      };
+    },
     async initOptions() {
       try {
         const res = await axios.get('/api/delivery/dates', { params: { dayMode: 'calendar' } });
@@ -526,6 +862,8 @@ export default {
           if (list.length > 0) {
             this.latestAvailableDate = list[0].ship_date;
             this.dateRange = [this.latestAvailableDate, this.latestAvailableDate];
+            this.targetMonth = this.latestAvailableDate.slice(0, 7);
+            this.targetYear = this.latestAvailableDate.slice(0, 4);
           }
         }
       } catch (e) {}
@@ -538,10 +876,8 @@ export default {
           params: {
             startDate,
             endDate,
-            whCode: this.selectedWarehouse,
-            carrier: this.selectedCarrier,
-            boxNo: this.selectedBoxNo,
-            deliveryType: this.selectedDeliveryType,
+            ...this.getCommonFilterParams(),
+            highFeeThreshold: this.highFeeThreshold,
             onlySplitBox: this.onlySplitBox ? 'true' : undefined,
             onlyLate: this.onlyLate ? 'true' : undefined
           }
@@ -556,13 +892,44 @@ export default {
           this.deliveryTypeList = res.data.deliveryTypeList || [];
           this.districtTopList = res.data.districtTopList || [];
           this.splitOrdersDetail = res.data.splitOrdersDetail || [];
-          this.highCostAlerts = res.data.highCostAlerts || [];
+          this.highShippingList = res.data.highShippingList || [];
+          this.extraFeeList = res.data.extraFeeList || [];
           this.$nextTick(() => this.renderCharts());
         }
       } catch (e) {
         ElMessage.error('取得物流與包材成本分析失敗：' + e.message);
       } finally {
         this.loading = false;
+      }
+    },
+    async fetchMonthlyCost() {
+      this.loadingMonthly = true;
+      try {
+        const res = await axios.get('/api/delivery/cost-monthly-summary', {
+          params: { month: this.targetMonth, ...this.getCommonFilterParams() }
+        });
+        if (res.data?.success) {
+          this.monthlyDailyList = res.data.dailyList || [];
+        }
+      } catch (e) {
+        ElMessage.error('取得每月每日成本總表失敗：' + e.message);
+      } finally {
+        this.loadingMonthly = false;
+      }
+    },
+    async fetchYearlyCost() {
+      this.loadingYearly = true;
+      try {
+        const res = await axios.get('/api/delivery/cost-yearly-summary', {
+          params: { year: this.targetYear, ...this.getCommonFilterParams() }
+        });
+        if (res.data?.success) {
+          this.yearlyMonthlyList = res.data.monthlyList || [];
+        }
+      } catch (e) {
+        ElMessage.error('取得年度每月成本總表失敗：' + e.message);
+      } finally {
+        this.loadingYearly = false;
       }
     },
     renderCharts() {
@@ -660,11 +1027,21 @@ export default {
   font-weight: bold;
   color: #cbd5e1;
 }
+.date-stepper-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #0f172a;
+  padding: 2px 5px;
+  border-radius: 6px;
+  border: 1px solid #334155;
+}
+.step-btn { padding: 5px 8px !important; font-weight: bold; }
 .btn-group { margin-left: auto; }
 
 .sub-tabs-bar {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   border-top: 1px solid #334155;
   padding-top: 6px;
   flex-wrap: wrap;
@@ -676,7 +1053,7 @@ export default {
   color: #94a3b8;
   font-size: 13px;
   font-weight: bold;
-  padding: 6px 14px;
+  padding: 6px 12px;
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -692,10 +1069,20 @@ export default {
   border-bottom-color: #c084fc;
   background: rgba(192, 132, 252, 0.1);
 }
-.alert-tab.active {
+.high-fee-tab.active {
   color: #f87171;
   border-bottom-color: #f87171;
   background: rgba(248, 113, 113, 0.1);
+}
+.extra-fee-tab.active {
+  color: #fb923c;
+  border-bottom-color: #fb923c;
+  background: rgba(251, 146, 60, 0.1);
+}
+.summary-tab.active {
+  color: #4ade80;
+  border-bottom-color: #4ade80;
+  background: rgba(74, 222, 128, 0.08);
 }
 
 .main-content-scroll {
@@ -790,6 +1177,15 @@ export default {
 }
 .row-zebra td { background: rgba(255, 255, 255, 0.02); }
 .row-split-extra td { background: rgba(192, 132, 252, 0.12) !important; }
+
+.table-total-row td {
+  background: #1e293b !important;
+  font-size: 13px;
+  border-top: 2px solid #facc15;
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+}
 
 .rate-badge { padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 11px; }
 .rate-ok { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
