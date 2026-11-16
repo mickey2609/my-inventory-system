@@ -38,8 +38,12 @@ module.exports = function(db) {
     return d;
   }
 
-  // 單日作業日 SQL 條件：當日 01:00~23:59 或 隔日 00:00~00:59
-  function buildOperationalDayClause(targetDate, params) {
+  // 依據 dayMode ('operational' | 'calendar') 建立單日 SQL 條件
+  function buildDayClause(targetDate, dayMode, params) {
+    if (dayMode === 'calendar') {
+      params.push(targetDate);
+      return `ship_date = ?`;
+    }
     const nextDate = shiftDateStr(targetDate, 1);
     params.push(targetDate, nextDate);
     return `((ship_date = ? AND ship_time >= '01:00:00') OR (ship_date = ? AND ship_time < '01:00:00'))`;
@@ -71,7 +75,7 @@ module.exports = function(db) {
     const cleanAddr = address.replace(/^\d+/, '');
     if (/^(臺北|台北|新北|基隆|桃園)/.test(cleanAddr)) return '北北基桃';
     if (/^(宜蘭|花蓮|臺東|台東)/.test(cleanAddr)) return '宜花東';
-    if (/^(新竹|苗栗|臺中|台中|彰化|南投|雲林|嘉義|臺南|台南|高雄|屏東)/.test(cleanAddr)) return '中南部';
+    if (/^(新竹|苗栗|臺中|台中|彰化|南投|雲林|嘉義|臺南|台中|高雄|屏東)/.test(cleanAddr)) return '中南部';
 
     return '其他/未識別';
   }
@@ -109,7 +113,6 @@ module.exports = function(db) {
     return isNaN(dt.getTime()) ? null : dt;
   }
 
-  // 共用條件過濾器
   function buildCommonWhere(query, baseSql, baseParams) {
     const { whCode, region, shift, carrier, deliveryType, is24h } = query;
     if (whCode && whCode !== 'all') { baseSql += ` AND wh_code = ?`; baseParams.push(whCode); }
@@ -313,11 +316,16 @@ module.exports = function(db) {
     });
   });
 
-  // 日期與選單選項 API（依三班作業日 01:00 ~ 隔日 01:00 統計每日單量）
+  // 日期與選單選項 API（支援 dayMode: 'operational' | 'calendar'）
   router.get('/dates', (req, res) => {
+    const dayMode = req.query.dayMode === 'calendar' ? 'calendar' : 'operational';
+    const dateExpr = dayMode === 'calendar'
+      ? `ship_date`
+      : `CASE WHEN ship_time < '01:00:00' THEN date(ship_date, '-1 day') ELSE ship_date END`;
+
     db.all(`
       SELECT 
-        CASE WHEN ship_time < '01:00:00' THEN date(ship_date, '-1 day') ELSE ship_date END as op_date,
+        ${dateExpr} as op_date,
         COUNT(*) as count,
         COUNT(*) as tracking_count, 
         COUNT(DISTINCT order_no) as order_count 
@@ -354,15 +362,16 @@ module.exports = function(db) {
     });
   });
 
-  // 單日綜合分析 API（作業日：當日 01:00~23:59 + 隔日 00:00~00:59）
+  // 單日綜合分析 API（支援 dayMode: 'operational' 01~隔日01 | 'calendar' 00~24）
   router.get('/flow-analysis', (req, res) => {
-    let { targetDate, whCode, region, shift, carrier, deliveryType, is24h, countMode } = req.query;
+    let { targetDate, whCode, region, shift, carrier, deliveryType, is24h, countMode, dayMode } = req.query;
     countMode = countMode || 'tracking';
+    dayMode = dayMode === 'calendar' ? 'calendar' : 'operational';
 
     const runAnalysis = (effectiveDate) => {
       const baseParams = [];
-      const opDayWhere = buildOperationalDayClause(effectiveDate, baseParams);
-      let baseSql = `SELECT * FROM delivery_order_tracking WHERE ${opDayWhere}`;
+      const dayWhere = buildDayClause(effectiveDate, dayMode, baseParams);
+      let baseSql = `SELECT * FROM delivery_order_tracking WHERE ${dayWhere}`;
 
       if (whCode && whCode !== 'all') { baseSql += ` AND wh_code = ?`; baseParams.push(whCode); }
       if (region && region !== 'all') { baseSql += ` AND region = ?`; baseParams.push(region); }
@@ -378,7 +387,11 @@ module.exports = function(db) {
 
         const shiftSummary = {
           '日班': { count: 0, timeSpan: '09:00 ~ 17:00', regions: { '北北基桃': 0, '中南部': 0, '宜花東': 0, '外島': 0, '其他/未識別': 0 } },
-          '夜班': { count: 0, timeSpan: '17:00 ~ 隔日 01:00', regions: { '北北基桃': 0, '中南部': 0, '宜花東': 0, '外島': 0, '其他/未識別': 0 } },
+          '夜班': {
+            count: 0,
+            timeSpan: dayMode === 'calendar' ? '17:00 ~ 24:00 (+當日00~01)' : '17:00 ~ 隔日 01:00',
+            regions: { '北北基桃': 0, '中南部': 0, '宜花東': 0, '外島': 0, '其他/未識別': 0 }
+          },
           '大夜班': { count: 0, timeSpan: '01:00 ~ 09:00', regions: { '北北基桃': 0, '中南部': 0, '宜花東': 0, '外島': 0, '其他/未識別': 0 } }
         };
 
@@ -409,7 +422,8 @@ module.exports = function(db) {
         }
 
         const hourlyFlow = Array.from({ length: 24 }, (_, h) => {
-          const slot = `${String(h).padStart(2, '0')}~${String((h + 1) % 24).padStart(2, '0')}`;
+          const endHour = (dayMode === 'calendar' && h === 23) ? '24' : String((h + 1) % 24).padStart(2, '0');
+          const slot = `${String(h).padStart(2, '0')}~${endHour}`;
           const item = { hour: h, slot, total: 0 };
           regions.forEach(r => { item[r] = 0; });
           return item;
@@ -532,6 +546,7 @@ module.exports = function(db) {
           success: true,
           targetDate: effectiveDate,
           nextDate: shiftDateStr(effectiveDate, 1),
+          dayMode,
           countMode,
           totalCount: lowerProcessRows.length,
           totalOrders: lowerProcessRows.length,
@@ -553,7 +568,10 @@ module.exports = function(db) {
     };
 
     if (!targetDate) {
-      db.get(`SELECT CASE WHEN ship_time < '01:00:00' THEN date(ship_date, '-1 day') ELSE ship_date END as op_date FROM delivery_order_tracking ORDER BY op_date DESC LIMIT 1`, [], (dErr, dRow) => {
+      const dateExpr = dayMode === 'calendar'
+        ? `ship_date`
+        : `CASE WHEN ship_time < '01:00:00' THEN date(ship_date, '-1 day') ELSE ship_date END`;
+      db.get(`SELECT ${dateExpr} as op_date FROM delivery_order_tracking ORDER BY op_date DESC LIMIT 1`, [], (dErr, dRow) => {
         const d = (dRow && dRow.op_date) ? dRow.op_date : new Date().toISOString().split('T')[0];
         runAnalysis(d);
       });
@@ -562,15 +580,18 @@ module.exports = function(db) {
     }
   });
 
-  // 每月每日總表 API（依三班作業日歸屬日期統計）
+  // 每月每日總表 API（支援 dayMode: 'operational' | 'calendar'）
   router.get('/monthly-summary', (req, res) => {
     const { month } = req.query;
-    let countMode = req.query.countMode || 'tracking';
+    const countMode = req.query.countMode || 'tracking';
+    const dayMode = req.query.dayMode === 'calendar' ? 'calendar' : 'operational';
     if (!month) return res.status(400).json({ success: false, message: '請提供月份 (YYYY-MM)' });
 
     const nextMonthStart = shiftDateStr(`${month}-28`, 5).slice(0, 7) + '-01';
-    let sql = `SELECT * FROM delivery_order_tracking WHERE (ship_date LIKE ? OR (ship_date = ? AND ship_time < '01:00:00'))`;
-    const params = [`${month}%`, nextMonthStart];
+    let sql = dayMode === 'calendar'
+      ? `SELECT * FROM delivery_order_tracking WHERE ship_date LIKE ?`
+      : `SELECT * FROM delivery_order_tracking WHERE (ship_date LIKE ? OR (ship_date = ? AND ship_time < '01:00:00'))`;
+    const params = dayMode === 'calendar' ? [`${month}%`] : [`${month}%`, nextMonthStart];
     sql = buildCommonWhere(req.query, sql, params);
 
     db.all(sql, params, (err, rows) => {
@@ -579,17 +600,19 @@ module.exports = function(db) {
 
       const daysMap = {};
       rows.forEach(r => {
-        const opDate = getOperationalDate(r.ship_date, r.ship_time);
-        if (!opDate || !opDate.startsWith(month)) return;
-        if (!daysMap[opDate]) {
-          daysMap[opDate] = {
-            date: opDate,
+        const bucketDate = dayMode === 'calendar'
+          ? normalizeDate(r.ship_date)
+          : getOperationalDate(r.ship_date, r.ship_time);
+        if (!bucketDate || !bucketDate.startsWith(month)) return;
+        if (!daysMap[bucketDate]) {
+          daysMap[bucketDate] = {
+            date: bucketDate,
             rawRows: [],
             orderSet: new Set()
           };
         }
-        daysMap[opDate].rawRows.push(r);
-        if (r.order_no) daysMap[opDate].orderSet.add(r.order_no);
+        daysMap[bucketDate].rawRows.push(r);
+        if (r.order_no) daysMap[bucketDate].orderSet.add(r.order_no);
       });
 
       const dailyList = Object.keys(daysMap).sort().map(d => {
@@ -643,19 +666,22 @@ module.exports = function(db) {
         };
       });
 
-      res.json({ success: true, month, dailyList });
+      res.json({ success: true, month, dayMode, dailyList });
     });
   });
 
-  // 年度每月總表 API（依三班作業日歸屬月份統計）
+  // 年度每月總表 API（支援 dayMode: 'operational' | 'calendar'）
   router.get('/yearly-summary', (req, res) => {
     const { year } = req.query;
-    let countMode = req.query.countMode || 'tracking';
+    const countMode = req.query.countMode || 'tracking';
+    const dayMode = req.query.dayMode === 'calendar' ? 'calendar' : 'operational';
     if (!year) return res.status(400).json({ success: false, message: '請提供年份 (YYYY)' });
 
     const nextYearJan1 = `${Number(year) + 1}-01-01`;
-    let sql = `SELECT * FROM delivery_order_tracking WHERE (ship_date LIKE ? OR (ship_date = ? AND ship_time < '01:00:00'))`;
-    const params = [`${year}%`, nextYearJan1];
+    let sql = dayMode === 'calendar'
+      ? `SELECT * FROM delivery_order_tracking WHERE ship_date LIKE ?`
+      : `SELECT * FROM delivery_order_tracking WHERE (ship_date LIKE ? OR (ship_date = ? AND ship_time < '01:00:00'))`;
+    const params = dayMode === 'calendar' ? [`${year}%`] : [`${year}%`, nextYearJan1];
     sql = buildCommonWhere(req.query, sql, params);
 
     db.all(sql, params, (err, rows) => {
@@ -674,8 +700,10 @@ module.exports = function(db) {
       }
 
       rows.forEach(r => {
-        const opDate = getOperationalDate(r.ship_date, r.ship_time);
-        const mKey = opDate.slice(0, 7);
+        const bucketDate = dayMode === 'calendar'
+          ? normalizeDate(r.ship_date)
+          : getOperationalDate(r.ship_date, r.ship_time);
+        const mKey = bucketDate.slice(0, 7);
         if (monthMap[mKey]) {
           monthMap[mKey].rawRows.push(r);
           if (r.order_no) monthMap[mKey].orderSet.add(r.order_no);
@@ -734,25 +762,26 @@ module.exports = function(db) {
         };
       });
 
-      res.json({ success: true, year, monthlyList });
+      res.json({ success: true, year, dayMode, monthlyList });
     });
   });
 
-  // 穿透明細 API（支援作業日跨日 00:00~00:59 抓隔日凌晨單據）
+  // 穿透明細 API（支援 dayMode: 'operational' 00時抓隔日 | 'calendar' 00時抓當日）
   router.get('/orders-detail', (req, res) => {
     const { targetDate, whCode, shift, hour, orderDate, orderBeforeDate, orderInterval, region, carrier, deliveryType, is24h } = req.query;
+    const dayMode = req.query.dayMode === 'calendar' ? 'calendar' : 'operational';
     const params = [];
     let sql = `SELECT * FROM delivery_order_tracking WHERE 1=1`;
 
     if (hour !== undefined && hour !== null && hour !== '') {
       const hNum = parseInt(hour, 10);
-      const queryShipDate = (hNum === 0) ? shiftDateStr(targetDate, 1) : targetDate;
+      const queryShipDate = (dayMode === 'operational' && hNum === 0) ? shiftDateStr(targetDate, 1) : targetDate;
       const hStr = String(hNum).padStart(2, '0');
       sql += ` AND ship_date = ? AND ship_time LIKE ?`;
       params.push(queryShipDate, `${hStr}:%`);
     } else {
-      const opDayWhere = buildOperationalDayClause(targetDate, params);
-      sql += ` AND ${opDayWhere}`;
+      const dayWhere = buildDayClause(targetDate, dayMode, params);
+      sql += ` AND ${dayWhere}`;
     }
 
     if (whCode && whCode !== 'all') { sql += ` AND wh_code = ?`; params.push(whCode); }

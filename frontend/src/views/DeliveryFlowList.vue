@@ -12,7 +12,7 @@
 
     <!-- 1. 頂部條件與導覽工具列 -->
     <div class="control-header-panel">
-      <!-- 篩選列 1：智慧日期步進器 + 基礎維度 -->
+      <!-- 篩選列 1：智慧日期步進器 + 統計口徑 + 維度 -->
       <div class="filter-row">
         <!-- 單日分析模式：前一天 / 日期 / 後一天 / 最新 -->
         <div class="filter-item" v-if="isDailyTab">
@@ -87,6 +87,15 @@
           </div>
         </div>
 
+        <!-- 統計口徑切換：班別作業日 vs 實際自然日 -->
+        <div class="filter-item highlight-mode-box">
+          <span class="label text-green">🕐 口徑：</span>
+          <el-radio-group v-model="dayMode" size="mini" @change="handleDayModeChange">
+            <el-radio-button label="operational">🔄 班別作業日 (01~隔日01)</el-radio-button>
+            <el-radio-button label="calendar">📆 實際自然日 (00~24)</el-radio-button>
+          </el-radio-group>
+        </div>
+
         <!-- 統計維度：件數 vs 單數 -->
         <div class="filter-item highlight-box">
           <span class="label text-yellow">📊 維度：</span>
@@ -121,7 +130,8 @@
 
         <div class="btn-group">
           <span class="total-badge" v-if="isDailyTab">
-            當前數量：<strong>{{ formatNumber(totalOrders) }}</strong> {{ countMode === 'order' ? '單' : '件' }}
+            {{ dayMode === 'calendar' ? '自然日總量：' : '作業日總量：' }}
+            <strong>{{ formatNumber(totalOrders) }}</strong> {{ countMode === 'order' ? '單' : '件' }}
           </span>
           <el-button type="info" size="mini" icon="el-icon-refresh" :loading="loading" @click="refreshActiveView">重新整理</el-button>
           <el-button
@@ -226,9 +236,7 @@
         <div class="chart-container" v-loading="loading">
           <div class="chart-header">
             <span class="chart-title">
-              📈 {{ selectedShift === '夜班'
-                ? `夜班出貨時段波浪流線圖（跨日動線：${targetDate} 17~18 到 隔日 ${nextTargetDateShort} 00~01）`
-                : `作業日出貨時段波浪流線圖（${targetDate} 01~02 到 隔日 ${nextTargetDateShort} 00~01）` }}
+              📈 {{ shipChartTitleText }}
             </span>
             <div class="legend-tags">
               <span class="lg-dot dot-north">● 北北基桃</span>
@@ -242,13 +250,18 @@
 
         <div class="table-container" v-loading="loading">
           <div class="table-header-bar">
-            <span class="table-title">🐟 24 小時出貨魚群密度與單數/件數明細表</span>
+            <span class="table-title">
+              🐟 24 小時出貨魚群密度與單數/件數明細表
+              <span class="mode-pill" :class="dayMode === 'calendar' ? 'pill-cal' : 'pill-op'">
+                {{ dayMode === 'calendar' ? '實際自然日 00~24' : '班別作業日 01~隔日01' }}
+              </span>
+            </span>
           </div>
           <div class="table-scroll-wrapper">
             <table class="flow-matrix-table">
               <thead>
                 <tr>
-                  <th style="width: 135px;">出貨時段</th>
+                  <th style="width: 145px;">出貨時段</th>
                   <th style="width: 85px;">班別</th>
                   <th>出貨密度圖形 (藍:北基桃 / 橘:中南 / 綠:花東 / 紫:外島)</th>
                   <th style="width: 100px;">出貨數量 ({{ countMode === 'order' ? '單' : '件' }})</th>
@@ -263,7 +276,8 @@
                 <tr v-for="(h, idx) in filteredHourlyFlow" :key="h.hour" :class="{ 'row-zebra': idx % 2 === 1 }">
                   <td class="text-center font-bold">
                     {{ h.slot }}
-                    <span v-if="h.hour === 0" class="text-yellow" style="font-size: 11px;">(隔日 {{ nextTargetDateShort }})</span>
+                    <span v-if="h.hour === 0 && dayMode === 'operational'" class="text-yellow" style="font-size: 11px;">(隔日 {{ nextTargetDateShort }})</span>
+                    <span v-else-if="h.hour === 0 && dayMode === 'calendar'" class="text-green" style="font-size: 11px;">(當日凌晨)</span>
                   </td>
                   <td class="text-center">
                     <span class="shift-badge" :class="getShiftClass(getHourShift(h.hour))">{{ getHourShift(h.hour) }}</span>
@@ -288,7 +302,7 @@
                       plain
                       @click="openDetailModal({
                         hour: h.hour,
-                        title: `${h.hour === 0 ? nextTargetDate : targetDate} ${h.slot}${h.hour === 0 ? ' (夜班隔日)' : ''} 時段明細`
+                        title: `${(h.hour === 0 && dayMode === 'operational') ? nextTargetDate : targetDate} ${h.slot}${(h.hour === 0 && dayMode === 'operational') ? ' (夜班隔日)' : ''} 時段明細`
                       })"
                     >
                       穿透
@@ -516,7 +530,12 @@
       <div v-show="activeTab === 'monthly_summary'" class="tab-pane-box">
         <div class="table-container" v-loading="loadingMonthly">
           <div class="table-header-bar">
-            <span class="table-title">🗓️ {{ targetMonth }} 月份每日出貨總表（點擊「看當日波浪」可直接跳轉該日明細）</span>
+            <span class="table-title">
+              🗓️ {{ targetMonth }} 月份每日出貨總表
+              <span class="mode-pill" :class="dayMode === 'calendar' ? 'pill-cal' : 'pill-op'">
+                {{ dayMode === 'calendar' ? '實際自然日 00~24' : '班別作業日 01~隔日01' }}
+              </span>
+            </span>
             <span class="tip-text">全月共 {{ monthlyDailyList.length }} 個出貨日，累計 {{ formatNumber(monthlyTotalSummary.total) }} {{ countMode === 'order' ? '單' : '件' }}</span>
           </div>
 
@@ -582,7 +601,12 @@
       <div v-show="activeTab === 'yearly_summary'" class="tab-pane-box">
         <div class="table-container" v-loading="loadingYearly">
           <div class="table-header-bar">
-            <span class="table-title">📅 {{ targetYear }} 年度每月出貨總表（點擊「看該月明細」可鑽取該月每日數據）</span>
+            <span class="table-title">
+              📅 {{ targetYear }} 年度每月出貨總表
+              <span class="mode-pill" :class="dayMode === 'calendar' ? 'pill-cal' : 'pill-op'">
+                {{ dayMode === 'calendar' ? '實際自然日 00~24' : '班別作業日 01~隔日01' }}
+              </span>
+            </span>
             <span class="tip-text">全年累計 {{ formatNumber(yearlyTotalSummary.total) }} {{ countMode === 'order' ? '單' : '件' }}</span>
           </div>
 
@@ -772,6 +796,7 @@ export default {
   data() {
     return {
       activeTab: 'ship_flow',
+      dayMode: 'operational', // 'operational' (班別作業日 01~隔日01) | 'calendar' (實際自然日 00~24)
       countMode: 'tracking',
       groupPreorders: true,
       loading: false,
@@ -869,11 +894,25 @@ export default {
     nextTargetDateShort() {
       return this.nextTargetDate ? this.nextTargetDate.slice(5) : '隔日';
     },
+    shipChartTitleText() {
+      if (this.dayMode === 'calendar') {
+        return `實際自然日出貨時段波浪流線圖（${this.targetDate} 00~01 到 23~24 實際出貨數）`;
+      }
+      if (this.selectedShift === '夜班') {
+        return `夜班出貨時段波浪流線圖（跨日動線：${this.targetDate} 17~18 到 隔日 ${this.nextTargetDateShort} 00~01）`;
+      }
+      return `作業日出貨時段波浪流線圖（${this.targetDate} 01~02 到 隔日 ${this.nextTargetDateShort} 00~01）`;
+    },
     filteredHourlyFlow() {
       const list = this.selectedShift === 'all'
         ? this.hourlyFlow
         : this.hourlyFlow.filter(h => this.getHourShift(h.hour) === this.selectedShift);
-      // 依作業日連續時間軸排序：01~02 ➔ 23~00 ➔ 隔日 00~01 排在最右邊
+
+      if (this.dayMode === 'calendar') {
+        // 實際自然日：標準 00~01 到 23~24 順序
+        return [...list].sort((a, b) => a.hour - b.hour);
+      }
+      // 班別作業日：01~02 ➔ 23~00 ➔ 隔日 00~01 排在最右邊
       return [...list].sort((a, b) => (a.hour === 0 ? 24 : a.hour) - (b.hour === 0 ? 24 : b.hour));
     },
     displayOrderTimelineFlow() {
@@ -1024,6 +1063,11 @@ export default {
       if (this.stageBottleneckChartInstance) this.stageBottleneckChartInstance.resize();
     },
 
+    async handleDayModeChange() {
+      await this.fetchDates();
+      this.refreshActiveView();
+    },
+
     shiftDay(offset) {
       if (this.availableDates.length > 0) {
         const idx = this.availableDates.findIndex(d => d.ship_date === this.targetDate);
@@ -1102,13 +1146,16 @@ export default {
         carrier: this.selectedCarrier,
         deliveryType: this.selectedDeliveryType,
         is24h: this.selected24h,
-        countMode: this.countMode
+        countMode: this.countMode,
+        dayMode: this.dayMode
       };
     },
 
     async fetchDates() {
       try {
-        const res = await axios.get('/api/delivery/dates');
+        const res = await axios.get('/api/delivery/dates', {
+          params: { dayMode: this.dayMode }
+        });
         if (res.data?.success) {
           this.availableDates = res.data.list || [];
           this.warehouseOptions = res.data.warehouses || [];
@@ -1190,8 +1237,9 @@ export default {
         this.shipChartInstance.on('click', (params) => {
           const item = this.filteredHourlyFlow[params.dataIndex];
           if (!item) return;
-          const actualDate = item.hour === 0 ? this.nextTargetDate : this.targetDate;
-          const slotLabel = item.hour === 0 ? `${item.slot} (夜班隔日)` : item.slot;
+          const isOpNextDay = item.hour === 0 && this.dayMode === 'operational';
+          const actualDate = isOpNextDay ? this.nextTargetDate : this.targetDate;
+          const slotLabel = isOpNextDay ? `${item.slot} (夜班隔日)` : item.slot;
           this.openDetailModal({
             hour: item.hour,
             title: `${actualDate} ${slotLabel} 時段出貨明細`
@@ -1200,7 +1248,9 @@ export default {
       }
 
       const xHours = this.filteredHourlyFlow.map(h =>
-        h.hour === 0 ? `${h.slot}\n(隔日 ${this.nextTargetDateShort})` : h.slot
+        (h.hour === 0 && this.dayMode === 'operational')
+          ? `${h.slot}\n(隔日 ${this.nextTargetDateShort})`
+          : h.slot
       );
       const northData = this.filteredHourlyFlow.map(h => h['北北基桃']);
       const southData = this.filteredHourlyFlow.map(h => h['中南部']);
@@ -1235,16 +1285,17 @@ export default {
     },
 
     handleOrderRowDrill(row) {
+      const modePrefix = this.dayMode === 'calendar' ? '自然日' : '作業日';
       if (row.isPreorderSummary) {
         this.openDetailModal({
           orderBeforeDate: row.orderBeforeDate,
-          title: `${this.targetDate} 作業日出貨 [預購/遠期積單 (${row.orderDate})] 明細`
+          title: `${this.targetDate} ${modePrefix}出貨 [預購/遠期積單 (${row.orderDate})] 明細`
         });
       } else {
         this.openDetailModal({
           orderDate: row.orderDate,
           orderInterval: row.orderInterval,
-          title: `${this.targetDate} 作業日出貨 [接單: ${row.timelineLabel}] 明細`
+          title: `${this.targetDate} ${modePrefix}出貨 [接單: ${row.timelineLabel}] 明細`
         });
       }
     },
@@ -1388,6 +1439,7 @@ export default {
       try {
         const params = {
           targetDate: this.targetDate,
+          dayMode: this.dayMode,
           whCode: this.selectedWarehouse !== 'all' ? this.selectedWarehouse : undefined,
           region: this.selectedRegion !== 'all' ? this.selectedRegion : undefined,
           shift: this.selectedShift !== 'all' ? this.selectedShift : undefined,
@@ -1570,6 +1622,12 @@ export default {
 .step-btn { padding: 5px 8px !important; font-weight: bold; }
 .step-latest-btn { padding: 5px 8px !important; font-weight: bold; }
 
+.highlight-mode-box {
+  background: rgba(74, 222, 128, 0.08);
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(74, 222, 128, 0.35);
+}
 .highlight-box {
   background: rgba(250, 204, 21, 0.08);
   padding: 2px 8px;
@@ -1581,6 +1639,24 @@ export default {
   padding: 2px 8px;
   border-radius: 6px;
   border: 1px solid rgba(56, 189, 248, 0.3);
+}
+
+.mode-pill {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  margin-left: 8px;
+  font-weight: bold;
+}
+.pill-op {
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.4);
+}
+.pill-cal {
+  background: rgba(74, 222, 128, 0.15);
+  color: #4ade80;
+  border: 1px solid rgba(74, 222, 128, 0.4);
 }
 
 .btn-group {
@@ -1741,7 +1817,7 @@ export default {
   padding: 12px;
 }
 .table-header-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-.table-title { font-size: 14px; font-weight: bold; color: #f8fafc; }
+.table-title { font-size: 14px; font-weight: bold; color: #f8fafc; display: flex; align-items: center; }
 .tip-text { font-size: 12px; color: #38bdf8; }
 
 .table-scroll-wrapper { overflow-x: auto; max-height: 480px; }
