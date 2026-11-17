@@ -139,7 +139,6 @@ module.exports = function(db) {
     return isNaN(dt.getTime()) ? null : dt;
   }
 
-  // 排除超商取貨（大智通/日翊/萊爾富/7-11/全家超取不會回傳配達日期；超速配則有配達日期需保留追蹤）
   function isCvsPickup(carrierName, deliveryType) {
     const text = `${carrierName || ''} ${deliveryType || ''}`;
     return /超取|7-11|全家|萊爾富|OK|大智通|日翊/i.test(text);
@@ -297,7 +296,7 @@ module.exports = function(db) {
     }
   });
 
-  // 共用匯入 API（一次寫入流向時效＋成本包材＋配達狀態）
+  // 共用匯入 API
   router.post('/import-json', (req, res) => {
     const items = req.body.items || req.body;
     if (!Array.isArray(items) || items.length === 0) {
@@ -490,7 +489,7 @@ module.exports = function(db) {
     });
   });
 
-  // 獨立模組專屬 API：未配達與異常貨態追蹤分析（跨日 / 整月掃描，排除超取）
+  // 獨立模組專屬 API 1：未配達與異常貨態追蹤分析（跨日 / 整月掃描，排除超取）
   router.get('/undelivered-analysis', (req, res) => {
     const { startDate, endDate, whCode, carrier, deliveryType, region, statusCategory, keyword } = req.query;
 
@@ -513,16 +512,15 @@ module.exports = function(db) {
         let deliveredCount = 0;
         let undeliveredCount = 0;
 
-        let rejectReturnCount = 0; // 拒收/退回
-        let overdueTransitCount = 0; // 滯留超時 (>48H 未配達)
-        let normalTransitCount = 0; // 正常在途 (<=48H 未配達)
+        let rejectReturnCount = 0;
+        let overdueTransitCount = 0;
+        let normalTransitCount = 0;
 
         const carrierMap = {};
         const dailyMap = {};
         const statusMap = {};
         const undeliveredItems = [];
 
-        // 以資料集最新出貨日期做為基準參考時間（避免歷史資料因為跟系統今天差好幾個月而全部顯示幾百天）
         let maxShipDtMs = 0;
         rows.forEach(r => {
           const dt = parseDateTime(r.ship_date, r.ship_time);
@@ -593,7 +591,7 @@ module.exports = function(db) {
 
             let anomalyType = 'normal_transit';
             let anomalyLabel = '⏳ 正常在途 (≤48H)';
-            if (/拒收|退回|退貨|異常|遺失/.test(rawStatus)) {
+            if (/拒收|退回|退貨|退件|異常|遺失/.test(rawStatus)) {
               anomalyType = 'reject_return';
               anomalyLabel = '🚨 拒收／退回異常';
               rejectReturnCount++;
@@ -623,7 +621,6 @@ module.exports = function(db) {
           }
         });
 
-        // 排序：拒收退回最優先 -> 滯留最久優先
         const priorityMap = { reject_return: 1, overdue_transit: 2, normal_transit: 3 };
         undeliveredItems.sort((a, b) => {
           if (priorityMap[a.anomalyType] !== priorityMap[b.anomalyType]) {
@@ -632,7 +629,6 @@ module.exports = function(db) {
           return b.elapsedHours - a.elapsedHours;
         });
 
-        // 前端分類與關鍵字過濾
         let filteredItems = undeliveredItems;
         if (statusCategory && statusCategory !== 'all') {
           filteredItems = filteredItems.filter(i => i.anomalyType === statusCategory);
@@ -698,6 +694,160 @@ module.exports = function(db) {
     } else {
       runUndeliveredQuery(startDate, endDate);
     }
+  });
+
+  // 獨立模組專屬 API 2：每月每日配達與未達統計總表（排除超取）
+  router.get('/undelivered-monthly-summary', (req, res) => {
+    const { month } = req.query;
+    if (!month) return res.status(400).json({ success: false, message: '請提供月份 (YYYY-MM)' });
+
+    let sql = `SELECT ship_date, ship_time, carrier_name, delivery_type, delivery_date, delivery_status, is_late FROM delivery_order_tracking WHERE ship_date LIKE ?`;
+    const params = [`${month}%`];
+    sql = buildCommonWhere(req.query, sql, params);
+
+    db.all(sql, params, (err, rows) => {
+      if (err) return res.status(500).json({ success: false, message: err.message });
+      rows = rows || [];
+
+      let maxShipDtMs = 0;
+      rows.forEach(r => {
+        const dt = parseDateTime(r.ship_date, r.ship_time);
+        if (dt && dt.getTime() > maxShipDtMs) maxShipDtMs = dt.getTime();
+      });
+      const refNowMs = maxShipDtMs > 0 ? maxShipDtMs : Date.now();
+
+      const dayMap = {};
+      rows.forEach(r => {
+        const dKey = r.ship_date;
+        if (!dKey) return;
+        if (!dayMap[dKey]) {
+          dayMap[dKey] = {
+            date: dKey,
+            totalRaw: 0,
+            excludedCvs: 0,
+            homeTotal: 0,
+            deliveredCount: 0,
+            undeliveredCount: 0,
+            rejectReturnCount: 0,
+            overdueCount: 0,
+            normalTransitCount: 0,
+            lateCount: 0
+          };
+        }
+        const b = dayMap[dKey];
+        b.totalRaw++;
+
+        if (isCvsPickup(r.carrier_name, r.delivery_type)) {
+          b.excludedCvs++;
+          return;
+        }
+
+        b.homeTotal++;
+        if (r.is_late === 'Y') b.lateCount++;
+
+        const delivDateClean = normalizeDate(r.delivery_date);
+        if (delivDateClean) {
+          b.deliveredCount++;
+        } else {
+          b.undeliveredCount++;
+          const sDt = parseDateTime(r.ship_date, r.ship_time);
+          const elapsedHours = sDt ? Math.max(0, (refNowMs - sDt.getTime()) / (1000 * 3600)) : 0;
+          const rawStatus = String(r.delivery_status || '').trim();
+          if (/拒收|退回|退貨|退件|異常|遺失/.test(rawStatus)) b.rejectReturnCount++;
+          else if (elapsedHours > 48) b.overdueCount++;
+          else b.normalTransitCount++;
+        }
+      });
+
+      const dailyList = Object.values(dayMap)
+        .map(d => ({
+          ...d,
+          deliveredRate: d.homeTotal > 0 ? Number(((d.deliveredCount / d.homeTotal) * 100).toFixed(1)) : 0,
+          lateRate: d.homeTotal > 0 ? Number(((d.lateCount / d.homeTotal) * 100).toFixed(1)) : 0
+        }))
+        .sort((a, b) => a.date.localeCompare(b.date));
+
+      res.json({ success: true, month, dailyList });
+    });
+  });
+
+  // 獨立模組專屬 API 3：年度每月配達與未達統計總表（排除超取）
+  router.get('/undelivered-yearly-summary', (req, res) => {
+    const { year } = req.query;
+    if (!year) return res.status(400).json({ success: false, message: '請提供年份 (YYYY)' });
+
+    let sql = `SELECT ship_date, ship_time, carrier_name, delivery_type, delivery_date, delivery_status, is_late FROM delivery_order_tracking WHERE ship_date LIKE ?`;
+    const params = [`${year}%`];
+    sql = buildCommonWhere(req.query, sql, params);
+
+    db.all(sql, params, (err, rows) => {
+      if (err) return res.status(500).json({ success: false, message: err.message });
+      rows = rows || [];
+
+      let maxShipDtMs = 0;
+      rows.forEach(r => {
+        const dt = parseDateTime(r.ship_date, r.ship_time);
+        if (dt && dt.getTime() > maxShipDtMs) maxShipDtMs = dt.getTime();
+      });
+      const refNowMs = maxShipDtMs > 0 ? maxShipDtMs : Date.now();
+
+      const monthMap = {};
+      for (let m = 1; m <= 12; m++) {
+        const mNum = String(m).padStart(2, '0');
+        const mKey = `${year}-${mNum}`;
+        monthMap[mKey] = {
+          month: mKey,
+          monthLabel: `${mNum}月`,
+          totalRaw: 0,
+          excludedCvs: 0,
+          homeTotal: 0,
+          deliveredCount: 0,
+          undeliveredCount: 0,
+          rejectReturnCount: 0,
+          overdueCount: 0,
+          normalTransitCount: 0,
+          lateCount: 0
+        };
+      }
+
+      rows.forEach(r => {
+        const mKey = String(r.ship_date || '').slice(0, 7);
+        const b = monthMap[mKey];
+        if (!b) return;
+
+        b.totalRaw++;
+        if (isCvsPickup(r.carrier_name, r.delivery_type)) {
+          b.excludedCvs++;
+          return;
+        }
+
+        b.homeTotal++;
+        if (r.is_late === 'Y') b.lateCount++;
+
+        const delivDateClean = normalizeDate(r.delivery_date);
+        if (delivDateClean) {
+          b.deliveredCount++;
+        } else {
+          b.undeliveredCount++;
+          const sDt = parseDateTime(r.ship_date, r.ship_time);
+          const elapsedHours = sDt ? Math.max(0, (refNowMs - sDt.getTime()) / (1000 * 3600)) : 0;
+          const rawStatus = String(r.delivery_status || '').trim();
+          if (/拒收|退回|退貨|退件|異常|遺失/.test(rawStatus)) b.rejectReturnCount++;
+          else if (elapsedHours > 48) b.overdueCount++;
+          else b.normalTransitCount++;
+        }
+      });
+
+      const monthlyList = Object.values(monthMap)
+        .map(m => ({
+          ...m,
+          deliveredRate: m.homeTotal > 0 ? Number(((m.deliveredCount / m.homeTotal) * 100).toFixed(1)) : 0,
+          lateRate: m.homeTotal > 0 ? Number(((m.lateCount / m.homeTotal) * 100).toFixed(1)) : 0
+        }))
+        .sort((a, b) => a.month.localeCompare(b.month));
+
+      res.json({ success: true, year, monthlyList });
+    });
   });
 
   // 單日綜合流向分析 API

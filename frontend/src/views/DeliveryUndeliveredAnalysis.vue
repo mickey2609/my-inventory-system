@@ -1,13 +1,13 @@
 <!-- frontend/src/views/DeliveryUndeliveredAnalysis.vue -->
 <template>
   <div class="undelivered-page">
-    <!-- 1. 頂部篩選控制面板（與宅配流線頁、成本分析頁完全統一的智慧日期步進器） -->
+    <!-- 1. 頂部篩選控制面板 -->
     <div class="control-header-panel">
       <div class="filter-row">
-        <div class="filter-item">
+        <!-- 區間 / 單日查詢模式（前 2 個頁籤顯示） -->
+        <div class="filter-item" v-if="isRangeTab">
           <span class="label">📅 出貨日期：</span>
 
-          <!-- 單日智慧步進器 -->
           <div class="date-stepper-group" v-if="querySpanMode === 'day'">
             <el-button size="mini" type="primary" plain class="step-btn" @click="shiftDay(-1)" title="切換至前一天">◀</el-button>
             <el-select
@@ -39,7 +39,6 @@
             <el-button size="mini" type="info" plain class="step-latest-btn" @click="jumpToLatestDate" title="跳至最新有資料的日期">最新</el-button>
           </div>
 
-          <!-- 自訂區間選擇器 -->
           <template v-else-if="querySpanMode === 'range'">
             <el-date-picker
               v-model="dateRange"
@@ -55,7 +54,6 @@
             />
           </template>
 
-          <!-- 快速範圍切換：單日 / 近7日 / 本月 / 區間 -->
           <el-radio-group v-model="querySpanMode" size="mini" @change="handleSpanModeChange">
             <el-radio-button label="day">單日</el-radio-button>
             <el-radio-button label="7days">近7日</el-radio-button>
@@ -64,9 +62,47 @@
           </el-radio-group>
         </div>
 
+        <!-- 每月每日統計模式：月份步進器 -->
+        <div class="filter-item" v-else-if="activeTab === 'monthly_stats'">
+          <span class="label">🗓️ 統計月份：</span>
+          <div class="date-stepper-group">
+            <el-button size="mini" type="primary" plain class="step-btn" @click="shiftMonth(-1)">◀</el-button>
+            <el-date-picker
+              v-model="targetMonth"
+              type="month"
+              size="mini"
+              value-format="YYYY-MM"
+              placeholder="選擇月份"
+              style="width: 125px;"
+              :clearable="false"
+              @change="fetchMonthlyStats"
+            />
+            <el-button size="mini" type="primary" plain class="step-btn" @click="shiftMonth(1)">▶</el-button>
+          </div>
+        </div>
+
+        <!-- 年度每月統計模式：年份步進器 -->
+        <div class="filter-item" v-else-if="activeTab === 'yearly_stats'">
+          <span class="label">📅 統計年份：</span>
+          <div class="date-stepper-group">
+            <el-button size="mini" type="primary" plain class="step-btn" @click="shiftYear(-1)">◀</el-button>
+            <el-date-picker
+              v-model="targetYear"
+              type="year"
+              size="mini"
+              value-format="YYYY"
+              placeholder="選擇年份"
+              style="width: 105px;"
+              :clearable="false"
+              @change="fetchYearlyStats"
+            />
+            <el-button size="mini" type="primary" plain class="step-btn" @click="shiftYear(1)">▶</el-button>
+          </div>
+        </div>
+
         <div class="filter-item">
           <span class="label">🏢 庫別：</span>
-          <el-select v-model="selectedWarehouse" size="mini" style="width: 105px;" @change="fetchUndelivered">
+          <el-select v-model="selectedWarehouse" size="mini" style="width: 105px;" @change="refreshActiveTab">
             <el-option label="全部庫別" value="all" />
             <el-option v-for="w in warehouseOptions" :key="w" :label="`${w} 庫`" :value="w" />
           </el-select>
@@ -74,7 +110,7 @@
 
         <div class="filter-item">
           <span class="label">🚚 宅配商：</span>
-          <el-select v-model="selectedCarrier" size="mini" style="width: 140px;" @change="fetchUndelivered">
+          <el-select v-model="selectedCarrier" size="mini" style="width: 140px;" @change="refreshActiveTab">
             <el-option label="全部宅配商" value="all" />
             <el-option v-for="c in carrierOptions" :key="c" :label="c" :value="c" />
           </el-select>
@@ -82,7 +118,7 @@
 
         <div class="filter-item">
           <span class="label">📍 區域：</span>
-          <el-select v-model="selectedRegion" size="mini" style="width: 110px;" @change="fetchUndelivered">
+          <el-select v-model="selectedRegion" size="mini" style="width: 110px;" @change="refreshActiveTab">
             <el-option label="全部區域" value="all" />
             <el-option label="北北基桃" value="北北基桃" />
             <el-option label="中南部" value="中南部" />
@@ -91,7 +127,7 @@
           </el-select>
         </div>
 
-        <div class="filter-item">
+        <div class="filter-item" v-if="isRangeTab">
           <el-input
             v-model="keyword"
             size="mini"
@@ -103,8 +139,8 @@
         </div>
 
         <div class="btn-group">
-          <el-button type="primary" size="mini" icon="el-icon-refresh" :loading="loading" @click="fetchUndelivered">查詢</el-button>
-          <el-button type="success" size="mini" icon="el-icon-download" :disabled="displayUndeliveredList.length === 0" @click="exportUndeliveredExcel">
+          <el-button type="primary" size="mini" icon="el-icon-refresh" :loading="loading" @click="refreshActiveTab">查詢</el-button>
+          <el-button v-if="isRangeTab" type="success" size="mini" icon="el-icon-download" :disabled="displayUndeliveredList.length === 0" @click="exportUndeliveredExcel">
             📊 匯出清單 ({{ displayUndeliveredList.length }})
           </el-button>
         </div>
@@ -116,15 +152,21 @@
           🚨 尚未配達分類追蹤 ({{ formatNumber(kpi.undeliveredCount) }} 件)
         </button>
         <button class="sub-tab-btn" :class="{ active: activeTab === 'carrier_trend' }" @click="switchTab('carrier_trend')">
-          📊 各宅配商完妥率與每日趨勢分析
+          📊 各宅配商完妥率與每日趨勢
+        </button>
+        <button class="sub-tab-btn summary-tab" :class="{ active: activeTab === 'monthly_stats' }" @click="switchTab('monthly_stats')">
+          🗓️ 每月每日配達統計
+        </button>
+        <button class="sub-tab-btn summary-tab" :class="{ active: activeTab === 'yearly_stats' }" @click="switchTab('yearly_stats')">
+          📅 年度每月配達統計
         </button>
       </div>
     </div>
 
     <!-- 2. 主內容區 -->
     <div class="main-content-scroll" v-loading="loading">
-      <!-- 四大核心異常追蹤 KPI 卡片 -->
-      <div class="kpi-cards-row">
+      <!-- 四大核心異常追蹤 KPI 卡片（區間/單日頁籤顯示） -->
+      <div class="kpi-cards-row" v-if="isRangeTab">
         <div class="kpi-card border-blue" :class="{ 'card-selected': statusCategory === 'all' && selectedGroupKey === 'all' }" @click="resetAllFilters">
           <div class="kpi-head">
             <span class="kpi-title">🚚 純宅配出貨總件數 (排除超取)</span>
@@ -167,9 +209,8 @@
         </div>
       </div>
 
-      <!-- 頁籤 1：清爽雙欄「左側：智慧貨態分組摘要 ＋ 右側：追蹤單據明細表」 -->
+      <!-- 頁籤 1：雙欄「左側：智慧貨態分組摘要 ＋ 右側：追蹤單據明細表」 -->
       <div v-show="activeTab === 'tracking_list'" class="split-workspace">
-        <!-- 左側面板：智慧合併後的貨態大類與細項統計（取代原本雜亂的膠囊牆） -->
         <div class="left-group-panel">
           <div class="panel-head">
             <span>📋 貨態智慧歸納總覽</span>
@@ -177,7 +218,6 @@
           </div>
 
           <div class="group-list-scroll">
-            <!-- 全部項目 -->
             <div
               class="group-item-card"
               :class="{ active: selectedGroupKey === 'all' && selectedRawStatus === '' }"
@@ -190,7 +230,6 @@
               <div class="gi-desc">點擊下方任一貨態群組可快速過濾右側明細</div>
             </div>
 
-            <!-- 7 大智慧合併群組 -->
             <div
               v-for="grp in groupedStatusSummary"
               :key="grp.key"
@@ -204,7 +243,6 @@
               </div>
               <div class="gi-desc">{{ grp.actionHint }}</div>
 
-              <!-- 該群組底下的前 4 個細項狀態（可單獨點擊） -->
               <div class="gi-sub-list" v-if="grp.subStatuses.length > 0">
                 <div
                   v-for="sub in grp.subStatuses"
@@ -221,7 +259,6 @@
           </div>
         </div>
 
-        <!-- 右側面板：乾淨清晰的單據明細表 -->
         <div class="right-table-panel">
           <div class="table-header">
             <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
@@ -335,6 +372,145 @@
           </div>
         </div>
       </div>
+
+      <!-- 頁籤 3：每月每日配達統計 -->
+      <div v-show="activeTab === 'monthly_stats'" class="tab-pane-box">
+        <div class="table-card" v-loading="loadingMonthly">
+          <div class="table-header">
+            <span class="table-title">🗓️ {{ targetMonth }} 月份每日純宅配配達與未達統計總表（已排除超取）</span>
+            <span class="tip-text">
+              全月純宅配 {{ formatNumber(monthlyTotalSummary.homeTotal) }} 件，已配達 {{ formatNumber(monthlyTotalSummary.deliveredCount) }} 件，未配達 {{ formatNumber(monthlyTotalSummary.undeliveredCount) }} 件
+            </span>
+          </div>
+          <div class="table-scroll" style="max-height: calc(100vh - 210px);">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>出貨日期</th>
+                  <th>純宅配總件數</th>
+                  <th>已排除超取</th>
+                  <th>已配達 (有配達日)</th>
+                  <th>尚未配達 (空白)</th>
+                  <th>配達完妥率</th>
+                  <th>🚨 拒收/退回</th>
+                  <th>⚠️ 超時滯留(&gt;48H)</th>
+                  <th>⏳ 正常在途(≤48H)</th>
+                  <th>遲到率</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="monthlyDailyList.length === 0">
+                  <td colspan="11" class="text-center text-dim" style="padding: 30px;">{{ targetMonth }} 月份尚無匯入出貨資料</td>
+                </tr>
+                <tr v-for="(d, idx) in monthlyDailyList" :key="d.date" :class="{ 'row-zebra': idx % 2 === 1 }">
+                  <td class="text-center font-bold">{{ d.date }}</td>
+                  <td class="text-right font-bold text-blue">{{ formatNumber(d.homeTotal) }}</td>
+                  <td class="text-right text-dim">{{ formatNumber(d.excludedCvs) }}</td>
+                  <td class="text-right text-green font-bold">{{ formatNumber(d.deliveredCount) }}</td>
+                  <td class="text-right text-red font-bold">{{ formatNumber(d.undeliveredCount) }}</td>
+                  <td class="text-center">
+                    <span class="rate-badge" :class="d.deliveredRate >= 98 ? 'rate-ok' : (d.deliveredRate >= 90 ? 'rate-mid' : 'rate-high')">
+                      {{ d.deliveredRate }}%
+                    </span>
+                  </td>
+                  <td class="text-right text-red font-bold">{{ formatNumber(d.rejectReturnCount) }}</td>
+                  <td class="text-right text-orange font-bold">{{ formatNumber(d.overdueCount) }}</td>
+                  <td class="text-right text-yellow">{{ formatNumber(d.normalTransitCount) }}</td>
+                  <td class="text-center">{{ d.lateRate }}%</td>
+                  <td class="text-center">
+                    <el-button size="mini" type="primary" plain @click="jumpToDailyTracking(d.date)">看當日明細</el-button>
+                  </td>
+                </tr>
+              </tbody>
+              <tfoot v-if="monthlyDailyList.length > 0">
+                <tr class="table-total-row">
+                  <td class="text-center font-bold text-yellow">全月總計</td>
+                  <td class="text-right font-bold text-blue">{{ formatNumber(monthlyTotalSummary.homeTotal) }}</td>
+                  <td class="text-right font-bold text-dim">{{ formatNumber(monthlyTotalSummary.excludedCvs) }}</td>
+                  <td class="text-right font-bold text-green">{{ formatNumber(monthlyTotalSummary.deliveredCount) }}</td>
+                  <td class="text-right font-bold text-red">{{ formatNumber(monthlyTotalSummary.undeliveredCount) }}</td>
+                  <td class="text-center font-bold text-green">
+                    {{ monthlyTotalSummary.homeTotal > 0 ? ((monthlyTotalSummary.deliveredCount / monthlyTotalSummary.homeTotal) * 100).toFixed(1) : '0.0' }}%
+                  </td>
+                  <td class="text-right font-bold text-red">{{ formatNumber(monthlyTotalSummary.rejectReturnCount) }}</td>
+                  <td class="text-right font-bold text-orange">{{ formatNumber(monthlyTotalSummary.overdueCount) }}</td>
+                  <td class="text-right font-bold text-yellow">{{ formatNumber(monthlyTotalSummary.normalTransitCount) }}</td>
+                  <td colspan="2"></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- 頁籤 4：年度每月配達統計 -->
+      <div v-show="activeTab === 'yearly_stats'" class="tab-pane-box">
+        <div class="table-card" v-loading="loadingYearly">
+          <div class="table-header">
+            <span class="table-title">📅 {{ targetYear }} 年度每月純宅配配達與未達統計總表（已排除超取）</span>
+            <span class="tip-text">
+              全年純宅配 {{ formatNumber(yearlyTotalSummary.homeTotal) }} 件，已配達 {{ formatNumber(yearlyTotalSummary.deliveredCount) }} 件，未配達 {{ formatNumber(yearlyTotalSummary.undeliveredCount) }} 件
+            </span>
+          </div>
+          <div class="table-scroll" style="max-height: calc(100vh - 210px);">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>統計月份</th>
+                  <th>純宅配總件數</th>
+                  <th>已排除超取</th>
+                  <th>已配達 (有配達日)</th>
+                  <th>尚未配達 (空白)</th>
+                  <th>配達完妥率</th>
+                  <th>🚨 拒收/退回</th>
+                  <th>⚠️ 超時滯留(&gt;48H)</th>
+                  <th>⏳ 正常在途(≤48H)</th>
+                  <th>遲到率</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(m, idx) in yearlyMonthlyList" :key="m.month" :class="{ 'row-zebra': idx % 2 === 1 }">
+                  <td class="text-center font-bold">{{ m.monthLabel }} ({{ m.month }})</td>
+                  <td class="text-right font-bold text-blue">{{ formatNumber(m.homeTotal) }}</td>
+                  <td class="text-right text-dim">{{ formatNumber(m.excludedCvs) }}</td>
+                  <td class="text-right text-green font-bold">{{ formatNumber(m.deliveredCount) }}</td>
+                  <td class="text-right text-red font-bold">{{ formatNumber(m.undeliveredCount) }}</td>
+                  <td class="text-center">
+                    <span class="rate-badge" :class="m.deliveredRate >= 98 ? 'rate-ok' : (m.deliveredRate >= 90 ? 'rate-mid' : 'rate-high')">
+                      {{ m.deliveredRate }}%
+                    </span>
+                  </td>
+                  <td class="text-right text-red font-bold">{{ formatNumber(m.rejectReturnCount) }}</td>
+                  <td class="text-right text-orange font-bold">{{ formatNumber(m.overdueCount) }}</td>
+                  <td class="text-right text-yellow">{{ formatNumber(m.normalTransitCount) }}</td>
+                  <td class="text-center">{{ m.lateRate }}%</td>
+                  <td class="text-center">
+                    <el-button size="mini" type="primary" plain :disabled="m.homeTotal === 0" @click="jumpToMonthlyStats(m.month)">看該月明細</el-button>
+                  </td>
+                </tr>
+              </tbody>
+              <tfoot v-if="yearlyMonthlyList.length > 0">
+                <tr class="table-total-row">
+                  <td class="text-center font-bold text-yellow">全年總計</td>
+                  <td class="text-right font-bold text-blue">{{ formatNumber(yearlyTotalSummary.homeTotal) }}</td>
+                  <td class="text-right font-bold text-dim">{{ formatNumber(yearlyTotalSummary.excludedCvs) }}</td>
+                  <td class="text-right font-bold text-green">{{ formatNumber(yearlyTotalSummary.deliveredCount) }}</td>
+                  <td class="text-right font-bold text-red">{{ formatNumber(yearlyTotalSummary.undeliveredCount) }}</td>
+                  <td class="text-center font-bold text-green">
+                    {{ yearlyTotalSummary.homeTotal > 0 ? ((yearlyTotalSummary.deliveredCount / yearlyTotalSummary.homeTotal) * 100).toFixed(1) : '0.0' }}%
+                  </td>
+                  <td class="text-right font-bold text-red">{{ formatNumber(yearlyTotalSummary.rejectReturnCount) }}</td>
+                  <td class="text-right font-bold text-orange">{{ formatNumber(yearlyTotalSummary.overdueCount) }}</td>
+                  <td class="text-right font-bold text-yellow">{{ formatNumber(yearlyTotalSummary.normalTransitCount) }}</td>
+                  <td colspan="2"></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -350,12 +526,16 @@ export default {
   data() {
     return {
       loading: false,
+      loadingMonthly: false,
+      loadingYearly: false,
       activeTab: 'tracking_list',
-      querySpanMode: 'day', // 'day' | '7days' | 'month' | 'range'
+      querySpanMode: 'day',
       targetDate: '',
       availableDates: [],
       dateRange: [],
       latestAvailableDate: '',
+      targetMonth: new Date().toISOString().slice(0, 7),
+      targetYear: new Date().getFullYear().toString(),
 
       selectedWarehouse: 'all',
       selectedCarrier: 'all',
@@ -384,13 +564,17 @@ export default {
       statusBreakdown: [],
       undeliveredList: [],
       filteredTotal: 0,
+      monthlyDailyList: [],
+      yearlyMonthlyList: [],
 
       dailyChartInstance: null,
       carrierChartInstance: null
     }
   },
   computed: {
-    // 將幾十種雜亂狀態智慧歸類為 6 大處理群組，並保留細項排行
+    isRangeTab() {
+      return ['tracking_list', 'carrier_trend'].includes(this.activeTab);
+    },
     groupedStatusSummary() {
       const defs = [
         { key: 'reject_return', label: '🚨 拒收 / 退回異常', level: 'red', color: 'red', actionHint: '客戶拒收或已進入退貨流程，需通知客服' },
@@ -447,6 +631,30 @@ export default {
       if (this.statusCategory === 'overdue_transit') return '⚠️ 超時滯留未達 (>48H) 明細';
       if (this.statusCategory === 'normal_transit') return '⏳ 正常配送在途 (≤48H) 明細';
       return '全部尚未配達貨件追蹤明細';
+    },
+    monthlyTotalSummary() {
+      return this.monthlyDailyList.reduce((acc, d) => {
+        acc.homeTotal += Number(d.homeTotal || 0);
+        acc.excludedCvs += Number(d.excludedCvs || 0);
+        acc.deliveredCount += Number(d.deliveredCount || 0);
+        acc.undeliveredCount += Number(d.undeliveredCount || 0);
+        acc.rejectReturnCount += Number(d.rejectReturnCount || 0);
+        acc.overdueCount += Number(d.overdueCount || 0);
+        acc.normalTransitCount += Number(d.normalTransitCount || 0);
+        return acc;
+      }, { homeTotal: 0, excludedCvs: 0, deliveredCount: 0, undeliveredCount: 0, rejectReturnCount: 0, overdueCount: 0, normalTransitCount: 0 });
+    },
+    yearlyTotalSummary() {
+      return this.yearlyMonthlyList.reduce((acc, m) => {
+        acc.homeTotal += Number(m.homeTotal || 0);
+        acc.excludedCvs += Number(m.excludedCvs || 0);
+        acc.deliveredCount += Number(m.deliveredCount || 0);
+        acc.undeliveredCount += Number(m.undeliveredCount || 0);
+        acc.rejectReturnCount += Number(m.rejectReturnCount || 0);
+        acc.overdueCount += Number(m.overdueCount || 0);
+        acc.normalTransitCount += Number(m.normalTransitCount || 0);
+        return acc;
+      }, { homeTotal: 0, excludedCvs: 0, deliveredCount: 0, undeliveredCount: 0, rejectReturnCount: 0, overdueCount: 0, normalTransitCount: 0 });
     }
   },
   mounted() {
@@ -506,12 +714,22 @@ export default {
     },
     switchTab(tab) {
       this.activeTab = tab;
-      if (tab === 'carrier_trend') {
+      if (tab === 'monthly_stats') {
+        if (this.targetDate) this.targetMonth = this.targetDate.slice(0, 7);
+        this.fetchMonthlyStats();
+      } else if (tab === 'yearly_stats') {
+        if (this.targetDate) this.targetYear = this.targetDate.slice(0, 4);
+        this.fetchYearlyStats();
+      } else if (tab === 'carrier_trend') {
         this.$nextTick(() => this.renderCharts());
       }
     },
+    refreshActiveTab() {
+      if (this.activeTab === 'monthly_stats') this.fetchMonthlyStats();
+      else if (this.activeTab === 'yearly_stats') this.fetchYearlyStats();
+      else this.fetchUndelivered();
+    },
 
-    // 智慧日期步進器方法
     onSingleDateChange() {
       if (this.targetDate) {
         this.dateRange = [this.targetDate, this.targetDate];
@@ -562,6 +780,40 @@ export default {
       this.fetchUndelivered();
     },
 
+    shiftMonth(offset) {
+      const parts = (this.targetMonth || '').split('-');
+      let y = parseInt(parts[0], 10) || new Date().getFullYear();
+      let m = (parseInt(parts[1], 10) || (new Date().getMonth() + 1)) + offset;
+      if (m < 1) { m = 12; y--; }
+      else if (m > 12) { m = 1; y++; }
+      this.targetMonth = `${y}-${String(m).padStart(2, '0')}`;
+      this.fetchMonthlyStats();
+    },
+    shiftYear(offset) {
+      const y = (parseInt(this.targetYear, 10) || new Date().getFullYear()) + offset;
+      this.targetYear = String(y);
+      this.fetchYearlyStats();
+    },
+    jumpToDailyTracking(dateStr) {
+      this.querySpanMode = 'day';
+      this.targetDate = dateStr;
+      this.dateRange = [dateStr, dateStr];
+      this.activeTab = 'tracking_list';
+      this.fetchUndelivered();
+    },
+    jumpToMonthlyStats(monthStr) {
+      this.targetMonth = monthStr;
+      this.activeTab = 'monthly_stats';
+      this.fetchMonthlyStats();
+    },
+    getCommonFilterParams() {
+      return {
+        whCode: this.selectedWarehouse,
+        carrier: this.selectedCarrier,
+        region: this.selectedRegion
+      };
+    },
+
     async initOptions() {
       try {
         const res = await axios.get('/api/delivery/dates', { params: { dayMode: 'calendar' } });
@@ -573,6 +825,8 @@ export default {
             this.latestAvailableDate = this.availableDates[0].ship_date;
             this.targetDate = this.latestAvailableDate;
             this.dateRange = [this.latestAvailableDate, this.latestAvailableDate];
+            this.targetMonth = this.latestAvailableDate.slice(0, 7);
+            this.targetYear = this.latestAvailableDate.slice(0, 4);
           }
         }
       } catch (e) {}
@@ -589,9 +843,7 @@ export default {
           params: {
             startDate,
             endDate,
-            whCode: this.selectedWarehouse,
-            carrier: this.selectedCarrier,
-            region: this.selectedRegion,
+            ...this.getCommonFilterParams(),
             statusCategory: this.statusCategory,
             keyword: this.keyword
           }
@@ -611,6 +863,36 @@ export default {
         ElMessage.error('取得未配達分析失敗：' + e.message);
       } finally {
         this.loading = false;
+      }
+    },
+    async fetchMonthlyStats() {
+      this.loadingMonthly = true;
+      try {
+        const res = await axios.get('/api/delivery/undelivered-monthly-summary', {
+          params: { month: this.targetMonth, ...this.getCommonFilterParams() }
+        });
+        if (res.data?.success) {
+          this.monthlyDailyList = res.data.dailyList || [];
+        }
+      } catch (e) {
+        ElMessage.error('取得每月每日配達統計失敗：' + e.message);
+      } finally {
+        this.loadingMonthly = false;
+      }
+    },
+    async fetchYearlyStats() {
+      this.loadingYearly = true;
+      try {
+        const res = await axios.get('/api/delivery/undelivered-yearly-summary', {
+          params: { year: this.targetYear, ...this.getCommonFilterParams() }
+        });
+        if (res.data?.success) {
+          this.yearlyMonthlyList = res.data.monthlyList || [];
+        }
+      } catch (e) {
+        ElMessage.error('取得年度每月配達統計失敗：' + e.message);
+      } finally {
+        this.loadingYearly = false;
       }
     },
     exportUndeliveredExcel() {
@@ -739,6 +1021,7 @@ export default {
   gap: 8px;
   border-top: 1px solid #334155;
   padding-top: 6px;
+  flex-wrap: wrap;
 }
 .sub-tab-btn {
   background: transparent;
@@ -762,6 +1045,11 @@ export default {
   color: #f87171;
   border-bottom-color: #f87171;
   background: rgba(248, 113, 113, 0.1);
+}
+.summary-tab.active {
+  color: #4ade80;
+  border-bottom-color: #4ade80;
+  background: rgba(74, 222, 128, 0.08);
 }
 
 .main-content-scroll {
@@ -804,7 +1092,6 @@ export default {
 .kpi-val .unit { font-size: 12px; font-weight: normal; color: #94a3b8; }
 .kpi-sub { font-size: 11px; color: #94a3b8; }
 
-/* 雙欄工作區：左側貨態分組樹 + 右側單據明細 */
 .split-workspace {
   flex: 1;
   display: grid;
@@ -986,6 +1273,15 @@ export default {
 .row-zebra td { background: rgba(255, 255, 255, 0.02); }
 .row-reject td { background: rgba(248, 113, 113, 0.14) !important; }
 .row-overdue td { background: rgba(251, 146, 60, 0.08) !important; }
+
+.table-total-row td {
+  background: #1e293b !important;
+  font-size: 13px;
+  border-top: 2px solid #4ade80;
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+}
 
 .anom-badge { padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; }
 .anom-reject_return { background: rgba(248, 113, 113, 0.25); color: #fca5a5; border: 1px solid rgba(248, 113, 113, 0.5); }
