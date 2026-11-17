@@ -1,31 +1,72 @@
 <!-- frontend/src/views/DeliveryUndeliveredAnalysis.vue -->
 <template>
   <div class="undelivered-page">
-    <!-- 1. 頂部篩選控制面板 -->
+    <!-- 1. 頂部篩選控制面板（與宅配流線頁、成本分析頁完全統一的智慧日期步進器） -->
     <div class="control-header-panel">
       <div class="filter-row">
         <div class="filter-item">
-          <span class="label">📅 出貨區間：</span>
-          <el-date-picker
-            v-model="dateRange"
-            type="daterange"
-            size="mini"
-            value-format="YYYY-MM-DD"
-            range-separator="至"
-            start-placeholder="開始日期"
-            end-placeholder="結束日期"
-            style="width: 240px;"
-            :clearable="false"
-            @change="fetchUndelivered"
-          />
-          <el-button size="mini" type="info" plain @click="setLatestDay">最新單日</el-button>
-          <el-button size="mini" type="info" plain @click="setRecent7Days">近 7 日</el-button>
-          <el-button size="mini" type="info" plain @click="setCurrentMonth">本月全部</el-button>
+          <span class="label">📅 出貨日期：</span>
+
+          <!-- 單日智慧步進器 -->
+          <div class="date-stepper-group" v-if="querySpanMode === 'day'">
+            <el-button size="mini" type="primary" plain class="step-btn" @click="shiftDay(-1)" title="切換至前一天">◀</el-button>
+            <el-select
+              v-if="availableDates.length > 0"
+              v-model="targetDate"
+              size="mini"
+              style="width: 175px;"
+              @change="onSingleDateChange"
+            >
+              <el-option
+                v-for="d in availableDates"
+                :key="d.ship_date"
+                :label="`${d.ship_date} (${formatNumber(d.tracking_count || d.count)} 件)`"
+                :value="d.ship_date"
+              />
+            </el-select>
+            <el-date-picker
+              v-else
+              v-model="targetDate"
+              type="date"
+              size="mini"
+              value-format="YYYY-MM-DD"
+              placeholder="選擇出貨日期"
+              style="width: 130px;"
+              :clearable="false"
+              @change="onSingleDateChange"
+            />
+            <el-button size="mini" type="primary" plain class="step-btn" @click="shiftDay(1)" title="切換至後一天">▶</el-button>
+            <el-button size="mini" type="info" plain class="step-latest-btn" @click="jumpToLatestDate" title="跳至最新有資料的日期">最新</el-button>
+          </div>
+
+          <!-- 自訂區間選擇器 -->
+          <template v-else-if="querySpanMode === 'range'">
+            <el-date-picker
+              v-model="dateRange"
+              type="daterange"
+              size="mini"
+              value-format="YYYY-MM-DD"
+              range-separator="至"
+              start-placeholder="開始日期"
+              end-placeholder="結束日期"
+              style="width: 235px;"
+              :clearable="false"
+              @change="fetchUndelivered"
+            />
+          </template>
+
+          <!-- 快速範圍切換：單日 / 近7日 / 本月 / 區間 -->
+          <el-radio-group v-model="querySpanMode" size="mini" @change="handleSpanModeChange">
+            <el-radio-button label="day">單日</el-radio-button>
+            <el-radio-button label="7days">近7日</el-radio-button>
+            <el-radio-button label="month">本月</el-radio-button>
+            <el-radio-button label="range">區間</el-radio-button>
+          </el-radio-group>
         </div>
 
         <div class="filter-item">
           <span class="label">🏢 庫別：</span>
-          <el-select v-model="selectedWarehouse" size="mini" style="width: 110px;" @change="fetchUndelivered">
+          <el-select v-model="selectedWarehouse" size="mini" style="width: 105px;" @change="fetchUndelivered">
             <el-option label="全部庫別" value="all" />
             <el-option v-for="w in warehouseOptions" :key="w" :label="`${w} 庫`" :value="w" />
           </el-select>
@@ -33,7 +74,7 @@
 
         <div class="filter-item">
           <span class="label">🚚 宅配商：</span>
-          <el-select v-model="selectedCarrier" size="mini" style="width: 145px;" @change="fetchUndelivered">
+          <el-select v-model="selectedCarrier" size="mini" style="width: 140px;" @change="fetchUndelivered">
             <el-option label="全部宅配商" value="all" />
             <el-option v-for="c in carrierOptions" :key="c" :label="c" :value="c" />
           </el-select>
@@ -41,7 +82,7 @@
 
         <div class="filter-item">
           <span class="label">📍 區域：</span>
-          <el-select v-model="selectedRegion" size="mini" style="width: 115px;" @change="fetchUndelivered">
+          <el-select v-model="selectedRegion" size="mini" style="width: 110px;" @change="fetchUndelivered">
             <el-option label="全部區域" value="all" />
             <el-option label="北北基桃" value="北北基桃" />
             <el-option label="中南部" value="中南部" />
@@ -51,11 +92,10 @@
         </div>
 
         <div class="filter-item">
-          <span class="label">🔍 單號/收件人：</span>
           <el-input
             v-model="keyword"
             size="mini"
-            placeholder="宅配單號 / 訂單號 / 姓名"
+            placeholder="🔍 宅配單號 / 訂單號 / 姓名"
             style="width: 185px;"
             clearable
             @keyup.enter="fetchUndelivered"
@@ -64,8 +104,8 @@
 
         <div class="btn-group">
           <el-button type="primary" size="mini" icon="el-icon-refresh" :loading="loading" @click="fetchUndelivered">查詢</el-button>
-          <el-button type="success" size="mini" icon="el-icon-download" :disabled="undeliveredList.length === 0" @click="exportUndeliveredExcel">
-            📊 匯出未達清單
+          <el-button type="success" size="mini" icon="el-icon-download" :disabled="displayUndeliveredList.length === 0" @click="exportUndeliveredExcel">
+            📊 匯出清單 ({{ displayUndeliveredList.length }})
           </el-button>
         </div>
       </div>
@@ -73,7 +113,7 @@
       <!-- 子頁籤切換 -->
       <div class="sub-tabs-bar">
         <button class="sub-tab-btn alert-tab" :class="{ active: activeTab === 'tracking_list' }" @click="switchTab('tracking_list')">
-          🚨 尚未配達追蹤清單 ({{ formatNumber(kpi.undeliveredCount) }} 件)
+          🚨 尚未配達分類追蹤 ({{ formatNumber(kpi.undeliveredCount) }} 件)
         </button>
         <button class="sub-tab-btn" :class="{ active: activeTab === 'carrier_trend' }" @click="switchTab('carrier_trend')">
           📊 各宅配商完妥率與每日趨勢分析
@@ -83,9 +123,9 @@
 
     <!-- 2. 主內容區 -->
     <div class="main-content-scroll" v-loading="loading">
-      <!-- 四大核心異常追蹤 KPI 卡片（點擊可直接篩選下方明細） -->
+      <!-- 四大核心異常追蹤 KPI 卡片 -->
       <div class="kpi-cards-row">
-        <div class="kpi-card border-blue" :class="{ 'card-selected': statusCategory === 'all' }" @click="selectCategory('all')">
+        <div class="kpi-card border-blue" :class="{ 'card-selected': statusCategory === 'all' && selectedGroupKey === 'all' }" @click="resetAllFilters">
           <div class="kpi-head">
             <span class="kpi-title">🚚 純宅配出貨總件數 (排除超取)</span>
             <span class="kpi-badge text-green">完妥率 {{ kpi.deliveredRate }}%</span>
@@ -95,7 +135,7 @@
             / <span class="text-red">{{ formatNumber(kpi.undeliveredCount) }}</span> <span class="unit text-red">未達</span>
           </div>
           <div class="kpi-sub">
-            區間總資料 {{ formatNumber(kpi.totalRawCount) }} 筆（已自動排除超取 {{ formatNumber(kpi.excludedCvsCount) }} 筆）
+            區間總資料 {{ formatNumber(kpi.totalRawCount) }} 筆（已排除純超取 {{ formatNumber(kpi.excludedCvsCount) }} 筆）
           </div>
         </div>
 
@@ -105,7 +145,7 @@
             <span class="kpi-badge text-red">最高優先處理</span>
           </div>
           <div class="kpi-val text-red">{{ formatNumber(kpi.rejectReturnCount) }} <span class="unit">件</span></div>
-          <div class="kpi-sub">狀態含「拒收、退回、退貨、異常」之未配達包裹（點擊篩選）</div>
+          <div class="kpi-sub">狀態含「拒收、退回、退貨、異常」之未配達包裹</div>
         </div>
 
         <div class="kpi-card border-orange" :class="{ 'card-selected': statusCategory === 'overdue_transit' }" @click="selectCategory('overdue_transit')">
@@ -114,7 +154,7 @@
             <span class="kpi-badge text-orange">需向物流催件</span>
           </div>
           <div class="kpi-val text-orange">{{ formatNumber(kpi.overdueTransitCount) }} <span class="unit">件</span></div>
-          <div class="kpi-sub">非拒收退回，但已超過 2 天仍無配達日期（點擊篩選）</div>
+          <div class="kpi-sub">非拒收退回，但已超過 2 天仍無配達日期</div>
         </div>
 
         <div class="kpi-card border-gold" :class="{ 'card-selected': statusCategory === 'normal_transit' }" @click="selectCategory('normal_transit')">
@@ -123,84 +163,117 @@
             <span class="kpi-badge">觀察中</span>
           </div>
           <div class="kpi-val text-yellow">{{ formatNumber(kpi.normalTransitCount) }} <span class="unit">件</span></div>
-          <div class="kpi-sub">剛出貨 2 天內尚在正常轉運配送中之貨件（點擊篩選）</div>
+          <div class="kpi-sub">剛出貨 2 天內尚在正常轉運或到店待取中之貨件</div>
         </div>
       </div>
 
-      <!-- 頁籤 1：尚未配達追蹤明細清單 -->
-      <div v-show="activeTab === 'tracking_list'" class="tab-pane-box">
-        <div class="table-card">
-          <div class="table-header">
-            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-              <span class="table-title">🚨 尚未配達貨件追蹤明細（依據「配達日期為空白」判定，已排除超商取貨）</span>
-              <el-radio-group v-model="statusCategory" size="mini" @change="fetchUndelivered">
-                <el-radio-button label="all">全部未達 ({{ formatNumber(kpi.undeliveredCount) }})</el-radio-button>
-                <el-radio-button label="reject_return">🚨 拒收退回 ({{ formatNumber(kpi.rejectReturnCount) }})</el-radio-button>
-                <el-radio-button label="overdue_transit">⚠️ 超時滯留 ({{ formatNumber(kpi.overdueTransitCount) }})</el-radio-button>
-                <el-radio-button label="normal_transit">⏳ 正常在途 ({{ formatNumber(kpi.normalTransitCount) }})</el-radio-button>
-              </el-radio-group>
+      <!-- 頁籤 1：清爽雙欄「左側：智慧貨態分組摘要 ＋ 右側：追蹤單據明細表」 -->
+      <div v-show="activeTab === 'tracking_list'" class="split-workspace">
+        <!-- 左側面板：智慧合併後的貨態大類與細項統計（取代原本雜亂的膠囊牆） -->
+        <div class="left-group-panel">
+          <div class="panel-head">
+            <span>📋 貨態智慧歸納總覽</span>
+            <span v-if="selectedGroupKey !== 'all' || selectedRawStatus !== ''" class="clear-link" @click="clearLeftFilter">顯示全部</span>
+          </div>
+
+          <div class="group-list-scroll">
+            <!-- 全部項目 -->
+            <div
+              class="group-item-card"
+              :class="{ active: selectedGroupKey === 'all' && selectedRawStatus === '' }"
+              @click="clearLeftFilter"
+            >
+              <div class="gi-top">
+                <span class="gi-title">📦 全部未配達貨件</span>
+                <span class="gi-count text-yellow">{{ formatNumber(undeliveredList.length) }}</span>
+              </div>
+              <div class="gi-desc">點擊下方任一貨態群組可快速過濾右側明細</div>
             </div>
-            <span class="tip-text">顯示 {{ formatNumber(undeliveredList.length) }} / {{ formatNumber(filteredTotal) }} 筆（點擊單號可直接複製）</span>
+
+            <!-- 7 大智慧合併群組 -->
+            <div
+              v-for="grp in groupedStatusSummary"
+              :key="grp.key"
+              class="group-item-card"
+              :class="[{ active: selectedGroupKey === grp.key && selectedRawStatus === '' }, `grp-border-${grp.level}`]"
+              @click="selectGroup(grp.key)"
+            >
+              <div class="gi-top">
+                <span class="gi-title">{{ grp.label }}</span>
+                <span class="gi-count" :class="`text-${grp.color}`">{{ formatNumber(grp.count) }}</span>
+              </div>
+              <div class="gi-desc">{{ grp.actionHint }}</div>
+
+              <!-- 該群組底下的前 4 個細項狀態（可單獨點擊） -->
+              <div class="gi-sub-list" v-if="grp.subStatuses.length > 0">
+                <div
+                  v-for="sub in grp.subStatuses"
+                  :key="sub.status"
+                  class="gi-sub-row"
+                  :class="{ 'sub-active': selectedRawStatus === sub.status }"
+                  @click.stop="selectSubStatus(grp.key, sub.status)"
+                >
+                  <span class="sub-name" :title="sub.status">{{ sub.status }}</span>
+                  <span class="sub-cnt">{{ formatNumber(sub.count) }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 右側面板：乾淨清晰的單據明細表 -->
+        <div class="right-table-panel">
+          <div class="table-header">
+            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+              <span class="table-title">
+                🚨 {{ currentFilterTitle }}（共 {{ formatNumber(displayUndeliveredList.length) }} 件）
+              </span>
+            </div>
+            <span class="tip-text">💡 點擊宅配單號或訂單編號可直接複製</span>
           </div>
 
-          <!-- 貨態分佈膠囊列 -->
-          <div class="status-chips-row" v-if="statusBreakdown.length > 0">
-            <span class="chip-lbl">目前未達貨態分佈：</span>
-            <span v-for="st in statusBreakdown" :key="st.status" class="status-summary-chip">
-              {{ st.status }}：<strong>{{ formatNumber(st.count) }}</strong> 件
-            </span>
-          </div>
-
-          <div class="table-scroll" style="max-height: calc(100vh - 320px);">
+          <div class="table-scroll">
             <table class="data-table">
               <thead>
                 <tr>
-                  <th>異常分類</th>
-                  <th>目前配送狀態</th>
-                  <th>宅配單號</th>
-                  <th>訂單編號</th>
-                  <th>庫別</th>
-                  <th>區域</th>
-                  <th>宅配商</th>
-                  <th>宅配類別</th>
-                  <th>出貨日期</th>
-                  <th>出貨時間</th>
-                  <th>經過天數</th>
-                  <th>收件人</th>
-                  <th>郵遞區號</th>
+                  <th style="width: 120px;">處理優先級</th>
+                  <th style="width: 165px;">目前配送狀態</th>
+                  <th style="width: 130px;">宅配單號</th>
+                  <th style="width: 135px;">訂單編號</th>
+                  <th style="width: 65px;">庫別</th>
+                  <th style="width: 110px;">宅配商</th>
+                  <th style="width: 125px;">出貨時間</th>
+                  <th style="width: 85px;">經過天數</th>
+                  <th style="width: 85px;">收件人</th>
                   <th>收件地址</th>
                 </tr>
               </thead>
               <tbody>
-                <tr v-if="undeliveredList.length === 0">
-                  <td colspan="14" class="text-center text-green font-bold" style="padding: 32px;">
-                    🎉 查詢條件內所有純宅配貨件皆已填寫配達日期（100% 配達完畢）！
+                <tr v-if="displayUndeliveredList.length === 0">
+                  <td colspan="10" class="text-center text-green font-bold" style="padding: 36px;">
+                    🎉 該篩選條件下無尚未配達貨件！
                   </td>
                 </tr>
                 <tr
-                  v-for="u in undeliveredList"
+                  v-for="u in displayUndeliveredList"
                   :key="u.tracking_no"
                   :class="u.anomalyType === 'reject_return' ? 'row-reject' : (u.anomalyType === 'overdue_transit' ? 'row-overdue' : '')"
                 >
                   <td class="text-center">
                     <span class="anom-badge" :class="`anom-${u.anomalyType}`">{{ u.anomalyLabel }}</span>
                   </td>
-                  <td class="text-center">
-                    <span class="status-pill">{{ u.rawStatus }}</span>
+                  <td>
+                    <span class="status-pill" :title="u.rawStatus">{{ u.rawStatus }}</span>
                   </td>
                   <td class="font-bold text-blue copyable" @click="copyText(u.tracking_no)">{{ u.tracking_no }}</td>
                   <td class="font-bold text-orange copyable" @click="copyText(u.order_no)">{{ u.order_no }}</td>
                   <td class="text-center font-bold text-yellow">{{ u.wh_code ? `${u.wh_code}庫` : '-' }}</td>
-                  <td class="text-center">{{ u.region }}</td>
                   <td class="font-bold">{{ u.carrier_name }}</td>
-                  <td class="text-center">{{ u.delivery_type }}</td>
-                  <td class="text-center">{{ u.ship_date }}</td>
-                  <td class="text-center">{{ u.ship_time }}</td>
+                  <td class="text-center text-dim">{{ u.ship_date }} {{ u.ship_time }}</td>
                   <td class="text-right font-bold" :class="u.elapsedDays >= 2 ? 'text-red' : 'text-yellow'">
-                    {{ u.elapsedDays }} 天 ({{ u.elapsedHours }}H)
+                    {{ u.elapsedDays }} 天
                   </td>
                   <td class="text-center">{{ u.receiver_name || '-' }}</td>
-                  <td class="text-center">{{ u.zip_code }}</td>
                   <td class="text-dim">{{ u.address }}</td>
                 </tr>
               </tbody>
@@ -278,6 +351,9 @@ export default {
     return {
       loading: false,
       activeTab: 'tracking_list',
+      querySpanMode: 'day', // 'day' | '7days' | 'month' | 'range'
+      targetDate: '',
+      availableDates: [],
       dateRange: [],
       latestAvailableDate: '',
 
@@ -285,6 +361,8 @@ export default {
       selectedCarrier: 'all',
       selectedRegion: 'all',
       statusCategory: 'all',
+      selectedGroupKey: 'all',
+      selectedRawStatus: '',
       keyword: '',
 
       warehouseOptions: [],
@@ -311,6 +389,66 @@ export default {
       carrierChartInstance: null
     }
   },
+  computed: {
+    // 將幾十種雜亂狀態智慧歸類為 6 大處理群組，並保留細項排行
+    groupedStatusSummary() {
+      const defs = [
+        { key: 'reject_return', label: '🚨 拒收 / 退回異常', level: 'red', color: 'red', actionHint: '客戶拒收或已進入退貨流程，需通知客服' },
+        { key: 'failed_contact', label: '📞 投遞失敗（不在 / 未接 / 再投）', level: 'orange', color: 'orange', actionHint: '司機電聯未接或不在家，已安排再投' },
+        { key: 'addr_issue', label: '🏠 地址異常 / 客改址 / 轉寄', level: 'orange', color: 'orange', actionHint: '地址欠詳、送錯站所或申請改址轉寄' },
+        { key: 'cvs_arrived', label: '🏪 已到超商門市 / i郵箱 / 招領', level: 'blue', color: 'blue', actionHint: '超速配/i郵箱/郵局招領已到點，待客戶取件' },
+        { key: 'in_transit', label: '🚚 轉運 / 配送中', level: 'gold', color: 'yellow', actionHint: '正常物流幹線轉運與營業所配送中' },
+        { key: 'station_hold', label: '📦 站所暫置 / 分貨 / 已上傳', level: 'gray', color: 'dim', actionHint: '剛交寄、分貨中或預約日期暫置營業所' }
+      ];
+
+      const buckets = {};
+      defs.forEach(d => {
+        buckets[d.key] = { ...d, count: 0, subMap: {} };
+      });
+
+      this.undeliveredList.forEach(item => {
+        const gKey = this.classifyStatusGroup(item.rawStatus);
+        const b = buckets[gKey] || buckets.station_hold;
+        b.count++;
+        const st = item.rawStatus || '未分類';
+        b.subMap[st] = (b.subMap[st] || 0) + 1;
+      });
+
+      return defs
+        .map(d => {
+          const b = buckets[d.key];
+          const subStatuses = Object.entries(b.subMap)
+            .map(([status, count]) => ({ status, count }))
+            .sort((a, c) => c.count - a.count);
+          return {
+            ...b,
+            subStatuses
+          };
+        })
+        .filter(g => g.count > 0);
+    },
+    displayUndeliveredList() {
+      let list = this.undeliveredList;
+      if (this.selectedRawStatus) {
+        return list.filter(i => i.rawStatus === this.selectedRawStatus);
+      }
+      if (this.selectedGroupKey !== 'all') {
+        return list.filter(i => this.classifyStatusGroup(i.rawStatus) === this.selectedGroupKey);
+      }
+      return list;
+    },
+    currentFilterTitle() {
+      if (this.selectedRawStatus) return `狀態：【${this.selectedRawStatus}】`;
+      if (this.selectedGroupKey !== 'all') {
+        const g = this.groupedStatusSummary.find(x => x.key === this.selectedGroupKey);
+        return g ? g.label : '篩選明細';
+      }
+      if (this.statusCategory === 'reject_return') return '🚨 拒收／退回異常件明細';
+      if (this.statusCategory === 'overdue_transit') return '⚠️ 超時滯留未達 (>48H) 明細';
+      if (this.statusCategory === 'normal_transit') return '⏳ 正常配送在途 (≤48H) 明細';
+      return '全部尚未配達貨件追蹤明細';
+    }
+  },
   mounted() {
     this.initOptions().then(() => {
       this.fetchUndelivered();
@@ -323,6 +461,15 @@ export default {
     if (this.carrierChartInstance) this.carrierChartInstance.dispose();
   },
   methods: {
+    classifyStatusGroup(rawStatus) {
+      const s = String(rawStatus || '');
+      if (/拒收|退回|退貨|退件|異常|遺失/.test(s)) return 'reject_return';
+      if (/投遞不成功|不在|無人|未接|再投|約定再配/.test(s)) return 'failed_contact';
+      if (/地址|客改址|轉寄|送錯/.test(s)) return 'addr_issue';
+      if (/送達超商|到達i郵箱|到達支局|招領|到站自領/.test(s)) return 'cvs_arrived';
+      if (/轉運|配送中|投遞中|運輸途中|配送/.test(s)) return 'in_transit';
+      return 'station_hold';
+    },
     formatNumber(v) { return Number(v || 0).toLocaleString(); },
     copyText(txt) {
       navigator.clipboard.writeText(txt).then(() => ElMessage.success(`📋 已複製單號：${txt}`));
@@ -331,10 +478,31 @@ export default {
       if (this.dailyChartInstance) this.dailyChartInstance.resize();
       if (this.carrierChartInstance) this.carrierChartInstance.resize();
     },
-    selectCategory(cat) {
-      this.statusCategory = this.statusCategory === cat ? 'all' : cat;
+    clearLeftFilter() {
+      this.selectedGroupKey = 'all';
+      this.selectedRawStatus = '';
+    },
+    resetAllFilters() {
+      this.statusCategory = 'all';
+      this.selectedGroupKey = 'all';
+      this.selectedRawStatus = '';
       this.activeTab = 'tracking_list';
       this.fetchUndelivered();
+    },
+    selectCategory(cat) {
+      this.statusCategory = this.statusCategory === cat ? 'all' : cat;
+      this.selectedGroupKey = 'all';
+      this.selectedRawStatus = '';
+      this.activeTab = 'tracking_list';
+      this.fetchUndelivered();
+    },
+    selectGroup(gKey) {
+      this.selectedRawStatus = '';
+      this.selectedGroupKey = this.selectedGroupKey === gKey ? 'all' : gKey;
+    },
+    selectSubStatus(gKey, rawStatus) {
+      this.selectedGroupKey = gKey;
+      this.selectedRawStatus = this.selectedRawStatus === rawStatus ? '' : rawStatus;
     },
     switchTab(tab) {
       this.activeTab = tab;
@@ -342,36 +510,68 @@ export default {
         this.$nextTick(() => this.renderCharts());
       }
     },
-    setLatestDay() {
-      if (this.latestAvailableDate) {
-        this.dateRange = [this.latestAvailableDate, this.latestAvailableDate];
+
+    // 智慧日期步進器方法
+    onSingleDateChange() {
+      if (this.targetDate) {
+        this.dateRange = [this.targetDate, this.targetDate];
         this.fetchUndelivered();
       }
     },
-    setRecent7Days() {
-      const end = this.latestAvailableDate || new Date().toISOString().split('T')[0];
-      const dt = new Date(`${end}T00:00:00`);
-      dt.setDate(dt.getDate() - 6);
-      const start = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
-      this.dateRange = [start, end];
+    shiftDay(offset) {
+      if (this.availableDates.length > 0) {
+        const idx = this.availableDates.findIndex(d => d.ship_date === this.targetDate);
+        if (idx !== -1) {
+          const targetIdx = idx - offset;
+          if (targetIdx >= 0 && targetIdx < this.availableDates.length) {
+            this.targetDate = this.availableDates[targetIdx].ship_date;
+            this.onSingleDateChange();
+          } else {
+            ElMessage.info(offset < 0 ? '已是最早一筆匯入日期' : '已是最新一筆匯入日期');
+          }
+          return;
+        }
+      }
+      const d = new Date(this.targetDate || new Date());
+      d.setDate(d.getDate() + offset);
+      this.targetDate = d.toISOString().split('T')[0];
+      this.onSingleDateChange();
+    },
+    jumpToLatestDate() {
+      if (this.availableDates.length > 0) {
+        this.targetDate = this.availableDates[0].ship_date;
+      } else {
+        this.targetDate = new Date().toISOString().split('T')[0];
+      }
+      this.onSingleDateChange();
+    },
+    handleSpanModeChange(mode) {
+      const base = this.targetDate || this.latestAvailableDate || new Date().toISOString().split('T')[0];
+      if (mode === 'day') {
+        this.targetDate = base;
+        this.dateRange = [base, base];
+      } else if (mode === '7days') {
+        const dt = new Date(`${base}T00:00:00`);
+        dt.setDate(dt.getDate() - 6);
+        const start = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+        this.dateRange = [start, base];
+      } else if (mode === 'month') {
+        const ym = base.slice(0, 7);
+        this.dateRange = [`${ym}-01`, `${ym}-31`];
+      }
       this.fetchUndelivered();
     },
-    setCurrentMonth() {
-      const base = this.latestAvailableDate || new Date().toISOString().split('T')[0];
-      const ym = base.slice(0, 7);
-      this.dateRange = [`${ym}-01`, `${ym}-31`];
-      this.fetchUndelivered();
-    },
+
     async initOptions() {
       try {
         const res = await axios.get('/api/delivery/dates', { params: { dayMode: 'calendar' } });
         if (res.data?.success) {
+          this.availableDates = res.data.list || [];
           this.warehouseOptions = res.data.warehouses || [];
-          // 排除超取物流商，下拉選單只顯示純宅配商
           this.carrierOptions = (res.data.carriers || []).filter(c => !/超取|7-11|全家|萊爾富|OK|大智通|日翊/i.test(c));
-          const list = res.data.list || [];
-          if (list.length > 0) {
-            this.latestAvailableDate = list[0].ship_date;
+          if (this.availableDates.length > 0) {
+            this.latestAvailableDate = this.availableDates[0].ship_date;
+            this.targetDate = this.latestAvailableDate;
             this.dateRange = [this.latestAvailableDate, this.latestAvailableDate];
           }
         }
@@ -380,7 +580,11 @@ export default {
     async fetchUndelivered() {
       this.loading = true;
       try {
-        const [startDate, endDate] = this.dateRange || [];
+        let [startDate, endDate] = this.dateRange || [];
+        if (this.querySpanMode === 'day' && this.targetDate) {
+          startDate = this.targetDate;
+          endDate = this.targetDate;
+        }
         const res = await axios.get('/api/delivery/undelivered-analysis', {
           params: {
             startDate,
@@ -393,9 +597,8 @@ export default {
           }
         });
         if (res.data?.success) {
-          if (!this.dateRange || this.dateRange.length === 0) {
-            this.dateRange = [res.data.startDate, res.data.endDate];
-          }
+          if (!this.targetDate && res.data.startDate) this.targetDate = res.data.startDate;
+          if (!this.dateRange || this.dateRange.length === 0) this.dateRange = [res.data.startDate, res.data.endDate];
           this.kpi = res.data.kpi || this.kpi;
           this.carrierList = res.data.carrierList || [];
           this.dailyTrendList = res.data.dailyTrendList || [];
@@ -411,7 +614,7 @@ export default {
       }
     },
     exportUndeliveredExcel() {
-      const rows = this.undeliveredList.map(u => ({
+      const rows = this.displayUndeliveredList.map(u => ({
         '異常分類': u.anomalyLabel,
         '目前配送狀態': u.rawStatus,
         '宅配單號': u.tracking_no,
@@ -506,7 +709,7 @@ export default {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 .filter-item {
   display: flex;
@@ -518,6 +721,17 @@ export default {
   font-weight: bold;
   color: #cbd5e1;
 }
+.date-stepper-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #0f172a;
+  padding: 2px 5px;
+  border-radius: 6px;
+  border: 1px solid #334155;
+}
+.step-btn { padding: 5px 8px !important; font-weight: bold; }
+.step-latest-btn { padding: 5px 8px !important; font-weight: bold; }
 .btn-group { margin-left: auto; display: flex; gap: 8px; }
 
 .sub-tabs-bar {
@@ -552,13 +766,7 @@ export default {
 
 .main-content-scroll {
   flex: 1;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding-right: 4px;
-}
-.tab-pane-box {
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -568,15 +776,16 @@ export default {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 12px;
+  flex-shrink: 0;
 }
 .kpi-card {
   background: #1e293b;
   border: 1px solid #334155;
   border-radius: 8px;
-  padding: 12px 14px;
+  padding: 10px 14px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
   cursor: pointer;
   transition: transform 0.15s, border-color 0.15s;
 }
@@ -591,31 +800,133 @@ export default {
 .kpi-head { display: flex; justify-content: space-between; align-items: center; }
 .kpi-title { font-size: 13px; font-weight: bold; color: #cbd5e1; }
 .kpi-badge { font-size: 11px; color: #94a3b8; background: #0f172a; padding: 2px 6px; border-radius: 4px; }
-.kpi-val { font-size: 23px; font-weight: bold; margin: 2px 0; }
+.kpi-val { font-size: 22px; font-weight: bold; margin: 2px 0; }
 .kpi-val .unit { font-size: 12px; font-weight: normal; color: #94a3b8; }
 .kpi-sub { font-size: 11px; color: #94a3b8; }
 
-.status-chips-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
-  padding: 6px 10px;
-  background: #0f172a;
-  border-radius: 6px;
-  border: 1px solid #334155;
+/* 雙欄工作區：左側貨態分組樹 + 右側單據明細 */
+.split-workspace {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 310px 1fr;
+  gap: 12px;
+  overflow: hidden;
+  min-height: 0;
 }
-.chip-lbl { font-size: 12px; color: #94a3b8; font-weight: bold; }
-.status-summary-chip {
-  font-size: 12px;
-  color: #cbd5e1;
+
+.left-group-panel {
   background: #1e293b;
-  padding: 2px 8px;
-  border-radius: 4px;
   border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
-.status-summary-chip strong { color: #facc15; }
+.panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  font-weight: bold;
+  color: #f8fafc;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #334155;
+  margin-bottom: 8px;
+  flex-shrink: 0;
+}
+.clear-link {
+  font-size: 11px;
+  color: #38bdf8;
+  cursor: pointer;
+}
+.clear-link:hover { text-decoration: underline; }
+
+.group-list-scroll {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 4px;
+}
+
+.group-item-card {
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 8px 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.group-item-card:hover { border-color: #38bdf8; }
+.group-item-card.active {
+  border-color: #38bdf8;
+  background: rgba(56, 189, 248, 0.1);
+}
+.grp-border-red { border-left: 3px solid #f87171; }
+.grp-border-orange { border-left: 3px solid #fb923c; }
+.grp-border-blue { border-left: 3px solid #38bdf8; }
+.grp-border-gold { border-left: 3px solid #facc15; }
+.grp-border-gray { border-left: 3px solid #64748b; }
+
+.gi-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.gi-title { font-size: 13px; font-weight: bold; color: #f8fafc; }
+.gi-count { font-size: 15px; font-weight: bold; }
+.gi-desc { font-size: 11px; color: #64748b; margin-top: 2px; }
+
+.gi-sub-list {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed #334155;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.gi-sub-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: #cbd5e1;
+  padding: 3px 6px;
+  border-radius: 4px;
+}
+.gi-sub-row:hover { background: rgba(255, 255, 255, 0.06); }
+.gi-sub-row.sub-active {
+  background: #0284c7;
+  color: #ffffff;
+  font-weight: bold;
+}
+.sub-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 205px;
+}
+.sub-cnt { font-weight: bold; }
+
+.right-table-panel {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.tab-pane-box {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
 
 .charts-grid-2 {
   display: grid;
@@ -629,7 +940,7 @@ export default {
   padding: 12px;
 }
 .chart-title { font-size: 14px; font-weight: bold; color: #f8fafc; margin-bottom: 8px; }
-.echart-box { width: 100%; height: 270px; }
+.echart-box { width: 100%; height: 260px; }
 
 .table-card {
   background: #1e293b;
@@ -641,12 +952,16 @@ export default {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
+  flex-shrink: 0;
 }
 .table-title { font-size: 14px; font-weight: bold; color: #f8fafc; }
 .tip-text { font-size: 12px; color: #38bdf8; }
 
-.table-scroll { overflow-x: auto; max-height: 460px; }
+.table-scroll {
+  flex: 1;
+  overflow: auto;
+}
 .data-table {
   width: 100%;
   border-collapse: collapse;
@@ -657,7 +972,7 @@ export default {
 }
 .data-table th, .data-table td {
   border: 1px solid #334155;
-  padding: 6px 10px;
+  padding: 6px 8px;
 }
 .data-table th {
   background: #1e293b;
