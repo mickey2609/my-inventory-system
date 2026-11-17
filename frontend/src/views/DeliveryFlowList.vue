@@ -12,7 +12,6 @@
 
     <!-- 1. 頂部條件與導覽工具列 -->
     <div class="control-header-panel">
-      <!-- 篩選列 1：智慧日期步進器 + 統計口徑 + 維度 -->
       <div class="filter-row">
         <!-- 單日分析模式：前一天 / 日期 / 後一天 / 最新 -->
         <div class="filter-item" v-if="isDailyTab">
@@ -183,7 +182,7 @@
         </div>
       </div>
 
-      <!-- 頂部五大功能頁籤列 -->
+      <!-- 頂部六大功能頁籤列 -->
       <div class="sub-tabs-bar">
         <button class="sub-tab-btn" :class="{ active: activeTab === 'ship_flow' }" @click="switchSubTab('ship_flow')">
           🌊 24小時出貨時段觀察
@@ -193,6 +192,9 @@
         </button>
         <button class="sub-tab-btn highlight-tab" :class="{ active: activeTab === 'lead_analytics' }" @click="switchSubTab('lead_analytics')">
           🚀 訂單時效全景分析
+        </button>
+        <button class="sub-tab-btn delivery-tab" :class="{ active: activeTab === 'delivery_tracking' }" @click="switchSubTab('delivery_tracking')">
+          🚚 配達與未配達追蹤 ({{ formatNumber(deliveryTracking.undeliveredCount) }} 未達)
         </button>
         <button class="sub-tab-btn summary-tab" :class="{ active: activeTab === 'monthly_summary' }" @click="switchSubTab('monthly_summary')">
           🗓️ 每月每日總表
@@ -526,7 +528,159 @@
         </div>
       </div>
 
-      <!-- 頁籤 4：每月每日總表 -->
+      <!-- 頁籤 4：配達日期判定與尚未配達貨件追蹤 -->
+      <div v-show="activeTab === 'delivery_tracking'" class="tab-pane-box">
+        <!-- 四大配達指標卡片 -->
+        <div class="lead-kpi-grid">
+          <div class="lead-kpi-card border-green">
+            <div class="kpi-icon">✅</div>
+            <div class="kpi-info">
+              <span class="kpi-title">已配達件數 (有配達日期)</span>
+              <div class="kpi-value text-green">{{ formatNumber(deliveryTracking.deliveredCount) }} <span class="unit">件</span></div>
+              <span class="kpi-sub">配達完妥率 {{ deliveryTracking.deliveredRate }}%</span>
+            </div>
+          </div>
+
+          <div class="lead-kpi-card border-red">
+            <div class="kpi-icon">🚨</div>
+            <div class="kpi-info">
+              <span class="kpi-title">尚未配達總件數 (配達日空白)</span>
+              <div class="kpi-value text-red">{{ formatNumber(deliveryTracking.undeliveredCount) }} <span class="unit">件</span></div>
+              <span class="kpi-sub">需持續追蹤貨態之在途包裹</span>
+            </div>
+          </div>
+
+          <div class="lead-kpi-card border-orange">
+            <div class="kpi-icon">🚚</div>
+            <div class="kpi-info">
+              <span class="kpi-title">純宅配尚未配達 (優先追件)</span>
+              <div class="kpi-value text-orange">{{ formatNumber(deliveryTracking.undeliveredHomeCount) }} <span class="unit">件</span></div>
+              <span class="kpi-sub">排除超商取貨之宅配未達件</span>
+            </div>
+          </div>
+
+          <div class="lead-kpi-card border-blue">
+            <div class="kpi-icon">🏪</div>
+            <div class="kpi-info">
+              <span class="kpi-title">超商取貨尚未配達 / 未取</span>
+              <div class="kpi-value text-blue">{{ formatNumber(deliveryTracking.undeliveredCvsCount) }} <span class="unit">件</span></div>
+              <span class="kpi-sub">7-11 / 全家 / 萊爾富超取件</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 上層：各物流商配達完妥率與平均配送耗時表 -->
+        <div class="table-container" v-loading="loading">
+          <div class="table-header-bar">
+            <span class="table-title">📊 各物流商「配達日期」完妥率與平均配送耗時總表</span>
+            <span class="tip-text">💡 判定規則：「配達日期」欄位有日期即為已配達；空白則列為尚未配達</span>
+          </div>
+          <div class="table-scroll-wrapper">
+            <table class="flow-matrix-table">
+              <thead>
+                <tr>
+                  <th>宅配商</th>
+                  <th>總出貨件數</th>
+                  <th>已配達件數 (有配達日)</th>
+                  <th>尚未配達件數 (配達日空白)</th>
+                  <th>配達完妥率</th>
+                  <th>平均配送耗時 (出貨➔配達)</th>
+                  <th>遲到件數</th>
+                  <th>遲到率</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(c, idx) in deliveryTracking.carrierDeliveryList" :key="c.carrier" :class="{ 'row-zebra': idx % 2 === 1 }">
+                  <td class="font-bold text-blue">{{ c.carrier }}</td>
+                  <td class="text-right font-bold">{{ formatNumber(c.totalCount) }}</td>
+                  <td class="text-right text-green font-bold">{{ formatNumber(c.deliveredCount) }}</td>
+                  <td class="text-right text-red font-bold">{{ formatNumber(c.undeliveredCount) }}</td>
+                  <td class="text-center">
+                    <span class="rate-badge" :class="c.deliveredRate >= 98 ? 'rate-ok' : (c.deliveredRate >= 80 ? 'rate-mid' : 'rate-high')">
+                      {{ c.deliveredRate }}%
+                    </span>
+                  </td>
+                  <td class="text-center text-yellow">{{ c.avgTransitHours ? `${c.avgTransitHours} 小時` : '-' }}</td>
+                  <td class="text-right text-red">{{ formatNumber(c.lateCount) }}</td>
+                  <td class="text-center">{{ c.lateRate }}%</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 下層：尚未配達貨件追蹤清單 -->
+        <div class="table-container" v-loading="loading">
+          <div class="table-header-bar">
+            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+              <span class="table-title">🚨 尚未配達貨件追蹤清單（配達日期為空白）</span>
+              <el-radio-group v-model="undeliveredFilter" size="mini">
+                <el-radio-button label="all">全部未配達 ({{ formatNumber(deliveryTracking.undeliveredCount) }})</el-radio-button>
+                <el-radio-button label="home">🚚 僅看宅配未配達 ({{ formatNumber(deliveryTracking.undeliveredHomeCount) }})</el-radio-button>
+                <el-radio-button label="cvs">🏪 僅看超取未配達 ({{ formatNumber(deliveryTracking.undeliveredCvsCount) }})</el-radio-button>
+              </el-radio-group>
+            </div>
+            <span class="tip-text">💡 宅配未配達已優先置頂，點擊單號可直接複製向物流商查詢貨態</span>
+          </div>
+          <div class="table-scroll-wrapper" style="max-height: 460px;">
+            <table class="flow-matrix-table">
+              <thead>
+                <tr>
+                  <th>通路類型</th>
+                  <th>宅配單號</th>
+                  <th>訂單編號</th>
+                  <th>庫別</th>
+                  <th>區域</th>
+                  <th>宅配商</th>
+                  <th>宅配類別</th>
+                  <th>目前配送狀態</th>
+                  <th>出貨日期</th>
+                  <th>出貨時間</th>
+                  <th>已出貨經過</th>
+                  <th>收件人</th>
+                  <th>郵遞區號</th>
+                  <th>收件地址</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="filteredUndeliveredList.length === 0">
+                  <td colspan="14" class="text-center text-dim" style="padding: 28px;">🎉 該條件下所有貨件皆已填寫配達日期（全數配達完畢）！</td>
+                </tr>
+                <tr
+                  v-for="u in filteredUndeliveredList"
+                  :key="u.tracking_no"
+                  :class="{ 'row-home-alert': u.channelType === 'home' }"
+                >
+                  <td class="text-center">
+                    <span class="cat-badge" :class="u.channelType === 'home' ? 'cat-home-alert' : 'cat-cvs'">
+                      {{ u.channelType === 'home' ? '🚚 宅配未達' : '🏪 超取未達' }}
+                    </span>
+                  </td>
+                  <td class="font-bold text-blue copyable" @click="copyText(u.tracking_no)">{{ u.tracking_no }}</td>
+                  <td class="font-bold text-orange copyable" @click="copyText(u.order_no)">{{ u.order_no }}</td>
+                  <td class="text-center font-bold text-yellow">{{ u.wh_code ? `${u.wh_code}庫` : '-' }}</td>
+                  <td class="text-center"><span class="reg-tag" :class="getRegTagClass(u.region)">{{ u.region }}</span></td>
+                  <td class="font-bold">{{ u.carrier_name }}</td>
+                  <td class="text-center">{{ u.delivery_type }}</td>
+                  <td class="text-center">
+                    <span class="status-pill">{{ u.delivery_status || '出貨中' }}</span>
+                  </td>
+                  <td class="text-center">{{ u.ship_date }}</td>
+                  <td class="text-center">{{ u.ship_time }}</td>
+                  <td class="text-right font-bold" :class="u.elapsedDays >= 3 ? 'text-red' : 'text-yellow'">
+                    {{ u.elapsedDays }} 天 ({{ u.elapsedHours }}H)
+                  </td>
+                  <td class="text-center">{{ u.receiver_name || '-' }}</td>
+                  <td class="text-center">{{ u.zip_code }}</td>
+                  <td class="text-dim">{{ u.address }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- 頁籤 5：每月每日總表 -->
       <div v-show="activeTab === 'monthly_summary'" class="tab-pane-box">
         <div class="table-container" v-loading="loadingMonthly">
           <div class="table-header-bar">
@@ -545,25 +699,30 @@
                 <tr>
                   <th style="width: 115px;">出貨日期</th>
                   <th style="width: 105px;">總出貨 ({{ countMode === 'order' ? '單' : '件' }})</th>
-                  <th style="width: 95px;">☀️ 日班</th>
-                  <th style="width: 95px;">🌆 夜班</th>
-                  <th style="width: 95px;">🌙 大夜班</th>
-                  <th style="width: 95px;">北北基桃</th>
-                  <th style="width: 95px;">中南部</th>
-                  <th style="width: 80px;">宜花東</th>
-                  <th style="width: 70px;">外島</th>
-                  <th style="width: 90px;">24H佔比</th>
-                  <th style="width: 90px;">平均時效</th>
+                  <th style="width: 90px;">已配達</th>
+                  <th style="width: 90px;">未配達</th>
+                  <th style="width: 85px;">配達率</th>
+                  <th style="width: 90px;">☀️ 日班</th>
+                  <th style="width: 90px;">🌆 夜班</th>
+                  <th style="width: 90px;">🌙 大夜班</th>
+                  <th style="width: 90px;">北北基桃</th>
+                  <th style="width: 90px;">中南部</th>
+                  <th style="width: 75px;">宜花東</th>
+                  <th style="width: 65px;">外島</th>
+                  <th style="width: 85px;">24H佔比</th>
                   <th style="width: 105px;">操作</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-if="monthlyDailyList.length === 0">
-                  <td colspan="12" class="text-center text-dim" style="padding: 30px;">{{ targetMonth }} 月份尚無匯入出貨資料</td>
+                  <td colspan="14" class="text-center text-dim" style="padding: 30px;">{{ targetMonth }} 月份尚無匯入出貨資料</td>
                 </tr>
                 <tr v-for="(d, idx) in monthlyDailyList" :key="d.date" :class="{ 'row-zebra': idx % 2 === 1 }">
                   <td class="text-center font-bold">{{ d.date }}</td>
                   <td class="text-right font-bold text-yellow">{{ formatNumber(d.total) }}</td>
+                  <td class="text-right text-green">{{ formatNumber(d.deliveredCount || 0) }}</td>
+                  <td class="text-right text-red font-bold">{{ formatNumber(d.undeliveredCount || 0) }}</td>
+                  <td class="text-center text-green font-bold">{{ d.deliveredRate || '0.0%' }}</td>
                   <td class="text-right text-blue">{{ formatNumber(d.dayShift) }}</td>
                   <td class="text-right text-orange">{{ formatNumber(d.nightShift) }}</td>
                   <td class="text-right text-purple">{{ formatNumber(d.graveyardShift) }}</td>
@@ -571,8 +730,7 @@
                   <td class="text-right">{{ formatNumber(d.south) }}</td>
                   <td class="text-right">{{ formatNumber(d.east) }}</td>
                   <td class="text-right">{{ formatNumber(d.island) }}</td>
-                  <td class="text-center text-green font-bold">{{ d.rate24h }}</td>
-                  <td class="text-center">{{ d.avgLeadHours }} H</td>
+                  <td class="text-center">{{ d.rate24h }}</td>
                   <td class="text-center">
                     <el-button size="mini" type="primary" plain @click="jumpToDailyFromSummary(d.date)">看當日波浪</el-button>
                   </td>
@@ -582,6 +740,9 @@
                 <tr class="table-total-row">
                   <td class="text-center font-bold text-yellow">全月總計</td>
                   <td class="text-right font-bold text-yellow">{{ formatNumber(monthlyTotalSummary.total) }}</td>
+                  <td class="text-right font-bold text-green">{{ formatNumber(monthlyTotalSummary.deliveredCount) }}</td>
+                  <td class="text-right font-bold text-red">{{ formatNumber(monthlyTotalSummary.undeliveredCount) }}</td>
+                  <td></td>
                   <td class="text-right font-bold text-blue">{{ formatNumber(monthlyTotalSummary.dayShift) }}</td>
                   <td class="text-right font-bold text-orange">{{ formatNumber(monthlyTotalSummary.nightShift) }}</td>
                   <td class="text-right font-bold text-purple">{{ formatNumber(monthlyTotalSummary.graveyardShift) }}</td>
@@ -589,7 +750,7 @@
                   <td class="text-right font-bold">{{ formatNumber(monthlyTotalSummary.south) }}</td>
                   <td class="text-right font-bold">{{ formatNumber(monthlyTotalSummary.east) }}</td>
                   <td class="text-right font-bold">{{ formatNumber(monthlyTotalSummary.island) }}</td>
-                  <td colspan="3"></td>
+                  <td colspan="2"></td>
                 </tr>
               </tfoot>
             </table>
@@ -597,7 +758,7 @@
         </div>
       </div>
 
-      <!-- 頁籤 5：年度每月總表 -->
+      <!-- 頁籤 6：年度每月總表 -->
       <div v-show="activeTab === 'yearly_summary'" class="tab-pane-box">
         <div class="table-container" v-loading="loadingYearly">
           <div class="table-header-bar">
@@ -616,15 +777,17 @@
                 <tr>
                   <th style="width: 115px;">統計月份</th>
                   <th style="width: 110px;">月總出貨 ({{ countMode === 'order' ? '單' : '件' }})</th>
-                  <th style="width: 95px;">☀️ 日班</th>
-                  <th style="width: 95px;">🌆 夜班</th>
-                  <th style="width: 95px;">🌙 大夜班</th>
-                  <th style="width: 95px;">北北基桃</th>
-                  <th style="width: 95px;">中南部</th>
-                  <th style="width: 80px;">宜花東</th>
-                  <th style="width: 70px;">外島</th>
-                  <th style="width: 90px;">24H佔比</th>
-                  <th style="width: 90px;">平均時效</th>
+                  <th style="width: 90px;">已配達</th>
+                  <th style="width: 90px;">未配達</th>
+                  <th style="width: 85px;">配達率</th>
+                  <th style="width: 90px;">☀️ 日班</th>
+                  <th style="width: 90px;">🌆 夜班</th>
+                  <th style="width: 90px;">🌙 大夜班</th>
+                  <th style="width: 90px;">北北基桃</th>
+                  <th style="width: 90px;">中南部</th>
+                  <th style="width: 75px;">宜花東</th>
+                  <th style="width: 65px;">外島</th>
+                  <th style="width: 85px;">24H佔比</th>
                   <th style="width: 105px;">操作</th>
                 </tr>
               </thead>
@@ -632,6 +795,9 @@
                 <tr v-for="(m, idx) in yearlyMonthlyList" :key="m.month" :class="{ 'row-zebra': idx % 2 === 1 }">
                   <td class="text-center font-bold">{{ m.monthLabel }} ({{ m.month }})</td>
                   <td class="text-right font-bold text-yellow">{{ formatNumber(m.total) }}</td>
+                  <td class="text-right text-green">{{ formatNumber(m.deliveredCount || 0) }}</td>
+                  <td class="text-right text-red font-bold">{{ formatNumber(m.undeliveredCount || 0) }}</td>
+                  <td class="text-center text-green font-bold">{{ m.deliveredRate || '0.0%' }}</td>
                   <td class="text-right text-blue">{{ formatNumber(m.dayShift) }}</td>
                   <td class="text-right text-orange">{{ formatNumber(m.nightShift) }}</td>
                   <td class="text-right text-purple">{{ formatNumber(m.graveyardShift) }}</td>
@@ -639,8 +805,7 @@
                   <td class="text-right">{{ formatNumber(m.south) }}</td>
                   <td class="text-right">{{ formatNumber(m.east) }}</td>
                   <td class="text-right">{{ formatNumber(m.island) }}</td>
-                  <td class="text-center text-green font-bold">{{ m.rate24h }}</td>
-                  <td class="text-center">{{ m.avgLeadHours }} H</td>
+                  <td class="text-center">{{ m.rate24h }}</td>
                   <td class="text-center">
                     <el-button size="mini" type="primary" plain :disabled="m.total === 0" @click="jumpToMonthlyFromYearly(m.month)">看該月明細</el-button>
                   </td>
@@ -650,6 +815,9 @@
                 <tr class="table-total-row">
                   <td class="text-center font-bold text-yellow">全年總計</td>
                   <td class="text-right font-bold text-yellow">{{ formatNumber(yearlyTotalSummary.total) }}</td>
+                  <td class="text-right font-bold text-green">{{ formatNumber(yearlyTotalSummary.deliveredCount) }}</td>
+                  <td class="text-right font-bold text-red">{{ formatNumber(yearlyTotalSummary.undeliveredCount) }}</td>
+                  <td></td>
                   <td class="text-right font-bold text-blue">{{ formatNumber(yearlyTotalSummary.dayShift) }}</td>
                   <td class="text-right font-bold text-orange">{{ formatNumber(yearlyTotalSummary.nightShift) }}</td>
                   <td class="text-right font-bold text-purple">{{ formatNumber(yearlyTotalSummary.graveyardShift) }}</td>
@@ -657,7 +825,7 @@
                   <td class="text-right font-bold">{{ formatNumber(yearlyTotalSummary.south) }}</td>
                   <td class="text-right font-bold">{{ formatNumber(yearlyTotalSummary.east) }}</td>
                   <td class="text-right font-bold">{{ formatNumber(yearlyTotalSummary.island) }}</td>
-                  <td colspan="3"></td>
+                  <td colspan="2"></td>
                 </tr>
               </tfoot>
             </table>
@@ -688,36 +856,39 @@
         </div>
 
         <el-table :data="filteredModalList" height="520px" border size="mini" style="width: 100%;">
-          <el-table-column prop="tracking_no" label="宅配單號" width="180" sortable>
+          <el-table-column prop="tracking_no" label="宅配單號" width="170" sortable>
             <template #default="scope">
               <span class="font-bold text-blue copyable" @click="copyText(scope.row.tracking_no)">{{ scope.row.tracking_no }}</span>
             </template>
           </el-table-column>
-          <el-table-column prop="order_no" label="訂單編號" width="160" sortable>
+          <el-table-column prop="order_no" label="訂單編號" width="155" sortable>
             <template #default="scope">
               <span class="font-bold text-orange copyable" @click="copyText(scope.row.order_no)">{{ scope.row.order_no }}</span>
             </template>
           </el-table-column>
-          <el-table-column prop="wh_code" label="庫別" width="80" align="center" sortable>
+          <el-table-column prop="wh_code" label="庫別" width="75" align="center" sortable>
             <template #default="scope">
               <span class="font-bold text-yellow">{{ scope.row.wh_code ? `${scope.row.wh_code}庫` : '-' }}</span>
             </template>
           </el-table-column>
-          <el-table-column prop="region" label="區域" width="95" align="center" sortable>
+          <el-table-column prop="region" label="區域" width="90" align="center" sortable>
             <template #default="scope">
               <span class="reg-tag" :class="getRegTagClass(scope.row.region)">{{ scope.row.region }}</span>
             </template>
           </el-table-column>
-          <el-table-column prop="shift_type" label="出貨班別" width="85" align="center" sortable />
-          <el-table-column prop="carrier_name" label="宅配商" width="120" sortable />
-          <el-table-column prop="delivery_type" label="宅配類別" width="105" align="center" sortable />
-          <el-table-column prop="is_24h" label="24H送達" width="85" align="center" sortable />
+          <el-table-column prop="carrier_name" label="宅配商" width="115" sortable />
+          <el-table-column prop="delivery_status" label="配送狀態" width="95" align="center" sortable />
+          <el-table-column prop="delivery_date" label="配達日期" width="105" align="center" sortable>
+            <template #default="scope">
+              <span v-if="scope.row.delivery_date" class="text-green font-bold">{{ scope.row.delivery_date }}</span>
+              <span v-else class="text-red font-bold">尚未配達</span>
+            </template>
+          </el-table-column>
           <el-table-column prop="ship_date" label="實際出貨日" width="105" align="center" sortable />
-          <el-table-column prop="ship_time" label="出貨時間" width="95" align="center" sortable />
+          <el-table-column prop="ship_time" label="出貨時間" width="90" align="center" sortable />
           <el-table-column prop="order_date" label="接單日期" width="105" align="center" sortable />
-          <el-table-column prop="order_time" label="接單時間" width="95" align="center" sortable />
-          <el-table-column prop="receiver_name" label="收件人" width="95" />
-          <el-table-column prop="address" label="收件地址" min-width="220" show-overflow-tooltip />
+          <el-table-column prop="receiver_name" label="收件人" width="90" />
+          <el-table-column prop="address" label="收件地址" min-width="200" show-overflow-tooltip />
         </el-table>
       </div>
     </el-dialog>
@@ -742,7 +913,7 @@
         <i class="el-icon-upload drop-icon"></i>
         <div class="drop-text-main">將一個或多個 Excel 報表拖曳至此處</div>
         <div class="drop-text-sub">或點擊此處（按住 Ctrl / Shift 可一次選取多個檔案）</div>
-        <div class="drop-tip">🛡️ 自動依序排隊解析多檔日期、庫別、宅配商與全流程時效</div>
+        <div class="drop-tip">🛡️ 自動依序排隊解析多檔日期、庫別、宅配商、配達狀態與物流成本</div>
       </div>
     </el-dialog>
 
@@ -796,9 +967,10 @@ export default {
   data() {
     return {
       activeTab: 'ship_flow',
-      dayMode: 'operational', // 'operational' (班別作業日 01~隔日01) | 'calendar' (實際自然日 00~24)
+      dayMode: 'operational',
       countMode: 'tracking',
       groupPreorders: true,
+      undeliveredFilter: 'all',
       loading: false,
       loadingMonthly: false,
       loadingYearly: false,
@@ -843,6 +1015,17 @@ export default {
         delayedOrdersList: []
       },
 
+      deliveryTracking: {
+        totalCount: 0,
+        deliveredCount: 0,
+        undeliveredCount: 0,
+        undeliveredHomeCount: 0,
+        undeliveredCvsCount: 0,
+        deliveredRate: 0,
+        carrierDeliveryList: [],
+        undeliveredList: []
+      },
+
       shipChartInstance: null,
       orderChartInstance: null,
       leadBracketChartInstance: null,
@@ -882,7 +1065,12 @@ export default {
       return username === 'admin' || username === '系統管理員';
     },
     isDailyTab() {
-      return ['ship_flow', 'order_lead_time', 'lead_analytics'].includes(this.activeTab);
+      return ['ship_flow', 'order_lead_time', 'lead_analytics', 'delivery_tracking'].includes(this.activeTab);
+    },
+    filteredUndeliveredList() {
+      const list = this.deliveryTracking.undeliveredList || [];
+      if (this.undeliveredFilter === 'all') return list;
+      return list.filter(u => u.channelType === this.undeliveredFilter);
     },
     nextTargetDate() {
       if (!this.targetDate) return '';
@@ -909,10 +1097,8 @@ export default {
         : this.hourlyFlow.filter(h => this.getHourShift(h.hour) === this.selectedShift);
 
       if (this.dayMode === 'calendar') {
-        // 實際自然日：標準 00~01 到 23~24 順序
         return [...list].sort((a, b) => a.hour - b.hour);
       }
-      // 班別作業日：01~02 ➔ 23~00 ➔ 隔日 00~01 排在最右邊
       return [...list].sort((a, b) => (a.hour === 0 ? 24 : a.hour) - (b.hour === 0 ? 24 : b.hour));
     },
     displayOrderTimelineFlow() {
@@ -961,6 +1147,8 @@ export default {
     monthlyTotalSummary() {
       return this.monthlyDailyList.reduce((acc, d) => {
         acc.total += d.total || 0;
+        acc.deliveredCount += d.deliveredCount || 0;
+        acc.undeliveredCount += d.undeliveredCount || 0;
         acc.dayShift += d.dayShift || 0;
         acc.nightShift += d.nightShift || 0;
         acc.graveyardShift += d.graveyardShift || 0;
@@ -969,11 +1157,13 @@ export default {
         acc.east += d.east || 0;
         acc.island += d.island || 0;
         return acc;
-      }, { total: 0, dayShift: 0, nightShift: 0, graveyardShift: 0, north: 0, south: 0, east: 0, island: 0 });
+      }, { total: 0, deliveredCount: 0, undeliveredCount: 0, dayShift: 0, nightShift: 0, graveyardShift: 0, north: 0, south: 0, east: 0, island: 0 });
     },
     yearlyTotalSummary() {
       return this.yearlyMonthlyList.reduce((acc, m) => {
         acc.total += m.total || 0;
+        acc.deliveredCount += m.deliveredCount || 0;
+        acc.undeliveredCount += m.undeliveredCount || 0;
         acc.dayShift += m.dayShift || 0;
         acc.nightShift += m.nightShift || 0;
         acc.graveyardShift += m.graveyardShift || 0;
@@ -982,7 +1172,7 @@ export default {
         acc.east += m.east || 0;
         acc.island += m.island || 0;
         return acc;
-      }, { total: 0, dayShift: 0, nightShift: 0, graveyardShift: 0, north: 0, south: 0, east: 0, island: 0 });
+      }, { total: 0, deliveredCount: 0, undeliveredCount: 0, dayShift: 0, nightShift: 0, graveyardShift: 0, north: 0, south: 0, east: 0, island: 0 });
     },
     filteredModalList() {
       if (!this.filterKeyword.trim()) return this.modalList;
@@ -1183,6 +1373,7 @@ export default {
           this.hourlyFlow = res.data.hourlyFlow || [];
           this.orderTimelineFlow = res.data.orderTimelineFlow || [];
           this.leadAnalytics = res.data.leadAnalytics || this.leadAnalytics;
+          this.deliveryTracking = res.data.deliveryTracking || this.deliveryTracking;
           this.$nextTick(() => { this.renderAllCharts(); });
         }
       } catch (e) {
@@ -1705,6 +1896,11 @@ export default {
   border-bottom-color: #facc15;
   background: rgba(250, 204, 21, 0.08);
 }
+.delivery-tab.active {
+  color: #f87171;
+  border-bottom-color: #f87171;
+  background: rgba(248, 113, 113, 0.1);
+}
 .summary-tab.active {
   color: #4ade80;
   border-bottom-color: #4ade80;
@@ -1835,6 +2031,7 @@ export default {
 }
 .flow-matrix-table th { background: #1e293b; color: #94a3b8; font-weight: bold; text-align: center; position: sticky; top: 0; z-index: 5; }
 .row-zebra td { background: rgba(255, 255, 255, 0.02); }
+.row-home-alert td { background: rgba(248, 113, 113, 0.1) !important; }
 
 .row-delay td { background: rgba(239, 68, 68, 0.06); }
 .row-preorder td { background: rgba(168, 85, 247, 0.12) !important; }
@@ -1853,6 +2050,24 @@ export default {
   padding: 1px 4px;
   border-radius: 3px;
   margin-left: 4px;
+}
+
+.rate-badge { padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 11px; }
+.rate-ok { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
+.rate-mid { background: rgba(250, 204, 21, 0.2); color: #facc15; }
+.rate-high { background: rgba(248, 113, 113, 0.2); color: #f87171; }
+
+.cat-badge { padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; }
+.cat-home-alert { background: rgba(248, 113, 113, 0.25); color: #fca5a5; border: 1px solid rgba(248, 113, 113, 0.5); }
+.cat-cvs { background: rgba(251, 146, 60, 0.2); color: #fdba74; }
+
+.status-pill {
+  background: rgba(56, 189, 248, 0.15);
+  color: #7dd3fc;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: bold;
 }
 
 .table-total-row td {

@@ -156,7 +156,7 @@ module.exports = function(db) {
     return baseSql;
   }
 
-  // 初始化資料表（含配達日期、配達時間、配送狀態欄位）
+  // 初始化資料表
   db.serialize(() => {
     db.run(`
       CREATE TABLE IF NOT EXISTS delivery_order_tracking (
@@ -414,7 +414,6 @@ module.exports = function(db) {
         const is_late = getV('是否遲到', 'is_late') || 'N';
         const cod_type = getV('貨到付款種類', 'cod_type') || '無代收款';
 
-        // 配達判定與追蹤欄位
         const delivery_date = normalizeDate(getV('配達日期', 'delivery_date'));
         const delivery_time = getV('配達時間', 'delivery_time');
         const delivery_status = getV('配送狀態', 'delivery_status');
@@ -490,7 +489,7 @@ module.exports = function(db) {
     });
   });
 
-  // 單日綜合流向分析 API
+  // 單日綜合流向分析 API（包含配達日期判定與未配達追蹤）
   router.get('/flow-analysis', (req, res) => {
     let { targetDate, whCode, region, shift, carrier, deliveryType, is24h, countMode, dayMode } = req.query;
     countMode = countMode || 'tracking';
@@ -575,6 +574,76 @@ module.exports = function(db) {
         const stageMinsSums = { step1: 0, step2: 0, step3: 0, step4: 0, step5: 0 };
         const stageMinsCounts = { step1: 0, step2: 0, step3: 0, step4: 0, step5: 0 };
         const delayedOrdersList = [];
+
+        // 配達日期判定與未配達追蹤統計（依包裹明細 lowerRows 統計）
+        let deliveredCount = 0;
+        let undeliveredCount = 0;
+        let undeliveredHomeCount = 0;
+        let undeliveredCvsCount = 0;
+        const carrierDeliveryMap = {};
+        const undeliveredList = [];
+        const nowMs = Date.now();
+
+        lowerRows.forEach(r => {
+          const delivDateClean = normalizeDate(r.delivery_date);
+          const isDelivered = Boolean(delivDateClean);
+          const isCvs = isCvsPickup(r.carrier_name, r.delivery_type);
+          const cName = r.carrier_name || '未分類物流商';
+
+          if (!carrierDeliveryMap[cName]) {
+            carrierDeliveryMap[cName] = {
+              carrier: cName,
+              totalCount: 0,
+              deliveredCount: 0,
+              undeliveredCount: 0,
+              lateCount: 0,
+              transitHoursSum: 0,
+              transitHoursCnt: 0
+            };
+          }
+          const cdb = carrierDeliveryMap[cName];
+          cdb.totalCount++;
+          if (r.is_late === 'Y') cdb.lateCount++;
+
+          if (isDelivered) {
+            deliveredCount++;
+            cdb.deliveredCount++;
+            const sDt = parseDateTime(r.ship_date, r.ship_time);
+            const dDt = parseDateTime(delivDateClean, r.delivery_time || '12:00:00');
+            if (sDt && dDt && dDt >= sDt) {
+              cdb.transitHoursSum += (dDt - sDt) / (1000 * 3600);
+              cdb.transitHoursCnt++;
+            }
+          } else {
+            undeliveredCount++;
+            cdb.undeliveredCount++;
+            if (isCvs) undeliveredCvsCount++;
+            else undeliveredHomeCount++;
+
+            const sDt = parseDateTime(r.ship_date, r.ship_time);
+            const elapsedHours = sDt ? Math.max(0, (nowMs - sDt.getTime()) / (1000 * 3600)) : 0;
+            undeliveredList.push({
+              ...r,
+              channelType: isCvs ? 'cvs' : 'home',
+              elapsedHours: Number(elapsedHours.toFixed(1)),
+              elapsedDays: Number((elapsedHours / 24).toFixed(1))
+            });
+          }
+        });
+
+        undeliveredList.sort((a, b) => {
+          if (a.channelType !== b.channelType) return a.channelType === 'home' ? -1 : 1;
+          return `${a.ship_date} ${a.ship_time}`.localeCompare(`${b.ship_date} ${b.ship_time}`);
+        });
+
+        const carrierDeliveryList = Object.values(carrierDeliveryMap)
+          .map(c => ({
+            ...c,
+            deliveredRate: c.totalCount > 0 ? Number(((c.deliveredCount / c.totalCount) * 100).toFixed(1)) : 0,
+            lateRate: c.totalCount > 0 ? Number(((c.lateCount / c.totalCount) * 100).toFixed(1)) : 0,
+            avgTransitHours: c.transitHoursCnt > 0 ? Number((c.transitHoursSum / c.transitHoursCnt).toFixed(1)) : 0
+          }))
+          .sort((a, b) => b.totalCount - a.totalCount);
 
         lowerProcessRows.forEach(r => {
           const reg = regions.includes(r.region) ? r.region : '其他/未識別';
@@ -690,6 +759,16 @@ module.exports = function(db) {
             leadBrackets,
             stageAvgMins,
             delayedOrdersList
+          },
+          deliveryTracking: {
+            totalCount: totalTrackingCount,
+            deliveredCount,
+            undeliveredCount,
+            undeliveredHomeCount,
+            undeliveredCvsCount,
+            deliveredRate: totalTrackingCount > 0 ? Number(((deliveredCount / totalTrackingCount) * 100).toFixed(1)) : 0,
+            carrierDeliveryList,
+            undeliveredList: undeliveredList.slice(0, 1500)
           }
         });
       });
@@ -708,7 +787,7 @@ module.exports = function(db) {
     }
   });
 
-  // 物流費與包材成本專屬分析 API（含配達日期判定與尚未配達貨件追蹤）
+  // 物流費與包材成本專屬分析 API（純財務、箱號、拆箱、高運費與額外加價分析）
   router.get('/cost-analysis', (req, res) => {
     const { startDate, endDate, whCode, carrier, deliveryType, boxNo, region, onlySplitBox, onlyLate, highFeeThreshold } = req.query;
     const feeThreshold = Number(highFeeThreshold) || 120;
@@ -750,12 +829,6 @@ module.exports = function(db) {
         let lateCount = 0;
         let codCashCount = 0;
 
-        // 配達日期判定計數
-        let deliveredCount = 0;
-        let undeliveredCount = 0;
-        let undeliveredHomeCount = 0;
-        let undeliveredCvsCount = 0;
-
         const splitSummaryMap = {
           same_wh_same_day: {
             typeKey: 'same_wh_same_day',
@@ -785,9 +858,6 @@ module.exports = function(db) {
         const highShippingList = [];
         const extraFeeList = [];
         const wastefulBoxList = [];
-        const undeliveredList = [];
-
-        const nowMs = Date.now();
 
         rows.forEach(r => {
           if (r.order_no) orderSet.add(r.order_no);
@@ -798,34 +868,6 @@ module.exports = function(db) {
           const vol = Number(r.box_volume || 0);
           const weight = Number(r.actual_weight || 0);
           const totalCost = shipFee + boxPrice;
-
-          // 依據 delivery_date (配達日期) 判斷是否已配達
-          const delivDateClean = normalizeDate(r.delivery_date);
-          const isDelivered = Boolean(delivDateClean);
-          const isCvs = isCvsPickup(r.carrier_name, r.delivery_type);
-
-          let transitHours = null;
-          if (isDelivered) {
-            deliveredCount++;
-            const sDt = parseDateTime(r.ship_date, r.ship_time);
-            const dDt = parseDateTime(delivDateClean, r.delivery_time || '12:00:00');
-            if (sDt && dDt && dDt >= sDt) {
-              transitHours = (dDt - sDt) / (1000 * 3600);
-            }
-          } else {
-            undeliveredCount++;
-            if (isCvs) undeliveredCvsCount++;
-            else undeliveredHomeCount++;
-
-            const sDt = parseDateTime(r.ship_date, r.ship_time);
-            const elapsedHours = sDt ? Math.max(0, (nowMs - sDt.getTime()) / (1000 * 3600)) : 0;
-            undeliveredList.push({
-              ...r,
-              channelType: isCvs ? 'cvs' : 'home',
-              elapsedHours: Number(elapsedHours.toFixed(1)),
-              elapsedDays: Number((elapsedHours / 24).toFixed(1))
-            });
-          }
 
           totalShippingFee += shipFee;
           totalBoxCost += boxPrice;
@@ -874,11 +916,7 @@ module.exports = function(db) {
               extraFee: 0,
               totalCost: 0,
               lateCount: 0,
-              splitCount: 0,
-              deliveredCount: 0,
-              undeliveredCount: 0,
-              transitHoursSum: 0,
-              transitHoursCnt: 0
+              splitCount: 0
             };
           }
           const cb = carrierMap[cName];
@@ -890,15 +928,6 @@ module.exports = function(db) {
           cb.totalCost += totalCost;
           if (r.is_late === 'Y') cb.lateCount++;
           if (r.is_first_box === 'N') cb.splitCount++;
-          if (isDelivered) {
-            cb.deliveredCount++;
-            if (transitHours !== null) {
-              cb.transitHoursSum += transitHours;
-              cb.transitHoursCnt++;
-            }
-          } else {
-            cb.undeliveredCount++;
-          }
 
           const bCode = r.box_no || '未記錄';
           if (!boxMap[bCode]) {
@@ -999,11 +1028,6 @@ module.exports = function(db) {
         highShippingList.sort((a, b) => Number(b.shipping_fee || 0) - Number(a.shipping_fee || 0));
         extraFeeList.sort((a, b) => Number(b.extra_fee || 0) - Number(a.extra_fee || 0));
         wastefulBoxList.sort((a, b) => b.estSave - a.estSave);
-        // 尚未配達清單：優先把宅配件排在最前面，再依出貨時間排序
-        undeliveredList.sort((a, b) => {
-          if (a.channelType !== b.channelType) return a.channelType === 'home' ? -1 : 1;
-          return `${a.ship_date} ${a.ship_time}`.localeCompare(`${b.ship_date} ${b.ship_time}`);
-        });
 
         const totalFulfillmentCost = totalShippingFee + totalBoxCost;
 
@@ -1030,9 +1054,7 @@ module.exports = function(db) {
             totalCost: Number(c.totalCost.toFixed(2)),
             avgShippingFee: c.billedCount > 0 ? Number((c.shippingFee / c.billedCount).toFixed(2)) : 0,
             avgTotalCost: c.count > 0 ? Number((c.totalCost / c.count).toFixed(2)) : 0,
-            lateRate: c.count > 0 ? Number(((c.lateCount / c.count) * 100).toFixed(1)) : 0,
-            deliveredRate: c.count > 0 ? Number(((c.deliveredCount / c.count) * 100).toFixed(1)) : 0,
-            avgTransitHours: c.transitHoursCnt > 0 ? Number((c.transitHoursSum / c.transitHoursCnt).toFixed(1)) : 0
+            lateRate: c.count > 0 ? Number(((c.lateCount / c.count) * 100).toFixed(1)) : 0
           }))
           .sort((a, b) => b.totalCost - a.totalCost);
 
@@ -1117,12 +1139,7 @@ module.exports = function(db) {
             highShippingTotalCount: highShippingList.length,
             extraFeeTotalCount: extraFeeList.length,
             boxTypeCount: boxList.length,
-            wastefulBoxTotalCount: wastefulBoxList.length,
-            deliveredCount,
-            undeliveredCount,
-            undeliveredHomeCount,
-            undeliveredCvsCount,
-            deliveredRate: totalPackages > 0 ? Number(((deliveredCount / totalPackages) * 100).toFixed(1)) : 0
+            wastefulBoxTotalCount: wastefulBoxList.length
           },
           splitSummaryList,
           carrierList,
@@ -1132,8 +1149,7 @@ module.exports = function(db) {
           splitOrdersDetail,
           highShippingList: highShippingList.slice(0, 1000),
           extraFeeList: extraFeeList.slice(0, 1000),
-          wastefulBoxList: wastefulBoxList.slice(0, 500),
-          undeliveredList: undeliveredList.slice(0, 1500)
+          wastefulBoxList: wastefulBoxList.slice(0, 500)
         });
       });
     };
@@ -1166,8 +1182,6 @@ module.exports = function(db) {
         COUNT(DISTINCT CASE WHEN is_first_box = 'N' THEN order_no END) as splitOrderCount,
         SUM(CASE WHEN is_first_box = 'N' THEN 1 ELSE 0 END) as splitBoxCount,
         ROUND(SUM(CASE WHEN is_first_box = 'N' THEN (IFNULL(shipping_fee, 0) + IFNULL(box_price, 0)) ELSE 0 END), 2) as splitBoxLoss,
-        SUM(CASE WHEN delivery_date IS NOT NULL AND delivery_date != '' THEN 1 ELSE 0 END) as deliveredCount,
-        SUM(CASE WHEN delivery_date IS NULL OR delivery_date = '' THEN 1 ELSE 0 END) as undeliveredCount,
         SUM(CASE WHEN is_late = 'Y' THEN 1 ELSE 0 END) as lateCount
       FROM delivery_order_tracking
       WHERE ship_date LIKE ?
@@ -1182,7 +1196,6 @@ module.exports = function(db) {
         ...r,
         avgBilledShippingFee: r.billedPackages > 0 ? Number((r.shippingFee / r.billedPackages).toFixed(2)) : 0,
         avgTotalCost: r.totalPackages > 0 ? Number((r.totalCost / r.totalPackages).toFixed(2)) : 0,
-        deliveredRate: r.totalPackages > 0 ? Number(((r.deliveredCount / r.totalPackages) * 100).toFixed(1)) : 0,
         lateRate: r.totalPackages > 0 ? Number(((r.lateCount / r.totalPackages) * 100).toFixed(1)) : 0
       }));
       res.json({ success: true, month, dailyList });
@@ -1207,8 +1220,6 @@ module.exports = function(db) {
         COUNT(DISTINCT CASE WHEN is_first_box = 'N' THEN order_no END) as splitOrderCount,
         SUM(CASE WHEN is_first_box = 'N' THEN 1 ELSE 0 END) as splitBoxCount,
         ROUND(SUM(CASE WHEN is_first_box = 'N' THEN (IFNULL(shipping_fee, 0) + IFNULL(box_price, 0)) ELSE 0 END), 2) as splitBoxLoss,
-        SUM(CASE WHEN delivery_date IS NOT NULL AND delivery_date != '' THEN 1 ELSE 0 END) as deliveredCount,
-        SUM(CASE WHEN delivery_date IS NULL OR delivery_date = '' THEN 1 ELSE 0 END) as undeliveredCount,
         SUM(CASE WHEN is_late = 'Y' THEN 1 ELSE 0 END) as lateCount
       FROM delivery_order_tracking
       WHERE ship_date LIKE ?
@@ -1236,8 +1247,6 @@ module.exports = function(db) {
           splitOrderCount: 0,
           splitBoxCount: 0,
           splitBoxLoss: 0,
-          deliveredCount: 0,
-          undeliveredCount: 0,
           lateCount: 0
         };
         return {
@@ -1245,7 +1254,6 @@ module.exports = function(db) {
           monthLabel: `${mNum}月`,
           avgBilledShippingFee: r.billedPackages > 0 ? Number((r.shippingFee / r.billedPackages).toFixed(2)) : 0,
           avgTotalCost: r.totalPackages > 0 ? Number((r.totalCost / r.totalPackages).toFixed(2)) : 0,
-          deliveredRate: r.totalPackages > 0 ? Number(((r.deliveredCount / r.totalPackages) * 100).toFixed(1)) : 0,
           lateRate: r.totalPackages > 0 ? Number(((r.lateCount / r.totalPackages) * 100).toFixed(1)) : 0
         };
       });
@@ -1254,7 +1262,7 @@ module.exports = function(db) {
     });
   });
 
-  // 每月每日流向總表 API
+  // 每月每日流向總表 API（包含配達率與未配達件數）
   router.get('/monthly-summary', (req, res) => {
     const { month } = req.query;
     const countMode = req.query.countMode || 'tracking';
@@ -1301,6 +1309,7 @@ module.exports = function(db) {
         let dayShift = 0, nightShift = 0, graveyardShift = 0;
         let north = 0, south = 0, east = 0, island = 0;
         let is24hCnt = 0, leadSum = 0, leadCnt = 0;
+        let deliveredCnt = 0, undeliveredCnt = 0;
 
         processRows.forEach(r => {
           if (r.shift_type === '日班') dayShift++;
@@ -1313,6 +1322,8 @@ module.exports = function(db) {
           else if (r.region === '外島') island++;
 
           if (r.is_24h === '是') is24hCnt++;
+          if (normalizeDate(r.delivery_date)) deliveredCnt++;
+          else undeliveredCnt++;
 
           const oDt = parseDateTime(r.order_date, r.order_time);
           const sDt = parseDateTime(r.ship_date, r.ship_time);
@@ -1335,6 +1346,9 @@ module.exports = function(db) {
           south,
           east,
           island,
+          deliveredCount: deliveredCnt,
+          undeliveredCount: undeliveredCnt,
+          deliveredRate: total > 0 ? ((deliveredCnt / total) * 100).toFixed(1) + '%' : '0.0%',
           rate24h: total > 0 ? ((is24hCnt / total) * 100).toFixed(1) + '%' : '0.0%',
           avgLeadHours: leadCnt > 0 ? (leadSum / leadCnt).toFixed(1) : '0.0'
         };
@@ -1396,6 +1410,7 @@ module.exports = function(db) {
         let dayShift = 0, nightShift = 0, graveyardShift = 0;
         let north = 0, south = 0, east = 0, island = 0;
         let is24hCnt = 0, leadSum = 0, leadCnt = 0;
+        let deliveredCnt = 0, undeliveredCnt = 0;
 
         processRows.forEach(r => {
           if (r.shift_type === '日班') dayShift++;
@@ -1408,6 +1423,8 @@ module.exports = function(db) {
           else if (r.region === '外島') island++;
 
           if (r.is_24h === '是') is24hCnt++;
+          if (normalizeDate(r.delivery_date)) deliveredCnt++;
+          else undeliveredCnt++;
 
           const oDt = parseDateTime(r.order_date, r.order_time);
           const sDt = parseDateTime(r.ship_date, r.ship_time);
@@ -1431,6 +1448,9 @@ module.exports = function(db) {
           south,
           east,
           island,
+          deliveredCount: deliveredCnt,
+          undeliveredCount: undeliveredCnt,
+          deliveredRate: total > 0 ? ((deliveredCnt / total) * 100).toFixed(1) + '%' : '0.0%',
           rate24h: total > 0 ? ((is24hCnt / total) * 100).toFixed(1) + '%' : '0.0%',
           avgLeadHours: leadCnt > 0 ? (leadSum / leadCnt).toFixed(1) : '0.0'
         };

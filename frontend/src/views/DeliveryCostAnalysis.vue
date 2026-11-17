@@ -149,11 +149,8 @@
         <button class="sub-tab-btn" :class="{ active: activeTab === 'carrier_box' }" @click="switchTab('carrier_box')">
           💰 物流商與包材成本總覽
         </button>
-        <button class="sub-tab-btn delivery-tab" :class="{ active: activeTab === 'delivery_tracking' }" @click="switchTab('delivery_tracking')">
-          🚚 配達與未配達追蹤 ({{ formatNumber(kpi.undeliveredCount || 0) }} 未達)
-        </button>
         <button class="sub-tab-btn box-tab" :class="{ active: activeTab === 'box_analysis' }" @click="switchTab('box_analysis')">
-          📦 箱號耗用與材積異常 ({{ boxList.length }} 種)
+          📦 箱號耗用與材積異常分析 ({{ boxList.length }} 種)
         </button>
         <button class="sub-tab-btn" :class="{ active: activeTab === 'district_type' }" @click="switchTab('district_type')">
           📮 行政區熱點與宅配類別
@@ -178,7 +175,7 @@
 
     <!-- 2. 主內容區 -->
     <div class="main-content-scroll" v-loading="loading">
-      <!-- 四大核心財務 KPI 卡片（區間分析頁籤顯示） -->
+      <!-- 四大核心財務 KPI 卡片 -->
       <div class="kpi-cards-row" v-if="isRangeTab">
         <div class="kpi-card border-gold">
           <div class="kpi-head">
@@ -205,15 +202,13 @@
 
         <div class="kpi-card border-green">
           <div class="kpi-head">
-            <span class="kpi-title">✅ 配達狀態追蹤 (依配達日期)</span>
-            <span class="kpi-badge text-green">配達率 {{ kpi.deliveredRate || 0 }}%</span>
+            <span class="kpi-title">📦 紙箱包材總成本</span>
+            <span class="kpi-badge">均價 ${{ kpi.avgBoxCost }} / 箱</span>
           </div>
-          <div class="kpi-val text-green">
-            {{ formatNumber(kpi.deliveredCount || 0) }} <span style="font-size: 13px; color: #94a3b8;">已達</span>
-            / <span class="text-red">{{ formatNumber(kpi.undeliveredCount || 0) }}</span> <span style="font-size: 13px; color: #f87171;">未達</span>
-          </div>
+          <div class="kpi-val text-green">${{ formatMoney(kpi.totalBoxCost) }}</div>
           <div class="kpi-sub">
-            未配達明細：宅配 <strong class="text-red">{{ formatNumber(kpi.undeliveredHomeCount || 0) }}</strong> 件 ＋ 超取 <strong class="text-orange">{{ formatNumber(kpi.undeliveredCvsCount || 0) }}</strong> 件
+            佔總履約成本 <strong>{{ kpi.totalFulfillmentCost > 0 ? ((kpi.totalBoxCost / kpi.totalFulfillmentCost) * 100).toFixed(1) : '0.0' }}%</strong>
+            （共 {{ boxList.length }} 種箱型）
           </div>
         </div>
 
@@ -224,7 +219,7 @@
           </div>
           <div class="kpi-val text-purple">${{ formatMoney(kpi.splitBoxTotalLoss) }}</div>
           <div class="kpi-sub">
-            涉及 <strong>{{ formatNumber(kpi.splitOrderCount || 0) }}</strong> 單 / 多拆 <strong>{{ formatNumber(kpi.splitBoxCount) }}</strong> 箱（包材總計 ${{ formatMoney(kpi.totalBoxCost) }}）
+            涉及 <strong>{{ formatNumber(kpi.splitOrderCount || 0) }}</strong> 單 / 多拆 <strong>{{ formatNumber(kpi.splitBoxCount) }}</strong> 箱（運費 ${{ formatMoney(kpi.splitBoxShippingLoss) }} ＋ 包材 ${{ formatMoney(kpi.splitBoxMaterialLoss) }}）
           </div>
         </div>
       </div>
@@ -253,14 +248,13 @@
                 <tr>
                   <th>物流商</th>
                   <th>總件數</th>
-                  <th>已配達</th>
-                  <th>未配達</th>
-                  <th>配達率</th>
+                  <th>計費件數</th>
                   <th>物流費總計</th>
                   <th>計費件均運費</th>
                   <th>額外加價合計</th>
                   <th>包材費總計</th>
                   <th>總履約成本</th>
+                  <th>拆箱件數</th>
                   <th>遲到件數</th>
                   <th>遲到率</th>
                 </tr>
@@ -269,14 +263,13 @@
                 <tr v-for="(c, idx) in carrierList" :key="c.carrier" :class="{ 'row-zebra': idx % 2 === 1 }">
                   <td class="font-bold text-blue">{{ c.carrier }}</td>
                   <td class="text-right font-bold">{{ formatNumber(c.count) }}</td>
-                  <td class="text-right text-green">{{ formatNumber(c.deliveredCount || 0) }}</td>
-                  <td class="text-right text-red font-bold">{{ formatNumber(c.undeliveredCount || 0) }}</td>
-                  <td class="text-center font-bold text-green">{{ c.deliveredRate || 0 }}%</td>
+                  <td class="text-right text-dim">{{ formatNumber(c.billedCount) }}</td>
                   <td class="text-right text-blue font-bold">${{ formatMoney(c.shippingFee) }}</td>
                   <td class="text-right text-yellow font-bold">${{ c.avgShippingFee.toFixed(2) }}</td>
                   <td class="text-right text-orange">${{ formatMoney(c.extraFee) }}</td>
                   <td class="text-right text-green">${{ formatMoney(c.boxCost) }}</td>
                   <td class="text-right text-yellow font-bold">${{ formatMoney(c.totalCost) }}</td>
+                  <td class="text-right text-purple">{{ formatNumber(c.splitCount) }}</td>
                   <td class="text-right text-red font-bold">{{ formatNumber(c.lateCount) }}</td>
                   <td class="text-center">
                     <span class="rate-badge" :class="c.lateRate >= 10 ? 'rate-high' : (c.lateRate >= 3 ? 'rate-mid' : 'rate-ok')">
@@ -290,130 +283,7 @@
         </div>
       </div>
 
-      <!-- 頁籤 2：配達日期判定與尚未配達貨件追蹤 -->
-      <div v-show="activeTab === 'delivery_tracking'" class="tab-pane-box">
-        <!-- 上層：各物流商配達率彙總表 -->
-        <div class="table-card">
-          <div class="table-header">
-            <span class="table-title">📊 各物流商「配達日期」完妥率與平均配送耗時總表</span>
-            <span class="tip-text">💡 判定規則：「配達日期」欄位有日期即為已配達；空白則列為尚未配達</span>
-          </div>
-          <div class="table-scroll">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>物流商</th>
-                  <th>總出貨件數</th>
-                  <th>已配達件數 (有配達日)</th>
-                  <th>尚未配達件數 (配達日空白)</th>
-                  <th>配達完妥率</th>
-                  <th>平均配送耗時 (出貨➔配達)</th>
-                  <th>遲到件數</th>
-                  <th>遲到率</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(c, idx) in carrierList" :key="c.carrier" :class="{ 'row-zebra': idx % 2 === 1 }">
-                  <td class="font-bold text-blue">{{ c.carrier }}</td>
-                  <td class="text-right font-bold">{{ formatNumber(c.count) }}</td>
-                  <td class="text-right text-green font-bold">{{ formatNumber(c.deliveredCount || 0) }}</td>
-                  <td class="text-right text-red font-bold">{{ formatNumber(c.undeliveredCount || 0) }}</td>
-                  <td class="text-center">
-                    <span class="rate-badge" :class="(c.deliveredRate || 0) >= 98 ? 'rate-ok' : ((c.deliveredRate || 0) >= 80 ? 'rate-mid' : 'rate-high')">
-                      {{ c.deliveredRate || 0 }}%
-                    </span>
-                  </td>
-                  <td class="text-center text-yellow">{{ c.avgTransitHours ? `${c.avgTransitHours} 小時` : '-' }}</td>
-                  <td class="text-right text-red">{{ formatNumber(c.lateCount) }}</td>
-                  <td class="text-center">{{ c.lateRate }}%</td>
-                </tr>
-              </tbody>
-              <tfoot v-if="carrierList.length > 0">
-                <tr class="table-total-row">
-                  <td class="text-center font-bold text-yellow">全物流商合計</td>
-                  <td class="text-right font-bold">{{ formatNumber(kpi.totalPackages) }}</td>
-                  <td class="text-right font-bold text-green">{{ formatNumber(kpi.deliveredCount || 0) }}</td>
-                  <td class="text-right font-bold text-red">{{ formatNumber(kpi.undeliveredCount || 0) }}</td>
-                  <td class="text-center font-bold text-green">{{ kpi.deliveredRate || 0 }}%</td>
-                  <td></td>
-                  <td class="text-right font-bold text-red">{{ formatNumber(kpi.lateCount) }}</td>
-                  <td class="text-center font-bold text-red">{{ kpi.lateRate }}%</td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        </div>
-
-        <!-- 下層：尚未配達貨件追蹤清單 -->
-        <div class="table-card">
-          <div class="table-header">
-            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-              <span class="table-title">🚨 尚未配達貨件追蹤清單（配達日期為空白）</span>
-              <el-radio-group v-model="undeliveredFilter" size="mini">
-                <el-radio-button label="all">全部未配達 ({{ formatNumber(kpi.undeliveredCount || 0) }})</el-radio-button>
-                <el-radio-button label="home">🚚 僅看宅配未配達 ({{ formatNumber(kpi.undeliveredHomeCount || 0) }})</el-radio-button>
-                <el-radio-button label="cvs">🏪 僅看超取未配達 ({{ formatNumber(kpi.undeliveredCvsCount || 0) }})</el-radio-button>
-              </el-radio-group>
-            </div>
-            <span class="tip-text">💡 宅配未配達已優先置頂，點擊單號可直接複製向物流商查詢貨態</span>
-          </div>
-          <div class="table-scroll" style="max-height: 480px;">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>通路類型</th>
-                  <th>宅配單號</th>
-                  <th>訂單編號</th>
-                  <th>庫別</th>
-                  <th>物流商</th>
-                  <th>宅配類別</th>
-                  <th>目前配送狀態</th>
-                  <th>出貨日期</th>
-                  <th>出貨時間</th>
-                  <th>已出貨經過</th>
-                  <th>收件人</th>
-                  <th>郵遞區號</th>
-                  <th>收件地址</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-if="filteredUndeliveredList.length === 0">
-                  <td colspan="13" class="text-center text-dim" style="padding: 28px;">🎉 該條件下所有貨件皆已填寫配達日期（全數配達完畢）！</td>
-                </tr>
-                <tr
-                  v-for="u in filteredUndeliveredList"
-                  :key="u.tracking_no"
-                  :class="{ 'row-home-alert': u.channelType === 'home' }"
-                >
-                  <td class="text-center">
-                    <span class="cat-badge" :class="u.channelType === 'home' ? 'cat-home-alert' : 'cat-cvs'">
-                      {{ u.channelType === 'home' ? '🚚 宅配未達' : '🏪 超取未達' }}
-                    </span>
-                  </td>
-                  <td class="font-bold text-blue copyable" @click="copyText(u.tracking_no)">{{ u.tracking_no }}</td>
-                  <td class="font-bold text-orange copyable" @click="copyText(u.order_no)">{{ u.order_no }}</td>
-                  <td class="text-center font-bold text-yellow">{{ u.wh_code ? `${u.wh_code}庫` : '-' }}</td>
-                  <td class="font-bold">{{ u.carrier_name }}</td>
-                  <td class="text-center">{{ u.delivery_type }}</td>
-                  <td class="text-center">
-                    <span class="status-pill">{{ u.delivery_status || '出貨中' }}</span>
-                  </td>
-                  <td class="text-center">{{ u.ship_date }}</td>
-                  <td class="text-center">{{ u.ship_time }}</td>
-                  <td class="text-right font-bold" :class="u.elapsedDays >= 3 ? 'text-red' : 'text-yellow'">
-                    {{ u.elapsedDays }} 天 ({{ u.elapsedHours }}H)
-                  </td>
-                  <td class="text-center">{{ u.receiver_name || '-' }}</td>
-                  <td class="text-center">{{ u.zip_code }}</td>
-                  <td class="text-dim">{{ u.address }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      <!-- 頁籤 3：箱號耗用與材積異常深度分析 -->
+      <!-- 頁籤 2：箱號耗用與材積異常深度分析 -->
       <div v-show="activeTab === 'box_analysis'" class="tab-pane-box">
         <div class="charts-grid-2">
           <div class="chart-card">
@@ -536,7 +406,7 @@
         </div>
       </div>
 
-      <!-- 頁籤 4：行政區熱點與宅配類別 -->
+      <!-- 頁籤 3：行政區熱點與宅配類別 -->
       <div v-show="activeTab === 'district_type'" class="tab-pane-box">
         <div class="table-card">
           <div class="table-header">
@@ -614,7 +484,7 @@
         </div>
       </div>
 
-      <!-- 頁籤 5：一單多箱拆箱成本稽核（分開統計＋合併統計） -->
+      <!-- 頁籤 4：一單多箱拆箱成本稽核 -->
       <div v-show="activeTab === 'split_audit'" class="tab-pane-box">
         <div class="table-card">
           <div class="table-header">
@@ -733,7 +603,7 @@
         </div>
       </div>
 
-      <!-- 頁籤 6：高單價運費明細 -->
+      <!-- 頁籤 5：高單價運費明細 -->
       <div v-show="activeTab === 'high_shipping'" class="tab-pane-box">
         <div class="table-card">
           <div class="table-header">
@@ -792,7 +662,7 @@
         </div>
       </div>
 
-      <!-- 頁籤 7：額外加價明細 -->
+      <!-- 頁籤 6：額外加價明細 -->
       <div v-show="activeTab === 'extra_fee'" class="tab-pane-box">
         <div class="table-card">
           <div class="table-header">
@@ -847,7 +717,7 @@
         </div>
       </div>
 
-      <!-- 頁籤 8：每月每日成本總表 -->
+      <!-- 頁籤 7：每月每日成本總表 -->
       <div v-show="activeTab === 'monthly_cost'" class="tab-pane-box">
         <div class="table-card" v-loading="loadingMonthly">
           <div class="table-header">
@@ -862,14 +732,15 @@
                 <tr>
                   <th>出貨日期</th>
                   <th>總件數</th>
-                  <th>已配達</th>
-                  <th>未配達</th>
-                  <th>配達率</th>
+                  <th>總訂單數</th>
                   <th>物流運費總計</th>
+                  <th>額外加價合計</th>
                   <th>紙箱包材總計</th>
                   <th>總履約成本</th>
                   <th>計費件均運費</th>
+                  <th>單件總成本</th>
                   <th>拆箱訂單數</th>
+                  <th>拆箱箱數</th>
                   <th>拆箱流失金額</th>
                   <th>遲到率</th>
                   <th>操作</th>
@@ -877,19 +748,20 @@
               </thead>
               <tbody>
                 <tr v-if="monthlyDailyList.length === 0">
-                  <td colspan="13" class="text-center text-dim" style="padding: 30px;">{{ targetMonth }} 月份尚無匯入出貨資料</td>
+                  <td colspan="14" class="text-center text-dim" style="padding: 30px;">{{ targetMonth }} 月份尚無匯入出貨資料</td>
                 </tr>
                 <tr v-for="(d, idx) in monthlyDailyList" :key="d.date" :class="{ 'row-zebra': idx % 2 === 1 }">
                   <td class="text-center font-bold">{{ d.date }}</td>
                   <td class="text-right font-bold">{{ formatNumber(d.totalPackages) }}</td>
-                  <td class="text-right text-green">{{ formatNumber(d.deliveredCount || 0) }}</td>
-                  <td class="text-right text-red font-bold">{{ formatNumber(d.undeliveredCount || 0) }}</td>
-                  <td class="text-center font-bold text-green">{{ d.deliveredRate || 0 }}%</td>
+                  <td class="text-right text-dim">{{ formatNumber(d.totalOrders) }}</td>
                   <td class="text-right text-blue font-bold">${{ formatMoney(d.shippingFee) }}</td>
+                  <td class="text-right text-orange">${{ formatMoney(d.extraFee) }}</td>
                   <td class="text-right text-green">${{ formatMoney(d.boxCost) }}</td>
                   <td class="text-right text-yellow font-bold">${{ formatMoney(d.totalCost) }}</td>
                   <td class="text-right">${{ Number(d.avgBilledShippingFee || 0).toFixed(2) }}</td>
+                  <td class="text-right">${{ Number(d.avgTotalCost || 0).toFixed(2) }}</td>
                   <td class="text-right text-purple">{{ formatNumber(d.splitOrderCount || 0) }}</td>
+                  <td class="text-right text-purple">{{ formatNumber(d.splitBoxCount) }}</td>
                   <td class="text-right text-purple font-bold">${{ formatMoney(d.splitBoxLoss) }}</td>
                   <td class="text-center">
                     <span class="rate-badge" :class="d.lateRate >= 10 ? 'rate-high' : (d.lateRate >= 3 ? 'rate-mid' : 'rate-ok')">
@@ -905,14 +777,14 @@
                 <tr class="table-total-row">
                   <td class="text-center font-bold text-yellow">全月總計</td>
                   <td class="text-right font-bold">{{ formatNumber(monthlyTotalSummary.totalPackages) }}</td>
-                  <td class="text-right font-bold text-green">{{ formatNumber(monthlyTotalSummary.deliveredCount) }}</td>
-                  <td class="text-right font-bold text-red">{{ formatNumber(monthlyTotalSummary.undeliveredCount) }}</td>
-                  <td></td>
+                  <td class="text-right font-bold">{{ formatNumber(monthlyTotalSummary.totalOrders) }}</td>
                   <td class="text-right font-bold text-blue">${{ formatMoney(monthlyTotalSummary.shippingFee) }}</td>
+                  <td class="text-right font-bold text-orange">${{ formatMoney(monthlyTotalSummary.extraFee) }}</td>
                   <td class="text-right font-bold text-green">${{ formatMoney(monthlyTotalSummary.boxCost) }}</td>
                   <td class="text-right font-bold text-yellow">${{ formatMoney(monthlyTotalSummary.totalCost) }}</td>
-                  <td></td>
+                  <td colspan="2"></td>
                   <td class="text-right font-bold text-purple">{{ formatNumber(monthlyTotalSummary.splitOrderCount) }}</td>
+                  <td class="text-right font-bold text-purple">{{ formatNumber(monthlyTotalSummary.splitBoxCount) }}</td>
                   <td class="text-right font-bold text-purple">${{ formatMoney(monthlyTotalSummary.splitBoxLoss) }}</td>
                   <td colspan="2"></td>
                 </tr>
@@ -922,7 +794,7 @@
         </div>
       </div>
 
-      <!-- 頁籤 9：年度每月成本總表 -->
+      <!-- 頁籤 8：年度每月成本總表 -->
       <div v-show="activeTab === 'yearly_cost'" class="tab-pane-box">
         <div class="table-card" v-loading="loadingYearly">
           <div class="table-header">
@@ -937,14 +809,15 @@
                 <tr>
                   <th>統計月份</th>
                   <th>總件數</th>
-                  <th>已配達</th>
-                  <th>未配達</th>
-                  <th>配達率</th>
+                  <th>總訂單數</th>
                   <th>物流運費總計</th>
+                  <th>額外加價合計</th>
                   <th>紙箱包材總計</th>
                   <th>總履約成本</th>
                   <th>計費件均運費</th>
+                  <th>單件總成本</th>
                   <th>拆箱訂單數</th>
+                  <th>拆箱箱數</th>
                   <th>拆箱流失金額</th>
                   <th>遲到率</th>
                   <th>操作</th>
@@ -954,14 +827,15 @@
                 <tr v-for="(m, idx) in yearlyMonthlyList" :key="m.month" :class="{ 'row-zebra': idx % 2 === 1 }">
                   <td class="text-center font-bold">{{ m.monthLabel }} ({{ m.month }})</td>
                   <td class="text-right font-bold">{{ formatNumber(m.totalPackages) }}</td>
-                  <td class="text-right text-green">{{ formatNumber(m.deliveredCount || 0) }}</td>
-                  <td class="text-right text-red font-bold">{{ formatNumber(m.undeliveredCount || 0) }}</td>
-                  <td class="text-center font-bold text-green">{{ m.deliveredRate || 0 }}%</td>
+                  <td class="text-right text-dim">{{ formatNumber(m.totalOrders) }}</td>
                   <td class="text-right text-blue font-bold">${{ formatMoney(m.shippingFee) }}</td>
+                  <td class="text-right text-orange">${{ formatMoney(m.extraFee) }}</td>
                   <td class="text-right text-green">${{ formatMoney(m.boxCost) }}</td>
                   <td class="text-right text-yellow font-bold">${{ formatMoney(m.totalCost) }}</td>
                   <td class="text-right">${{ Number(m.avgBilledShippingFee || 0).toFixed(2) }}</td>
+                  <td class="text-right">${{ Number(m.avgTotalCost || 0).toFixed(2) }}</td>
                   <td class="text-right text-purple">{{ formatNumber(m.splitOrderCount || 0) }}</td>
+                  <td class="text-right text-purple">{{ formatNumber(m.splitBoxCount) }}</td>
                   <td class="text-right text-purple font-bold">${{ formatMoney(m.splitBoxLoss) }}</td>
                   <td class="text-center">{{ m.lateRate }}%</td>
                   <td class="text-center">
@@ -973,14 +847,14 @@
                 <tr class="table-total-row">
                   <td class="text-center font-bold text-yellow">全年總計</td>
                   <td class="text-right font-bold">{{ formatNumber(yearlyTotalSummary.totalPackages) }}</td>
-                  <td class="text-right font-bold text-green">{{ formatNumber(yearlyTotalSummary.deliveredCount) }}</td>
-                  <td class="text-right font-bold text-red">{{ formatNumber(yearlyTotalSummary.undeliveredCount) }}</td>
-                  <td></td>
+                  <td class="text-right font-bold">{{ formatNumber(yearlyTotalSummary.totalOrders) }}</td>
                   <td class="text-right font-bold text-blue">${{ formatMoney(yearlyTotalSummary.shippingFee) }}</td>
+                  <td class="text-right font-bold text-orange">${{ formatMoney(yearlyTotalSummary.extraFee) }}</td>
                   <td class="text-right font-bold text-green">${{ formatMoney(yearlyTotalSummary.boxCost) }}</td>
                   <td class="text-right font-bold text-yellow">${{ formatMoney(yearlyTotalSummary.totalCost) }}</td>
-                  <td></td>
+                  <td colspan="2"></td>
                   <td class="text-right font-bold text-purple">{{ formatNumber(yearlyTotalSummary.splitOrderCount) }}</td>
+                  <td class="text-right font-bold text-purple">{{ formatNumber(yearlyTotalSummary.splitBoxCount) }}</td>
                   <td class="text-right font-bold text-purple">${{ formatMoney(yearlyTotalSummary.splitBoxLoss) }}</td>
                   <td colspan="2"></td>
                 </tr>
@@ -1008,7 +882,6 @@ export default {
       activeTab: 'carrier_box',
       querySpanMode: 'day',
       splitFilterType: 'all',
-      undeliveredFilter: 'all',
       targetDate: '',
       availableDates: [],
       dateRange: [],
@@ -1050,12 +923,7 @@ export default {
         highShippingTotalCount: 0,
         extraFeeTotalCount: 0,
         boxTypeCount: 0,
-        wastefulBoxTotalCount: 0,
-        deliveredCount: 0,
-        undeliveredCount: 0,
-        undeliveredHomeCount: 0,
-        undeliveredCvsCount: 0,
-        deliveredRate: 0
+        wastefulBoxTotalCount: 0
       },
       splitSummaryList: [],
       carrierList: [],
@@ -1066,7 +934,6 @@ export default {
       highShippingList: [],
       extraFeeList: [],
       wastefulBoxList: [],
-      undeliveredList: [],
       monthlyDailyList: [],
       yearlyMonthlyList: [],
 
@@ -1078,22 +945,16 @@ export default {
   },
   computed: {
     isRangeTab() {
-      return ['carrier_box', 'delivery_tracking', 'box_analysis', 'district_type', 'split_audit', 'high_shipping', 'extra_fee'].includes(this.activeTab);
+      return ['carrier_box', 'box_analysis', 'district_type', 'split_audit', 'high_shipping', 'extra_fee'].includes(this.activeTab);
     },
     filteredSplitOrdersDetail() {
       if (this.splitFilterType === 'all') return this.splitOrdersDetail;
       return this.splitOrdersDetail.filter(s => s.splitCategory === this.splitFilterType);
     },
-    filteredUndeliveredList() {
-      if (this.undeliveredFilter === 'all') return this.undeliveredList;
-      return this.undeliveredList.filter(u => u.channelType === this.undeliveredFilter);
-    },
     monthlyTotalSummary() {
       return this.monthlyDailyList.reduce((acc, d) => {
         acc.totalPackages += Number(d.totalPackages || 0);
         acc.totalOrders += Number(d.totalOrders || 0);
-        acc.deliveredCount += Number(d.deliveredCount || 0);
-        acc.undeliveredCount += Number(d.undeliveredCount || 0);
         acc.shippingFee += Number(d.shippingFee || 0);
         acc.extraFee += Number(d.extraFee || 0);
         acc.boxCost += Number(d.boxCost || 0);
@@ -1102,14 +963,12 @@ export default {
         acc.splitBoxCount += Number(d.splitBoxCount || 0);
         acc.splitBoxLoss += Number(d.splitBoxLoss || 0);
         return acc;
-      }, { totalPackages: 0, totalOrders: 0, deliveredCount: 0, undeliveredCount: 0, shippingFee: 0, extraFee: 0, boxCost: 0, totalCost: 0, splitOrderCount: 0, splitBoxCount: 0, splitBoxLoss: 0 });
+      }, { totalPackages: 0, totalOrders: 0, shippingFee: 0, extraFee: 0, boxCost: 0, totalCost: 0, splitOrderCount: 0, splitBoxCount: 0, splitBoxLoss: 0 });
     },
     yearlyTotalSummary() {
       return this.yearlyMonthlyList.reduce((acc, m) => {
         acc.totalPackages += Number(m.totalPackages || 0);
         acc.totalOrders += Number(m.totalOrders || 0);
-        acc.deliveredCount += Number(m.deliveredCount || 0);
-        acc.undeliveredCount += Number(m.undeliveredCount || 0);
         acc.shippingFee += Number(m.shippingFee || 0);
         acc.extraFee += Number(m.extraFee || 0);
         acc.boxCost += Number(m.boxCost || 0);
@@ -1118,7 +977,7 @@ export default {
         acc.splitBoxCount += Number(m.splitBoxCount || 0);
         acc.splitBoxLoss += Number(m.splitBoxLoss || 0);
         return acc;
-      }, { totalPackages: 0, totalOrders: 0, deliveredCount: 0, undeliveredCount: 0, shippingFee: 0, extraFee: 0, boxCost: 0, totalCost: 0, splitOrderCount: 0, splitBoxCount: 0, splitBoxLoss: 0 });
+      }, { totalPackages: 0, totalOrders: 0, shippingFee: 0, extraFee: 0, boxCost: 0, totalCost: 0, splitOrderCount: 0, splitBoxCount: 0, splitBoxLoss: 0 });
     }
   },
   mounted() {
@@ -1311,7 +1170,6 @@ export default {
           this.highShippingList = res.data.highShippingList || [];
           this.extraFeeList = res.data.extraFeeList || [];
           this.wastefulBoxList = res.data.wastefulBoxList || [];
-          this.undeliveredList = res.data.undeliveredList || [];
           this.$nextTick(() => this.renderCharts());
         }
       } catch (e) {
@@ -1529,11 +1387,6 @@ export default {
   background: rgba(250, 204, 21, 0.08);
   border-radius: 4px 4px 0 0;
 }
-.delivery-tab.active {
-  color: #4ade80;
-  border-bottom-color: #4ade80;
-  background: rgba(74, 222, 128, 0.1);
-}
 .box-tab.active {
   color: #38bdf8;
   border-bottom-color: #38bdf8;
@@ -1652,7 +1505,6 @@ export default {
 }
 .row-zebra td { background: rgba(255, 255, 255, 0.02); }
 .row-split-extra td { background: rgba(192, 132, 252, 0.12) !important; }
-.row-home-alert td { background: rgba(248, 113, 113, 0.1) !important; }
 
 .table-total-row td {
   background: #1e293b !important;
@@ -1671,17 +1523,6 @@ export default {
 .cat-badge { padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; }
 .cat-same { background: rgba(192, 132, 252, 0.25); color: #e9d5ff; }
 .cat-cross { background: rgba(56, 189, 248, 0.2); color: #7dd3fc; }
-.cat-home-alert { background: rgba(248, 113, 113, 0.25); color: #fca5a5; border: 1px solid rgba(248, 113, 113, 0.5); }
-.cat-cvs { background: rgba(251, 146, 60, 0.2); color: #fdba74; }
-
-.status-pill {
-  background: rgba(56, 189, 248, 0.15);
-  color: #7dd3fc;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: bold;
-}
 
 .box-flag { padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; }
 .flag-first { background: rgba(56, 189, 248, 0.15); color: #38bdf8; }
