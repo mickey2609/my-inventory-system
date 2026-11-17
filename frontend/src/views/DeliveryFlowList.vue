@@ -528,51 +528,51 @@
         </div>
       </div>
 
-      <!-- 頁籤 4：配達日期判定與尚未配達貨件追蹤 -->
+      <!-- 頁籤 4：配達日期判定與尚未配達貨件追蹤（已排除超商取貨） -->
       <div v-show="activeTab === 'delivery_tracking'" class="tab-pane-box">
         <!-- 四大配達指標卡片 -->
         <div class="lead-kpi-grid">
+          <div class="lead-kpi-card border-blue">
+            <div class="kpi-icon">🚚</div>
+            <div class="kpi-info">
+              <span class="kpi-title">純宅配出貨總件數</span>
+              <div class="kpi-value text-blue">{{ formatNumber(deliveryTracking.homeTotalCount) }} <span class="unit">件</span></div>
+              <span class="kpi-sub">已自動排除超取 {{ formatNumber(deliveryTracking.excludedCvsCount) }} 件</span>
+            </div>
+          </div>
+
           <div class="lead-kpi-card border-green">
             <div class="kpi-icon">✅</div>
             <div class="kpi-info">
-              <span class="kpi-title">已配達件數 (有配達日期)</span>
+              <span class="kpi-title">純宅配已配達 (有配達日期)</span>
               <div class="kpi-value text-green">{{ formatNumber(deliveryTracking.deliveredCount) }} <span class="unit">件</span></div>
-              <span class="kpi-sub">配達完妥率 {{ deliveryTracking.deliveredRate }}%</span>
+              <span class="kpi-sub">真實配達完妥率 <strong>{{ deliveryTracking.deliveredRate }}%</strong></span>
             </div>
           </div>
 
           <div class="lead-kpi-card border-red">
             <div class="kpi-icon">🚨</div>
             <div class="kpi-info">
-              <span class="kpi-title">尚未配達總件數 (配達日空白)</span>
+              <span class="kpi-title">純宅配尚未配達 (配達日空白)</span>
               <div class="kpi-value text-red">{{ formatNumber(deliveryTracking.undeliveredCount) }} <span class="unit">件</span></div>
-              <span class="kpi-sub">需持續追蹤貨態之在途包裹</span>
+              <span class="kpi-sub">需向物流商追查之異常/在途單</span>
             </div>
           </div>
 
           <div class="lead-kpi-card border-orange">
-            <div class="kpi-icon">🚚</div>
-            <div class="kpi-info">
-              <span class="kpi-title">純宅配尚未配達 (優先追件)</span>
-              <div class="kpi-value text-orange">{{ formatNumber(deliveryTracking.undeliveredHomeCount) }} <span class="unit">件</span></div>
-              <span class="kpi-sub">排除超商取貨之宅配未達件</span>
-            </div>
-          </div>
-
-          <div class="lead-kpi-card border-blue">
             <div class="kpi-icon">🏪</div>
             <div class="kpi-info">
-              <span class="kpi-title">超商取貨尚未配達 / 未取</span>
-              <div class="kpi-value text-blue">{{ formatNumber(deliveryTracking.undeliveredCvsCount) }} <span class="unit">件</span></div>
-              <span class="kpi-sub">7-11 / 全家 / 萊爾富超取件</span>
+              <span class="kpi-title">已排除超商取貨件數</span>
+              <div class="kpi-value text-orange">{{ formatNumber(deliveryTracking.excludedCvsCount) }} <span class="unit">件</span></div>
+              <span class="kpi-sub">超取不回傳配達日，不計入未達</span>
             </div>
           </div>
         </div>
 
-        <!-- 上層：各物流商配達完妥率與平均配送耗時表 -->
+        <!-- 上層：各宅配商配達完妥率與平均配送耗時表 -->
         <div class="table-container" v-loading="loading">
           <div class="table-header-bar">
-            <span class="table-title">📊 各物流商「配達日期」完妥率與平均配送耗時總表</span>
+            <span class="table-title">📊 各純宅配商「配達日期」完妥率與平均配送耗時總表（已排除超取）</span>
             <span class="tip-text">💡 判定規則：「配達日期」欄位有日期即為已配達；空白則列為尚未配達</span>
           </div>
           <div class="table-scroll-wrapper">
@@ -580,7 +580,7 @@
               <thead>
                 <tr>
                   <th>宅配商</th>
-                  <th>總出貨件數</th>
+                  <th>宅配出貨件數</th>
                   <th>已配達件數 (有配達日)</th>
                   <th>尚未配達件數 (配達日空白)</th>
                   <th>配達完妥率</th>
@@ -590,13 +590,16 @@
                 </tr>
               </thead>
               <tbody>
+                <tr v-if="deliveryTracking.carrierDeliveryList.length === 0">
+                  <td colspan="8" class="text-center text-dim" style="padding: 24px;">該篩選條件下無純宅配貨件紀錄</td>
+                </tr>
                 <tr v-for="(c, idx) in deliveryTracking.carrierDeliveryList" :key="c.carrier" :class="{ 'row-zebra': idx % 2 === 1 }">
                   <td class="font-bold text-blue">{{ c.carrier }}</td>
                   <td class="text-right font-bold">{{ formatNumber(c.totalCount) }}</td>
                   <td class="text-right text-green font-bold">{{ formatNumber(c.deliveredCount) }}</td>
                   <td class="text-right text-red font-bold">{{ formatNumber(c.undeliveredCount) }}</td>
                   <td class="text-center">
-                    <span class="rate-badge" :class="c.deliveredRate >= 98 ? 'rate-ok' : (c.deliveredRate >= 80 ? 'rate-mid' : 'rate-high')">
+                    <span class="rate-badge" :class="c.deliveredRate >= 98 ? 'rate-ok' : (c.deliveredRate >= 85 ? 'rate-mid' : 'rate-high')">
                       {{ c.deliveredRate }}%
                     </span>
                   </td>
@@ -609,24 +612,16 @@
           </div>
         </div>
 
-        <!-- 下層：尚未配達貨件追蹤清單 -->
+        <!-- 下層：純宅配尚未配達貨件追蹤清單 -->
         <div class="table-container" v-loading="loading">
           <div class="table-header-bar">
-            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-              <span class="table-title">🚨 尚未配達貨件追蹤清單（配達日期為空白）</span>
-              <el-radio-group v-model="undeliveredFilter" size="mini">
-                <el-radio-button label="all">全部未配達 ({{ formatNumber(deliveryTracking.undeliveredCount) }})</el-radio-button>
-                <el-radio-button label="home">🚚 僅看宅配未配達 ({{ formatNumber(deliveryTracking.undeliveredHomeCount) }})</el-radio-button>
-                <el-radio-button label="cvs">🏪 僅看超取未配達 ({{ formatNumber(deliveryTracking.undeliveredCvsCount) }})</el-radio-button>
-              </el-radio-group>
-            </div>
-            <span class="tip-text">💡 宅配未配達已優先置頂，點擊單號可直接複製向物流商查詢貨態</span>
+            <span class="table-title">🚨 純宅配尚未配達貨件追蹤清單（共 {{ formatNumber(deliveryTracking.undeliveredCount) }} 件）</span>
+            <span class="tip-text">💡 已完全排除超商取貨件，點擊單號可直接複製向物流商查詢貨態</span>
           </div>
           <div class="table-scroll-wrapper" style="max-height: 460px;">
             <table class="flow-matrix-table">
               <thead>
                 <tr>
-                  <th>通路類型</th>
                   <th>宅配單號</th>
                   <th>訂單編號</th>
                   <th>庫別</th>
@@ -643,19 +638,14 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-if="filteredUndeliveredList.length === 0">
-                  <td colspan="14" class="text-center text-dim" style="padding: 28px;">🎉 該條件下所有貨件皆已填寫配達日期（全數配達完畢）！</td>
+                <tr v-if="deliveryTracking.undeliveredList.length === 0">
+                  <td colspan="13" class="text-center text-green font-bold" style="padding: 28px;">🎉 太棒了！本日所有純宅配貨件皆已填寫配達日期（100% 配達完畢）！</td>
                 </tr>
                 <tr
-                  v-for="u in filteredUndeliveredList"
+                  v-for="u in deliveryTracking.undeliveredList"
                   :key="u.tracking_no"
-                  :class="{ 'row-home-alert': u.channelType === 'home' }"
+                  class="row-home-alert"
                 >
-                  <td class="text-center">
-                    <span class="cat-badge" :class="u.channelType === 'home' ? 'cat-home-alert' : 'cat-cvs'">
-                      {{ u.channelType === 'home' ? '🚚 宅配未達' : '🏪 超取未達' }}
-                    </span>
-                  </td>
                   <td class="font-bold text-blue copyable" @click="copyText(u.tracking_no)">{{ u.tracking_no }}</td>
                   <td class="font-bold text-orange copyable" @click="copyText(u.order_no)">{{ u.order_no }}</td>
                   <td class="text-center font-bold text-yellow">{{ u.wh_code ? `${u.wh_code}庫` : '-' }}</td>
@@ -690,7 +680,7 @@
                 {{ dayMode === 'calendar' ? '實際自然日 00~24' : '班別作業日 01~隔日01' }}
               </span>
             </span>
-            <span class="tip-text">全月共 {{ monthlyDailyList.length }} 個出貨日，累計 {{ formatNumber(monthlyTotalSummary.total) }} {{ countMode === 'order' ? '單' : '件' }}</span>
+            <span class="tip-text">全月共 {{ monthlyDailyList.length }} 個出貨日，累計 {{ formatNumber(monthlyTotalSummary.total) }} {{ countMode === 'order' ? '單' : '件' }}（配達率僅計純宅配）</span>
           </div>
 
           <div class="table-scroll-wrapper" style="max-height: calc(100vh - 230px);">
@@ -699,9 +689,9 @@
                 <tr>
                   <th style="width: 115px;">出貨日期</th>
                   <th style="width: 105px;">總出貨 ({{ countMode === 'order' ? '單' : '件' }})</th>
-                  <th style="width: 90px;">已配達</th>
-                  <th style="width: 90px;">未配達</th>
-                  <th style="width: 85px;">配達率</th>
+                  <th style="width: 90px;">宅配已達</th>
+                  <th style="width: 90px;">宅配未達</th>
+                  <th style="width: 85px;">宅配配達率</th>
                   <th style="width: 90px;">☀️ 日班</th>
                   <th style="width: 90px;">🌆 夜班</th>
                   <th style="width: 90px;">🌙 大夜班</th>
@@ -722,7 +712,7 @@
                   <td class="text-right font-bold text-yellow">{{ formatNumber(d.total) }}</td>
                   <td class="text-right text-green">{{ formatNumber(d.deliveredCount || 0) }}</td>
                   <td class="text-right text-red font-bold">{{ formatNumber(d.undeliveredCount || 0) }}</td>
-                  <td class="text-center text-green font-bold">{{ d.deliveredRate || '0.0%' }}</td>
+                  <td class="text-center text-green font-bold">{{ d.deliveredRate || '-' }}</td>
                   <td class="text-right text-blue">{{ formatNumber(d.dayShift) }}</td>
                   <td class="text-right text-orange">{{ formatNumber(d.nightShift) }}</td>
                   <td class="text-right text-purple">{{ formatNumber(d.graveyardShift) }}</td>
@@ -768,7 +758,7 @@
                 {{ dayMode === 'calendar' ? '實際自然日 00~24' : '班別作業日 01~隔日01' }}
               </span>
             </span>
-            <span class="tip-text">全年累計 {{ formatNumber(yearlyTotalSummary.total) }} {{ countMode === 'order' ? '單' : '件' }}</span>
+            <span class="tip-text">全年累計 {{ formatNumber(yearlyTotalSummary.total) }} {{ countMode === 'order' ? '單' : '件' }}（配達率僅計純宅配）</span>
           </div>
 
           <div class="table-scroll-wrapper" style="max-height: calc(100vh - 230px);">
@@ -777,9 +767,9 @@
                 <tr>
                   <th style="width: 115px;">統計月份</th>
                   <th style="width: 110px;">月總出貨 ({{ countMode === 'order' ? '單' : '件' }})</th>
-                  <th style="width: 90px;">已配達</th>
-                  <th style="width: 90px;">未配達</th>
-                  <th style="width: 85px;">配達率</th>
+                  <th style="width: 90px;">宅配已達</th>
+                  <th style="width: 90px;">宅配未達</th>
+                  <th style="width: 85px;">宅配配達率</th>
                   <th style="width: 90px;">☀️ 日班</th>
                   <th style="width: 90px;">🌆 夜班</th>
                   <th style="width: 90px;">🌙 大夜班</th>
@@ -797,7 +787,7 @@
                   <td class="text-right font-bold text-yellow">{{ formatNumber(m.total) }}</td>
                   <td class="text-right text-green">{{ formatNumber(m.deliveredCount || 0) }}</td>
                   <td class="text-right text-red font-bold">{{ formatNumber(m.undeliveredCount || 0) }}</td>
-                  <td class="text-center text-green font-bold">{{ m.deliveredRate || '0.0%' }}</td>
+                  <td class="text-center text-green font-bold">{{ m.deliveredRate || '-' }}</td>
                   <td class="text-right text-blue">{{ formatNumber(m.dayShift) }}</td>
                   <td class="text-right text-orange">{{ formatNumber(m.nightShift) }}</td>
                   <td class="text-right text-purple">{{ formatNumber(m.graveyardShift) }}</td>
@@ -881,6 +871,7 @@
           <el-table-column prop="delivery_date" label="配達日期" width="105" align="center" sortable>
             <template #default="scope">
               <span v-if="scope.row.delivery_date" class="text-green font-bold">{{ scope.row.delivery_date }}</span>
+              <span v-else-if="isCvsRow(scope.row)" class="text-dim">超取不適用</span>
               <span v-else class="text-red font-bold">尚未配達</span>
             </template>
           </el-table-column>
@@ -970,7 +961,6 @@ export default {
       dayMode: 'operational',
       countMode: 'tracking',
       groupPreorders: true,
-      undeliveredFilter: 'all',
       loading: false,
       loadingMonthly: false,
       loadingYearly: false,
@@ -1016,11 +1006,10 @@ export default {
       },
 
       deliveryTracking: {
-        totalCount: 0,
+        homeTotalCount: 0,
+        excludedCvsCount: 0,
         deliveredCount: 0,
         undeliveredCount: 0,
-        undeliveredHomeCount: 0,
-        undeliveredCvsCount: 0,
         deliveredRate: 0,
         carrierDeliveryList: [],
         undeliveredList: []
@@ -1066,11 +1055,6 @@ export default {
     },
     isDailyTab() {
       return ['ship_flow', 'order_lead_time', 'lead_analytics', 'delivery_tracking'].includes(this.activeTab);
-    },
-    filteredUndeliveredList() {
-      const list = this.deliveryTracking.undeliveredList || [];
-      if (this.undeliveredFilter === 'all') return list;
-      return list.filter(u => u.channelType === this.undeliveredFilter);
     },
     nextTargetDate() {
       if (!this.targetDate) return '';
@@ -1200,6 +1184,10 @@ export default {
   },
   methods: {
     formatNumber(v) { return Number(v || 0).toLocaleString(); },
+    isCvsRow(row) {
+      const text = `${row?.carrier_name || ''} ${row?.delivery_type || ''}`;
+      return /超取|超商|7-11|全家|萊爾富|OK|大智通|日翊/i.test(text);
+    },
     getDayBeforeCutoff(cutoffStr) {
       const d = new Date(cutoffStr);
       d.setDate(d.getDate() - 1);
@@ -2056,10 +2044,6 @@ export default {
 .rate-ok { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
 .rate-mid { background: rgba(250, 204, 21, 0.2); color: #facc15; }
 .rate-high { background: rgba(248, 113, 113, 0.2); color: #f87171; }
-
-.cat-badge { padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; }
-.cat-home-alert { background: rgba(248, 113, 113, 0.25); color: #fca5a5; border: 1px solid rgba(248, 113, 113, 0.5); }
-.cat-cvs { background: rgba(251, 146, 60, 0.2); color: #fdba74; }
 
 .status-pill {
   background: rgba(56, 189, 248, 0.15);
