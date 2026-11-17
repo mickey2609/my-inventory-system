@@ -132,6 +132,12 @@
             v-else-if="currentTab === 'delivery_undelivered'" key="delivery_undelivered"
           />
 
+          <StaffCompetency 
+            v-else-if="currentTab === 'staff_competency'" key="staff_competency"
+            :is-admin="isAdmin"
+            :is-sys-admin="isSysAdmin"
+          />
+
           <WmsFishScreenshot 
             v-else-if="currentTab === 'wms_fish_screenshot'" key="wms_fish_screenshot"
             :is-admin="isAdmin"
@@ -262,6 +268,7 @@ import DispatchFishList from './views/DispatchFishList.vue'
 import DeliveryFlowList from './views/DeliveryFlowList.vue'
 import DeliveryCostAnalysis from './views/DeliveryCostAnalysis.vue'
 import DeliveryUndeliveredAnalysis from './views/DeliveryUndeliveredAnalysis.vue'
+import StaffCompetency from './views/StaffCompetency.vue'
 import WmsFishScreenshot from './views/WmsFishScreenshot.vue'
 import SettingsPerm from './views/SettingsPerm.vue'
 import SettingsLog from './views/SettingsLog.vue'
@@ -288,6 +295,7 @@ const TAB_PATH_MAP = {
   'delivery_flow': '/delivery-flow',
   'delivery_cost': '/delivery-cost',
   'delivery_undelivered': '/delivery-undelivered',
+  'staff_competency': '/staff-competency',
   'wms_fish_screenshot': '/wms-fish-screenshot',
   'settings_perm': '/settings-perm',
   'settings_log': '/settings-log'
@@ -304,7 +312,7 @@ export default {
     ImportTipModal, UserManagementModals, InventorySearchModal, HomeDashboard,
     LoginOverlay, InvQuery80, InvSearch15, LocSummary, ItemSalesHistory, TurnoverList, AbnormalPurchase,
     InboundFishList, ReplenishFishList, Transfer8015FishList, Transfer1580FishList, DispatchFishList,
-    DeliveryFlowList, DeliveryCostAnalysis, DeliveryUndeliveredAnalysis, WmsFishScreenshot,
+    DeliveryFlowList, DeliveryCostAnalysis, DeliveryUndeliveredAnalysis, StaffCompetency, WmsFishScreenshot,
     SettingsPerm, SettingsLog
   },
   setup() {
@@ -391,6 +399,7 @@ export default {
         { key: 'delivery_flow', name: '🌊 宅配出貨流線魚群' },
         { key: 'delivery_cost', name: '💰 物流費與包材成本分析' },
         { key: 'delivery_undelivered', name: '🚨 未配達與異常貨態追蹤' },
+        { key: 'staff_competency', name: '🧑‍💼 人員綜合能力管理' },
         { key: 'wms_fish_screenshot', name: '📸 WMS 魚群截圖辨識' }
       ],
 
@@ -409,7 +418,6 @@ export default {
     currentCustomExportWidths() { return this.currentTab === 'inv15' ? this.customExportColWidths15 : this.customExportColWidths80; }
   },
   async mounted() {
-    // 掛載全局匯入/匯出權限查詢函式，任何子元件皆可直接呼叫 this.$canImport('模組key') / this.$canExport('模組key')
     if (this.$.appContext?.config?.globalProperties) {
       this.$.appContext.config.globalProperties.$canImport = (tabKey) => this.hasImportPermission(tabKey);
       this.$.appContext.config.globalProperties.$canExport = (tabKey) => this.hasExportPermission(tabKey);
@@ -1032,6 +1040,7 @@ export default {
         'delivery_flow': '🌊 宅配出貨流線魚群',
         'delivery_cost': '💰 物流費與包材成本分析',
         'delivery_undelivered': '🚨 未配達與異常貨態追蹤',
+        'staff_competency': '🧑‍💼 人員綜合能力管理',
         'wms_fish_screenshot': '📸 WMS 魚群截圖辨識',
         'settings_perm': '⚙️ 權限管理',
         'settings_log': '📜 日誌歷程查詢'

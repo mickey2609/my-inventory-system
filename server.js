@@ -70,6 +70,10 @@ app.use('/api/dispatch', dispatchFishRouter);
 const deliveryFlowRouter = require('./routes/deliveryFlow');
 app.use('/api/delivery', deliveryFlowRouter(db));
 
+// 5.2 🌟 人員綜合能力管理系統 API
+const staffCompetencyRouter = require('./routes/staffCompetency')(db);
+app.use('/api/staff-competency', staffCompetencyRouter);
+
 // 5.5 🌟 WMS 魚群出沒時間截圖 AI 辨識 API
 const wmsFishScreenshotRouter = require('./routes/wmsFishScreenshot')(db);
 app.use('/api/wms-fish-screenshot', wmsFishScreenshotRouter);
@@ -779,7 +783,7 @@ app.get('/api/categories/small', (req, res) => {
   });
 });
 
-// 🌟 心跳 API：記錄使用者與訪客 (guest) 在線狀態[cite: 14]
+// 🌟 心跳 API：記錄使用者與訪客 (guest) 在線狀態
 app.post('/api/heartbeat', (req, res) => {
   if (req.body.username) {
     db.run('UPDATE users SET last_active = ? WHERE username = ?', [Math.floor(Date.now() / 1000), req.body.username]);
@@ -792,7 +796,7 @@ app.post('/api/logout', (req, res) => {
   res.json({ success: true, message: '已成功登出' });
 });
 
-// 🌟 取得所有使用者清單（含訪客 guest 自動補齊與精準在線判定）[cite: 14]
+// 🌟 取得所有使用者清單（含訪客 guest 自動補齊與精準在線判定）
 app.get('/api/get-users', (req, res) => {
   db.all('SELECT username, name, role, permissions, last_active FROM users', [], (err, rows) => {
     if (err) return res.status(500).json({ success: false, error: err.message });
@@ -865,7 +869,7 @@ app.post('/api/delete-user', (req, res) => {
   });
 });
 
-// [GET] 庫存查詢 API (完整 48 欄位處理邏輯)[cite: 14]
+// [GET] 庫存查詢 API (完整 48 欄位處理邏輯)
 app.get('/api/search', (req, res) => {
   const page = parseInt(req.query.page || '1', 10);
   const pageSize = parseInt(req.query.pageSize || '500', 10);
@@ -1041,7 +1045,7 @@ app.get('/api/get-logs', (req, res) => {
   });
 });
 
-// [POST] 極速匯入 API (包含自動備份與更新歷史銷量總表)[cite: 14]
+// [POST] 極速匯入 API (包含自動備份與更新歷史銷量總表)
 app.post('/api/upload', (req, res) => {
   try {
     const { items, isFirstChunk, fileName } = req.body;
@@ -1178,7 +1182,7 @@ db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS locations_master (id INTEGER PRIMARY KEY AUTOINCREMENT, floor TEXT, zone TEXT, loc_type TEXT, cubic_feet REAL, grid_count INTEGER, single_cubic_feet REAL);`);
   db.run(`CREATE TABLE IF NOT EXISTS import_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, module_type TEXT, file_name TEXT, row_count INTEGER, imported_at TEXT);`);
   
-  // 1. 每日不合理進貨快照歷史表[cite: 14]
+  // 1. 每日不合理進貨快照歷史表
   db.run(`
     CREATE TABLE IF NOT EXISTS abnormal_purchase_history (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1209,7 +1213,7 @@ db.serialize(() => {
     );
   `);
 
-  // 2. 商品自訂屬性與贈品備註表[cite: 14]
+  // 2. 商品自訂屬性與贈品備註表
   db.run(`
     CREATE TABLE IF NOT EXISTS item_custom_notes (
       item_id TEXT PRIMARY KEY,
@@ -1220,13 +1224,13 @@ db.serialize(() => {
     );
   `);
 
-  // 基礎系統帳號 (已確保收發魚群權限健全)[cite: 14]
+  // 基礎系統帳號 (已確保收發魚群權限健全)
   db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions) VALUES ('admin', '系統管理員', 'sys_admin', 'admin', 'all');`);
   db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions) VALUES ('801854', '黃勝鴻', 'sys_admin', '801854', 'all');`);
   db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions, last_active) VALUES ('guest', '訪客 (免登直達)', 'guest', 'guest_direct_no_pwd', 'replenish_fish,transfer_80_15,transfer_15_80,dispatch_fish', 0);`);
 });
 
-// 為高頻查詢欄位建立索引[cite: 14]
+// 為高頻查詢欄位建立索引
 db.run(`CREATE INDEX IF NOT EXISTS idx_inbound_rec_date ON inbound_details(rec_date)`);
 db.run(`CREATE INDEX IF NOT EXISTS idx_inbound_item_id ON inbound_details(item_id)`);
 db.run(`CREATE INDEX IF NOT EXISTS idx_abnormal_rec_date ON abnormal_purchase_history(rec_date)`);

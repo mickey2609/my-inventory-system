@@ -202,6 +202,12 @@
           <div class="action-desc">跨日掃描配達日期空白件（排除超取），追蹤拒收退回與超時滯留</div>
         </div>
 
+        <div v-if="hasPermission('staff_competency')" class="action-card" @click="openTab('staff_competency')">
+          <div class="action-icon">🧑‍💼</div>
+          <div class="action-title">人員綜合能力管理</div>
+          <div class="action-desc">四大倉別全能矩陣、30天未更新提醒與人員多技能盤點</div>
+        </div>
+
         <div v-if="hasPermission('wms_fish_screenshot')" class="action-card" @click="openTab('wms_fish_screenshot')">
           <div class="action-icon">📸</div>
           <div class="action-title">WMS 魚群截圖辨識</div>
