@@ -4,23 +4,62 @@
     <!-- 1. 頂部篩選控制面板 -->
     <div class="control-header-panel">
       <div class="filter-row">
-        <!-- 區間查詢模式 -->
+        <!-- 智慧日期步進器（與宅配出貨頁完全一致，並支援一鍵切換單日/本月/自訂區間） -->
         <div class="filter-item" v-if="isRangeTab">
-          <span class="label">📅 查詢區間：</span>
-          <el-date-picker
-            v-model="dateRange"
-            type="daterange"
-            size="mini"
-            value-format="YYYY-MM-DD"
-            range-separator="至"
-            start-placeholder="開始日期"
-            end-placeholder="結束日期"
-            style="width: 245px;"
-            :clearable="false"
-            @change="fetchCostAnalysis"
-          />
-          <el-button size="mini" type="info" plain @click="setLatestDay">最新單日</el-button>
-          <el-button size="mini" type="info" plain @click="setCurrentMonth">本月累計</el-button>
+          <span class="label">📅 出貨日期：</span>
+          <div class="date-stepper-group" v-if="querySpanMode === 'day'">
+            <el-button size="mini" type="primary" plain class="step-btn" @click="shiftDay(-1)" title="切換至前一天">◀</el-button>
+            <el-select
+              v-if="availableDates.length > 0"
+              v-model="targetDate"
+              size="mini"
+              style="width: 175px;"
+              @change="onSingleDateChange"
+            >
+              <el-option
+                v-for="d in availableDates"
+                :key="d.ship_date"
+                :label="`${d.ship_date} (${formatNumber(d.tracking_count || d.count)} 件)`"
+                :value="d.ship_date"
+              />
+            </el-select>
+            <el-date-picker
+              v-else
+              v-model="targetDate"
+              type="date"
+              size="mini"
+              value-format="YYYY-MM-DD"
+              placeholder="選擇出貨日期"
+              style="width: 130px;"
+              :clearable="false"
+              @change="onSingleDateChange"
+            />
+            <el-button size="mini" type="primary" plain class="step-btn" @click="shiftDay(1)" title="切換至後一天">▶</el-button>
+            <el-button size="mini" type="info" plain class="step-latest-btn" @click="jumpToLatestDate" title="跳至最新有資料的日期">最新</el-button>
+          </div>
+
+          <!-- 若切換為自訂區間時顯示區間選擇器 -->
+          <template v-else-if="querySpanMode === 'range'">
+            <el-date-picker
+              v-model="dateRange"
+              type="daterange"
+              size="mini"
+              value-format="YYYY-MM-DD"
+              range-separator="至"
+              start-placeholder="開始日期"
+              end-placeholder="結束日期"
+              style="width: 235px;"
+              :clearable="false"
+              @change="fetchCostAnalysis"
+            />
+          </template>
+
+          <!-- 快速範圍切換：單日 / 本月累計 / 自訂區間 -->
+          <el-radio-group v-model="querySpanMode" size="mini" @change="handleSpanModeChange">
+            <el-radio-button label="day">單日</el-radio-button>
+            <el-radio-button label="month">本月累計</el-radio-button>
+            <el-radio-button label="range">區間</el-radio-button>
+          </el-radio-group>
         </div>
 
         <!-- 每月每日成本總表模式：月份選擇器 -->
@@ -246,7 +285,7 @@
         </div>
       </div>
 
-      <!-- 頁籤 2：箱號耗用與材積異常深度分析（新增獨立箱號分析） -->
+      <!-- 頁籤 2：箱號耗用與材積異常深度分析 -->
       <div v-show="activeTab === 'box_analysis'" class="tab-pane-box">
         <div class="charts-grid-2">
           <div class="chart-card">
@@ -259,7 +298,6 @@
           </div>
         </div>
 
-        <!-- 完整箱號統計總表 -->
         <div class="table-card">
           <div class="table-header">
             <span class="table-title">📦 全箱號耗用、包材費佔比與運費結構總表（依總履約成本排序）</span>
@@ -325,7 +363,6 @@
           </div>
         </div>
 
-        <!-- 大箱裝輕物異常抓漏明細 -->
         <div class="table-card">
           <div class="table-header">
             <span class="table-title">⚠️ 「高單價大箱 (≥$8.5) 裝極輕物品 (實重 ≤0.35kg)」疑似包材浪費明細</span>
@@ -775,6 +812,9 @@ export default {
       loadingMonthly: false,
       loadingYearly: false,
       activeTab: 'carrier_box',
+      querySpanMode: 'day', // 'day' (智慧單日步進器) | 'month' (本月累計) | 'range' (自訂區間)
+      targetDate: '',
+      availableDates: [],
       dateRange: [],
       latestAvailableDate: '',
       targetMonth: new Date().toISOString().slice(0, 7),
@@ -897,10 +937,10 @@ export default {
     switchTab(tab) {
       this.activeTab = tab;
       if (tab === 'monthly_cost') {
-        if (this.dateRange && this.dateRange[0]) this.targetMonth = this.dateRange[0].slice(0, 7);
+        if (this.targetDate) this.targetMonth = this.targetDate.slice(0, 7);
         this.fetchMonthlyCost();
       } else if (tab === 'yearly_cost') {
-        if (this.dateRange && this.dateRange[0]) this.targetYear = this.dateRange[0].slice(0, 4);
+        if (this.targetDate) this.targetYear = this.targetDate.slice(0, 4);
         this.fetchYearlyCost();
       } else if (tab === 'carrier_box' || tab === 'box_analysis') {
         this.$nextTick(() => this.renderCharts());
@@ -911,6 +951,61 @@ export default {
       else if (this.activeTab === 'yearly_cost') this.fetchYearlyCost();
       else this.fetchCostAnalysis();
     },
+
+    // 智慧日期步進器方法（與 DeliveryFlowList.vue 完全相同）
+    onSingleDateChange() {
+      if (this.targetDate) {
+        this.dateRange = [this.targetDate, this.targetDate];
+        this.fetchCostAnalysis();
+      }
+    },
+    shiftDay(offset) {
+      if (this.availableDates.length > 0) {
+        const idx = this.availableDates.findIndex(d => d.ship_date === this.targetDate);
+        if (idx !== -1) {
+          const targetIdx = idx - offset;
+          if (targetIdx >= 0 && targetIdx < this.availableDates.length) {
+            this.targetDate = this.availableDates[targetIdx].ship_date;
+            this.onSingleDateChange();
+          } else {
+            ElMessage.info(offset < 0 ? '已是最早一筆匯入日期' : '已是最新一筆匯入日期');
+          }
+          return;
+        }
+      }
+      const d = new Date(this.targetDate || new Date());
+      d.setDate(d.getDate() + offset);
+      this.targetDate = d.toISOString().split('T')[0];
+      this.onSingleDateChange();
+    },
+    jumpToLatestDate() {
+      if (this.availableDates.length > 0) {
+        this.targetDate = this.availableDates[0].ship_date;
+      } else {
+        this.targetDate = new Date().toISOString().split('T')[0];
+      }
+      this.onSingleDateChange();
+    },
+    handleSpanModeChange(mode) {
+      if (mode === 'day') {
+        const d = this.targetDate || this.latestAvailableDate || new Date().toISOString().split('T')[0];
+        this.targetDate = d;
+        this.dateRange = [d, d];
+        this.fetchCostAnalysis();
+      } else if (mode === 'month') {
+        const base = this.targetDate || this.latestAvailableDate || new Date().toISOString().split('T')[0];
+        const ym = base.slice(0, 7);
+        this.dateRange = [`${ym}-01`, `${ym}-31`];
+        this.fetchCostAnalysis();
+      } else if (mode === 'range') {
+        if (!this.dateRange || this.dateRange.length < 2) {
+          const d = this.targetDate || this.latestAvailableDate || new Date().toISOString().split('T')[0];
+          this.dateRange = [d, d];
+        }
+        this.fetchCostAnalysis();
+      }
+    },
+
     shiftMonth(offset) {
       const parts = (this.targetMonth || '').split('-');
       let y = parseInt(parts[0], 10) || new Date().getFullYear();
@@ -926,6 +1021,8 @@ export default {
       this.fetchYearlyCost();
     },
     jumpToDailyCost(dateStr) {
+      this.querySpanMode = 'day';
+      this.targetDate = dateStr;
       this.dateRange = [dateStr, dateStr];
       this.activeTab = 'carrier_box';
       this.fetchCostAnalysis();
@@ -934,18 +1031,6 @@ export default {
       this.targetMonth = monthStr;
       this.activeTab = 'monthly_cost';
       this.fetchMonthlyCost();
-    },
-    setLatestDay() {
-      if (this.latestAvailableDate) {
-        this.dateRange = [this.latestAvailableDate, this.latestAvailableDate];
-        this.fetchCostAnalysis();
-      }
-    },
-    setCurrentMonth() {
-      const base = this.latestAvailableDate || new Date().toISOString().split('T')[0];
-      const ym = base.slice(0, 7);
-      this.dateRange = [`${ym}-01`, `${ym}-31`];
-      this.fetchCostAnalysis();
     },
     getCommonFilterParams() {
       return {
@@ -959,13 +1044,14 @@ export default {
       try {
         const res = await axios.get('/api/delivery/dates', { params: { dayMode: 'calendar' } });
         if (res.data?.success) {
+          this.availableDates = res.data.list || [];
           this.warehouseOptions = res.data.warehouses || [];
           this.carrierOptions = res.data.carriers || [];
           this.deliveryTypeOptions = res.data.deliveryTypes || [];
           this.boxNoOptions = res.data.boxNos || [];
-          const list = res.data.list || [];
-          if (list.length > 0) {
-            this.latestAvailableDate = list[0].ship_date;
+          if (this.availableDates.length > 0) {
+            this.latestAvailableDate = this.availableDates[0].ship_date;
+            this.targetDate = this.latestAvailableDate;
             this.dateRange = [this.latestAvailableDate, this.latestAvailableDate];
             this.targetMonth = this.latestAvailableDate.slice(0, 7);
             this.targetYear = this.latestAvailableDate.slice(0, 4);
@@ -976,7 +1062,11 @@ export default {
     async fetchCostAnalysis() {
       this.loading = true;
       try {
-        const [startDate, endDate] = this.dateRange || [];
+        let [startDate, endDate] = this.dateRange || [];
+        if (this.querySpanMode === 'day' && this.targetDate) {
+          startDate = this.targetDate;
+          endDate = this.targetDate;
+        }
         const res = await axios.get('/api/delivery/cost-analysis', {
           params: {
             startDate,
@@ -988,6 +1078,9 @@ export default {
           }
         });
         if (res.data?.success) {
+          if (!this.targetDate && res.data.startDate) {
+            this.targetDate = res.data.startDate;
+          }
           if (!this.dateRange || this.dateRange.length === 0) {
             this.dateRange = [res.data.startDate, res.data.endDate];
           }
@@ -1189,6 +1282,7 @@ export default {
   border: 1px solid #334155;
 }
 .step-btn { padding: 5px 8px !important; font-weight: bold; }
+.step-latest-btn { padding: 5px 8px !important; font-weight: bold; }
 .btn-group { margin-left: auto; }
 
 .sub-tabs-bar {
