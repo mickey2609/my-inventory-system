@@ -4,7 +4,7 @@
     <!-- 1. 頂部篩選控制面板 -->
     <div class="control-header-panel">
       <div class="filter-row">
-        <!-- 區間查詢模式（前 5 個細部頁籤顯示） -->
+        <!-- 區間查詢模式 -->
         <div class="filter-item" v-if="isRangeTab">
           <span class="label">📅 查詢區間：</span>
           <el-date-picker
@@ -107,10 +107,13 @@
         </div>
       </div>
 
-      <!-- 子頁籤切換（高運費與額外加價已獨立分開，並新增月/年總表） -->
+      <!-- 子頁籤切換 -->
       <div class="sub-tabs-bar">
         <button class="sub-tab-btn" :class="{ active: activeTab === 'carrier_box' }" @click="switchTab('carrier_box')">
           💰 物流商與包材成本總覽
+        </button>
+        <button class="sub-tab-btn box-tab" :class="{ active: activeTab === 'box_analysis' }" @click="switchTab('box_analysis')">
+          📦 箱號耗用與材積異常分析 ({{ boxList.length }} 種)
         </button>
         <button class="sub-tab-btn" :class="{ active: activeTab === 'district_type' }" @click="switchTab('district_type')">
           📮 行政區熱點與宅配類別
@@ -168,6 +171,7 @@
           <div class="kpi-val text-green">${{ formatMoney(kpi.totalBoxCost) }}</div>
           <div class="kpi-sub">
             佔總履約成本 <strong>{{ kpi.totalFulfillmentCost > 0 ? ((kpi.totalBoxCost / kpi.totalFulfillmentCost) * 100).toFixed(1) : '0.0' }}%</strong>
+            （共 {{ boxList.length }} 種箱型）
           </div>
         </div>
 
@@ -240,38 +244,126 @@
             </table>
           </div>
         </div>
+      </div>
 
+      <!-- 頁籤 2：箱號耗用與材積異常深度分析（新增獨立箱號分析） -->
+      <div v-show="activeTab === 'box_analysis'" class="tab-pane-box">
+        <div class="charts-grid-2">
+          <div class="chart-card">
+            <div class="chart-title">🥧 各箱號包材總支出佔比 (Top 10)</div>
+            <div ref="boxSharePieChart" class="echart-box"></div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-title">📈 各箱號「箱子單價 vs 平均物流運費」對照</div>
+            <div ref="boxFeeCompareChart" class="echart-box"></div>
+          </div>
+        </div>
+
+        <!-- 完整箱號統計總表 -->
         <div class="table-card">
           <div class="table-header">
-            <span class="table-title">📦 箱號規格耗用、包材費與平均物流費排行表</span>
-            <span class="tip-text">💡 可用於包材備料與檢查「高單價大箱裝輕物」之浪費情形</span>
+            <span class="table-title">📦 全箱號耗用、包材費佔比與運費結構總表（依總履約成本排序）</span>
+            <span class="tip-text">💡 點擊箱號可快速篩選該箱型，檢查包材耗用與主力配合物流商</span>
           </div>
-          <div class="table-scroll">
+          <div class="table-scroll" style="max-height: 440px;">
             <table class="data-table">
               <thead>
                 <tr>
+                  <th>排名</th>
                   <th>箱號規格</th>
                   <th>使用箱數</th>
+                  <th>箱數佔比</th>
                   <th>箱子單價</th>
                   <th>平均材積和</th>
-                  <th>包材總成本</th>
-                  <th>平均物流費</th>
-                  <th>單件總成本 (箱+運)</th>
-                  <th>該箱型總支出</th>
-                  <th>拆箱次數</th>
+                  <th>平均實重(kg)</th>
+                  <th>包材費總計</th>
+                  <th>包材費佔比</th>
+                  <th>物流費總計</th>
+                  <th>計費均運費</th>
+                  <th>單件總成本</th>
+                  <th>該箱總履約成本</th>
+                  <th>總成本佔比</th>
+                  <th>主力物流商</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-for="(b, idx) in boxList" :key="b.boxNo" :class="{ 'row-zebra': idx % 2 === 1 }">
-                  <td class="text-center font-bold text-green">{{ b.boxNo }}</td>
+                  <td class="text-center text-dim font-bold">#{{ idx + 1 }}</td>
+                  <td class="text-center font-bold text-green copyable" @click="filterByBox(b.boxNo)">{{ b.boxNo }}</td>
                   <td class="text-right font-bold">{{ formatNumber(b.count) }}</td>
+                  <td class="text-right text-dim">{{ b.countShare }}%</td>
                   <td class="text-right text-green">${{ b.unitBoxPrice.toFixed(2) }}</td>
                   <td class="text-right text-dim">{{ b.avgVolume }}</td>
+                  <td class="text-right text-dim">{{ b.avgWeight || '-' }}</td>
                   <td class="text-right text-green font-bold">${{ formatMoney(b.boxCostSum) }}</td>
-                  <td class="text-right text-blue">${{ b.avgShippingFee.toFixed(2) }}</td>
-                  <td class="text-right text-yellow font-bold">${{ b.avgTotalCost.toFixed(2) }}</td>
+                  <td class="text-right text-green">{{ b.boxCostShare }}%</td>
+                  <td class="text-right text-blue">${{ formatMoney(b.shippingFeeSum) }}</td>
+                  <td class="text-right text-blue font-bold">${{ b.avgShippingFee.toFixed(2) }}</td>
+                  <td class="text-right text-yellow">${{ b.avgTotalCost.toFixed(2) }}</td>
                   <td class="text-right text-yellow font-bold">${{ formatMoney(b.totalCostSum) }}</td>
-                  <td class="text-right text-purple">{{ formatNumber(b.splitCount) }}</td>
+                  <td class="text-right text-yellow font-bold">{{ b.totalCostShare }}%</td>
+                  <td class="text-center text-dim">{{ b.topCarrier }}</td>
+                </tr>
+              </tbody>
+              <tfoot v-if="boxList.length > 0">
+                <tr class="table-total-row">
+                  <td colspan="2" class="text-center font-bold text-yellow">全箱型合計</td>
+                  <td class="text-right font-bold">{{ formatNumber(kpi.totalPackages) }}</td>
+                  <td class="text-right">100%</td>
+                  <td></td>
+                  <td colspan="2"></td>
+                  <td class="text-right font-bold text-green">${{ formatMoney(kpi.totalBoxCost) }}</td>
+                  <td class="text-right text-green">100%</td>
+                  <td class="text-right font-bold text-blue">${{ formatMoney(kpi.totalShippingFee) }}</td>
+                  <td colspan="2"></td>
+                  <td class="text-right font-bold text-yellow">${{ formatMoney(kpi.totalFulfillmentCost) }}</td>
+                  <td class="text-right text-yellow">100%</td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+
+        <!-- 大箱裝輕物異常抓漏明細 -->
+        <div class="table-card">
+          <div class="table-header">
+            <span class="table-title">⚠️ 「高單價大箱 (≥$8.5) 裝極輕物品 (實重 ≤0.35kg)」疑似包材浪費明細</span>
+            <span class="tip-text">共檢出 {{ formatNumber(kpi.wastefulBoxTotalCount || wastefulBoxList.length) }} 筆（展示前 500 筆）</span>
+          </div>
+          <div class="table-scroll" style="max-height: 360px;">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>宅配單號</th>
+                  <th>訂單編號</th>
+                  <th>出貨日期</th>
+                  <th>物流商</th>
+                  <th>使用箱號</th>
+                  <th>箱號材積和</th>
+                  <th>實際重量(kg)</th>
+                  <th>箱子單價</th>
+                  <th>物流費總計</th>
+                  <th>單件總成本</th>
+                  <th>預估可省差額</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="wastefulBoxList.length === 0">
+                  <td colspan="11" class="text-center text-dim" style="padding: 24px;">🎉 查詢區間內無「高單價大箱裝極輕物品」之異常紀錄！</td>
+                </tr>
+                <tr v-for="w in wastefulBoxList" :key="w.tracking_no">
+                  <td class="font-bold text-blue copyable" @click="copyText(w.tracking_no)">{{ w.tracking_no }}</td>
+                  <td class="font-bold text-orange copyable" @click="copyText(w.order_no)">{{ w.order_no }}</td>
+                  <td class="text-center">{{ w.ship_date }}</td>
+                  <td>{{ w.carrier_name }}</td>
+                  <td class="text-center font-bold text-red">{{ w.box_no }}</td>
+                  <td class="text-right">{{ w.box_volume }}</td>
+                  <td class="text-right text-yellow font-bold">{{ w.actual_weight }} kg</td>
+                  <td class="text-right text-red font-bold">${{ Number(w.box_price || 0).toFixed(2) }}</td>
+                  <td class="text-right text-blue">${{ formatMoney(w.shipping_fee) }}</td>
+                  <td class="text-right text-yellow font-bold">${{ Number(w.totalCost || 0).toFixed(2) }}</td>
+                  <td class="text-right text-green font-bold">~${{ Number(w.estSave || 0).toFixed(2) }}</td>
                 </tr>
               </tbody>
             </table>
@@ -279,7 +371,7 @@
         </div>
       </div>
 
-      <!-- 頁籤 2：行政區熱點與宅配類別 -->
+      <!-- 頁籤 3：行政區熱點與宅配類別 -->
       <div v-show="activeTab === 'district_type'" class="tab-pane-box">
         <div class="table-card">
           <div class="table-header">
@@ -357,7 +449,7 @@
         </div>
       </div>
 
-      <!-- 頁籤 3：一單多箱拆箱成本稽核 -->
+      <!-- 頁籤 4：一單多箱拆箱成本稽核 -->
       <div v-show="activeTab === 'split_audit'" class="tab-pane-box">
         <div class="table-card">
           <div class="table-header">
@@ -412,7 +504,7 @@
         </div>
       </div>
 
-      <!-- 頁籤 4：高單價運費明細（獨立頁籤） -->
+      <!-- 頁籤 5：高單價運費明細 -->
       <div v-show="activeTab === 'high_shipping'" class="tab-pane-box">
         <div class="table-card">
           <div class="table-header">
@@ -471,7 +563,7 @@
         </div>
       </div>
 
-      <!-- 頁籤 5：額外加價明細（獨立頁籤，拆解假日/重量/超材/地區加價） -->
+      <!-- 頁籤 6：額外加價明細 -->
       <div v-show="activeTab === 'extra_fee'" class="tab-pane-box">
         <div class="table-card">
           <div class="table-header">
@@ -526,7 +618,7 @@
         </div>
       </div>
 
-      <!-- 頁籤 6：每月每日成本總表 -->
+      <!-- 頁籤 7：每月每日成本總表 -->
       <div v-show="activeTab === 'monthly_cost'" class="tab-pane-box">
         <div class="table-card" v-loading="loadingMonthly">
           <div class="table-header">
@@ -600,7 +692,7 @@
         </div>
       </div>
 
-      <!-- 頁籤 7：年度每月成本總表 -->
+      <!-- 頁籤 8：年度每月成本總表 -->
       <div v-show="activeTab === 'yearly_cost'" class="tab-pane-box">
         <div class="table-card" v-loading="loadingYearly">
           <div class="table-header">
@@ -719,7 +811,9 @@ export default {
         lateRate: 0,
         codCashCount: 0,
         highShippingTotalCount: 0,
-        extraFeeTotalCount: 0
+        extraFeeTotalCount: 0,
+        boxTypeCount: 0,
+        wastefulBoxTotalCount: 0
       },
       carrierList: [],
       boxList: [],
@@ -728,16 +822,19 @@ export default {
       splitOrdersDetail: [],
       highShippingList: [],
       extraFeeList: [],
+      wastefulBoxList: [],
       monthlyDailyList: [],
       yearlyMonthlyList: [],
 
       carrierChartInstance: null,
-      boxChartInstance: null
+      boxChartInstance: null,
+      boxSharePieInstance: null,
+      boxFeeCompareInstance: null
     }
   },
   computed: {
     isRangeTab() {
-      return ['carrier_box', 'district_type', 'split_audit', 'high_shipping', 'extra_fee'].includes(this.activeTab);
+      return ['carrier_box', 'box_analysis', 'district_type', 'split_audit', 'high_shipping', 'extra_fee'].includes(this.activeTab);
     },
     monthlyTotalSummary() {
       return this.monthlyDailyList.reduce((acc, d) => {
@@ -776,6 +873,8 @@ export default {
     window.removeEventListener('resize', this.handleResize);
     if (this.carrierChartInstance) this.carrierChartInstance.dispose();
     if (this.boxChartInstance) this.boxChartInstance.dispose();
+    if (this.boxSharePieInstance) this.boxSharePieInstance.dispose();
+    if (this.boxFeeCompareInstance) this.boxFeeCompareInstance.dispose();
   },
   methods: {
     formatNumber(v) { return Number(v || 0).toLocaleString(); },
@@ -785,9 +884,15 @@ export default {
     copyText(txt) {
       navigator.clipboard.writeText(txt).then(() => ElMessage.success(`📋 已複製單號：${txt}`));
     },
+    filterByBox(boxNo) {
+      this.selectedBoxNo = this.selectedBoxNo === boxNo ? 'all' : boxNo;
+      this.fetchCostAnalysis();
+    },
     handleResize() {
       if (this.carrierChartInstance) this.carrierChartInstance.resize();
       if (this.boxChartInstance) this.boxChartInstance.resize();
+      if (this.boxSharePieInstance) this.boxSharePieInstance.resize();
+      if (this.boxFeeCompareInstance) this.boxFeeCompareInstance.resize();
     },
     switchTab(tab) {
       this.activeTab = tab;
@@ -797,7 +902,7 @@ export default {
       } else if (tab === 'yearly_cost') {
         if (this.dateRange && this.dateRange[0]) this.targetYear = this.dateRange[0].slice(0, 4);
         this.fetchYearlyCost();
-      } else if (tab === 'carrier_box') {
+      } else if (tab === 'carrier_box' || tab === 'box_analysis') {
         this.$nextTick(() => this.renderCharts());
       }
     },
@@ -894,6 +999,7 @@ export default {
           this.splitOrdersDetail = res.data.splitOrdersDetail || [];
           this.highShippingList = res.data.highShippingList || [];
           this.extraFeeList = res.data.extraFeeList || [];
+          this.wastefulBoxList = res.data.wastefulBoxList || [];
           this.$nextTick(() => this.renderCharts());
         }
       } catch (e) {
@@ -933,56 +1039,102 @@ export default {
       }
     },
     renderCharts() {
-      if (this.activeTab !== 'carrier_box') return;
+      if (this.activeTab === 'carrier_box') {
+        if (this.$refs.carrierCostChart) {
+          if (!this.carrierChartInstance) {
+            this.carrierChartInstance = echarts.init(this.$refs.carrierCostChart);
+          }
+          const names = this.carrierList.map(c => c.carrier);
+          const shipFees = this.carrierList.map(c => c.shippingFee);
+          const boxCosts = this.carrierList.map(c => c.boxCost);
 
-      if (this.$refs.carrierCostChart) {
-        if (!this.carrierChartInstance) {
-          this.carrierChartInstance = echarts.init(this.$refs.carrierCostChart);
+          this.carrierChartInstance.setOption({
+            backgroundColor: 'transparent',
+            tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+            legend: { data: ['物流運費', '紙箱包材費'], textStyle: { color: '#cbd5e1' } },
+            grid: { top: '14%', left: '4%', right: '4%', bottom: '12%', containLabel: true },
+            xAxis: { type: 'category', data: names, axisLabel: { color: '#cbd5e1', fontSize: 11, rotate: 18 } },
+            yAxis: { type: 'value', splitLine: { lineStyle: { color: 'rgba(255,255,255,0.06)' } }, axisLabel: { color: '#94a3b8' } },
+            series: [
+              { name: '物流運費', type: 'bar', stack: 'cost', barWidth: '45%', itemStyle: { color: '#38bdf8' }, data: shipFees },
+              { name: '紙箱包材費', type: 'bar', stack: 'cost', barWidth: '45%', itemStyle: { color: '#4ade80', borderRadius: [4, 4, 0, 0] }, data: boxCosts }
+            ]
+          }, true);
+          this.carrierChartInstance.resize();
         }
-        const names = this.carrierList.map(c => c.carrier);
-        const shipFees = this.carrierList.map(c => c.shippingFee);
-        const boxCosts = this.carrierList.map(c => c.boxCost);
 
-        this.carrierChartInstance.setOption({
-          backgroundColor: 'transparent',
-          tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-          legend: { data: ['物流運費', '紙箱包材費'], textStyle: { color: '#cbd5e1' } },
-          grid: { top: '14%', left: '4%', right: '4%', bottom: '12%', containLabel: true },
-          xAxis: { type: 'category', data: names, axisLabel: { color: '#cbd5e1', fontSize: 11, rotate: 18 } },
-          yAxis: { type: 'value', splitLine: { lineStyle: { color: 'rgba(255,255,255,0.06)' } }, axisLabel: { color: '#94a3b8' } },
-          series: [
-            { name: '物流運費', type: 'bar', stack: 'cost', barWidth: '45%', itemStyle: { color: '#38bdf8' }, data: shipFees },
-            { name: '紙箱包材費', type: 'bar', stack: 'cost', barWidth: '45%', itemStyle: { color: '#4ade80', borderRadius: [4, 4, 0, 0] }, data: boxCosts }
-          ]
-        }, true);
-        this.carrierChartInstance.resize();
+        if (this.$refs.boxCostChart) {
+          if (!this.boxChartInstance) {
+            this.boxChartInstance = echarts.init(this.$refs.boxCostChart);
+          }
+          const topBoxes = [...this.boxList].sort((a, b) => b.count - a.count).slice(0, 12);
+          const bNames = topBoxes.map(b => b.boxNo);
+          const bCounts = topBoxes.map(b => b.count);
+          const bAvgCosts = topBoxes.map(b => b.avgTotalCost);
+
+          this.boxChartInstance.setOption({
+            backgroundColor: 'transparent',
+            tooltip: { trigger: 'axis' },
+            legend: { data: ['使用箱數', '單件總成本(元)'], textStyle: { color: '#cbd5e1' } },
+            grid: { top: '14%', left: '4%', right: '4%', bottom: '12%', containLabel: true },
+            xAxis: { type: 'category', data: bNames, axisLabel: { color: '#cbd5e1', fontSize: 11, rotate: 20 } },
+            yAxis: [
+              { type: 'value', name: '箱數', nameTextStyle: { color: '#94a3b8' }, splitLine: { lineStyle: { color: 'rgba(255,255,255,0.06)' } }, axisLabel: { color: '#94a3b8' } },
+              { type: 'value', name: '單件成本($)', nameTextStyle: { color: '#facc15' }, splitLine: { show: false }, axisLabel: { color: '#facc15' } }
+            ],
+            series: [
+              { name: '使用箱數', type: 'bar', barWidth: '42%', itemStyle: { color: '#818cf8', borderRadius: [4, 4, 0, 0] }, data: bCounts },
+              { name: '單件總成本(元)', type: 'line', yAxisIndex: 1, smooth: true, itemStyle: { color: '#facc15' }, lineStyle: { width: 2.5 }, data: bAvgCosts }
+            ]
+          }, true);
+          this.boxChartInstance.resize();
+        }
       }
 
-      if (this.$refs.boxCostChart) {
-        if (!this.boxChartInstance) {
-          this.boxChartInstance = echarts.init(this.$refs.boxCostChart);
-        }
-        const topBoxes = this.boxList.slice(0, 12);
-        const bNames = topBoxes.map(b => b.boxNo);
-        const bCounts = topBoxes.map(b => b.count);
-        const bAvgCosts = topBoxes.map(b => b.avgTotalCost);
+      if (this.activeTab === 'box_analysis') {
+        if (this.$refs.boxSharePieChart) {
+          if (!this.boxSharePieInstance) {
+            this.boxSharePieInstance = echarts.init(this.$refs.boxSharePieChart);
+          }
+          const top10BoxCost = [...this.boxList]
+            .sort((a, b) => b.boxCostSum - a.boxCostSum)
+            .slice(0, 10)
+            .map(b => ({ name: b.boxNo, value: b.boxCostSum }));
 
-        this.boxChartInstance.setOption({
-          backgroundColor: 'transparent',
-          tooltip: { trigger: 'axis' },
-          legend: { data: ['使用箱數', '單件總成本(元)'], textStyle: { color: '#cbd5e1' } },
-          grid: { top: '14%', left: '4%', right: '4%', bottom: '12%', containLabel: true },
-          xAxis: { type: 'category', data: bNames, axisLabel: { color: '#cbd5e1', fontSize: 11, rotate: 20 } },
-          yAxis: [
-            { type: 'value', name: '箱數', nameTextStyle: { color: '#94a3b8' }, splitLine: { lineStyle: { color: 'rgba(255,255,255,0.06)' } }, axisLabel: { color: '#94a3b8' } },
-            { type: 'value', name: '單件成本($)', nameTextStyle: { color: '#facc15' }, splitLine: { show: false }, axisLabel: { color: '#facc15' } }
-          ],
-          series: [
-            { name: '使用箱數', type: 'bar', barWidth: '42%', itemStyle: { color: '#818cf8', borderRadius: [4, 4, 0, 0] }, data: bCounts },
-            { name: '單件總成本(元)', type: 'line', yAxisIndex: 1, smooth: true, itemStyle: { color: '#facc15' }, lineStyle: { width: 2.5 }, data: bAvgCosts }
-          ]
-        }, true);
-        this.boxChartInstance.resize();
+          this.boxSharePieInstance.setOption({
+            backgroundColor: 'transparent',
+            tooltip: { trigger: 'item', formatter: '{b}: ${c} ({d}%)' },
+            legend: { orient: 'vertical', right: '4%', top: 'center', textStyle: { color: '#cbd5e1', fontSize: 11 } },
+            series: [{
+              type: 'pie',
+              radius: ['42%', '72%'],
+              center: ['36%', '50%'],
+              label: { color: '#f8fafc', formatter: '{b}\n{d}%' },
+              data: top10BoxCost
+            }]
+          }, true);
+          this.boxSharePieInstance.resize();
+        }
+
+        if (this.$refs.boxFeeCompareChart) {
+          if (!this.boxFeeCompareInstance) {
+            this.boxFeeCompareInstance = echarts.init(this.$refs.boxFeeCompareChart);
+          }
+          const top12Boxes = [...this.boxList].sort((a, b) => b.count - a.count).slice(0, 12);
+          this.boxFeeCompareInstance.setOption({
+            backgroundColor: 'transparent',
+            tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+            legend: { data: ['箱子單價($)', '計費均運費($)'], textStyle: { color: '#cbd5e1' } },
+            grid: { top: '14%', left: '4%', right: '4%', bottom: '12%', containLabel: true },
+            xAxis: { type: 'category', data: top12Boxes.map(b => b.boxNo), axisLabel: { color: '#cbd5e1', fontSize: 11, rotate: 20 } },
+            yAxis: { type: 'value', splitLine: { lineStyle: { color: 'rgba(255,255,255,0.06)' } }, axisLabel: { color: '#94a3b8' } },
+            series: [
+              { name: '箱子單價($)', type: 'bar', stack: 'unit', barWidth: '42%', itemStyle: { color: '#4ade80' }, data: top12Boxes.map(b => b.unitBoxPrice) },
+              { name: '計費均運費($)', type: 'bar', stack: 'unit', barWidth: '42%', itemStyle: { color: '#38bdf8', borderRadius: [4, 4, 0, 0] }, data: top12Boxes.map(b => b.avgShippingFee) }
+            ]
+          }, true);
+          this.boxFeeCompareInstance.resize();
+        }
       }
     }
   }
@@ -1063,6 +1215,11 @@ export default {
   border-bottom-color: #facc15;
   background: rgba(250, 204, 21, 0.08);
   border-radius: 4px 4px 0 0;
+}
+.box-tab.active {
+  color: #38bdf8;
+  border-bottom-color: #38bdf8;
+  background: rgba(56, 189, 248, 0.1);
 }
 .warn-tab.active {
   color: #c084fc;

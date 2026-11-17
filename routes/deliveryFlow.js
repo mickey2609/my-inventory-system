@@ -182,6 +182,7 @@ module.exports = function(db) {
         box_no TEXT,
         box_volume REAL DEFAULT 0,
         box_price REAL DEFAULT 0,
+        actual_weight REAL DEFAULT 0,
         shipping_fee REAL DEFAULT 0,
         base_fee REAL DEFAULT 0,
         extra_fee REAL DEFAULT 0,
@@ -230,6 +231,7 @@ module.exports = function(db) {
                 box_no TEXT,
                 box_volume REAL DEFAULT 0,
                 box_price REAL DEFAULT 0,
+                actual_weight REAL DEFAULT 0,
                 shipping_fee REAL DEFAULT 0,
                 base_fee REAL DEFAULT 0,
                 extra_fee REAL DEFAULT 0,
@@ -249,9 +251,10 @@ module.exports = function(db) {
             'wh_code TEXT', 'delivery_type TEXT', 'is_24h TEXT',
             'wh_receive_time TEXT', 'print_pick_time TEXT', 'out_time TEXT',
             "is_first_box TEXT DEFAULT 'Y'", 'box_no TEXT', 'box_volume REAL DEFAULT 0',
-            'box_price REAL DEFAULT 0', 'shipping_fee REAL DEFAULT 0', 'base_fee REAL DEFAULT 0',
-            'extra_fee REAL DEFAULT 0', 'holiday_fee REAL DEFAULT 0', 'weight_fee REAL DEFAULT 0',
-            'oversize_fee REAL DEFAULT 0', 'remote_fee REAL DEFAULT 0', 'is_late TEXT', 'cod_type TEXT'
+            'box_price REAL DEFAULT 0', 'actual_weight REAL DEFAULT 0', 'shipping_fee REAL DEFAULT 0',
+            'base_fee REAL DEFAULT 0', 'extra_fee REAL DEFAULT 0', 'holiday_fee REAL DEFAULT 0',
+            'weight_fee REAL DEFAULT 0', 'oversize_fee REAL DEFAULT 0', 'remote_fee REAL DEFAULT 0',
+            'is_late TEXT', 'cod_type TEXT'
           ];
           neededCols.forEach(col => {
             db.run(`ALTER TABLE delivery_order_tracking ADD COLUMN ${col}`, () => {});
@@ -290,9 +293,9 @@ module.exports = function(db) {
           order_date, order_time, order_interval, pick_time, pick_interval,
           print_time, print_interval, carrier_name, delivery_type, is_24h,
           wh_receive_time, print_pick_time, out_time, receiver_name, zip_code, address,
-          is_first_box, box_no, box_volume, box_price, shipping_fee, base_fee, extra_fee,
+          is_first_box, box_no, box_volume, box_price, actual_weight, shipping_fee, base_fee, extra_fee,
           holiday_fee, weight_fee, oversize_fee, remote_fee, is_late, cod_type
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(tracking_no) DO UPDATE SET
           order_no = EXCLUDED.order_no,
           wh_code = EXCLUDED.wh_code,
@@ -313,6 +316,7 @@ module.exports = function(db) {
           box_no = EXCLUDED.box_no,
           box_volume = EXCLUDED.box_volume,
           box_price = EXCLUDED.box_price,
+          actual_weight = EXCLUDED.actual_weight,
           shipping_fee = EXCLUDED.shipping_fee,
           base_fee = EXCLUDED.base_fee,
           extra_fee = EXCLUDED.extra_fee,
@@ -374,6 +378,7 @@ module.exports = function(db) {
         const box_no = getV('箱號', 'box_no') || '未記錄';
         const box_volume = toNum(getV('箱號材積和', 'box_volume'));
         const box_price = toNum(getV('箱子單價', 'box_price'));
+        const actual_weight = toNum(getV('實際重量', 'actual_weight'));
         const shipping_fee = toNum(getV('物流費總計', 'shipping_fee'));
         const base_fee = toNum(getV('基本運費', 'base_fee'));
         const holiday_fee = toNum(getV('假日加價'));
@@ -389,7 +394,7 @@ module.exports = function(db) {
           order_date, order_time, order_interval, pick_time, pick_interval,
           print_time, print_interval, carrier_name, delivery_type, is_24h,
           wh_receive_time, print_pick_time, out_time, receiver_name, zip, addr,
-          is_first_box, box_no, box_volume, box_price, shipping_fee, base_fee, extra_fee,
+          is_first_box, box_no, box_volume, box_price, actual_weight, shipping_fee, base_fee, extra_fee,
           holiday_fee, weight_fee, oversize_fee, remote_fee, is_late, cod_type
         );
         count++;
@@ -670,7 +675,7 @@ module.exports = function(db) {
     }
   });
 
-  // 物流費與包材成本專屬分析 API（高單價運費與額外加價已獨立拆開）
+  // 物流費與包材成本專屬分析 API（含箱號佔比與大箱裝輕物浪費稽核）
   router.get('/cost-analysis', (req, res) => {
     const { startDate, endDate, whCode, carrier, deliveryType, boxNo, region, onlySplitBox, onlyLate, highFeeThreshold } = req.query;
     const feeThreshold = Number(highFeeThreshold) || 120;
@@ -712,6 +717,7 @@ module.exports = function(db) {
         const splitOrderIds = new Set();
         const highShippingList = [];
         const extraFeeList = [];
+        const wastefulBoxList = [];
 
         rows.forEach(r => {
           if (r.order_no) orderSet.add(r.order_no);
@@ -720,6 +726,7 @@ module.exports = function(db) {
           const boxPrice = Number(r.box_price || 0);
           const extraFee = Number(r.extra_fee || 0);
           const vol = Number(r.box_volume || 0);
+          const weight = Number(r.actual_weight || 0);
           const totalCost = shipFee + boxPrice;
 
           totalShippingFee += shipFee;
@@ -772,20 +779,37 @@ module.exports = function(db) {
               count: 0,
               boxPriceSum: 0,
               volumeSum: 0,
+              weightSum: 0,
+              weightCount: 0,
               shippingFeeSum: 0,
               billedCount: 0,
               totalCostSum: 0,
-              splitCount: 0
+              splitCount: 0,
+              carrierCounts: {}
             };
           }
           const bb = boxMap[bCode];
           bb.count++;
           bb.boxPriceSum += boxPrice;
           bb.volumeSum += vol;
+          if (weight > 0) {
+            bb.weightSum += weight;
+            bb.weightCount++;
+          }
           bb.shippingFeeSum += shipFee;
           if (shipFee > 0) bb.billedCount++;
           bb.totalCostSum += totalCost;
           if (r.is_first_box === 'N') bb.splitCount++;
+          bb.carrierCounts[cName] = (bb.carrierCounts[cName] || 0) + 1;
+
+          // 抓出「高單價大箱 (>= $8.5) 裝極輕物品 (實際重量 > 0 且 <= 0.35 kg)」之浪費疑似件
+          if (boxPrice >= 8.5 && weight > 0 && weight <= 0.35) {
+            wastefulBoxList.push({
+              ...r,
+              totalCost: Number(totalCost.toFixed(2)),
+              estSave: Number(Math.max(0, (boxPrice - 3.02) + (shipFee > 72 ? (shipFee - 72) : 0)).toFixed(2))
+            });
+          }
 
           const dType = r.delivery_type || '未分類';
           if (!typeMap[dType]) {
@@ -830,7 +854,6 @@ module.exports = function(db) {
           dbucket.boxCost += boxPrice;
           dbucket.totalCost += totalCost;
 
-          // 獨立收集 1：高單價運費件（例如 >= $120）
           if (shipFee >= feeThreshold) {
             highShippingList.push({
               ...r,
@@ -838,7 +861,6 @@ module.exports = function(db) {
             });
           }
 
-          // 獨立收集 2：含額外加價件（假日 / 重量 / 超材 / 地區加價 > 0）
           if (extraFee > 0) {
             extraFeeList.push({
               ...r,
@@ -849,6 +871,9 @@ module.exports = function(db) {
 
         highShippingList.sort((a, b) => Number(b.shipping_fee || 0) - Number(a.shipping_fee || 0));
         extraFeeList.sort((a, b) => Number(b.extra_fee || 0) - Number(a.extra_fee || 0));
+        wastefulBoxList.sort((a, b) => b.estSave - a.estSave);
+
+        const totalFulfillmentCost = totalShippingFee + totalBoxCost;
 
         const carrierList = Object.values(carrierMap)
           .map(c => ({
@@ -864,18 +889,27 @@ module.exports = function(db) {
           .sort((a, b) => b.totalCost - a.totalCost);
 
         const boxList = Object.values(boxMap)
-          .map(b => ({
-            boxNo: b.boxNo,
-            count: b.count,
-            unitBoxPrice: b.count > 0 ? Number((b.boxPriceSum / b.count).toFixed(2)) : 0,
-            avgVolume: b.count > 0 ? Number((b.volumeSum / b.count).toFixed(1)) : 0,
-            boxCostSum: Number(b.boxPriceSum.toFixed(2)),
-            avgShippingFee: b.billedCount > 0 ? Number((b.shippingFeeSum / b.billedCount).toFixed(2)) : 0,
-            avgTotalCost: b.count > 0 ? Number((b.totalCostSum / b.count).toFixed(2)) : 0,
-            totalCostSum: Number(b.totalCostSum.toFixed(2)),
-            splitCount: b.splitCount
-          }))
-          .sort((a, b) => b.count - a.count);
+          .map(b => {
+            const topCarrierEntry = Object.entries(b.carrierCounts).sort((a, c) => c[1] - a[1])[0];
+            return {
+              boxNo: b.boxNo,
+              count: b.count,
+              countShare: totalPackages > 0 ? Number(((b.count / totalPackages) * 100).toFixed(1)) : 0,
+              unitBoxPrice: b.count > 0 ? Number((b.boxPriceSum / b.count).toFixed(2)) : 0,
+              avgVolume: b.count > 0 ? Number((b.volumeSum / b.count).toFixed(1)) : 0,
+              avgWeight: b.weightCount > 0 ? Number((b.weightSum / b.weightCount).toFixed(2)) : 0,
+              boxCostSum: Number(b.boxPriceSum.toFixed(2)),
+              boxCostShare: totalBoxCost > 0 ? Number(((b.boxPriceSum / totalBoxCost) * 100).toFixed(1)) : 0,
+              shippingFeeSum: Number(b.shippingFeeSum.toFixed(2)),
+              avgShippingFee: b.billedCount > 0 ? Number((b.shippingFeeSum / b.billedCount).toFixed(2)) : 0,
+              avgTotalCost: b.count > 0 ? Number((b.totalCostSum / b.count).toFixed(2)) : 0,
+              totalCostSum: Number(b.totalCostSum.toFixed(2)),
+              totalCostShare: totalFulfillmentCost > 0 ? Number(((b.totalCostSum / totalFulfillmentCost) * 100).toFixed(1)) : 0,
+              splitCount: b.splitCount,
+              topCarrier: topCarrierEntry ? `${topCarrierEntry[0]} (${topCarrierEntry[1]})` : '-'
+            };
+          })
+          .sort((a, b) => b.totalCostSum - a.totalCostSum);
 
         const deliveryTypeList = Object.values(typeMap)
           .map(t => ({
@@ -918,7 +952,7 @@ module.exports = function(db) {
             totalOrders: orderSet.size,
             totalShippingFee: Number(totalShippingFee.toFixed(2)),
             totalBoxCost: Number(totalBoxCost.toFixed(2)),
-            totalFulfillmentCost: Number((totalShippingFee + totalBoxCost).toFixed(2)),
+            totalFulfillmentCost: Number(totalFulfillmentCost.toFixed(2)),
             totalExtraFee: Number(totalExtraFee.toFixed(2)),
             billedPackages,
             avgBilledShippingFee: billedPackages > 0 ? Number((billedShippingFee / billedPackages).toFixed(2)) : 0,
@@ -931,7 +965,9 @@ module.exports = function(db) {
             lateRate: totalPackages > 0 ? Number(((lateCount / totalPackages) * 100).toFixed(1)) : 0,
             codCashCount,
             highShippingTotalCount: highShippingList.length,
-            extraFeeTotalCount: extraFeeList.length
+            extraFeeTotalCount: extraFeeList.length,
+            boxTypeCount: boxList.length,
+            wastefulBoxTotalCount: wastefulBoxList.length
           },
           carrierList,
           boxList,
@@ -939,7 +975,8 @@ module.exports = function(db) {
           districtTopList,
           splitOrdersDetail,
           highShippingList: highShippingList.slice(0, 1000),
-          extraFeeList: extraFeeList.slice(0, 1000)
+          extraFeeList: extraFeeList.slice(0, 1000),
+          wastefulBoxList: wastefulBoxList.slice(0, 500)
         });
       });
     };
