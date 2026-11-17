@@ -675,7 +675,7 @@ module.exports = function(db) {
     }
   });
 
-  // 物流費與包材成本專屬分析 API（含箱號佔比與大箱裝輕物浪費稽核）
+  // 物流費與包材成本專屬分析 API（含拆箱合併統計＋分開明細）
   router.get('/cost-analysis', (req, res) => {
     const { startDate, endDate, whCode, carrier, deliveryType, boxNo, region, onlySplitBox, onlyLate, highFeeThreshold } = req.query;
     const feeThreshold = Number(highFeeThreshold) || 120;
@@ -696,6 +696,14 @@ module.exports = function(db) {
         if (err) return res.status(500).json({ success: false, message: err.message });
         rows = rows || [];
 
+        // 先建立主箱 (is_first_box === 'Y') 對照表，用來判斷同訂單拆箱是「同倉同日拆箱」還是「跨庫/分批拆箱」
+        const firstBoxMap = new Map();
+        rows.forEach(r => {
+          if (r.order_no && r.is_first_box !== 'N' && !firstBoxMap.has(r.order_no)) {
+            firstBoxMap.set(r.order_no, r);
+          }
+        });
+
         let totalPackages = rows.length;
         const orderSet = new Set();
         let totalShippingFee = 0;
@@ -710,11 +718,33 @@ module.exports = function(db) {
         let lateCount = 0;
         let codCashCount = 0;
 
+        // 拆箱分類合併統計桶
+        const splitSummaryMap = {
+          same_wh_same_day: {
+            typeKey: 'same_wh_same_day',
+            typeLabel: '📦 同倉同日拆箱（真包裝拆箱）',
+            orderSet: new Set(),
+            extraBoxCount: 0,
+            shippingLoss: 0,
+            materialLoss: 0,
+            totalLoss: 0
+          },
+          cross_wh_or_batch: {
+            typeKey: 'cross_wh_or_batch',
+            typeLabel: '🏭 跨庫 / 分批出貨拆箱',
+            orderSet: new Set(),
+            extraBoxCount: 0,
+            shippingLoss: 0,
+            materialLoss: 0,
+            totalLoss: 0
+          }
+        };
+
         const carrierMap = {};
         const boxMap = {};
         const typeMap = {};
         const districtMap = {};
-        const splitOrderIds = new Set();
+        const splitOrderTypeMap = new Map(); // order_no -> splitCategory
         const highShippingList = [];
         const extraFeeList = [];
         const wastefulBoxList = [];
@@ -742,7 +772,24 @@ module.exports = function(db) {
             splitBoxCount++;
             splitBoxShippingLoss += shipFee;
             splitBoxMaterialLoss += boxPrice;
-            if (r.order_no) splitOrderIds.add(r.order_no);
+
+            const master = firstBoxMap.get(r.order_no);
+            const isSameWhSameDay = master
+              ? (String(master.wh_code || '') === String(r.wh_code || '') && String(master.ship_date || '') === String(r.ship_date || ''))
+              : true;
+
+            const catKey = isSameWhSameDay ? 'same_wh_same_day' : 'cross_wh_or_batch';
+            const sb = splitSummaryMap[catKey];
+            if (r.order_no) {
+              sb.orderSet.add(r.order_no);
+              if (!splitOrderTypeMap.has(r.order_no) || catKey === 'same_wh_same_day') {
+                splitOrderTypeMap.set(r.order_no, catKey);
+              }
+            }
+            sb.extraBoxCount++;
+            sb.shippingLoss += shipFee;
+            sb.materialLoss += boxPrice;
+            sb.totalLoss += totalCost;
           }
 
           if (r.is_late === 'Y') lateCount++;
@@ -802,7 +849,6 @@ module.exports = function(db) {
           if (r.is_first_box === 'N') bb.splitCount++;
           bb.carrierCounts[cName] = (bb.carrierCounts[cName] || 0) + 1;
 
-          // 抓出「高單價大箱 (>= $8.5) 裝極輕物品 (實際重量 > 0 且 <= 0.35 kg)」之浪費疑似件
           if (boxPrice >= 8.5 && weight > 0 && weight <= 0.35) {
             wastefulBoxList.push({
               ...r,
@@ -875,6 +921,21 @@ module.exports = function(db) {
 
         const totalFulfillmentCost = totalShippingFee + totalBoxCost;
 
+        // 整理拆箱合併統計表
+        const splitSummaryList = Object.values(splitSummaryMap).map(s => ({
+          typeKey: s.typeKey,
+          typeLabel: s.typeLabel,
+          affectedOrders: s.orderSet.size,
+          extraBoxCount: s.extraBoxCount,
+          shippingLoss: Number(s.shippingLoss.toFixed(2)),
+          materialLoss: Number(s.materialLoss.toFixed(2)),
+          totalLoss: Number(s.totalLoss.toFixed(2)),
+          avgLossPerExtraBox: s.extraBoxCount > 0 ? Number((s.totalLoss / s.extraBoxCount).toFixed(2)) : 0,
+          lossShare: (splitBoxShippingLoss + splitBoxMaterialLoss) > 0
+            ? Number(((s.totalLoss / (splitBoxShippingLoss + splitBoxMaterialLoss)) * 100).toFixed(1))
+            : 0
+        }));
+
         const carrierList = Object.values(carrierMap)
           .map(c => ({
             ...c,
@@ -935,11 +996,12 @@ module.exports = function(db) {
           .slice(0, 30);
 
         const splitOrdersDetail = rows
-          .filter(r => splitOrderIds.has(r.order_no))
+          .filter(r => splitOrderTypeMap.has(r.order_no))
           .sort((a, b) => String(a.order_no).localeCompare(String(b.order_no)) || String(b.is_first_box).localeCompare(String(a.is_first_box)))
-          .slice(0, 500)
+          .slice(0, 800)
           .map(r => ({
             ...r,
+            splitCategory: splitOrderTypeMap.get(r.order_no) || 'same_wh_same_day',
             totalCost: Number((Number(r.shipping_fee || 0) + Number(r.box_price || 0)).toFixed(2))
           }));
 
@@ -958,6 +1020,7 @@ module.exports = function(db) {
             avgBilledShippingFee: billedPackages > 0 ? Number((billedShippingFee / billedPackages).toFixed(2)) : 0,
             avgBoxCost: totalPackages > 0 ? Number((totalBoxCost / totalPackages).toFixed(2)) : 0,
             splitBoxCount,
+            splitOrderCount: splitOrderTypeMap.size,
             splitBoxShippingLoss: Number(splitBoxShippingLoss.toFixed(2)),
             splitBoxMaterialLoss: Number(splitBoxMaterialLoss.toFixed(2)),
             splitBoxTotalLoss: Number((splitBoxShippingLoss + splitBoxMaterialLoss).toFixed(2)),
@@ -969,6 +1032,7 @@ module.exports = function(db) {
             boxTypeCount: boxList.length,
             wastefulBoxTotalCount: wastefulBoxList.length
           },
+          splitSummaryList,
           carrierList,
           boxList,
           deliveryTypeList,
@@ -991,7 +1055,7 @@ module.exports = function(db) {
     }
   });
 
-  // 成本模組專屬：每月每日成本總表 API
+  // 成本模組專屬：每月每日成本總表 API（含拆箱訂單數與拆箱箱數）
   router.get('/cost-monthly-summary', (req, res) => {
     const { month } = req.query;
     if (!month) return res.status(400).json({ success: false, message: '請提供月份 (YYYY-MM)' });
@@ -1006,6 +1070,7 @@ module.exports = function(db) {
         ROUND(SUM(IFNULL(extra_fee, 0)), 2) as extraFee,
         ROUND(SUM(IFNULL(box_price, 0)), 2) as boxCost,
         ROUND(SUM(IFNULL(shipping_fee, 0) + IFNULL(box_price, 0)), 2) as totalCost,
+        COUNT(DISTINCT CASE WHEN is_first_box = 'N' THEN order_no END) as splitOrderCount,
         SUM(CASE WHEN is_first_box = 'N' THEN 1 ELSE 0 END) as splitBoxCount,
         ROUND(SUM(CASE WHEN is_first_box = 'N' THEN (IFNULL(shipping_fee, 0) + IFNULL(box_price, 0)) ELSE 0 END), 2) as splitBoxLoss,
         SUM(CASE WHEN is_late = 'Y' THEN 1 ELSE 0 END) as lateCount
@@ -1043,6 +1108,7 @@ module.exports = function(db) {
         ROUND(SUM(IFNULL(extra_fee, 0)), 2) as extraFee,
         ROUND(SUM(IFNULL(box_price, 0)), 2) as boxCost,
         ROUND(SUM(IFNULL(shipping_fee, 0) + IFNULL(box_price, 0)), 2) as totalCost,
+        COUNT(DISTINCT CASE WHEN is_first_box = 'N' THEN order_no END) as splitOrderCount,
         SUM(CASE WHEN is_first_box = 'N' THEN 1 ELSE 0 END) as splitBoxCount,
         ROUND(SUM(CASE WHEN is_first_box = 'N' THEN (IFNULL(shipping_fee, 0) + IFNULL(box_price, 0)) ELSE 0 END), 2) as splitBoxLoss,
         SUM(CASE WHEN is_late = 'Y' THEN 1 ELSE 0 END) as lateCount
@@ -1069,6 +1135,7 @@ module.exports = function(db) {
           extraFee: 0,
           boxCost: 0,
           totalCost: 0,
+          splitOrderCount: 0,
           splitBoxCount: 0,
           splitBoxLoss: 0,
           lateCount: 0

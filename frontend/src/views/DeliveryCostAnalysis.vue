@@ -38,7 +38,6 @@
             <el-button size="mini" type="info" plain class="step-latest-btn" @click="jumpToLatestDate" title="跳至最新有資料的日期">最新</el-button>
           </div>
 
-          <!-- 若切換為自訂區間時顯示區間選擇器 -->
           <template v-else-if="querySpanMode === 'range'">
             <el-date-picker
               v-model="dateRange"
@@ -54,7 +53,6 @@
             />
           </template>
 
-          <!-- 快速範圍切換：單日 / 本月累計 / 自訂區間 -->
           <el-radio-group v-model="querySpanMode" size="mini" @change="handleSpanModeChange">
             <el-radio-button label="day">單日</el-radio-button>
             <el-radio-button label="month">本月累計</el-radio-button>
@@ -158,7 +156,7 @@
           📮 行政區熱點與宅配類別
         </button>
         <button class="sub-tab-btn warn-tab" :class="{ active: activeTab === 'split_audit' }" @click="switchTab('split_audit')">
-          🔀 一單多箱拆箱稽核 ({{ formatNumber(kpi.splitBoxCount) }})
+          🔀 一單多箱拆箱稽核 ({{ formatNumber(kpi.splitOrderCount || 0) }} 單 / {{ formatNumber(kpi.splitBoxCount) }} 箱)
         </button>
         <button class="sub-tab-btn high-fee-tab" :class="{ active: activeTab === 'high_shipping' }" @click="switchTab('high_shipping')">
           🔥 高單價運費 (≥${{ highFeeThreshold }} / {{ formatNumber(kpi.highShippingTotalCount || highShippingList.length) }} 筆)
@@ -221,7 +219,7 @@
           </div>
           <div class="kpi-val text-purple">${{ formatMoney(kpi.splitBoxTotalLoss) }}</div>
           <div class="kpi-sub">
-            多拆 <strong>{{ formatNumber(kpi.splitBoxCount) }}</strong> 箱（額外運費 ${{ formatMoney(kpi.splitBoxShippingLoss) }} ＋ 包材 ${{ formatMoney(kpi.splitBoxMaterialLoss) }}）
+            涉及 <strong>{{ formatNumber(kpi.splitOrderCount || 0) }}</strong> 單 / 多拆 <strong>{{ formatNumber(kpi.splitBoxCount) }}</strong> 箱（運費 ${{ formatMoney(kpi.splitBoxShippingLoss) }} ＋ 包材 ${{ formatMoney(kpi.splitBoxMaterialLoss) }}）
           </div>
         </div>
       </div>
@@ -486,19 +484,79 @@
         </div>
       </div>
 
-      <!-- 頁籤 4：一單多箱拆箱成本稽核 -->
+      <!-- 頁籤 4：一單多箱拆箱成本稽核（分開統計＋合併統計） -->
       <div v-show="activeTab === 'split_audit'" class="tab-pane-box">
+        <!-- 上層：拆箱類型合併統計表 -->
         <div class="table-card">
           <div class="table-header">
-            <span class="table-title">🔀 一單多箱（拆箱）完整對照明細（含同訂單第一箱與後續拆箱）</span>
-            <span class="tip-text">額外多拆 {{ formatNumber(kpi.splitBoxCount) }} 箱，累計多支出 ${{ formatMoney(kpi.splitBoxTotalLoss) }} 元</span>
+            <span class="table-title">📊 拆箱類型合併統計表（同倉同日拆箱 vs 跨庫／分批拆箱）</span>
+            <span class="tip-text">💡 區分「現場包裝一箱裝不下拆箱」與「跨庫/不同天分批出貨」，精準鎖定可合併省運費空間</span>
           </div>
-          <div class="table-scroll" style="max-height: 560px;">
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>拆箱類型分類</th>
+                  <th>涉及訂單數</th>
+                  <th>額外拆箱數 (N)</th>
+                  <th>額外運費總計</th>
+                  <th>額外包材費總計</th>
+                  <th>額外總流失金額</th>
+                  <th>佔總拆箱流失</th>
+                  <th>平均每多拆1箱成本</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(st, idx) in splitSummaryList" :key="st.typeKey" :class="{ 'row-zebra': idx % 2 === 1 }">
+                  <td class="font-bold" :class="st.typeKey === 'same_wh_same_day' ? 'text-purple' : 'text-blue'">{{ st.typeLabel }}</td>
+                  <td class="text-right font-bold">{{ formatNumber(st.affectedOrders) }} 單</td>
+                  <td class="text-right font-bold text-purple">{{ formatNumber(st.extraBoxCount) }} 箱</td>
+                  <td class="text-right text-blue font-bold">${{ formatMoney(st.shippingLoss) }}</td>
+                  <td class="text-right text-green">${{ formatMoney(st.materialLoss) }}</td>
+                  <td class="text-right text-yellow font-bold">${{ formatMoney(st.totalLoss) }}</td>
+                  <td class="text-right font-bold">{{ st.lossShare }}%</td>
+                  <td class="text-right text-orange font-bold">${{ st.avgLossPerExtraBox.toFixed(2) }}</td>
+                </tr>
+              </tbody>
+              <tfoot v-if="splitSummaryList.length > 0">
+                <tr class="table-total-row">
+                  <td class="text-center font-bold text-yellow">合併總計</td>
+                  <td class="text-right font-bold">{{ formatNumber(kpi.splitOrderCount || 0) }} 單</td>
+                  <td class="text-right font-bold text-purple">{{ formatNumber(kpi.splitBoxCount) }} 箱</td>
+                  <td class="text-right font-bold text-blue">${{ formatMoney(kpi.splitBoxShippingLoss) }}</td>
+                  <td class="text-right font-bold text-green">${{ formatMoney(kpi.splitBoxMaterialLoss) }}</td>
+                  <td class="text-right font-bold text-yellow">${{ formatMoney(kpi.splitBoxTotalLoss) }}</td>
+                  <td class="text-right">100%</td>
+                  <td class="text-right text-orange font-bold">
+                    ${{ kpi.splitBoxCount > 0 ? (kpi.splitBoxTotalLoss / kpi.splitBoxCount).toFixed(2) : '0.00' }}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+
+        <!-- 下層：拆箱訂單分開明細對照 -->
+        <div class="table-card">
+          <div class="table-header">
+            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+              <span class="table-title">🔀 一單多箱（拆箱）訂單分開明細對照</span>
+              <el-radio-group v-model="splitFilterType" size="mini">
+                <el-radio-button label="all">全部拆箱 ({{ filteredSplitOrdersDetail.length }})</el-radio-button>
+                <el-radio-button label="same_wh_same_day">📦 同倉同日拆箱</el-radio-button>
+                <el-radio-button label="cross_wh_or_batch">🏭 跨庫/分批拆箱</el-radio-button>
+              </el-radio-group>
+            </div>
+            <span class="tip-text">Purple 標示列為額外拆箱 (is_first_box = N)，白色列為該訂單主箱 (Y)</span>
+          </div>
+          <div class="table-scroll" style="max-height: 480px;">
             <table class="data-table">
               <thead>
                 <tr>
                   <th>訂單編號</th>
+                  <th>拆箱分類</th>
                   <th>是否為第一箱</th>
+                  <th>庫別</th>
                   <th>宅配單號</th>
                   <th>物流商</th>
                   <th>箱號</th>
@@ -511,20 +569,26 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-if="splitOrdersDetail.length === 0">
-                  <td colspan="11" class="text-center text-dim" style="padding: 28px;">查詢區間內無一單多箱拆箱紀錄</td>
+                <tr v-if="filteredSplitOrdersDetail.length === 0">
+                  <td colspan="13" class="text-center text-dim" style="padding: 28px;">該分類條件下無一單多箱拆箱紀錄</td>
                 </tr>
                 <tr
-                  v-for="s in splitOrdersDetail"
+                  v-for="s in filteredSplitOrdersDetail"
                   :key="s.tracking_no"
                   :class="{ 'row-split-extra': s.is_first_box === 'N' }"
                 >
                   <td class="font-bold text-orange copyable" @click="copyText(s.order_no)">{{ s.order_no }}</td>
                   <td class="text-center">
+                    <span class="cat-badge" :class="s.splitCategory === 'same_wh_same_day' ? 'cat-same' : 'cat-cross'">
+                      {{ s.splitCategory === 'same_wh_same_day' ? '同倉同日' : '跨庫/分批' }}
+                    </span>
+                  </td>
+                  <td class="text-center">
                     <span class="box-flag" :class="s.is_first_box === 'N' ? 'flag-extra' : 'flag-first'">
                       {{ s.is_first_box === 'N' ? 'N (額外拆箱)' : 'Y (主箱)' }}
                     </span>
                   </td>
+                  <td class="text-center font-bold text-yellow">{{ s.wh_code ? `${s.wh_code}庫` : '-' }}</td>
                   <td class="font-bold text-blue copyable" @click="copyText(s.tracking_no)">{{ s.tracking_no }}</td>
                   <td>{{ s.carrier_name }}</td>
                   <td class="text-center font-bold text-green">{{ s.box_no }}</td>
@@ -677,7 +741,8 @@
                   <th>總履約成本</th>
                   <th>計費件均運費</th>
                   <th>單件總成本</th>
-                  <th>拆箱件數</th>
+                  <th>拆箱訂單數</th>
+                  <th>拆箱箱數</th>
                   <th>拆箱流失金額</th>
                   <th>遲到率</th>
                   <th>操作</th>
@@ -685,7 +750,7 @@
               </thead>
               <tbody>
                 <tr v-if="monthlyDailyList.length === 0">
-                  <td colspan="13" class="text-center text-dim" style="padding: 30px;">{{ targetMonth }} 月份尚無匯入出貨資料</td>
+                  <td colspan="14" class="text-center text-dim" style="padding: 30px;">{{ targetMonth }} 月份尚無匯入出貨資料</td>
                 </tr>
                 <tr v-for="(d, idx) in monthlyDailyList" :key="d.date" :class="{ 'row-zebra': idx % 2 === 1 }">
                   <td class="text-center font-bold">{{ d.date }}</td>
@@ -697,6 +762,7 @@
                   <td class="text-right text-yellow font-bold">${{ formatMoney(d.totalCost) }}</td>
                   <td class="text-right">${{ Number(d.avgBilledShippingFee || 0).toFixed(2) }}</td>
                   <td class="text-right">${{ Number(d.avgTotalCost || 0).toFixed(2) }}</td>
+                  <td class="text-right text-purple">{{ formatNumber(d.splitOrderCount || 0) }}</td>
                   <td class="text-right text-purple">{{ formatNumber(d.splitBoxCount) }}</td>
                   <td class="text-right text-purple font-bold">${{ formatMoney(d.splitBoxLoss) }}</td>
                   <td class="text-center">
@@ -719,6 +785,7 @@
                   <td class="text-right font-bold text-green">${{ formatMoney(monthlyTotalSummary.boxCost) }}</td>
                   <td class="text-right font-bold text-yellow">${{ formatMoney(monthlyTotalSummary.totalCost) }}</td>
                   <td colspan="2"></td>
+                  <td class="text-right font-bold text-purple">{{ formatNumber(monthlyTotalSummary.splitOrderCount) }}</td>
                   <td class="text-right font-bold text-purple">{{ formatNumber(monthlyTotalSummary.splitBoxCount) }}</td>
                   <td class="text-right font-bold text-purple">${{ formatMoney(monthlyTotalSummary.splitBoxLoss) }}</td>
                   <td colspan="2"></td>
@@ -751,7 +818,8 @@
                   <th>總履約成本</th>
                   <th>計費件均運費</th>
                   <th>單件總成本</th>
-                  <th>拆箱件數</th>
+                  <th>拆箱訂單數</th>
+                  <th>拆箱箱數</th>
                   <th>拆箱流失金額</th>
                   <th>遲到率</th>
                   <th>操作</th>
@@ -768,6 +836,7 @@
                   <td class="text-right text-yellow font-bold">${{ formatMoney(m.totalCost) }}</td>
                   <td class="text-right">${{ Number(m.avgBilledShippingFee || 0).toFixed(2) }}</td>
                   <td class="text-right">${{ Number(m.avgTotalCost || 0).toFixed(2) }}</td>
+                  <td class="text-right text-purple">{{ formatNumber(m.splitOrderCount || 0) }}</td>
                   <td class="text-right text-purple">{{ formatNumber(m.splitBoxCount) }}</td>
                   <td class="text-right text-purple font-bold">${{ formatMoney(m.splitBoxLoss) }}</td>
                   <td class="text-center">{{ m.lateRate }}%</td>
@@ -786,6 +855,7 @@
                   <td class="text-right font-bold text-green">${{ formatMoney(yearlyTotalSummary.boxCost) }}</td>
                   <td class="text-right font-bold text-yellow">${{ formatMoney(yearlyTotalSummary.totalCost) }}</td>
                   <td colspan="2"></td>
+                  <td class="text-right font-bold text-purple">{{ formatNumber(yearlyTotalSummary.splitOrderCount) }}</td>
                   <td class="text-right font-bold text-purple">{{ formatNumber(yearlyTotalSummary.splitBoxCount) }}</td>
                   <td class="text-right font-bold text-purple">${{ formatMoney(yearlyTotalSummary.splitBoxLoss) }}</td>
                   <td colspan="2"></td>
@@ -812,7 +882,8 @@ export default {
       loadingMonthly: false,
       loadingYearly: false,
       activeTab: 'carrier_box',
-      querySpanMode: 'day', // 'day' (智慧單日步進器) | 'month' (本月累計) | 'range' (自訂區間)
+      querySpanMode: 'day',
+      splitFilterType: 'all',
       targetDate: '',
       availableDates: [],
       dateRange: [],
@@ -844,6 +915,7 @@ export default {
         avgBilledShippingFee: 0,
         avgBoxCost: 0,
         splitBoxCount: 0,
+        splitOrderCount: 0,
         splitBoxShippingLoss: 0,
         splitBoxMaterialLoss: 0,
         splitBoxTotalLoss: 0,
@@ -855,6 +927,7 @@ export default {
         boxTypeCount: 0,
         wastefulBoxTotalCount: 0
       },
+      splitSummaryList: [],
       carrierList: [],
       boxList: [],
       deliveryTypeList: [],
@@ -876,6 +949,10 @@ export default {
     isRangeTab() {
       return ['carrier_box', 'box_analysis', 'district_type', 'split_audit', 'high_shipping', 'extra_fee'].includes(this.activeTab);
     },
+    filteredSplitOrdersDetail() {
+      if (this.splitFilterType === 'all') return this.splitOrdersDetail;
+      return this.splitOrdersDetail.filter(s => s.splitCategory === this.splitFilterType);
+    },
     monthlyTotalSummary() {
       return this.monthlyDailyList.reduce((acc, d) => {
         acc.totalPackages += Number(d.totalPackages || 0);
@@ -884,10 +961,11 @@ export default {
         acc.extraFee += Number(d.extraFee || 0);
         acc.boxCost += Number(d.boxCost || 0);
         acc.totalCost += Number(d.totalCost || 0);
+        acc.splitOrderCount += Number(d.splitOrderCount || 0);
         acc.splitBoxCount += Number(d.splitBoxCount || 0);
         acc.splitBoxLoss += Number(d.splitBoxLoss || 0);
         return acc;
-      }, { totalPackages: 0, totalOrders: 0, shippingFee: 0, extraFee: 0, boxCost: 0, totalCost: 0, splitBoxCount: 0, splitBoxLoss: 0 });
+      }, { totalPackages: 0, totalOrders: 0, shippingFee: 0, extraFee: 0, boxCost: 0, totalCost: 0, splitOrderCount: 0, splitBoxCount: 0, splitBoxLoss: 0 });
     },
     yearlyTotalSummary() {
       return this.yearlyMonthlyList.reduce((acc, m) => {
@@ -897,10 +975,11 @@ export default {
         acc.extraFee += Number(m.extraFee || 0);
         acc.boxCost += Number(m.boxCost || 0);
         acc.totalCost += Number(m.totalCost || 0);
+        acc.splitOrderCount += Number(m.splitOrderCount || 0);
         acc.splitBoxCount += Number(m.splitBoxCount || 0);
         acc.splitBoxLoss += Number(m.splitBoxLoss || 0);
         return acc;
-      }, { totalPackages: 0, totalOrders: 0, shippingFee: 0, extraFee: 0, boxCost: 0, totalCost: 0, splitBoxCount: 0, splitBoxLoss: 0 });
+      }, { totalPackages: 0, totalOrders: 0, shippingFee: 0, extraFee: 0, boxCost: 0, totalCost: 0, splitOrderCount: 0, splitBoxCount: 0, splitBoxLoss: 0 });
     }
   },
   mounted() {
@@ -952,7 +1031,6 @@ export default {
       else this.fetchCostAnalysis();
     },
 
-    // 智慧日期步進器方法（與 DeliveryFlowList.vue 完全相同）
     onSingleDateChange() {
       if (this.targetDate) {
         this.dateRange = [this.targetDate, this.targetDate];
@@ -1085,6 +1163,7 @@ export default {
             this.dateRange = [res.data.startDate, res.data.endDate];
           }
           this.kpi = res.data.kpi || this.kpi;
+          this.splitSummaryList = res.data.splitSummaryList || [];
           this.carrierList = res.data.carrierList || [];
           this.boxList = res.data.boxList || [];
           this.deliveryTypeList = res.data.deliveryTypeList || [];
@@ -1442,6 +1521,10 @@ export default {
 .rate-ok { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
 .rate-mid { background: rgba(250, 204, 21, 0.2); color: #facc15; }
 .rate-high { background: rgba(248, 113, 113, 0.2); color: #f87171; }
+
+.cat-badge { padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; }
+.cat-same { background: rgba(192, 132, 252, 0.25); color: #e9d5ff; }
+.cat-cross { background: rgba(56, 189, 248, 0.2); color: #7dd3fc; }
 
 .box-flag { padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; }
 .flag-first { background: rgba(56, 189, 248, 0.15); color: #38bdf8; }
