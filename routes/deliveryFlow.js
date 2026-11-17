@@ -7,6 +7,7 @@ module.exports = function(db) {
   function normalizeDate(dStr) {
     if (!dStr) return '';
     const clean = String(dStr).trim().replace(/\//g, '-').split(' ')[0];
+    if (clean === 'nan' || clean === 'null' || clean === 'NaN') return '';
     const parts = clean.split('-');
     if (parts.length === 3) {
       const y = parts[0];
@@ -130,11 +131,17 @@ module.exports = function(db) {
   }
 
   function parseDateTime(dStr, tStr) {
-    if (!dStr || !tStr) return null;
+    if (!dStr) return null;
     const cleanD = normalizeDate(dStr);
-    const cleanT = String(tStr).trim();
+    if (!cleanD) return null;
+    const cleanT = tStr ? String(tStr).trim() : '00:00:00';
     const dt = new Date(`${cleanD}T${cleanT}`);
     return isNaN(dt.getTime()) ? null : dt;
+  }
+
+  function isCvsPickup(carrierName, deliveryType) {
+    const text = `${carrierName || ''} ${deliveryType || ''}`;
+    return /超取|7-11|全家|萊爾富|OK|大智通|日翊/i.test(text);
   }
 
   function buildCommonWhere(query, baseSql, baseParams) {
@@ -149,7 +156,7 @@ module.exports = function(db) {
     return baseSql;
   }
 
-  // 初始化資料表
+  // 初始化資料表（含配達日期、配達時間、配送狀態欄位）
   db.serialize(() => {
     db.run(`
       CREATE TABLE IF NOT EXISTS delivery_order_tracking (
@@ -192,6 +199,11 @@ module.exports = function(db) {
         remote_fee REAL DEFAULT 0,
         is_late TEXT,
         cod_type TEXT,
+        delivery_date TEXT,
+        delivery_time TEXT,
+        delivery_status TEXT,
+        first_delivery_date TEXT,
+        first_delivery_status TEXT,
         imported_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(tracking_no)
       )
@@ -241,6 +253,11 @@ module.exports = function(db) {
                 remote_fee REAL DEFAULT 0,
                 is_late TEXT,
                 cod_type TEXT,
+                delivery_date TEXT,
+                delivery_time TEXT,
+                delivery_status TEXT,
+                first_delivery_date TEXT,
+                first_delivery_status TEXT,
                 imported_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(tracking_no)
               )
@@ -254,7 +271,8 @@ module.exports = function(db) {
             'box_price REAL DEFAULT 0', 'actual_weight REAL DEFAULT 0', 'shipping_fee REAL DEFAULT 0',
             'base_fee REAL DEFAULT 0', 'extra_fee REAL DEFAULT 0', 'holiday_fee REAL DEFAULT 0',
             'weight_fee REAL DEFAULT 0', 'oversize_fee REAL DEFAULT 0', 'remote_fee REAL DEFAULT 0',
-            'is_late TEXT', 'cod_type TEXT'
+            'is_late TEXT', 'cod_type TEXT', 'delivery_date TEXT', 'delivery_time TEXT',
+            'delivery_status TEXT', 'first_delivery_date TEXT', 'first_delivery_status TEXT'
           ];
           neededCols.forEach(col => {
             db.run(`ALTER TABLE delivery_order_tracking ADD COLUMN ${col}`, () => {});
@@ -269,6 +287,7 @@ module.exports = function(db) {
       db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_order_no ON delivery_order_tracking (order_no)`);
       db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_wh ON delivery_order_tracking (wh_code)`);
       db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_ship_date ON delivery_order_tracking (ship_date)`);
+      db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_deliv_date ON delivery_order_tracking (delivery_date)`);
       db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_shift ON delivery_order_tracking (shift_type)`);
       db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_carrier ON delivery_order_tracking (carrier_name)`);
       db.run(`CREATE INDEX IF NOT EXISTS idx_deliv_type ON delivery_order_tracking (delivery_type)`);
@@ -294,8 +313,9 @@ module.exports = function(db) {
           print_time, print_interval, carrier_name, delivery_type, is_24h,
           wh_receive_time, print_pick_time, out_time, receiver_name, zip_code, address,
           is_first_box, box_no, box_volume, box_price, actual_weight, shipping_fee, base_fee, extra_fee,
-          holiday_fee, weight_fee, oversize_fee, remote_fee, is_late, cod_type
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          holiday_fee, weight_fee, oversize_fee, remote_fee, is_late, cod_type,
+          delivery_date, delivery_time, delivery_status, first_delivery_date, first_delivery_status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(tracking_no) DO UPDATE SET
           order_no = EXCLUDED.order_no,
           wh_code = EXCLUDED.wh_code,
@@ -326,6 +346,11 @@ module.exports = function(db) {
           remote_fee = EXCLUDED.remote_fee,
           is_late = EXCLUDED.is_late,
           cod_type = EXCLUDED.cod_type,
+          delivery_date = EXCLUDED.delivery_date,
+          delivery_time = EXCLUDED.delivery_time,
+          delivery_status = EXCLUDED.delivery_status,
+          first_delivery_date = EXCLUDED.first_delivery_date,
+          first_delivery_status = EXCLUDED.first_delivery_status,
           imported_at = CURRENT_TIMESTAMP
       `);
 
@@ -389,13 +414,21 @@ module.exports = function(db) {
         const is_late = getV('是否遲到', 'is_late') || 'N';
         const cod_type = getV('貨到付款種類', 'cod_type') || '無代收款';
 
+        // 配達判定與追蹤欄位
+        const delivery_date = normalizeDate(getV('配達日期', 'delivery_date'));
+        const delivery_time = getV('配達時間', 'delivery_time');
+        const delivery_status = getV('配送狀態', 'delivery_status');
+        const first_delivery_date = normalizeDate(getV('第一次配達日期', 'first_delivery_date'));
+        const first_delivery_status = getV('第一次配達狀態', 'first_delivery_status');
+
         stmt.run(
           tracking_no, order_no, wh_code, region, shift_type, ship_date, ship_time, ship_interval,
           order_date, order_time, order_interval, pick_time, pick_interval,
           print_time, print_interval, carrier_name, delivery_type, is_24h,
           wh_receive_time, print_pick_time, out_time, receiver_name, zip, addr,
           is_first_box, box_no, box_volume, box_price, actual_weight, shipping_fee, base_fee, extra_fee,
-          holiday_fee, weight_fee, oversize_fee, remote_fee, is_late, cod_type
+          holiday_fee, weight_fee, oversize_fee, remote_fee, is_late, cod_type,
+          delivery_date, delivery_time, delivery_status, first_delivery_date, first_delivery_status
         );
         count++;
       }
@@ -675,7 +708,7 @@ module.exports = function(db) {
     }
   });
 
-  // 物流費與包材成本專屬分析 API（含拆箱合併統計＋分開明細）
+  // 物流費與包材成本專屬分析 API（含配達日期判定與尚未配達貨件追蹤）
   router.get('/cost-analysis', (req, res) => {
     const { startDate, endDate, whCode, carrier, deliveryType, boxNo, region, onlySplitBox, onlyLate, highFeeThreshold } = req.query;
     const feeThreshold = Number(highFeeThreshold) || 120;
@@ -696,7 +729,6 @@ module.exports = function(db) {
         if (err) return res.status(500).json({ success: false, message: err.message });
         rows = rows || [];
 
-        // 先建立主箱 (is_first_box === 'Y') 對照表，用來判斷同訂單拆箱是「同倉同日拆箱」還是「跨庫/分批拆箱」
         const firstBoxMap = new Map();
         rows.forEach(r => {
           if (r.order_no && r.is_first_box !== 'N' && !firstBoxMap.has(r.order_no)) {
@@ -718,7 +750,12 @@ module.exports = function(db) {
         let lateCount = 0;
         let codCashCount = 0;
 
-        // 拆箱分類合併統計桶
+        // 配達日期判定計數
+        let deliveredCount = 0;
+        let undeliveredCount = 0;
+        let undeliveredHomeCount = 0;
+        let undeliveredCvsCount = 0;
+
         const splitSummaryMap = {
           same_wh_same_day: {
             typeKey: 'same_wh_same_day',
@@ -744,10 +781,13 @@ module.exports = function(db) {
         const boxMap = {};
         const typeMap = {};
         const districtMap = {};
-        const splitOrderTypeMap = new Map(); // order_no -> splitCategory
+        const splitOrderTypeMap = new Map();
         const highShippingList = [];
         const extraFeeList = [];
         const wastefulBoxList = [];
+        const undeliveredList = [];
+
+        const nowMs = Date.now();
 
         rows.forEach(r => {
           if (r.order_no) orderSet.add(r.order_no);
@@ -758,6 +798,34 @@ module.exports = function(db) {
           const vol = Number(r.box_volume || 0);
           const weight = Number(r.actual_weight || 0);
           const totalCost = shipFee + boxPrice;
+
+          // 依據 delivery_date (配達日期) 判斷是否已配達
+          const delivDateClean = normalizeDate(r.delivery_date);
+          const isDelivered = Boolean(delivDateClean);
+          const isCvs = isCvsPickup(r.carrier_name, r.delivery_type);
+
+          let transitHours = null;
+          if (isDelivered) {
+            deliveredCount++;
+            const sDt = parseDateTime(r.ship_date, r.ship_time);
+            const dDt = parseDateTime(delivDateClean, r.delivery_time || '12:00:00');
+            if (sDt && dDt && dDt >= sDt) {
+              transitHours = (dDt - sDt) / (1000 * 3600);
+            }
+          } else {
+            undeliveredCount++;
+            if (isCvs) undeliveredCvsCount++;
+            else undeliveredHomeCount++;
+
+            const sDt = parseDateTime(r.ship_date, r.ship_time);
+            const elapsedHours = sDt ? Math.max(0, (nowMs - sDt.getTime()) / (1000 * 3600)) : 0;
+            undeliveredList.push({
+              ...r,
+              channelType: isCvs ? 'cvs' : 'home',
+              elapsedHours: Number(elapsedHours.toFixed(1)),
+              elapsedDays: Number((elapsedHours / 24).toFixed(1))
+            });
+          }
 
           totalShippingFee += shipFee;
           totalBoxCost += boxPrice;
@@ -806,7 +874,11 @@ module.exports = function(db) {
               extraFee: 0,
               totalCost: 0,
               lateCount: 0,
-              splitCount: 0
+              splitCount: 0,
+              deliveredCount: 0,
+              undeliveredCount: 0,
+              transitHoursSum: 0,
+              transitHoursCnt: 0
             };
           }
           const cb = carrierMap[cName];
@@ -818,6 +890,15 @@ module.exports = function(db) {
           cb.totalCost += totalCost;
           if (r.is_late === 'Y') cb.lateCount++;
           if (r.is_first_box === 'N') cb.splitCount++;
+          if (isDelivered) {
+            cb.deliveredCount++;
+            if (transitHours !== null) {
+              cb.transitHoursSum += transitHours;
+              cb.transitHoursCnt++;
+            }
+          } else {
+            cb.undeliveredCount++;
+          }
 
           const bCode = r.box_no || '未記錄';
           if (!boxMap[bCode]) {
@@ -918,10 +999,14 @@ module.exports = function(db) {
         highShippingList.sort((a, b) => Number(b.shipping_fee || 0) - Number(a.shipping_fee || 0));
         extraFeeList.sort((a, b) => Number(b.extra_fee || 0) - Number(a.extra_fee || 0));
         wastefulBoxList.sort((a, b) => b.estSave - a.estSave);
+        // 尚未配達清單：優先把宅配件排在最前面，再依出貨時間排序
+        undeliveredList.sort((a, b) => {
+          if (a.channelType !== b.channelType) return a.channelType === 'home' ? -1 : 1;
+          return `${a.ship_date} ${a.ship_time}`.localeCompare(`${b.ship_date} ${b.ship_time}`);
+        });
 
         const totalFulfillmentCost = totalShippingFee + totalBoxCost;
 
-        // 整理拆箱合併統計表
         const splitSummaryList = Object.values(splitSummaryMap).map(s => ({
           typeKey: s.typeKey,
           typeLabel: s.typeLabel,
@@ -945,7 +1030,9 @@ module.exports = function(db) {
             totalCost: Number(c.totalCost.toFixed(2)),
             avgShippingFee: c.billedCount > 0 ? Number((c.shippingFee / c.billedCount).toFixed(2)) : 0,
             avgTotalCost: c.count > 0 ? Number((c.totalCost / c.count).toFixed(2)) : 0,
-            lateRate: c.count > 0 ? Number(((c.lateCount / c.count) * 100).toFixed(1)) : 0
+            lateRate: c.count > 0 ? Number(((c.lateCount / c.count) * 100).toFixed(1)) : 0,
+            deliveredRate: c.count > 0 ? Number(((c.deliveredCount / c.count) * 100).toFixed(1)) : 0,
+            avgTransitHours: c.transitHoursCnt > 0 ? Number((c.transitHoursSum / c.transitHoursCnt).toFixed(1)) : 0
           }))
           .sort((a, b) => b.totalCost - a.totalCost);
 
@@ -1030,7 +1117,12 @@ module.exports = function(db) {
             highShippingTotalCount: highShippingList.length,
             extraFeeTotalCount: extraFeeList.length,
             boxTypeCount: boxList.length,
-            wastefulBoxTotalCount: wastefulBoxList.length
+            wastefulBoxTotalCount: wastefulBoxList.length,
+            deliveredCount,
+            undeliveredCount,
+            undeliveredHomeCount,
+            undeliveredCvsCount,
+            deliveredRate: totalPackages > 0 ? Number(((deliveredCount / totalPackages) * 100).toFixed(1)) : 0
           },
           splitSummaryList,
           carrierList,
@@ -1040,7 +1132,8 @@ module.exports = function(db) {
           splitOrdersDetail,
           highShippingList: highShippingList.slice(0, 1000),
           extraFeeList: extraFeeList.slice(0, 1000),
-          wastefulBoxList: wastefulBoxList.slice(0, 500)
+          wastefulBoxList: wastefulBoxList.slice(0, 500),
+          undeliveredList: undeliveredList.slice(0, 1500)
         });
       });
     };
@@ -1055,7 +1148,7 @@ module.exports = function(db) {
     }
   });
 
-  // 成本模組專屬：每月每日成本總表 API（含拆箱訂單數與拆箱箱數）
+  // 成本模組專屬：每月每日成本總表 API
   router.get('/cost-monthly-summary', (req, res) => {
     const { month } = req.query;
     if (!month) return res.status(400).json({ success: false, message: '請提供月份 (YYYY-MM)' });
@@ -1073,6 +1166,8 @@ module.exports = function(db) {
         COUNT(DISTINCT CASE WHEN is_first_box = 'N' THEN order_no END) as splitOrderCount,
         SUM(CASE WHEN is_first_box = 'N' THEN 1 ELSE 0 END) as splitBoxCount,
         ROUND(SUM(CASE WHEN is_first_box = 'N' THEN (IFNULL(shipping_fee, 0) + IFNULL(box_price, 0)) ELSE 0 END), 2) as splitBoxLoss,
+        SUM(CASE WHEN delivery_date IS NOT NULL AND delivery_date != '' THEN 1 ELSE 0 END) as deliveredCount,
+        SUM(CASE WHEN delivery_date IS NULL OR delivery_date = '' THEN 1 ELSE 0 END) as undeliveredCount,
         SUM(CASE WHEN is_late = 'Y' THEN 1 ELSE 0 END) as lateCount
       FROM delivery_order_tracking
       WHERE ship_date LIKE ?
@@ -1087,6 +1182,7 @@ module.exports = function(db) {
         ...r,
         avgBilledShippingFee: r.billedPackages > 0 ? Number((r.shippingFee / r.billedPackages).toFixed(2)) : 0,
         avgTotalCost: r.totalPackages > 0 ? Number((r.totalCost / r.totalPackages).toFixed(2)) : 0,
+        deliveredRate: r.totalPackages > 0 ? Number(((r.deliveredCount / r.totalPackages) * 100).toFixed(1)) : 0,
         lateRate: r.totalPackages > 0 ? Number(((r.lateCount / r.totalPackages) * 100).toFixed(1)) : 0
       }));
       res.json({ success: true, month, dailyList });
@@ -1111,6 +1207,8 @@ module.exports = function(db) {
         COUNT(DISTINCT CASE WHEN is_first_box = 'N' THEN order_no END) as splitOrderCount,
         SUM(CASE WHEN is_first_box = 'N' THEN 1 ELSE 0 END) as splitBoxCount,
         ROUND(SUM(CASE WHEN is_first_box = 'N' THEN (IFNULL(shipping_fee, 0) + IFNULL(box_price, 0)) ELSE 0 END), 2) as splitBoxLoss,
+        SUM(CASE WHEN delivery_date IS NOT NULL AND delivery_date != '' THEN 1 ELSE 0 END) as deliveredCount,
+        SUM(CASE WHEN delivery_date IS NULL OR delivery_date = '' THEN 1 ELSE 0 END) as undeliveredCount,
         SUM(CASE WHEN is_late = 'Y' THEN 1 ELSE 0 END) as lateCount
       FROM delivery_order_tracking
       WHERE ship_date LIKE ?
@@ -1138,6 +1236,8 @@ module.exports = function(db) {
           splitOrderCount: 0,
           splitBoxCount: 0,
           splitBoxLoss: 0,
+          deliveredCount: 0,
+          undeliveredCount: 0,
           lateCount: 0
         };
         return {
@@ -1145,6 +1245,7 @@ module.exports = function(db) {
           monthLabel: `${mNum}月`,
           avgBilledShippingFee: r.billedPackages > 0 ? Number((r.shippingFee / r.billedPackages).toFixed(2)) : 0,
           avgTotalCost: r.totalPackages > 0 ? Number((r.totalCost / r.totalPackages).toFixed(2)) : 0,
+          deliveredRate: r.totalPackages > 0 ? Number(((r.deliveredCount / r.totalPackages) * 100).toFixed(1)) : 0,
           lateRate: r.totalPackages > 0 ? Number(((r.lateCount / r.totalPackages) * 100).toFixed(1)) : 0
         };
       });
