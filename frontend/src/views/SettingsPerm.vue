@@ -45,7 +45,7 @@
           </template>
         </el-table-column>
 
-        <!-- 身份角色標籤對應 (sys_admin / admin / user / guest) -->
+        <!-- 身份角色標籤對應 -->
         <el-table-column prop="role" label="身份" width="150">
           <template #default="scope">
             <el-tag :type="getRoleTagType(scope.row)" size="small">
@@ -54,7 +54,7 @@
           </template>
         </el-table-column>
 
-        <!-- 精準全域在線狀態判定 -->
+        <!-- 在線狀態 -->
         <el-table-column label="在線狀態" width="110">
           <template #default="scope">
             <span v-if="isUserOnline(scope.row)" class="status-online">🟢 在線</span>
@@ -69,7 +69,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="開放功能模組" min-width="220">
+        <el-table-column label="開放功能模組 (含匯入/匯出權限)" min-width="260">
           <template #default="scope">
             <span class="cell-perm-text">
               {{ formatPermissions(scope.row.permissions) }}
@@ -85,7 +85,6 @@
                 🆔 身份設定
               </el-button>
               
-              <!-- 訪客帳號不需修改密碼 -->
               <el-button 
                 v-if="scope.row.username !== 'guest'"
                 type="warning" 
@@ -109,7 +108,6 @@
                 權限設定
               </el-button>
               
-              <!-- admin 與 guest 帳號防護不可刪除 -->
               <el-button 
                 type="danger" 
                 size="small" 
@@ -187,7 +185,6 @@ export default {
     },
     isUserOnline(row) {
       if (!row) return false;
-      // 優先依後端計算好的 is_online (心跳判定)
       if (row.is_online !== undefined && row.is_online !== null) {
         return row.is_online;
       }
@@ -203,7 +200,7 @@ export default {
     },
     formatPermissions(perms) {
       if (!perms) return '無權限';
-      if (perms === 'all' || perms === 'all,') return '全模組權限';
+      if (perms === 'all' || perms === 'all,') return '全模組權限 (含全部匯入/匯出)';
 
       const moduleMap = {
         'loc_summary': '儲位數才數統整',
@@ -215,14 +212,38 @@ export default {
         'inbound_fish': '進貨上架魚群',
         'replenish_fish': '立即補貨單魚群',
         'transfer_80_15': '跨庫調撥 80>15',
-        'transfer_15_80': '跨庫調撥 15>80'
+        'transfer_15_80': '跨庫調撥 15>80',
+        'dispatch_fish': '收發魚群出沒分析',
+        'delivery_flow': '宅配出貨流線魚群',
+        'delivery_cost': '物流費與包材成本分析',
+        'delivery_undelivered': '未配達與異常貨態追蹤',
+        'wms_fish_screenshot': 'WMS 魚群截圖辨識'
       };
 
-      const list = Array.isArray(perms) 
+      const rawList = Array.isArray(perms) 
         ? perms 
         : String(perms).split(',').map(s => s.trim()).filter(Boolean);
 
-      return list.map(key => moduleMap[key] || key).join(', ');
+      const permSet = new Set(rawList);
+      const baseModules = [];
+
+      rawList.forEach(token => {
+        if (!token.includes(':')) {
+          baseModules.push(token);
+        }
+      });
+
+      if (baseModules.length === 0) return '無權限';
+
+      return baseModules.map(key => {
+        const label = moduleMap[key] || key;
+        const canImp = permSet.has(`${key}:import`);
+        const canExp = permSet.has(`${key}:export`);
+        const actions = [];
+        if (canImp) actions.push('匯入');
+        if (canExp) actions.push('匯出');
+        return actions.length > 0 ? `${label}(${actions.join('/')})` : label;
+      }).join('、');
     }
   }
 }
@@ -288,7 +309,7 @@ export default {
 .status-offline { color: #94a3b8 !important; font-size: 13px; }
 .pwd-mask { color: #64748b !important; }
 .guest-pwd-tip { color: #38bdf8 !important; font-size: 12px; font-weight: bold; }
-.cell-perm-text { color: #cbd5e1 !important; font-size: 13px; }
+.cell-perm-text { color: #cbd5e1 !important; font-size: 13px; line-height: 1.5; }
 
 .opt-btn-group {
   display: flex;

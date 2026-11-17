@@ -19,7 +19,6 @@
 
         <el-form-item label="帳號身份">
           <el-select v-model="editRoleForm.target_role" placeholder="請選擇身份" style="width: 100%;">
-            <!-- 👑 只有 targetUser 本身是 admin 時，才會顯示系統管理員選項 -->
             <el-option 
               v-if="targetUser === 'admin'" 
               label="👑 系統管理員 (sys_admin - 限 admin 專用)" 
@@ -66,7 +65,6 @@
 
         <el-form-item label="帳號身份">
           <el-select v-model="newUserForm.role" placeholder="請選擇身份" style="width: 100%;">
-            <!-- 🌟 新增帳號一律只有「管理員」與「一般人員」，不可建 sys_admin -->
             <el-option label="👑 管理員 (admin)" value="admin" />
             <el-option label="👤 一般人員 (user)" value="user" />
           </el-select>
@@ -101,28 +99,73 @@
       </template>
     </el-dialog>
 
-    <!-- 4. 模組權限設定彈窗 -->
+    <!-- 4. 模組權限設定彈窗（支援全勾選 ＋ 每個模組獨立勾選「匯入 / 匯出」） -->
     <el-dialog 
       title="🔒 模組操作權限設定" 
       :model-value="showEditPerm" 
       @update:model-value="$emit('update:showEditPerm', $event)" 
-      width="480px" 
+      width="620px" 
+      top="5vh"
       custom-class="dark-dialog"
     >
       <div class="perm-dialog-body">
-        <div class="perm-tip">
-          設定帳號 <b>[{{ targetUser }}]</b> 可存取的功能模組：
+        <div class="perm-header-bar">
+          <div class="perm-tip">
+            設定帳號 <b>[{{ targetUser }}]</b> 可存取的功能模組與操作權限：
+          </div>
+          <div class="quick-check-btns">
+            <el-button size="mini" type="primary" plain @click="toggleAllModules">
+              {{ isAllModulesSelected ? '取消全選模組' : '☑️ 全勾選模組' }}
+            </el-button>
+            <el-button size="mini" type="warning" plain @click="toggleAllAction('import')">
+              {{ isAllActionSelected('import') ? '取消全選匯入' : '📥 全勾選匯入' }}
+            </el-button>
+            <el-button size="mini" type="success" plain @click="toggleAllAction('export')">
+              {{ isAllActionSelected('export') ? '取消全選匯出' : '📊 全勾選匯出' }}
+            </el-button>
+            <el-button size="mini" type="danger" plain @click="clearAllPerms">
+              🧹 全部清空
+            </el-button>
+          </div>
         </div>
-        <el-checkbox-group v-model="editPermForm.selected_modules" class="perm-checkbox-group">
-          <el-checkbox 
-            v-for="mod in availableModules" 
-            :key="mod.key" 
-            :label="mod.key"
+
+        <div class="perm-matrix-header">
+          <span>功能模組名稱</span>
+          <span class="action-cols-title">操作權限控制</span>
+        </div>
+
+        <div class="perm-matrix-list">
+          <div
+            v-for="mod in availableModules"
+            :key="mod.key"
+            class="perm-matrix-row"
+            :class="{ 'row-checked': isModuleChecked(mod.key) }"
           >
-            {{ mod.name }}
-          </el-checkbox>
-        </el-checkbox-group>
+            <el-checkbox
+              :model-value="isModuleChecked(mod.key)"
+              @change="val => onToggleModule(mod.key, val)"
+            >
+              <span class="mod-label">{{ mod.name }}</span>
+            </el-checkbox>
+
+            <div class="mod-actions-box">
+              <el-checkbox
+                :model-value="isActionChecked(mod.key, 'import')"
+                @change="val => onToggleAction(mod.key, 'import', val)"
+              >
+                <span class="act-tag act-import">📥 匯入</span>
+              </el-checkbox>
+              <el-checkbox
+                :model-value="isActionChecked(mod.key, 'export')"
+                @change="val => onToggleAction(mod.key, 'export', val)"
+              >
+                <span class="act-tag act-export">📊 匯出</span>
+              </el-checkbox>
+            </div>
+          </div>
+        </div>
       </div>
+
       <template #footer>
         <el-button @click="$emit('update:showEditPerm', false)">取消</el-button>
         <el-button type="primary" @click="$emit('save-perm')">儲存權限</el-button>
@@ -144,20 +187,32 @@ export default {
     editPasswordForm: Object,
     editPermForm: Object,
     newUserForm: Object,
-    availableModules: Array
+    availableModules: {
+      type: Array,
+      default: () => []
+    }
   },
   emits: [
     'update:showEditRole', 'update:showEditPwd', 'update:showEditPerm', 'update:showAddUser',
     'save-role', 'save-pwd', 'save-perm', 'save-add-user'
   ],
+  computed: {
+    selectedList() {
+      return Array.isArray(this.editPermForm?.selected_modules)
+        ? this.editPermForm.selected_modules
+        : [];
+    },
+    isAllModulesSelected() {
+      if (!this.availableModules.length) return false;
+      return this.availableModules.every(m => this.selectedList.includes(m.key));
+    }
+  },
   methods: {
-    // 🌟 自動過濾非數字字元，嚴格限制員編為純數字
     onUsernameInput(val) {
       if (this.newUserForm) {
         this.newUserForm.username = String(val || '').replace(/\D/g, '');
       }
     },
-    // 🌟 新增帳號前校驗：必須為 6 位數字員編
     handleConfirmAdd() {
       const username = this.newUserForm?.username || '';
       if (username.length !== 6) {
@@ -173,14 +228,142 @@ export default {
         return;
       }
       this.$emit('save-add-user');
+    },
+
+    isModuleChecked(modKey) {
+      return this.selectedList.includes(modKey);
+    },
+    isActionChecked(modKey, action) {
+      return this.selectedList.includes(`${modKey}:${action}`);
+    },
+    isAllActionSelected(action) {
+      if (!this.availableModules.length) return false;
+      return this.availableModules.every(m => this.selectedList.includes(`${m.key}:${action}`));
+    },
+
+    onToggleModule(modKey, checked) {
+      const set = new Set(this.selectedList);
+      if (checked) {
+        set.add(modKey);
+      } else {
+        set.delete(modKey);
+        set.delete(`${modKey}:import`);
+        set.delete(`${modKey}:export`);
+      }
+      this.editPermForm.selected_modules = Array.from(set);
+    },
+
+    onToggleAction(modKey, action, checked) {
+      const set = new Set(this.selectedList);
+      if (checked) {
+        // 勾選匯入或匯出時，自動一併開啟該模組的存取權限
+        set.add(modKey);
+        set.add(`${modKey}:${action}`);
+      } else {
+        set.delete(`${modKey}:${action}`);
+      }
+      this.editPermForm.selected_modules = Array.from(set);
+    },
+
+    toggleAllModules() {
+      const set = new Set(this.selectedList);
+      if (this.isAllModulesSelected) {
+        this.availableModules.forEach(m => {
+          set.delete(m.key);
+          set.delete(`${m.key}:import`);
+          set.delete(`${m.key}:export`);
+        });
+      } else {
+        this.availableModules.forEach(m => set.add(m.key));
+      }
+      this.editPermForm.selected_modules = Array.from(set);
+    },
+
+    toggleAllAction(action) {
+      const set = new Set(this.selectedList);
+      if (this.isAllActionSelected(action)) {
+        this.availableModules.forEach(m => set.delete(`${m.key}:${action}`));
+      } else {
+        this.availableModules.forEach(m => {
+          set.add(m.key);
+          set.add(`${m.key}:${action}`);
+        });
+      }
+      this.editPermForm.selected_modules = Array.from(set);
+    },
+
+    clearAllPerms() {
+      this.editPermForm.selected_modules = [];
     }
   }
 }
 </script>
 
 <style scoped>
-.perm-dialog-body { padding: 10px 0; }
-.perm-tip { margin-bottom: 15px; font-size: 14px; color: #cbd5e1; }
-.perm-checkbox-group { display: flex; flex-direction: column; gap: 12px; padding-left: 10px; }
-:deep(.el-checkbox__label) { color: #f8fafc !important; font-size: 14px; }
+.perm-dialog-body { padding: 4px 0; }
+.perm-header-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.perm-tip { font-size: 14px; color: #cbd5e1; }
+.quick-check-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.perm-matrix-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 12px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 6px 6px 0 0;
+  font-size: 12px;
+  font-weight: bold;
+  color: #38bdf8;
+}
+.action-cols-title { padding-right: 18px; }
+
+.perm-matrix-list {
+  max-height: 410px;
+  overflow-y: auto;
+  border: 1px solid #334155;
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+  background: #0f172a;
+}
+.perm-matrix-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 7px 12px;
+  border-bottom: 1px solid rgba(51, 65, 85, 0.6);
+  transition: background 0.15s;
+}
+.perm-matrix-row:last-child { border-bottom: none; }
+.perm-matrix-row:hover { background: rgba(255, 255, 255, 0.03); }
+.row-checked { background: rgba(56, 189, 248, 0.06); }
+
+.mod-label {
+  color: #f8fafc;
+  font-size: 13px;
+  font-weight: bold;
+}
+.mod-actions-box {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.act-tag {
+  font-size: 12px;
+  font-weight: bold;
+}
+.act-import { color: #fbbf24; }
+.act-export { color: #4ade80; }
+
+:deep(.el-checkbox__label) { color: #f8fafc !important; }
 </style>

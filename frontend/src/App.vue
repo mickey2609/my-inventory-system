@@ -18,7 +18,7 @@
         :opened-tabs="openedTabs"
         :app-version="appVersion"
         :current-user="currentUser"
-        :show-export-btn="!isGuestMode && currentTab === 'loc_summary' && (summaryGridData.length > 0 || areaGridTable.length > 0)"
+        :show-export-btn="!isGuestMode && currentTab === 'loc_summary' && hasExportPermission('loc_summary') && (summaryGridData.length > 0 || areaGridTable.length > 0)"
         @switch-tab="switchTab"
         @close-tab="closeTab"
         @open-drawer="showUnifiedDrawer = true"
@@ -120,7 +120,7 @@
 
           <DeliveryFlowList 
             v-else-if="currentTab === 'delivery_flow'" key="delivery_flow"
-            :is-admin="isAdmin"
+            :is-admin="isAdmin || hasImportPermission('delivery_flow')"
             :is-sys-admin="isSysAdmin"
           />
 
@@ -409,6 +409,12 @@ export default {
     currentCustomExportWidths() { return this.currentTab === 'inv15' ? this.customExportColWidths15 : this.customExportColWidths80; }
   },
   async mounted() {
+    // 掛載全局匯入/匯出權限查詢函式，任何子元件皆可直接呼叫 this.$canImport('模組key') / this.$canExport('模組key')
+    if (this.$.appContext?.config?.globalProperties) {
+      this.$.appContext.config.globalProperties.$canImport = (tabKey) => this.hasImportPermission(tabKey);
+      this.$.appContext.config.globalProperties.$canExport = (tabKey) => this.hasExportPermission(tabKey);
+    }
+
     const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
     if (isLocal && !document.title.includes('(測)')) document.title = `${document.title} (測)`;
     this.setupAxiosInterceptor(() => this.currentUsername);
@@ -488,6 +494,35 @@ export default {
     window.removeEventListener('inventory-updated', this.fetchDashboardMetrics);
   },
   methods: {
+    getPermissionList() {
+      const perms = this.currentUserPermissions;
+      if (!perms) return [];
+      if (Array.isArray(perms)) return perms;
+      if (typeof perms === 'string') return perms.split(',').map(s => s.trim()).filter(Boolean);
+      return [];
+    },
+    hasModulePermission(tabKey) {
+      if (this.isGuestMode) return true;
+      if (this.isSysAdmin || tabKey === 'home' || tabKey === 'settings_perm' || tabKey === 'settings_log' || tabKey === 'item_sales_history') return true;
+      const perms = this.currentUserPermissions;
+      if (!perms || perms === 'all' || perms === 'all,') return true;
+      return this.getPermissionList().includes(tabKey);
+    },
+    hasImportPermission(tabKey) {
+      if (this.isGuestMode) return false;
+      if (this.isSysAdmin) return true;
+      const perms = this.currentUserPermissions;
+      if (!perms || perms === 'all' || perms === 'all,') return true;
+      return this.getPermissionList().includes(`${tabKey}:import`);
+    },
+    hasExportPermission(tabKey) {
+      if (this.isGuestMode) return false;
+      if (this.isSysAdmin) return true;
+      const perms = this.currentUserPermissions;
+      if (!perms || perms === 'all' || perms === 'all,') return true;
+      return this.getPermissionList().includes(`${tabKey}:export`);
+    },
+
     handleHashChange() {
       const hashClean = window.location.hash.replace(/^#\/?/, '').split('?')[0];
       const targetTab = PATH_TAB_MAP['/' + hashClean] || PATH_TAB_MAP[hashClean];
@@ -556,16 +591,6 @@ export default {
           }
         }
       } catch (e) {}
-    },
-
-    hasModulePermission(tabKey) {
-      if (this.isGuestMode) return true;
-      if (this.isSysAdmin || tabKey === 'home' || tabKey === 'settings_perm' || tabKey === 'settings_log' || tabKey === 'item_sales_history') return true;
-      const perms = this.currentUserPermissions;
-      if (!perms || perms === 'all' || perms === 'all,') return true;
-      if (Array.isArray(perms)) return perms.includes(tabKey);
-      if (typeof perms === 'string') return perms.split(',').map(s => s.trim()).includes(tabKey);
-      return false;
     },
 
     async fetchGlobalConfig() {
@@ -897,16 +922,24 @@ export default {
     openPwdDialog(row) { this.targetUser = row.username; this.editPasswordForm.new_password = ''; this.showEditPwdDialog = true; },
     openPermDialog(row) {
       this.targetUser = row.username;
+      const buildAllWithActions = () => {
+        const all = [];
+        this.availableModules.forEach(m => {
+          all.push(m.key, `${m.key}:import`, `${m.key}:export`);
+        });
+        return all;
+      };
+
       if (Array.isArray(row.permissions)) {
         this.editPermForm.selected_modules = [...row.permissions];
       } else if (typeof row.permissions === 'string' && row.permissions.trim() !== '') {
         if (row.permissions === 'all' || row.permissions === 'all,') {
-          this.editPermForm.selected_modules = this.availableModules.map(m => m.key);
+          this.editPermForm.selected_modules = buildAllWithActions();
         } else {
           this.editPermForm.selected_modules = row.permissions.split(',').map(s => s.trim()).filter(Boolean);
         }
       } else {
-        this.editPermForm.selected_modules = this.availableModules.map(m => m.key);
+        this.editPermForm.selected_modules = buildAllWithActions();
       }
       this.showEditPermDialog = true;
     },
@@ -1119,6 +1152,9 @@ export default {
     },
 
     async exportData(fmt) {
+      if (!this.hasExportPermission(this.currentTab)) {
+        return ElMessage.warning('⚠️ 您尚未取得此模組的「匯出」權限！');
+      }
       const is15 = this.currentTab === 'inv15';
       const hasSearched = is15 ? this.hasSearched15 : this.hasSearched80;
       if (!hasSearched) return ElMessage.warning('請先執行檢索再進行匯出！');
