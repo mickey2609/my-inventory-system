@@ -1,7 +1,5 @@
 // routes/staffCompetency.js
 const express = require('express');
-const fs = require('fs');
-const path = require('path');
 
 module.exports = function(db) {
   const router = express.Router();
@@ -20,7 +18,7 @@ module.exports = function(db) {
     return s;
   }
 
-  // 初始化 SQLite 資料表並自動匯入 staffCompetencySeed.json
+  // 初始化 SQLite 資料表（不依賴任何外部 JSON 種子檔）
   db.serialize(() => {
     db.run(`
       CREATE TABLE IF NOT EXISTS staff_competency_skills (
@@ -48,67 +46,8 @@ module.exports = function(db) {
         sort_order INTEGER DEFAULT 0,
         UNIQUE(warehouse, emp_id)
       )
-    `, () => {
-      db.get(`SELECT COUNT(*) as cnt FROM staff_competency_employees`, [], (err, row) => {
-        if (!err && row && row.cnt === 0) {
-          seedInitialData();
-        }
-      });
-    });
+    `);
   });
-
-  function seedInitialData() {
-    try {
-      const seedPath = path.join(__dirname, 'staffCompetencySeed.json');
-      if (!fs.existsSync(seedPath)) {
-        console.warn('⚠️ 找不到 staffCompetencySeed.json，略過初始種子資料匯入');
-        return;
-      }
-      const raw = fs.readFileSync(seedPath, 'utf-8');
-      const seed = JSON.parse(raw);
-      const skillsMap = seed.skillsMap || {};
-      const rosterByWh = seed.rosterByWh || {};
-
-      db.serialize(() => {
-        db.run('BEGIN TRANSACTION');
-        const skillStmt = db.prepare(`
-          INSERT OR IGNORE INTO staff_competency_skills
-          (warehouse, skill_id, group_name, skill_type, skill_name, sub_header, sort_order)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-        `);
-        const empStmt = db.prepare(`
-          INSERT OR IGNORE INTO staff_competency_employees
-          (warehouse, emp_id, emp_name, staff_group, last_updated, skills_json, sort_order)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-        `);
-
-        WAREHOUSES.forEach(wh => {
-          (skillsMap[wh] || []).forEach((s, idx) => {
-            skillStmt.run(wh, s.id, s.group, s.type, s.name, s.subHeader || '', idx);
-          });
-          (rosterByWh[wh] || []).forEach((e, idx) => {
-            empStmt.run(
-              wh,
-              normalizeEmpId(e.id),
-              e.name,
-              e.staffGroup || '一般作業組',
-              e.lastUpdated || '',
-              JSON.stringify(e.skills || {}),
-              idx
-            );
-          });
-        });
-
-        skillStmt.finalize();
-        empStmt.finalize();
-        db.run('COMMIT', () => {
-          console.log('🎉 已成功初始化人員綜合能力管理系統資料庫！');
-        });
-      });
-    } catch (e) {
-      console.error('初始化人員能力種子資料失敗:', e.message);
-    }
-  }
 
   // 1. 取得全部倉別能力項目與人員資料
   router.get('/all', (req, res) => {
@@ -159,7 +98,6 @@ module.exports = function(db) {
       return res.json({ success: true, count: 0 });
     }
 
-    // 依 (warehouse, empId) 分組讀取並更新 skills_json
     const grouped = {};
     updates.forEach(u => {
       const wh = u.whName;
@@ -274,7 +212,7 @@ module.exports = function(db) {
     });
   });
 
-  // 6. 刪除能力項目（同步移除該倉所有人員的該項勾選紀錄）
+  // 6. 刪除能力項目
   router.post('/skill/delete', (req, res) => {
     const { warehouse, skillId } = req.body;
     db.serialize(() => {
@@ -297,7 +235,7 @@ module.exports = function(db) {
     });
   });
 
-  // 7. 整批匯入 / 覆蓋同步（Excel 匯入或重置為最新標準能力時使用）
+  // 7. 整批匯入 / 覆蓋同步（支援完整能力矩陣表與純人員名冊匯入）
   router.post('/sync-all', (req, res) => {
     const payload = req.body.data || {};
     db.serialize(() => {
@@ -316,13 +254,13 @@ module.exports = function(db) {
       Object.keys(payload).forEach(wh => {
         const whBlock = payload[wh];
         if (!whBlock) return;
-        if (Array.isArray(whBlock.skills)) {
+        if (Array.isArray(whBlock.skills) && whBlock.skills.length > 0) {
           db.run(`DELETE FROM staff_competency_skills WHERE warehouse = ?`, [wh]);
           whBlock.skills.forEach((s, idx) => {
             skillStmt.run(wh, s.id, s.group, s.type, s.name, s.subHeader || '', idx);
           });
         }
-        if (Array.isArray(whBlock.employees)) {
+        if (Array.isArray(whBlock.employees) && whBlock.employees.length > 0) {
           db.run(`DELETE FROM staff_competency_employees WHERE warehouse = ?`, [wh]);
           whBlock.employees.forEach((e, idx) => {
             empStmt.run(

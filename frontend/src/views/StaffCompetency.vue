@@ -1,6 +1,6 @@
 <!-- frontend/src/views/StaffCompetency.vue -->
 <template>
-  <div class="staff-competency-page">
+  <div class="staff-competency-light-page">
     <input
       type="file"
       ref="excelInput"
@@ -9,339 +9,360 @@
       @change="handleExcelImport"
     />
 
-    <!-- 1. 頂部控制與倉別頁籤列 -->
-    <div class="control-header-panel">
-      <div class="top-row">
-        <!-- 四大倉別切換 -->
-        <div class="wh-tabs-group">
+    <!-- 1. 頂部深藍 ERP 漸層標題與工具列 -->
+    <header class="erp-header-bar">
+      <div class="erp-brand-left">
+        <span class="erp-logo-text">PChome</span>
+        <span class="erp-badge">LOGISTICS ERP</span>
+        <span class="erp-divider"></span>
+        <h2 class="erp-title">人員綜合能力管理系統</h2>
+      </div>
+
+      <div class="erp-actions-right">
+        <button class="erp-btn btn-amber" @click="openAddEmployeeModal">
+          <span>＋ 新增人員</span>
+        </button>
+
+        <button class="erp-btn btn-indigo" @click="syncAllToCloud(true)">
+          <span>✓ {{ syncStatusText }}</span>
+        </button>
+
+        <button v-if="canImport" class="erp-btn btn-emerald" @click="$refs.excelInput.click()">
+          <span>📂 匯入 Excel</span>
+        </button>
+
+        <button v-if="canExport" class="erp-btn btn-sky" @click="exportToExcel">
+          <span>⬇️ 匯出 Excel</span>
+        </button>
+
+        <button class="erp-btn btn-slate" @click="openManageSkillsModal">
+          <span>⚙️ 管理項目</span>
+        </button>
+
+        <button class="erp-btn btn-teal" @click="resetWarehouseSkillsToLatest" title="重新整理目前倉別最新資料">
+          <span>🔄 重新整理</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- 2. 主工作區 -->
+    <main class="workspace-main" v-loading="loading">
+      <!-- 第一列：左側倉別膠囊頁籤 + 右側即時 KPI 指標條 -->
+      <div class="toolbar-card row-between">
+        <div class="wh-capsule-group">
           <button
             v-for="wh in warehouses"
             :key="wh"
-            class="wh-tab-btn"
+            class="wh-capsule-btn"
             :class="{ active: currentWarehouse === wh }"
             @click="switchWarehouse(wh)"
           >
             <span>{{ getWhIcon(wh) }} {{ wh }}</span>
-            <span class="wh-count-badge">{{ (appData[wh]?.employees || []).length }}</span>
+            <span class="wh-num-pill">{{ (appData[wh]?.employees || []).length }}</span>
             <span
               v-if="getOverdueCount(wh) > 0"
-              class="overdue-dot"
+              class="wh-overdue-dot"
               :title="`有 ${getOverdueCount(wh)} 位逾 30 天未更新`"
             ></span>
           </button>
 
+          <span class="v-sep"></span>
+
           <button
-            class="wh-tab-btn overdue-filter-btn"
+            class="wh-capsule-btn overdue-tab-btn"
             :class="{ 'overdue-active': updateStatusFilter === 'overdue' }"
             @click="toggleFilterOverdueOnly"
           >
-            🔔 逾30天未更新
-            <span class="overdue-pill">{{ getOverdueCount(currentWarehouse) }}</span>
+            <span>🔔 逾30天未更新</span>
+            <span class="overdue-red-pill">{{ getOverdueCount(currentWarehouse) }}</span>
           </button>
         </div>
 
-        <!-- 右側即時 KPI 指標條 -->
-        <div class="kpi-strip">
-          <div class="kpi-chip">
-            <span class="k-lbl">總人數</span>
-            <span class="k-val text-blue">{{ currentEmployees.length }} 人</span>
+        <div class="kpi-frame-strip">
+          <div class="kpi-cell">
+            <span class="kpi-lbl">👥 總人數</span>
+            <span class="kpi-val text-slate-900">{{ currentEmployees.length }} 人</span>
           </div>
-          <div class="kpi-chip">
-            <span class="k-lbl">能力項數</span>
-            <span class="k-val text-purple">{{ currentSkills.length }} 項</span>
+          <div class="kpi-cell">
+            <span class="kpi-lbl">📋 能力項數</span>
+            <span class="kpi-val text-slate-900">{{ currentSkills.length }} 項</span>
           </div>
-          <div class="kpi-chip">
-            <span class="k-lbl">平均掌握度</span>
-            <span class="k-val text-green">{{ avgMasteryPct }}%</span>
+          <div class="kpi-cell">
+            <span class="kpi-lbl">📈 平均掌握度</span>
+            <span class="kpi-val text-emerald">{{ avgMasteryPct }}%</span>
           </div>
-          <div class="kpi-chip clickable" @click="toggleFilterOverdueOnly" title="點擊篩選逾30天未更新人員">
-            <span class="k-lbl text-red">逾1月未更</span>
-            <span class="k-val text-red">{{ getOverdueCount(currentWarehouse) }} 人</span>
+          <div class="kpi-cell kpi-overdue-cell" @click="toggleFilterOverdueOnly" title="點擊一鍵篩選逾 30 天未更新人員">
+            <span class="kpi-lbl text-rose">🕒 逾1月未更</span>
+            <span class="kpi-val text-rose">{{ getOverdueCount(currentWarehouse) }} 人</span>
           </div>
-        </div>
-
-        <!-- 右上角操作按鈕群 -->
-        <div class="action-btns-group">
-          <span class="sync-badge" :class="`sync-${syncState}`">{{ syncStatusText }}</span>
-          <el-button size="mini" type="warning" icon="el-icon-plus" @click="openAddEmployeeModal">新增人員</el-button>
-          <el-button size="mini" type="info" plain icon="el-icon-setting" @click="openManageSkillsModal">管理項目</el-button>
-          <el-button
-            v-if="canImport"
-            size="mini"
-            type="success"
-            icon="el-icon-upload2"
-            @click="$refs.excelInput.click()"
-          >
-            匯入 Excel
-          </el-button>
-          <el-button
-            v-if="canExport"
-            size="mini"
-            type="primary"
-            icon="el-icon-download"
-            @click="exportToExcel"
-          >
-            匯出 Excel
-          </el-button>
         </div>
       </div>
 
-      <!-- 逾 30 天未更新警告橫幅 -->
-      <div v-if="getOverdueCount(currentWarehouse) > 0" class="overdue-banner">
-        <span>
-          ⚠️ <strong>【{{ currentWarehouse }}】</strong>目前共有 <strong>{{ getOverdueCount(currentWarehouse) }}</strong> 位人員超過 1 個月（30 天）尚未更新能力紀錄！
-        </span>
-        <el-button size="mini" type="danger" plain @click="toggleFilterOverdueOnly">
-          {{ updateStatusFilter === 'overdue' ? '顯示全部人員' : `只顯示逾 30 天未更新 (${getOverdueCount(currentWarehouse)}人)` }}
-        </el-button>
-      </div>
-
-      <!-- 篩選與搜尋列 -->
-      <div class="filter-row">
-        <el-input
-          v-model="searchTerm"
-          size="mini"
-          placeholder="🔍 搜尋員編 / 姓名..."
-          style="width: 170px;"
-          clearable
-          @input="currentPage = 1"
-        />
-
-        <el-select v-model="staffGroupFilter" size="mini" style="width: 155px;" @change="currentPage = 1">
-          <el-option :label="`全部人員組別 (${currentEmployees.length}人)`" value="all" />
-          <el-option
-            v-for="(cnt, grp) in staffGroupCounts"
-            :key="grp"
-            :label="`${grp} (${cnt}人)`"
-            :value="grp"
-          />
-        </el-select>
-
-        <el-select v-model="updateStatusFilter" size="mini" style="width: 165px;" @change="currentPage = 1">
-          <el-option label="全部更新狀態" value="all" />
-          <el-option label="逾 30 天未更新 / 未建檔" value="overdue" />
-          <el-option label="30 天內已更新" value="fresh" />
-        </el-select>
-
-        <el-radio-group v-model="skillTypeFilter" size="mini" @change="resetFocus">
-          <el-radio-button label="all">全部</el-radio-button>
-          <el-radio-button label="field">現場</el-radio-button>
-          <el-radio-button label="special">異動</el-radio-button>
-          <el-radio-button label="cadre">幹部</el-radio-button>
-        </el-radio-group>
-
-        <el-select v-model="sortBy" size="mini" style="width: 135px;" @change="currentPage = 1">
-          <el-option label="預設順序" value="default" />
-          <el-option label="總分高到低" value="rankAsc" />
-          <el-option label="總分低到高" value="rankDesc" />
-          <el-option label="最久未更新優先" value="staleFirst" />
-          <el-option label="員編順序" value="idAsc" />
-        </el-select>
-
-        <el-select v-model="pageSize" size="mini" style="width: 105px;" @change="currentPage = 1">
-          <el-option label="每頁 30 筆" :value="30" />
-          <el-option label="每頁 50 筆" :value="50" />
-          <el-option label="每頁 100 筆" :value="100" />
-        </el-select>
-
-        <div class="kbd-guide">
-          <span>⌨️ 方向鍵 <kbd>↑↓←→</kbd> 移動 + <kbd>Space</kbd> 秒速打勾</span>
-          <span v-if="activeCellText" class="active-cell-lbl">{{ activeCellText }}</span>
+      <!-- 粉紅逾 30 天未更新警告橫幅 -->
+      <div v-if="getOverdueCount(currentWarehouse) > 0" class="overdue-alert-strip">
+        <div class="alert-left">
+          <span>⚠️ 【{{ currentWarehouse }}】目前共有 {{ getOverdueCount(currentWarehouse) }} 位人員超過 1 個月（30 天）尚未更新能力資料！</span>
         </div>
-      </div>
-
-      <!-- 作業組別快篩膠囊列 -->
-      <div class="group-pills-row">
-        <span class="grp-title">📂 作業組別：</span>
-        <button
-          class="grp-pill"
-          :class="{ active: groupFilter === 'all' }"
-          @click="setGroupFilter('all')"
-        >
-          全部 ({{ currentSkills.length }})
-        </button>
-        <button
-          v-for="g in orderedSkillGroups"
-          :key="g"
-          class="grp-pill"
-          :class="{ active: groupFilter === g }"
-          @click="setGroupFilter(g)"
-        >
-          {{ g }} ({{ currentSkills.filter(s => s.group === g).length }})
+        <button class="alert-action-btn" @click="toggleFilterOverdueOnly">
+          {{ updateStatusFilter === 'overdue' ? '↩️ 顯示全部人員' : `🔻 只顯示逾 30 天未更新 (${getOverdueCount(currentWarehouse)}人)` }}
         </button>
       </div>
-    </div>
 
-    <!-- 2. 主能力矩陣表格區（左側凍結4欄 + 三層群組表頭 + 底部覆蓋率統計） -->
-    <div class="matrix-wrapper" v-loading="loading">
-      <div
-        class="table-scroll-container"
-        ref="tableScrollContainer"
-        tabindex="0"
-        @keydown="handleMatrixKeydown"
-      >
-        <table class="competency-table">
-          <thead>
-            <!-- 第一層表頭：作業組別 -->
-            <tr>
-              <th rowspan="3" class="sticky-col-1 th-base">所屬組別</th>
-              <th rowspan="3" class="sticky-col-2 th-base">員編</th>
-              <th rowspan="3" class="sticky-col-3 th-base">姓名</th>
-              <th rowspan="3" class="sticky-col-4 th-base">全能進度</th>
-              <th
-                v-for="(seg, idx) in groupSegments"
-                :key="'g_' + idx"
-                :colspan="seg.count"
-                class="th-group"
-                :class="getGroupHeaderClass(seg.group)"
+      <!-- 第二列：搜尋與條件過濾 + 右側手順提示 + 作業組別彩色膠囊 -->
+      <div class="toolbar-card filter-block">
+        <div class="filter-top-line">
+          <div class="filter-controls-left">
+            <input
+              v-model="searchTerm"
+              type="text"
+              placeholder="🔍 搜尋員編/姓名..."
+              class="light-input"
+              @input="currentPage = 1"
+            />
+
+            <select v-model="staffGroupFilter" class="light-select" @change="currentPage = 1">
+              <option value="all">全部人員組別 ({{ currentEmployees.length }}人)</option>
+              <option v-for="(cnt, grp) in staffGroupCounts" :key="grp" :value="grp">
+                {{ grp }} ({{ cnt }}人)
+              </option>
+            </select>
+
+            <select v-model="updateStatusFilter" class="light-select" @change="currentPage = 1">
+              <option value="all">全部更新狀態</option>
+              <option value="overdue">逾 30 天未更新 / 未建檔</option>
+              <option value="fresh">30 天內已更新</option>
+            </select>
+
+            <div class="seg-filter-group">
+              <button
+                v-for="opt in skillTypeOptions"
+                :key="opt.val"
+                class="seg-btn"
+                :class="{ active: skillTypeFilter === opt.val }"
+                @click="setSkillFilter(opt.val)"
               >
-                {{ seg.group }} ({{ seg.count }})
-              </th>
-              <th colspan="6" class="th-base border-left-heavy">能力加總、排名與更新狀態</th>
-              <th rowspan="3" class="th-base" style="min-width: 105px;">操作</th>
-            </tr>
+                {{ opt.label }}
+              </button>
+            </div>
 
-            <!-- 第二層表頭：能力屬性分類 -->
-            <tr>
-              <th
-                v-for="(sub, idx) in subSegments"
-                :key="'sub_' + idx"
-                :colspan="sub.count"
-                class="th-sub"
-                :class="`th-sub-${sub.type}`"
+            <select v-model="sortBy" class="light-select" @change="currentPage = 1">
+              <option value="default">預設順序</option>
+              <option value="rankAsc">總分高到低</option>
+              <option value="rankDesc">總分低到高</option>
+              <option value="staleFirst">最久未更新優先</option>
+              <option value="idAsc">員編順序</option>
+            </select>
+
+            <select v-model.number="pageSize" class="light-select" @change="currentPage = 1">
+              <option :value="30">每頁 30 筆</option>
+              <option :value="50">每頁 50 筆</option>
+              <option :value="100">每頁 100 筆</option>
+            </select>
+          </div>
+
+          <div class="kbd-guide-pill">
+            <span class="kbd-title">⌨️ 手順：</span>
+            <kbd>↑↓←→</kbd>
+            <span>移動 +</span>
+            <kbd>Space</kbd>
+            <span>打勾</span>
+            <span v-if="activeCellText" class="kbd-active-info">{{ activeCellText }}</span>
+          </div>
+        </div>
+
+        <!-- 作業組別彩色膠囊列 -->
+        <div class="group-filter-line">
+          <span class="gf-label">🗂️ 作業組別：</span>
+          <button
+            class="gf-pill"
+            :class="groupFilter === 'all' ? 'gf-all-active' : 'gf-all'"
+            @click="setGroupFilter('all')"
+          >
+            全部 ({{ currentSkills.length }})
+          </button>
+          <button
+            v-for="g in orderedSkillGroups"
+            :key="g"
+            class="gf-pill"
+            :class="groupFilter === g ? getGroupBadgeActiveClass(g) : getGroupBadgeClass(g)"
+            @click="setGroupFilter(g)"
+          >
+            {{ g }} ({{ currentSkills.filter(s => s.group === g).length }})
+          </button>
+        </div>
+      </div>
+
+      <!-- 第三列：主能力矩陣表格（亮白底色＋左側 4 欄凍結＋三層群組表頭） -->
+      <div class="matrix-frame-box">
+        <div
+          class="matrix-scroll-area"
+          ref="tableScrollContainer"
+          tabindex="0"
+          @keydown="handleMatrixKeydown"
+        >
+          <table class="competency-matrix-table">
+            <thead>
+              <!-- 第 1 層表頭：作業組別 -->
+              <tr>
+                <th rowspan="3" class="sticky-col-1 th-dark">所屬組別</th>
+                <th rowspan="3" class="sticky-col-2 th-dark">員編</th>
+                <th rowspan="3" class="sticky-col-3 th-dark">姓名</th>
+                <th rowspan="3" class="sticky-col-4 th-dark">全能進度</th>
+                <th
+                  v-for="(seg, idx) in groupSegments"
+                  :key="'g_' + idx"
+                  :colspan="seg.count"
+                  class="th-grp-banner"
+                  :class="getGroupHeaderBgClass(seg.group)"
+                >
+                  {{ seg.group }} ({{ seg.count }})
+                </th>
+                <th colspan="6" class="th-dark border-l-thick">能力加總、排名與更新狀態</th>
+                <th rowspan="3" class="th-dark" style="min-width: 100px;">操作</th>
+              </tr>
+
+              <!-- 第 2 層表頭：現場 / 異動 / 幹部 -->
+              <tr>
+                <th
+                  v-for="(sub, idx) in subSegments"
+                  :key="'sub_' + idx"
+                  :colspan="sub.count"
+                  class="th-sub-banner"
+                  :class="`th-sub-${sub.type}`"
+                >
+                  {{ sub.subLabel }} ({{ sub.count }})
+                </th>
+                <th rowspan="2" class="th-sum-field border-l-thick">現場</th>
+                <th rowspan="2" class="th-sum-special">異動</th>
+                <th rowspan="2" class="th-sum-cadre">幹部</th>
+                <th rowspan="2" class="th-sum-total">總分</th>
+                <th rowspan="2" class="th-sum-rank">排名</th>
+                <th rowspan="2" class="th-sum-rank" style="min-width: 85px;">最後更新</th>
+              </tr>
+
+              <!-- 第 3 層表頭：具體能力名稱 -->
+              <tr>
+                <th
+                  v-for="s in visibleSkills"
+                  :key="s.id"
+                  class="skill-col-th"
+                  :class="`th-item-${s.type}`"
+                  :title="`${s.group} - ${s.name}`"
+                >
+                  {{ s.name }}
+                </th>
+              </tr>
+            </thead>
+
+            <tbody>
+              <tr v-if="pagedRows.length === 0">
+                <td :colspan="visibleSkills.length + 11" class="empty-table-row">
+                  {{ currentEmployees.length === 0 ? '尚無人員資料，請點擊右上角「📂 匯入 Excel」上傳人員能力表！' : '找不到符合條件的人員資料' }}
+                </td>
+              </tr>
+              <tr
+                v-for="(row, rIdx) in pagedRows"
+                :key="row.emp.id"
+                :class="rIdx % 2 === 0 ? 'row-even' : 'row-odd'"
               >
-                {{ sub.subLabel }} ({{ sub.count }})
-              </th>
-              <th rowspan="2" class="th-sum-field border-left-heavy">現場</th>
-              <th rowspan="2" class="th-sum-special">異動</th>
-              <th rowspan="2" class="th-sum-cadre">幹部</th>
-              <th rowspan="2" class="th-sum-total">總分</th>
-              <th rowspan="2" class="th-base">排名</th>
-              <th rowspan="2" class="th-base" style="min-width: 88px;">最後更新</th>
-            </tr>
-
-            <!-- 第三層表頭：具體能力項目名稱 -->
-            <tr>
-              <th
-                v-for="s in visibleSkills"
-                :key="s.id"
-                class="skill-col-th"
-                :class="`th-skill-${s.type}`"
-                :title="`${s.group} - ${s.name}`"
-              >
-                {{ s.name }}
-              </th>
-            </tr>
-          </thead>
-
-          <tbody>
-            <tr v-if="pagedRows.length === 0">
-              <td :colspan="visibleSkills.length + 11" class="empty-cell">
-                找不到符合條件的人員資料
-              </td>
-            </tr>
-            <tr
-              v-for="(row, rIdx) in pagedRows"
-              :key="row.emp.id"
-              :class="rIdx % 2 === 0 ? 'row-even' : 'row-odd'"
-            >
-              <td class="sticky-col-1">
-                <span class="staff-grp-badge">{{ row.emp.staffGroup || '未分組' }}</span>
-              </td>
-              <td class="sticky-col-2 font-bold text-blue">{{ row.emp.id }}</td>
-              <td class="sticky-col-3 font-bold">{{ row.emp.name }}</td>
-              <td class="sticky-col-4">
-                <div class="pct-box">
-                  <div class="pct-track">
-                    <div
-                      class="pct-fill"
-                      :class="row.pct === 100 ? 'fill-full' : (row.pct >= 60 ? 'fill-mid' : 'fill-low')"
-                      :style="{ width: `${row.pct}%` }"
-                    ></div>
+                <td class="sticky-col-1">
+                  <span class="emp-grp-tag" :class="getGroupBadgeClass(row.emp.staffGroup)">
+                    {{ row.emp.staffGroup || '未分組' }}
+                  </span>
+                </td>
+                <td class="sticky-col-2 font-bold text-slate-700">{{ row.emp.id }}</td>
+                <td class="sticky-col-3 font-bold text-slate-900">{{ row.emp.name }}</td>
+                <td class="sticky-col-4">
+                  <div class="progress-wrap">
+                    <div class="progress-track">
+                      <div
+                        class="progress-bar"
+                        :class="row.pct === 100 ? 'bg-emerald-500' : (row.pct >= 60 ? 'bg-indigo-500' : 'bg-amber-500')"
+                        :style="{ width: `${row.pct}%` }"
+                      ></div>
+                    </div>
+                    <span class="progress-num">{{ row.pct }}%</span>
                   </div>
-                  <span class="pct-txt">{{ row.pct }}%</span>
-                </div>
-              </td>
+                </td>
 
-              <!-- 能力打勾儲存格 -->
-              <td
-                v-for="(s, cIdx) in visibleSkills"
-                :key="s.id"
-                :data-r="rIdx"
-                :data-c="cIdx"
-                class="skill-cell"
-                :class="[
-                  row.emp.skills[s.id] === 1 ? `cell-checked-${s.type}` : '',
-                  focusedRowIdx === rIdx && focusedColIdx === cIdx ? 'cell-focused' : ''
-                ]"
-                @click="handleCellClick(rIdx, cIdx)"
-              >
-                <span
-                  class="skill-box"
-                  :class="row.emp.skills[s.id] === 1 ? `box-${s.type}` : 'box-empty'"
+                <!-- 能力打勾儲存格 -->
+                <td
+                  v-for="(s, cIdx) in visibleSkills"
+                  :key="s.id"
+                  class="skill-cell"
+                  :class="[
+                    row.emp.skills[s.id] === 1 ? `cell-on-${s.type}` : '',
+                    focusedRowIdx === rIdx && focusedColIdx === cIdx ? 'cell-focused' : ''
+                  ]"
+                  @click="handleCellClick(rIdx, cIdx)"
                 >
-                  {{ row.emp.skills[s.id] === 1 ? '✓' : '-' }}
-                </span>
-              </td>
+                  <span
+                    class="skill-box"
+                    :class="row.emp.skills[s.id] === 1 ? `skill-box-${s.type}` : 'skill-box-empty'"
+                  >
+                    {{ row.emp.skills[s.id] === 1 ? '✓' : '-' }}
+                  </span>
+                </td>
 
-              <!-- 加總與更新狀態 -->
-              <td class="font-bold text-blue border-left-heavy">{{ row.fieldScore }}</td>
-              <td class="font-bold text-yellow">{{ row.specialScore }}</td>
-              <td class="font-bold text-purple">{{ row.cadreScore }}</td>
-              <td class="font-bold text-green" style="font-size: 13px;">{{ row.totalScore }}</td>
-              <td>
-                <span class="rank-badge" :class="row.totalScore > 0 && row.rank <= 3 ? `rank-${row.rank}` : ''">
-                  {{ row.rank }}
-                </span>
-              </td>
-              <td>
-                <span class="upd-badge" :class="getUpdateBadgeClass(row.emp.lastUpdated)" :title="row.emp.lastUpdated || '尚未更新'">
-                  {{ getUpdateBadgeLabel(row.emp.lastUpdated) }}
-                </span>
-              </td>
-              <td class="row-actions-cell">
-                <button
-                  class="mini-icon-btn btn-check-all"
-                  :title="isAllVisibleChecked(row.emp) ? '一鍵取消目前篩選能力' : '一鍵全勾選目前篩選能力'"
-                  @click="toggleAllSkillsForEmployee(row.emp)"
-                >
-                  ✓✓
-                </button>
-                <button class="mini-icon-btn btn-edit" title="編輯人員" @click="openEditEmployeeModal(row.emp)">✎</button>
-                <button class="mini-icon-btn btn-del" title="刪除人員" @click="confirmDeleteEmployee(row.emp)">✕</button>
-              </td>
-            </tr>
-          </tbody>
+                <!-- 右側加總與最後更新 -->
+                <td class="font-bold text-sky-700 bg-sky-50 border-l-thick">{{ row.fieldScore }}</td>
+                <td class="font-bold text-amber-700 bg-amber-50">{{ row.specialScore }}</td>
+                <td class="font-bold text-purple-700 bg-purple-50">{{ row.cadreScore }}</td>
+                <td class="font-extrabold text-slate-900 bg-amber-100">{{ row.totalScore }}</td>
+                <td class="bg-slate-50">
+                  <span class="rank-circle" :class="row.totalScore > 0 && row.rank <= 3 ? `rank-top-${row.rank}` : ''">
+                    {{ row.rank }}
+                  </span>
+                </td>
+                <td class="bg-slate-50">
+                  <span class="upd-pill" :class="getUpdateBadgeClass(row.emp.lastUpdated)" :title="row.emp.lastUpdated || '尚未有更新紀錄'">
+                    {{ getUpdateBadgeLabel(row.emp.lastUpdated) }}
+                  </span>
+                </td>
+                <td class="op-cell">
+                  <button
+                    class="op-icon-btn op-check"
+                    :title="isAllVisibleChecked(row.emp) ? '一鍵取消目前篩選能力' : '一鍵全勾選目前篩選能力'"
+                    @click="toggleAllSkillsForEmployee(row.emp)"
+                  >
+                    ✓✓
+                  </button>
+                  <button class="op-icon-btn op-edit" title="編輯人員" @click="openEditEmployeeModal(row.emp)">✎</button>
+                  <button class="op-icon-btn op-del" title="刪除人員" @click="confirmDeleteEmployee(row.emp)">🗑</button>
+                </td>
+              </tr>
+            </tbody>
 
-          <tfoot v-if="visibleSkills.length > 0">
-            <tr>
-              <td colspan="4" class="sticky-col-1 tfoot-title">各項目會做人數 / 覆蓋率</td>
-              <td v-for="s in visibleSkills" :key="'foot_' + s.id" class="tfoot-cell">
-                <div :class="getSkillCoverage(s.id).pct === 0 ? 'text-red' : (getSkillCoverage(s.id).pct >= 80 ? 'text-green' : 'text-yellow')">
-                  {{ getSkillCoverage(s.id).count }}人
-                </div>
-                <div class="text-dim" style="font-size: 10px;">{{ getSkillCoverage(s.id).pct }}%</div>
-              </td>
-              <td colspan="7" class="tfoot-goal border-left-heavy">目標：全倉全能覆蓋 100%</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
+            <tfoot v-if="visibleSkills.length > 0">
+              <tr>
+                <td colspan="4" class="sticky-col-1 tfoot-sticky-lbl">各項目會做人數 / 覆蓋率</td>
+                <td v-for="s in visibleSkills" :key="'foot_' + s.id" class="tfoot-stat-cell">
+                  <div :class="getSkillCoverage(s.id).pct === 0 ? 'text-rose' : (getSkillCoverage(s.id).pct >= 80 ? 'text-emerald' : 'text-amber')">
+                    {{ getSkillCoverage(s.id).count }}人
+                  </div>
+                  <div class="tfoot-pct">{{ getSkillCoverage(s.id).pct }}%</div>
+                </td>
+                <td colspan="7" class="tfoot-goal-cell border-l-thick">目標：全倉全能覆蓋 100%</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
 
-      <!-- 底部分頁列 -->
-      <div class="pagination-bar">
-        <span>
-          顯示第 <strong>{{ totalFiltered === 0 ? 0 : (currentPage - 1) * pageSize + 1 }} - {{ Math.min(currentPage * pageSize, totalFiltered) }}</strong> 筆，共 <strong>{{ totalFiltered }}</strong> 筆人員資料
-        </span>
-        <div class="page-btns">
-          <el-button size="mini" :disabled="currentPage <= 1" @click="currentPage = 1">首頁</el-button>
-          <el-button size="mini" :disabled="currentPage <= 1" @click="currentPage--">上一頁</el-button>
-          <span class="page-indicator">第 {{ currentPage }} / {{ totalPages }} 頁</span>
-          <el-button size="mini" :disabled="currentPage >= totalPages" @click="currentPage++">下一頁</el-button>
-          <el-button size="mini" :disabled="currentPage >= totalPages" @click="currentPage = totalPages">末頁</el-button>
+        <!-- 底部分頁列 -->
+        <div class="light-pagination-bar">
+          <div>
+            顯示第 <strong>{{ totalFiltered === 0 ? 0 : (currentPage - 1) * pageSize + 1 }} - {{ Math.min(currentPage * pageSize, totalFiltered) }}</strong> 筆，共 <strong>{{ totalFiltered }}</strong> 筆人員資料
+          </div>
+          <div class="pg-btn-group">
+            <button class="pg-btn" :disabled="currentPage <= 1" @click="currentPage = 1">首頁</button>
+            <button class="pg-btn" :disabled="currentPage <= 1" @click="currentPage--">上一頁</button>
+            <span class="pg-indicator">第 {{ currentPage }} / {{ totalPages }} 頁</span>
+            <button class="pg-btn" :disabled="currentPage >= totalPages" @click="currentPage++">下一頁</button>
+            <button class="pg-btn" :disabled="currentPage >= totalPages" @click="currentPage = totalPages">末頁</button>
+          </div>
         </div>
       </div>
-    </div>
+    </main>
 
     <!-- 3. 新增 / 編輯人員 Modal -->
     <el-dialog
@@ -350,69 +371,68 @@
       width="740px"
       top="4vh"
       append-to-body
-      custom-class="dark-dialog"
     >
-      <div class="emp-modal-body">
-        <div class="emp-form-grid">
+      <div class="modal-light-body">
+        <div class="emp-grid-4">
           <div>
-            <label class="f-lbl">所屬倉別 *</label>
+            <label class="m-lbl">所屬倉別 *</label>
             <el-select v-model="empForm.warehouse" size="mini" style="width: 100%;">
               <el-option v-for="w in warehouses" :key="w" :label="w" :value="w" />
             </el-select>
           </div>
           <div>
-            <label class="f-lbl">所屬組別 *</label>
+            <label class="m-lbl">所屬組別 *</label>
             <el-select v-model="empForm.staffGroup" size="mini" filterable allow-create style="width: 100%;">
               <el-option v-for="g in getWarehouseGroups(empForm.warehouse)" :key="g" :label="g" :value="g" />
             </el-select>
           </div>
           <div>
-            <label class="f-lbl">員工編號 *</label>
+            <label class="m-lbl">員工編號 *</label>
             <el-input v-model="empForm.id" size="mini" placeholder="例如: 801824" />
           </div>
           <div>
-            <label class="f-lbl">員工姓名 *</label>
+            <label class="m-lbl">員工姓名 *</label>
             <el-input v-model="empForm.name" size="mini" placeholder="例如: 張紘瑋" />
           </div>
         </div>
 
-        <div class="review-check-bar">
+        <div class="review-banner">
           <el-checkbox v-model="empForm.markReviewed">
-            <span class="text-green font-bold">儲存時同時更新該員「能力最後更新時間」為現在（完成本月盤點）</span>
+            儲存時同時更新該員「能力最後更新時間」為現在（完成本月盤點）
           </el-checkbox>
         </div>
 
-        <div class="quick-skill-toolbar">
-          <span class="font-bold text-dim">快速勾選能力：</span>
+        <div class="quick-check-row">
+          <span class="font-bold">快速勾選已具備能力：</span>
           <el-button size="mini" type="success" plain @click="toggleModalSkills('field', true)">全選現場</el-button>
           <el-button size="mini" type="warning" plain @click="toggleModalSkills('special', true)">全選異動</el-button>
           <el-button size="mini" type="primary" plain @click="toggleModalSkills('cadre', true)">全選幹部</el-button>
           <el-button size="mini" type="info" plain @click="toggleModalSkills('all', false)">全部清除</el-button>
         </div>
 
-        <div class="modal-skills-scroll">
+        <div class="modal-skills-list">
           <div
             v-for="grp in getWarehouseGroups(empForm.warehouse)"
             :key="grp"
-            class="modal-skill-group-box"
+            class="m-grp-card"
           >
-            <div class="msg-title">{{ grp }}</div>
-            <div class="msg-grid">
+            <div class="m-grp-head">{{ grp }}</div>
+            <div class="m-grp-grid">
               <label
                 v-for="s in (appData[empForm.warehouse]?.skills || []).filter(x => x.group === grp)"
                 :key="s.id"
-                class="msg-item"
-                :class="{ 'msg-checked': empForm.skills[s.id] === 1 }"
+                class="m-skill-item"
+                :class="{ 'm-skill-checked': empForm.skills[s.id] === 1 }"
               >
                 <input
                   type="checkbox"
                   :checked="empForm.skills[s.id] === 1"
                   @change="e => toggleModalSingleSkill(s.id, e.target.checked)"
                 />
-                <span class="msg-tag" :class="`tag-${s.type}`">
+                <span class="m-tag" :class="`m-tag-${s.type}`">
                   {{ s.type === 'cadre' ? '幹部' : (s.type === 'special' ? '異動' : '現場') }}
                 </span>
-                <span class="msg-name">{{ s.name }}</span>
+                <span class="m-name">{{ s.name }}</span>
               </label>
             </div>
           </div>
@@ -431,10 +451,9 @@
       width="700px"
       top="5vh"
       append-to-body
-      custom-class="dark-dialog"
     >
-      <div class="skills-modal-body">
-        <div class="add-skill-bar">
+      <div class="modal-light-body">
+        <div class="add-skill-row">
           <el-select v-model="manageWh" size="mini" style="width: 115px;">
             <el-option v-for="w in warehouses" :key="w" :label="w" :value="w" />
           </el-select>
@@ -449,29 +468,29 @@
           <el-input
             v-model="newSkillName"
             size="mini"
-            placeholder="輸入新能力名稱..."
+            placeholder="輸入能力名稱..."
             style="flex: 1;"
             @keyup.enter="addNewSkill"
           />
           <el-button size="mini" type="primary" @click="addNewSkill">新增</el-button>
         </div>
 
-        <div class="modal-skills-scroll">
+        <div class="modal-skills-list">
           <div
             v-for="grp in getWarehouseGroups(manageWh)"
             :key="'m_' + grp"
-            class="modal-skill-group-box"
+            class="m-grp-card"
           >
-            <div class="msg-title">{{ grp }}</div>
-            <div class="skill-pills-wrap">
+            <div class="m-grp-head">{{ grp }}</div>
+            <div class="m-pills-wrap">
               <span
                 v-for="s in (appData[manageWh]?.skills || []).filter(x => x.group === grp)"
                 :key="s.id"
-                class="manage-skill-pill"
-                :class="`pill-${s.type}`"
+                class="m-pill"
+                :class="`m-pill-${s.type}`"
               >
                 <span>[{{ s.type === 'cadre' ? '幹部' : (s.type === 'special' ? '異動' : '現場') }}] {{ s.name }}</span>
-                <i class="el-icon-close del-x" @click="removeSkill(s)"></i>
+                <i class="el-icon-close m-del" @click="removeSkill(s)"></i>
               </span>
             </div>
           </div>
@@ -510,6 +529,12 @@ export default {
       staffGroupFilter: 'all',
       updateStatusFilter: 'all',
       skillTypeFilter: 'all',
+      skillTypeOptions: [
+        { val: 'all', label: '全部' },
+        { val: 'field', label: '現場' },
+        { val: 'special', label: '異動' },
+        { val: 'cadre', label: '幹部' }
+      ],
       groupFilter: 'all',
       sortBy: 'default',
       currentPage: 1,
@@ -519,7 +544,7 @@ export default {
       focusedColIdx: -1,
 
       syncState: 'synced',
-      syncStatusText: '✅ 資料庫已同步',
+      syncStatusText: '雲端已同步',
       pendingUpdates: [],
       syncTimer: null,
 
@@ -664,7 +689,7 @@ export default {
       const r = this.pagedRows[this.focusedRowIdx];
       const s = this.visibleSkills[this.focusedColIdx];
       if (!r || !s) return '';
-      return `聚焦：${r.emp.name} (${r.emp.id}) ｜ ${s.group} - ${s.name}`;
+      return `目前聚焦：${r.emp.name} (${r.emp.id}) ｜ ${s.group} - ${s.name}`;
     }
   },
   mounted() {
@@ -680,17 +705,32 @@ export default {
       if (wh === '3PL一組') return '📦';
       return '🚚';
     },
-    getGroupHeaderClass(grp) {
+    getGroupHeaderBgClass(grp) {
       const map = {
-        '進貨組': 'grp-blue',
-        '上架組': 'grp-green',
-        '揀出組': 'grp-amber',
-        '庫存組': 'grp-purple',
-        '還貨組': 'grp-rose',
-        '共同科目': 'grp-orange',
-        '寵物公園': 'grp-teal'
+        '進貨組': 'bg-blue-800',
+        '上架組': 'bg-emerald-800',
+        '揀出組': 'bg-amber-800',
+        '庫存組': 'bg-purple-800',
+        '還貨組': 'bg-rose-800',
+        '共同科目': 'bg-orange-800',
+        '寵物公園': 'bg-teal-800'
       };
-      return map[grp] || 'grp-indigo';
+      return map[grp] || 'bg-indigo-800';
+    },
+    getGroupBadgeClass(grp) {
+      const map = {
+        '進貨組': 'badge-blue',
+        '上架組': 'badge-emerald',
+        '揀出組': 'badge-amber',
+        '庫存組': 'badge-purple',
+        '還貨組': 'badge-rose',
+        '共同科目': 'badge-orange',
+        '寵物公園': 'badge-teal'
+      };
+      return map[grp] || 'badge-indigo';
+    },
+    getGroupBadgeActiveClass(grp) {
+      return `${this.getGroupHeaderBgClass(grp)} text-white`;
     },
     formatNow() {
       const d = new Date();
@@ -719,10 +759,10 @@ export default {
       return days === 0 ? '今天已更' : `${days}天前`;
     },
     getUpdateBadgeClass(lastUpdated) {
-      if (!lastUpdated) return 'upd-warn';
+      if (!lastUpdated) return 'upd-amber';
       const days = this.getDaysSince(lastUpdated);
-      if (days === null || days >= OVERDUE_DAYS_LIMIT) return 'upd-danger';
-      return 'upd-ok';
+      if (days === null || days >= OVERDUE_DAYS_LIMIT) return 'upd-rose';
+      return 'upd-emerald';
     },
     getSkillCoverage(skillId) {
       const tot = this.currentEmployees.length;
@@ -761,6 +801,10 @@ export default {
       this.groupFilter = grp;
       this.resetFocus();
     },
+    setSkillFilter(val) {
+      this.skillTypeFilter = val;
+      this.resetFocus();
+    },
     toggleFilterOverdueOnly() {
       this.updateStatusFilter = this.updateStatusFilter === 'overdue' ? 'all' : 'overdue';
       this.currentPage = 1;
@@ -781,7 +825,26 @@ export default {
       }
     },
 
-    // 鍵盤方向鍵 + 空白鍵秒速操作
+    async syncAllToCloud(showMsg = false) {
+      await this.flushUpdates();
+      this.syncState = 'syncing';
+      this.syncStatusText = '同步中...';
+      try {
+        await axios.post('/api/staff-competency/sync-all', { data: this.appData });
+        this.syncState = 'synced';
+        this.syncStatusText = '雲端已同步';
+        if (showMsg) ElMessage.success('✅ 已將全部倉別資料寫入資料庫！');
+      } catch (e) {
+        this.syncState = 'error';
+        this.syncStatusText = '同步失敗';
+      }
+    },
+
+    async resetWarehouseSkillsToLatest() {
+      await this.fetchAllData();
+      ElMessage.success(`已重新整理【${this.currentWarehouse}】最新資料！`);
+    },
+
     handleCellClick(rIdx, cIdx) {
       this.focusedRowIdx = rIdx;
       this.focusedColIdx = cIdx;
@@ -833,7 +896,7 @@ export default {
         this.queueUpdate(this.currentWarehouse, emp.id, s.id, targetVal, nowStr);
       });
       emp.lastUpdated = nowStr;
-      ElMessage.success(targetVal === 1 ? `已全勾選「${emp.name}」目前顯示能力` : `已取消「${emp.name}」目前顯示能力`);
+      ElMessage.success(targetVal === 1 ? `已一鍵全勾選「${emp.name}」的 ${this.visibleSkills.length} 項能力` : `已一鍵取消「${emp.name}」的 ${this.visibleSkills.length} 項能力`);
     },
 
     queueUpdate(whName, empId, skillId, val, lastUpdated) {
@@ -845,7 +908,7 @@ export default {
         this.pendingUpdates.push({ whName, empId, skillId, val, lastUpdated });
       }
       this.syncState = 'syncing';
-      this.syncStatusText = `⏳ 儲存中 (${this.pendingUpdates.length})...`;
+      this.syncStatusText = `儲存中 (${this.pendingUpdates.length})...`;
       clearTimeout(this.syncTimer);
       this.syncTimer = setTimeout(() => this.flushUpdates(), 600);
     },
@@ -856,15 +919,14 @@ export default {
         await axios.post('/api/staff-competency/batch-toggle', { updates: batch });
         if (this.pendingUpdates.length === 0) {
           this.syncState = 'synced';
-          this.syncStatusText = '✅ 資料庫已同步';
+          this.syncStatusText = '雲端已同步';
         }
       } catch (e) {
         this.syncState = 'error';
-        this.syncStatusText = '⚠️ 儲存異常';
+        this.syncStatusText = '儲存異常';
       }
     },
 
-    // 新增 / 編輯人員
     openAddEmployeeModal() {
       this.editingOriginalEmp = null;
       this.empForm = {
@@ -952,7 +1014,6 @@ export default {
       }).catch(() => {});
     },
 
-    // 管理能力項目
     openManageSkillsModal() {
       this.manageWh = this.currentWarehouse;
       this.newSkillGroup = this.groupFilter !== 'all' ? this.groupFilter : '進貨組';
@@ -1001,7 +1062,7 @@ export default {
       }).catch(() => {});
     },
 
-    // Excel 匯入（自動補零 5 碼員編 + 智慧對應既有能力欄位）
+    // Excel 匯入（無需 JSON 種子檔：自動解析能力表頭、補零 5 碼員編、支援完整能力矩陣與純人員名冊）
     async handleExcelImport(e) {
       const file = e.target.files?.[0];
       if (!file) return;
@@ -1011,15 +1072,70 @@ export default {
         const updatedPayload = {};
         let importedSheets = 0;
 
-        wb.SheetNames.forEach(sheetName => {
-          const clean = sheetName.replace(/\s+/g, '');
-          let matchedWh = this.warehouses.find(w => clean === w || clean.includes(w));
-          if (!matchedWh) {
-            if (clean.includes('大園')) matchedWh = '大園倉';
-            else if (clean.includes('林口')) matchedWh = '林口倉';
-            else if (clean.includes('3PL一') || clean.includes('3PL1')) matchedWh = '3PL一組';
-            else if (clean.includes('3PL二') || clean.includes('3PL2')) matchedWh = '3PL二組';
+        const mapWhName = (raw) => {
+          const clean = String(raw || '').replace(/\s+/g, '');
+          const exact = this.warehouses.find(w => clean === w || clean.includes(w));
+          if (exact) return exact;
+          if (clean.includes('大園')) return '大園倉';
+          if (clean.includes('林口')) return '林口倉';
+          if (clean.includes('3PL一') || clean.includes('3PL1')) return '3PL一組';
+          if (clean.includes('3PL二') || clean.includes('3PL2')) return '3PL二組';
+          return '';
+        };
+
+        // 支援格式 B：單一工作表純人員名冊（欄位含 倉別 / 組別 / 員編 / 姓名）
+        const firstSheetRows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
+        let rosterHeaderRow = -1, whCol = -1, grpCol = -1, idCol = -1, nameCol = -1;
+        for (let r = 0; r < Math.min(firstSheetRows.length, 10); r++) {
+          const row = firstSheetRows[r] || [];
+          row.forEach((cell, idx) => {
+            const txt = String(cell || '').replace(/\s+/g, '');
+            if (txt === '倉別' || txt === '倉區') whCol = idx;
+            if (txt === '組別' || txt === '所屬組別' || txt === '單位') grpCol = idx;
+            if (txt === '員編' || txt === '員工編號' || txt === '工號') { rosterHeaderRow = r; idCol = idx; }
+            if (txt === '姓名' || txt === '員工姓名') nameCol = idx;
+          });
+          if (whCol !== -1 && idCol !== -1 && nameCol !== -1) break;
+        }
+
+        if (whCol !== -1 && idCol !== -1 && nameCol !== -1) {
+          const groupedEmps = { '大園倉': [], '林口倉': [], '3PL一組': [], '3PL二組': [] };
+          let cnt = 0;
+          for (let r = rosterHeaderRow + 1; r < firstSheetRows.length; r++) {
+            const row = firstSheetRows[r] || [];
+            const whName = mapWhName(row[whCol]);
+            let rawId = String(row[idCol] ?? '').trim();
+            if (rawId.endsWith('.0')) rawId = rawId.slice(0, -2);
+            if (/^\d{5}$/.test(rawId)) rawId = rawId.padStart(6, '0');
+            const empName = String(row[nameCol] ?? '').trim();
+            if (!whName || !rawId || !empName || rawId === '員編') continue;
+
+            const prevEmp = (this.appData[whName]?.employees || []).find(x => x.id === rawId);
+            const rawGrp = grpCol !== -1 ? String(row[grpCol] ?? '').trim() : '';
+            groupedEmps[whName].push({
+              id: rawId,
+              name: empName,
+              staffGroup: rawGrp || prevEmp?.staffGroup || '一般作業組',
+              lastUpdated: prevEmp?.lastUpdated || '',
+              skills: prevEmp?.skills || {}
+            });
+            cnt++;
           }
+          if (cnt > 0) {
+            Object.keys(groupedEmps).forEach(wh => {
+              if (groupedEmps[wh].length > 0) updatedPayload[wh] = { employees: groupedEmps[wh] };
+            });
+            await axios.post('/api/staff-competency/sync-all', { data: updatedPayload });
+            await this.fetchAllData();
+            ElMessage.success(`🎉 成功匯入純人員名冊共 ${cnt} 筆資料（既有能力勾選已完整保留）！`);
+            if (this.$refs.excelInput) this.$refs.excelInput.value = '';
+            return;
+          }
+        }
+
+        // 支援格式 A：4 個倉別能力矩陣分頁（自動建立能力表頭＋人員勾選紀錄）
+        wb.SheetNames.forEach(sheetName => {
+          const matchedWh = mapWhName(sheetName);
           if (!matchedWh) return;
 
           const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '' });
@@ -1030,25 +1146,44 @@ export default {
           const updCol = row1.indexOf('能力最後更新時間');
           if (fCol <= 3) return;
 
-          const existingSkills = this.appData[matchedWh]?.skills || [];
           const existingEmpMap = new Map((this.appData[matchedWh]?.employees || []).map(emp => [emp.id, emp]));
-
-          // 建立欄位索引 -> skill.id 對應
+          const parsedSkills = [];
+          const seenSkillIds = new Set();
           const colToSkillId = {};
-          let actGrp = '一般作業組', actSub = '現場人員所需能力';
+
+          let actGrp = '一般作業組';
+          let actSub = '現場人員所需能力';
+          let actType = 'field';
+
           for (let c = 3; c < fCol; c++) {
             const gTxt = String(rows[0]?.[c] || '').trim();
             const sTxt = String(rows[1]?.[c] || '').trim();
             const nTxt = String(rows[2]?.[c] || '').trim();
             if (gTxt) actGrp = gTxt;
-            if (sTxt) actSub = sTxt;
+            if (sTxt) {
+              actSub = sTxt;
+              if (sTxt.includes('幹部') || sTxt.includes('部門管理')) actType = 'cadre';
+              else if (sTxt.includes('異動')) actType = 'special';
+              else actType = 'field';
+            }
             if (!nTxt) continue;
 
-            const exactId = `${actGrp}::${actSub}::${nTxt}`;
-            const found = existingSkills.find(s => s.id === exactId)
-              || existingSkills.find(s => s.group === actGrp && s.name === nTxt)
-              || existingSkills.find(s => s.name === nTxt);
-            if (found) colToSkillId[c] = found.id;
+            // 自動排除重複欄位 ID（若同組同分類出現同名欄位則自動加編號區隔）
+            let sid = `${actGrp}::${actSub}::${nTxt}`;
+            let suffix = 2;
+            while (seenSkillIds.has(sid)) {
+              sid = `${actGrp}::${actSub}::${nTxt}(${suffix++})`;
+            }
+            seenSkillIds.add(sid);
+
+            parsedSkills.push({
+              id: sid,
+              group: actGrp,
+              type: actType,
+              name: nTxt,
+              subHeader: actSub
+            });
+            colToSkillId[c] = sid;
           }
 
           const newEmployees = [];
@@ -1074,8 +1209,11 @@ export default {
             newEmployees.push({ id: rawId, name: empName, staffGroup, lastUpdated, skills });
           }
 
-          if (newEmployees.length > 0) {
-            updatedPayload[matchedWh] = { employees: newEmployees };
+          if (parsedSkills.length > 0 || newEmployees.length > 0) {
+            updatedPayload[matchedWh] = {
+              skills: parsedSkills,
+              employees: newEmployees
+            };
             importedSheets++;
           }
         });
@@ -1083,9 +1221,9 @@ export default {
         if (importedSheets > 0) {
           await axios.post('/api/staff-competency/sync-all', { data: updatedPayload });
           await this.fetchAllData();
-          ElMessage.success(`🎉 成功匯入並同步 ${importedSheets} 個倉別分頁資料！`);
+          ElMessage.success(`🎉 成功匯入並建立 ${importedSheets} 個倉別能力矩陣與人員資料！`);
         } else {
-          ElMessage.warning('未識別到有效倉別分頁，請確認 Excel 分頁名稱包含 大園倉 / 林口倉 / 3PL一組 / 3PL二組');
+          ElMessage.warning('未識別到有效資料，請確認 Excel 包含「倉別/組別/員編/姓名」或四大倉別分頁');
         }
       } catch (err) {
         ElMessage.error('Excel 匯入失敗：' + err.message);
@@ -1094,7 +1232,6 @@ export default {
       }
     },
 
-    // Excel 匯出（含正確重算的現場/異動/幹部小計與總分）
     exportToExcel() {
       const wb = XLSX.utils.book_new();
       this.warehouses.forEach(wh => {
@@ -1152,226 +1289,371 @@ export default {
 </script>
 
 <style scoped>
-.staff-competency-page {
-  padding: 12px 14px;
+/* 亮白底色 ERP 風格 */
+.staff-competency-light-page {
   height: calc(100vh - 52px);
-  box-sizing: border-box;
+  background-color: #e2e8f0;
+  color: #1e293b;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  background: #0b1120;
   overflow: hidden;
   user-select: none;
+  font-family: Arial, 'Noto Sans TC', sans-serif;
 }
 
-.control-header-panel {
-  background: #1e293b;
-  border: 1px solid #334155;
-  border-radius: 8px;
-  padding: 10px 12px 8px 12px;
-  flex-shrink: 0;
+.erp-header-bar {
+  background: linear-gradient(90deg, #172554 0%, #1e3a8a 45%, #1d4ed8 100%);
+  color: #ffffff;
+  padding: 6px 14px;
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 2px solid #0f172a;
+  flex-shrink: 0;
+}
+.erp-brand-left {
+  display: flex;
+  align-items: center;
   gap: 8px;
 }
+.erp-logo-text {
+  font-style: italic;
+  font-weight: 900;
+  font-size: 20px;
+  letter-spacing: -0.5px;
+  color: #ffffff;
+}
+.erp-badge {
+  background: rgba(23, 37, 84, 0.85);
+  border: 1px solid rgba(96, 165, 250, 0.4);
+  font-size: 10px;
+  font-weight: bold;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: #bfdbfe;
+}
+.erp-divider {
+  width: 1px;
+  height: 16px;
+  background: rgba(96, 165, 250, 0.4);
+}
+.erp-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: bold;
+  color: #ffffff;
+}
 
-.top-row {
+.erp-actions-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.erp-btn {
+  border: none;
+  border-radius: 6px;
+  padding: 5px 11px;
+  font-size: 12px;
+  font-weight: bold;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: opacity 0.15s;
+}
+.erp-btn:hover { opacity: 0.9; }
+.btn-amber { background: linear-gradient(180deg, #fbbf24, #f59e0b); color: #0f172a; border: 1px solid #fde68a; }
+.btn-indigo { background: #4f46e5; color: #ffffff; border: 1px solid #818cf8; }
+.btn-emerald { background: #059669; color: #ffffff; border: 1px solid #34d399; }
+.btn-sky { background: #0284c7; color: #ffffff; border: 1px solid #38bdf8; }
+.btn-slate { background: #334155; color: #ffffff; border: 1px solid #64748b; }
+.btn-teal { background: #0d9488; color: #ffffff; border: 1px solid #2dd4bf; }
+
+.workspace-main {
+  flex: 1;
+  min-height: 0;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow: hidden;
+}
+
+.toolbar-card {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 6px 10px;
+  flex-shrink: 0;
+}
+.row-between {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  justify-content: space-between;
+  gap: 8px;
 }
 
-.wh-tabs-group {
-  display: flex;
+.wh-capsule-group {
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
-  background: #0f172a;
+  background: #f1f5f9;
   padding: 3px;
-  border-radius: 6px;
-  border: 1px solid #334155;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  gap: 3px;
+  flex-wrap: wrap;
 }
-.wh-tab-btn {
-  background: transparent;
+.wh-capsule-btn {
   border: none;
-  color: #cbd5e1;
+  background: transparent;
+  color: #475569;
   font-size: 12px;
   font-weight: bold;
-  padding: 5px 10px;
-  border-radius: 5px;
+  padding: 4px 10px;
+  border-radius: 6px;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   gap: 5px;
   transition: all 0.15s;
 }
-.wh-tab-btn:hover { background: rgba(255, 255, 255, 0.06); color: #ffffff; }
-.wh-tab-btn.active {
+.wh-capsule-btn:hover { background: #ffffff; color: #0f172a; }
+.wh-capsule-btn.active {
   background: linear-gradient(90deg, #2563eb, #4f46e5);
   color: #ffffff;
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.35);
 }
-.wh-count-badge {
-  background: rgba(255, 255, 255, 0.15);
-  padding: 1px 6px;
+.wh-num-pill {
+  background: #e2e8f0;
+  color: #334155;
+  padding: 0 6px;
   border-radius: 10px;
   font-size: 11px;
 }
-.overdue-dot {
+.wh-capsule-btn.active .wh-num-pill {
+  background: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+}
+.wh-overdue-dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #f87171;
+  background: #ef4444;
 }
-.overdue-filter-btn.overdue-active {
-  background: #dc2626;
+.wh-capsule-btn.active .wh-overdue-dot { background: #fde047; }
+.v-sep { width: 1px; height: 16px; background: #cbd5e1; margin: 0 2px; }
+
+.overdue-tab-btn.overdue-active {
+  background: #e11d48;
   color: #ffffff;
 }
-.overdue-pill {
+.overdue-red-pill {
   background: #ef4444;
   color: #ffffff;
-  padding: 1px 6px;
+  padding: 0 6px;
   border-radius: 10px;
   font-size: 11px;
+  font-weight: 800;
+}
+.overdue-tab-btn.overdue-active .overdue-red-pill {
+  background: #ffffff;
+  color: #e11d48;
 }
 
-.kpi-strip {
+.kpi-frame-strip {
   display: flex;
   align-items: center;
-  background: #0f172a;
-  border: 1px solid #334155;
-  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #f8fafc;
   overflow: hidden;
+  font-size: 12px;
 }
-.kpi-chip {
+.kpi-cell {
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 4px 10px;
-  border-right: 1px solid #334155;
-  font-size: 12px;
+  border-right: 1px solid #cbd5e1;
 }
-.kpi-chip:last-child { border-right: none; }
-.kpi-chip.clickable { cursor: pointer; }
-.kpi-chip.clickable:hover { background: rgba(248, 113, 113, 0.12); }
-.k-lbl { color: #94a3b8; }
-.k-val { font-weight: bold; }
+.kpi-cell:last-child { border-right: none; }
+.kpi-lbl { color: #64748b; font-weight: bold; }
+.kpi-val { font-weight: 900; }
+.kpi-overdue-cell {
+  background: #fff1f2;
+  cursor: pointer;
+}
+.kpi-overdue-cell:hover { background: #ffe4e6; }
 
-.action-btns-group {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.sync-badge {
-  font-size: 11px;
-  padding: 3px 8px;
-  border-radius: 4px;
-  font-weight: bold;
-}
-.sync-synced { background: rgba(74, 222, 128, 0.15); color: #4ade80; }
-.sync-syncing { background: rgba(250, 204, 21, 0.15); color: #facc15; }
-.sync-error { background: rgba(248, 113, 113, 0.15); color: #f87171; }
-
-.overdue-banner {
+.overdue-alert-strip {
+  background: #fff1f2;
+  border: 1px solid #fda4af;
+  color: #881337;
+  border-radius: 8px;
+  padding: 5px 12px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: rgba(239, 68, 68, 0.12);
-  border: 1px solid rgba(248, 113, 113, 0.45);
-  color: #fca5a5;
-  padding: 5px 12px;
-  border-radius: 6px;
   font-size: 12px;
+  font-weight: bold;
+  flex-shrink: 0;
 }
+.alert-action-btn {
+  background: #e11d48;
+  color: #ffffff;
+  border: none;
+  border-radius: 5px;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: bold;
+  cursor: pointer;
+}
+.alert-action-btn:hover { background: #be123c; }
 
-.filter-row {
+.filter-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.filter-top-line {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 6px;
 }
-.kbd-guide {
-  margin-left: auto;
-  font-size: 11px;
-  color: #7dd3fc;
-  background: rgba(56, 189, 248, 0.1);
-  border: 1px solid rgba(56, 189, 248, 0.3);
-  padding: 3px 8px;
-  border-radius: 4px;
+.filter-controls-left {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
-.kbd-guide kbd {
-  background: #0f172a;
-  border: 1px solid #38bdf8;
-  padding: 0 4px;
-  border-radius: 3px;
-  color: #facc15;
-}
-.active-cell-lbl {
-  color: #facc15;
+.light-input, .light-select {
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 5px;
+  padding: 4px 8px;
+  font-size: 12px;
   font-weight: bold;
-  border-left: 1px solid #334155;
-  padding-left: 8px;
+  color: #334155;
+  outline: none;
+}
+.light-input { width: 155px; }
+.light-input:focus, .light-select:focus {
+  border-color: #2563eb;
+  background: #ffffff;
 }
 
-.group-pills-row {
+.seg-filter-group {
+  display: inline-flex;
+  background: #f1f5f9;
+  padding: 2px;
+  border-radius: 5px;
+  border: 1px solid #cbd5e1;
+}
+.seg-btn {
+  border: none;
+  background: transparent;
+  padding: 3px 9px;
+  font-size: 12px;
+  font-weight: bold;
+  color: #475569;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.seg-btn.active {
+  background: #ffffff;
+  color: #0f172a;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.kbd-guide-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: #eff6ff;
+  border: 1px solid #93c5fd;
+  color: #1e3a8a;
+  padding: 3px 10px;
+  border-radius: 5px;
+  font-size: 12px;
+}
+.kbd-title { font-weight: bold; color: #1d4ed8; }
+.kbd-guide-pill kbd {
+  background: #ffffff;
+  border: 1px solid #93c5fd;
+  border-radius: 4px;
+  padding: 0 5px;
+  font-weight: bold;
+  font-size: 11px;
+}
+.kbd-active-info {
+  border-left: 1px solid #93c5fd;
+  padding-left: 8px;
+  margin-left: 4px;
+  font-weight: bold;
+  color: #4338ca;
+}
+
+.group-filter-line {
   display: flex;
   align-items: center;
   gap: 6px;
-  border-top: 1px solid #334155;
   padding-top: 6px;
+  border-top: 1px solid #e2e8f0;
   overflow-x: auto;
 }
-.grp-title { font-size: 12px; font-weight: bold; color: #94a3b8; white-space: nowrap; }
-.grp-pill {
-  background: #0f172a;
-  border: 1px solid #334155;
-  color: #cbd5e1;
-  font-size: 11px;
+.gf-label { font-size: 12px; font-weight: bold; color: #475569; white-space: nowrap; }
+.gf-pill {
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
   font-weight: bold;
-  padding: 3px 10px;
-  border-radius: 12px;
   cursor: pointer;
   white-space: nowrap;
+  border: 1px solid transparent;
 }
-.grp-pill:hover { border-color: #38bdf8; }
-.grp-pill.active {
-  background: #0284c7;
-  border-color: #38bdf8;
-  color: #ffffff;
-}
+.gf-all { background: #f1f5f9; color: #334155; border-color: #cbd5e1; }
+.gf-all-active { background: #1e293b; color: #ffffff; }
 
-/* 矩陣表格區 */
-.matrix-wrapper {
+.badge-blue { background: #dbeafe; color: #1e40af; border-color: #bfdbfe; }
+.badge-emerald { background: #d1fae5; color: #065f46; border-color: #a7f3d0; }
+.badge-amber { background: #fef3c7; color: #92400e; border-color: #fde68a; }
+.badge-purple { background: #f3e8ff; color: #6b21a8; border-color: #e9d5ff; }
+.badge-rose { background: #ffe4e6; color: #9f1239; border-color: #fecdd3; }
+.badge-orange { background: #ffedd5; color: #9a3412; border-color: #fed7aa; }
+.badge-teal { background: #ccfbf1; color: #115e59; border-color: #99f6e4; }
+.badge-indigo { background: #e0e7ff; color: #3730a3; border-color: #c7d2fe; }
+
+.matrix-frame-box {
   flex: 1;
   min-height: 0;
-  background: #1e293b;
-  border: 1px solid #334155;
+  background: #ffffff;
+  border: 2px solid #cbd5e1;
   border-radius: 8px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
-.table-scroll-container {
+.matrix-scroll-area {
   flex: 1;
   overflow: auto;
   position: relative;
   outline: none;
 }
 
-.competency-table {
+.competency-matrix-table {
   width: max-content;
   min-width: 100%;
   border-collapse: separate;
   border-spacing: 0;
   font-size: 12px;
-  color: #f8fafc;
+  color: #1e293b;
 }
-.competency-table th, .competency-table td {
-  border-right: 1px solid #334155;
-  border-bottom: 1px solid #334155;
+.competency-matrix-table th, .competency-matrix-table td {
   text-align: center;
   vertical-align: middle;
 }
@@ -1379,224 +1661,265 @@ export default {
 thead th { position: sticky; z-index: 20; }
 thead tr:nth-child(1) th { top: 0; height: 28px; }
 thead tr:nth-child(2) th { top: 28px; height: 26px; }
-thead tr:nth-child(3) th { top: 54px; height: 48px; }
+thead tr:nth-child(3) th { top: 54px; height: 50px; }
 
-.th-base { background: #0f172a; color: #cbd5e1; font-weight: bold; padding: 0 6px; }
-.th-group { color: #ffffff; font-weight: bold; padding: 0 6px; }
-.grp-blue { background: #1e40af; }
-.grp-green { background: #065f46; }
-.grp-amber { background: #92400e; }
-.grp-purple { background: #5b21b6; }
-.grp-rose { background: #9f1239; }
-.grp-orange { background: #9a3412; }
-.grp-teal { background: #115e59; }
-.grp-indigo { background: #3730a3; }
+.th-dark {
+  background: #0f172a;
+  color: #ffffff;
+  font-weight: bold;
+  border-right: 1px solid #475569;
+  border-bottom: 1px solid #475569;
+  padding: 0 6px;
+}
+.th-grp-banner {
+  color: #ffffff;
+  font-weight: bold;
+  border-right: 1px solid #94a3b8;
+  border-bottom: 1px solid #94a3b8;
+  padding: 0 6px;
+}
+.bg-blue-800 { background: #1e40af; }
+.bg-emerald-800 { background: #065f46; }
+.bg-amber-800 { background: #92400e; }
+.bg-purple-800 { background: #5b21b6; }
+.bg-rose-800 { background: #9f1239; }
+.bg-orange-800 { background: #9a3412; }
+.bg-teal-800 { background: #115e59; }
+.bg-indigo-800 { background: #3730a3; }
 
-.th-sub-field { background: #075985; color: #e0f2fe; }
-.th-sub-special { background: #b45309; color: #fef3c7; }
-.th-sub-cadre { background: #6b21a8; color: #f3e8ff; }
+.th-sub-banner {
+  color: #ffffff;
+  font-weight: bold;
+  border-right: 1px solid #94a3b8;
+  border-bottom: 1px solid #94a3b8;
+}
+.th-sub-field { background: #075985; }
+.th-sub-special { background: #b45309; }
+.th-sub-cadre { background: #6b21a8; }
 
 .skill-col-th, .skill-cell {
-  width: 76px;
-  min-width: 76px;
-  max-width: 76px;
+  width: 78px;
+  min-width: 78px;
+  max-width: 78px;
 }
 .skill-col-th {
-  padding: 4px 3px;
+  padding: 3px 4px;
+  font-weight: bold;
   line-height: 1.25;
-  font-size: 11px;
   word-break: break-word;
+  border-right: 1px solid #cbd5e1;
+  border-bottom: 2px solid #94a3b8;
 }
-.th-skill-field { background: #0c4a6e; color: #bae6fd; }
-.th-skill-special { background: #78350f; color: #fde68a; }
-.th-skill-cadre { background: #4c1d95; color: #e9d5ff; }
+.th-item-field { background: #e0f2fe; color: #082f49; }
+.th-item-special { background: #fef3c7; color: #451a03; }
+.th-item-cadre { background: #f3e8ff; color: #3b0764; }
 
-.th-sum-field { background: #0c4a6e; color: #38bdf8; min-width: 44px; }
-.th-sum-special { background: #78350f; color: #facc15; min-width: 44px; }
-.th-sum-cadre { background: #4c1d95; color: #c084fc; min-width: 44px; }
-.th-sum-total { background: #064e3b; color: #4ade80; min-width: 46px; }
-.border-left-heavy { border-left: 2px solid #64748b !important; }
+.th-sum-field { background: #0c4a6e; color: #ffffff; min-width: 44px; border-right: 1px solid #64748b; border-bottom: 1px solid #64748b; }
+.th-sum-special { background: #78350f; color: #ffffff; min-width: 44px; border-right: 1px solid #64748b; border-bottom: 1px solid #64748b; }
+.th-sum-cadre { background: #581c87; color: #ffffff; min-width: 44px; border-right: 1px solid #64748b; border-bottom: 1px solid #64748b; }
+.th-sum-total { background: #b45309; color: #ffffff; min-width: 46px; border-right: 1px solid #64748b; border-bottom: 1px solid #64748b; }
+.th-sum-rank { background: #1e293b; color: #ffffff; min-width: 44px; border-right: 1px solid #64748b; border-bottom: 1px solid #64748b; }
+.border-l-thick { border-left: 2px solid #94a3b8 !important; }
 
-/* 左側 4 欄凍結 */
-.sticky-col-1 { position: sticky; left: 0; z-index: 15; width: 76px; min-width: 76px; max-width: 76px; }
-.sticky-col-2 { position: sticky; left: 76px; z-index: 15; width: 74px; min-width: 74px; max-width: 74px; }
-.sticky-col-3 { position: sticky; left: 150px; z-index: 15; width: 78px; min-width: 78px; max-width: 78px; }
+.sticky-col-1 { position: sticky; left: 0; z-index: 18; width: 76px; min-width: 76px; max-width: 76px; border-right: 1px solid #cbd5e1; border-bottom: 1px solid #cbd5e1; }
+.sticky-col-2 { position: sticky; left: 76px; z-index: 18; width: 76px; min-width: 76px; max-width: 76px; border-right: 1px solid #cbd5e1; border-bottom: 1px solid #cbd5e1; }
+.sticky-col-3 { position: sticky; left: 152px; z-index: 18; width: 80px; min-width: 80px; max-width: 80px; border-right: 1px solid #cbd5e1; border-bottom: 1px solid #cbd5e1; }
 .sticky-col-4 {
-  position: sticky; left: 228px; z-index: 15; width: 88px; min-width: 88px; max-width: 88px;
-  border-right: 2px solid #64748b !important;
+  position: sticky; left: 232px; z-index: 18; width: 90px; min-width: 90px; max-width: 90px;
+  border-right: 2px solid #94a3b8 !important;
+  border-bottom: 1px solid #cbd5e1;
+  box-shadow: 2px 0 5px -2px rgba(15, 23, 42, 0.16);
 }
 thead .sticky-col-1, thead .sticky-col-2, thead .sticky-col-3, thead .sticky-col-4 {
-  z-index: 30;
+  z-index: 32;
   background: #0f172a !important;
 }
-tbody tr.row-even td { background: #0f172a; }
-tbody tr.row-odd td { background: #131c31; }
-tbody tr:hover td { background: #1e293b !important; }
+tbody tr.row-even td { background-color: #ffffff; }
+tbody tr.row-odd td { background-color: #f8fafc; }
+tbody tr:hover td { background-color: #eff6ff !important; }
 
-.staff-grp-badge {
-  background: rgba(56, 189, 248, 0.15);
-  color: #7dd3fc;
-  padding: 2px 5px;
+.emp-grp-tag {
+  display: inline-block;
+  padding: 2px 6px;
   border-radius: 4px;
   font-size: 11px;
   font-weight: bold;
+  border: 1px solid transparent;
 }
 
-.pct-box { display: flex; align-items: center; justify-content: center; gap: 4px; padding: 0 4px; }
-.pct-track { width: 38px; height: 7px; background: #334155; border-radius: 4px; overflow: hidden; }
-.pct-fill { height: 100%; }
-.fill-low { background: #f59e0b; }
-.fill-mid { background: #38bdf8; }
-.fill-full { background: #4ade80; }
-.pct-txt { font-size: 11px; font-weight: bold; color: #cbd5e1; }
+.progress-wrap { display: flex; align-items: center; justify-content: center; gap: 4px; padding: 0 4px; }
+.progress-track { width: 38px; height: 8px; background: #e2e8f0; border-radius: 999px; overflow: hidden; border: 1px solid #cbd5e1; }
+.progress-bar { height: 100%; }
+.bg-emerald-500 { background: #10b981; }
+.bg-indigo-500 { background: #6366f1; }
+.bg-amber-500 { background: #f59e0b; }
+.progress-num { font-size: 11px; font-weight: bold; color: #334155; }
 
-.skill-cell { cursor: pointer; padding: 5px 2px; }
-.cell-checked-field { background: rgba(16, 185, 129, 0.14) !important; }
-.cell-checked-special { background: rgba(245, 158, 11, 0.14) !important; }
-.cell-checked-cadre { background: rgba(168, 85, 247, 0.16) !important; }
-.cell-focused { outline: 2px solid #38bdf8 !important; outline-offset: -2px; }
+.skill-cell {
+  padding: 6px 2px;
+  border-right: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e2e8f0;
+  cursor: pointer;
+}
+.cell-on-field { background-color: #ecfdf5 !important; }
+.cell-on-special { background-color: #fffbeb !important; }
+.cell-on-cadre { background-color: #faf5ff !important; }
+.cell-focused {
+  outline: 2px solid #2563eb !important;
+  outline-offset: -2px;
+  background-color: #dbeafe !important;
+}
 
 .skill-box {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 4px;
-  font-weight: bold;
-  font-size: 12px;
+  width: 23px;
+  height: 23px;
+  border-radius: 5px;
+  font-size: 13px;
+  font-weight: 700;
 }
-.box-empty { border: 1px dashed #475569; color: #475569; }
-.box-field { background: #10b981; color: #ffffff; }
-.box-special { background: #f59e0b; color: #0f172a; }
-.box-cadre { background: #8b5cf6; color: #ffffff; }
+.skill-box-empty { border: 1px dashed #cbd5e1; color: #cbd5e1; background: #ffffff; }
+.skill-box-field { background: #10b981; color: #ffffff; border: 1px solid #059669; }
+.skill-box-special { background: #f59e0b; color: #ffffff; border: 1px solid #d97706; }
+.skill-box-cadre { background: #7c3aed; color: #ffffff; border: 1px solid #6d28d9; }
 
-.rank-badge {
+.bg-sky-50 { background-color: #f0f9ff !important; border-right: 1px solid #cbd5e1; border-bottom: 1px solid #cbd5e1; }
+.bg-amber-50 { background-color: #fffbeb !important; border-right: 1px solid #cbd5e1; border-bottom: 1px solid #cbd5e1; }
+.bg-purple-50 { background-color: #faf5ff !important; border-right: 1px solid #cbd5e1; border-bottom: 1px solid #cbd5e1; }
+.bg-amber-100 { background-color: #fef3c7 !important; border-right: 1px solid #cbd5e1; border-bottom: 1px solid #cbd5e1; }
+.bg-slate-50 { background-color: #f8fafc !important; border-right: 1px solid #cbd5e1; border-bottom: 1px solid #cbd5e1; }
+
+.rank-circle {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  background: #334155;
-  color: #cbd5e1;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  color: #334155;
   font-weight: bold;
   font-size: 11px;
 }
-.rank-1 { background: #facc15; color: #0f172a; }
-.rank-2 { background: #cbd5e1; color: #0f172a; }
-.rank-3 { background: #d97706; color: #ffffff; }
+.rank-top-1 { background: #fbbf24; border-color: #f59e0b; color: #451a03; }
+.rank-top-2 { background: #cbd5e1; border-color: #94a3b8; color: #1e293b; }
+.rank-top-3 { background: #b45309; color: #ffffff; }
 
-.upd-badge { padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; }
-.upd-ok { background: rgba(74, 222, 128, 0.15); color: #4ade80; }
-.upd-warn { background: rgba(250, 204, 21, 0.15); color: #facc15; }
-.upd-danger { background: rgba(248, 113, 113, 0.2); color: #f87171; }
+.upd-pill { padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; }
+.upd-emerald { background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
+.upd-amber { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+.upd-rose { background: #ffe4e6; color: #be123c; border: 1px solid #fecdd3; }
 
-.row-actions-cell { padding: 4px 6px; white-space: nowrap; }
-.mini-icon-btn {
-  background: #1e293b;
-  border: 1px solid #475569;
-  color: #cbd5e1;
-  padding: 2px 6px;
+.op-cell { padding: 4px 6px; border-bottom: 1px solid #cbd5e1; white-space: nowrap; }
+.op-icon-btn {
+  border: 1px solid transparent;
+  background: transparent;
+  padding: 2px 5px;
   border-radius: 4px;
-  font-size: 11px;
+  font-size: 12px;
   cursor: pointer;
-  margin: 0 2px;
 }
-.btn-check-all:hover { border-color: #4ade80; color: #4ade80; }
-.btn-edit:hover { border-color: #38bdf8; color: #38bdf8; }
-.btn-del:hover { border-color: #f87171; color: #f87171; }
+.op-check { color: #059669; }
+.op-check:hover { background: #ecfdf5; }
+.op-edit { color: #475569; }
+.op-edit:hover { background: #eff6ff; color: #2563eb; }
+.op-del { color: #475569; }
+.op-del:hover { background: #fef2f2; color: #dc2626; }
 
 tfoot td {
   position: sticky;
   bottom: 0;
   z-index: 20;
-  background: #1e293b !important;
-  border-top: 2px solid #38bdf8;
+  background: #e2e8f0 !important;
+  border-top: 2px solid #94a3b8;
+  border-right: 1px solid #cbd5e1;
   padding: 5px 4px;
   font-weight: bold;
 }
-tfoot .sticky-col-1 { z-index: 25; border-right: 2px solid #64748b !important; }
+.tfoot-sticky-lbl { z-index: 25; border-right: 2px solid #94a3b8 !important; }
+.tfoot-pct { font-size: 11px; color: #64748b; }
+.tfoot-goal-cell { color: #475569; }
 
-.pagination-bar {
-  background: #0f172a;
-  border-top: 1px solid #334155;
+.light-pagination-bar {
+  background: #f1f5f9;
+  border-top: 2px solid #cbd5e1;
   padding: 6px 12px;
   display: flex;
   justify-content: space-between;
   align-items: center;
   font-size: 12px;
-  color: #94a3b8;
+  color: #334155;
   flex-shrink: 0;
 }
-.page-btns { display: flex; align-items: center; gap: 6px; }
-.page-indicator { color: #f8fafc; font-weight: bold; padding: 0 6px; }
-
-/* Modal 內部樣式 */
-.emp-modal-body, .skills-modal-body { display: flex; flex-direction: column; gap: 10px; }
-.emp-form-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-.f-lbl { display: block; font-size: 12px; color: #cbd5e1; margin-bottom: 4px; font-weight: bold; }
-.review-check-bar { background: rgba(74, 222, 128, 0.08); border: 1px solid rgba(74, 222, 128, 0.3); padding: 6px 10px; border-radius: 6px; }
-.quick-skill-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.add-skill-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-
-.modal-skills-scroll {
-  max-height: 360px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding-right: 4px;
+.pg-btn-group { display: flex; align-items: center; gap: 6px; }
+.pg-btn {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 5px;
+  padding: 3px 10px;
+  font-weight: bold;
+  font-size: 12px;
+  color: #334155;
+  cursor: pointer;
 }
-.modal-skill-group-box {
-  background: #0f172a;
-  border: 1px solid #334155;
-  border-radius: 6px;
-  padding: 8px 10px;
+.pg-btn:hover:not(:disabled) { background: #e2e8f0; }
+.pg-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.pg-indicator {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 5px;
+  padding: 3px 10px;
+  font-weight: bold;
 }
-.msg-title { font-size: 13px; font-weight: bold; color: #38bdf8; margin-bottom: 8px; border-bottom: 1px dashed #334155; padding-bottom: 4px; }
-.msg-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-.msg-item {
+
+.modal-light-body { display: flex; flex-direction: column; gap: 10px; }
+.emp-grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.m-lbl { display: block; font-size: 12px; font-weight: bold; margin-bottom: 4px; }
+.review-banner { background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.4); padding: 6px 10px; border-radius: 6px; }
+.quick-check-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.add-skill-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+.modal-skills-list { max-height: 360px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+.m-grp-card { border: 1px solid #334155; border-radius: 6px; padding: 8px 10px; }
+.m-grp-head { font-size: 13px; font-weight: bold; color: #38bdf8; margin-bottom: 6px; border-bottom: 1px dashed #334155; padding-bottom: 4px; }
+.m-grp-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.m-skill-item {
   display: flex;
   align-items: center;
   gap: 6px;
-  background: #1e293b;
   border: 1px solid #334155;
   padding: 5px 8px;
   border-radius: 5px;
   cursor: pointer;
   font-size: 12px;
-  color: #cbd5e1;
 }
-.msg-checked { border-color: #38bdf8; background: rgba(56, 189, 248, 0.12); color: #ffffff; }
-.msg-tag { font-size: 10px; padding: 1px 4px; border-radius: 3px; font-weight: bold; }
-.tag-field { background: rgba(16, 185, 129, 0.25); color: #6ee7b7; }
-.tag-special { background: rgba(245, 158, 11, 0.25); color: #fcd34d; }
-.tag-cadre { background: rgba(168, 85, 247, 0.25); color: #d8b4fe; }
-.msg-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.m-skill-checked { border-color: #38bdf8; background: rgba(56, 189, 248, 0.12); }
+.m-tag { font-size: 10px; padding: 1px 4px; border-radius: 3px; font-weight: bold; }
+.m-tag-field { background: rgba(16, 185, 129, 0.25); color: #6ee7b7; }
+.m-tag-special { background: rgba(245, 158, 11, 0.25); color: #fcd34d; }
+.m-tag-cadre { background: rgba(168, 85, 247, 0.25); color: #d8b4fe; }
+.m-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.skill-pills-wrap { display: flex; flex-wrap: wrap; gap: 6px; }
-.manage-skill-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
-  border-radius: 5px;
-  font-size: 12px;
-  font-weight: bold;
-}
-.pill-field { background: rgba(16, 185, 129, 0.18); color: #6ee7b7; border: 1px solid rgba(16, 185, 129, 0.4); }
-.pill-special { background: rgba(245, 158, 11, 0.18); color: #fcd34d; border: 1px solid rgba(245, 158, 11, 0.4); }
-.pill-cadre { background: rgba(168, 85, 247, 0.18); color: #d8b4fe; border: 1px solid rgba(168, 85, 247, 0.4); }
-.del-x { cursor: pointer; opacity: 0.75; }
-.del-x:hover { opacity: 1; color: #f87171; }
+.m-pills-wrap { display: flex; flex-wrap: wrap; gap: 6px; }
+.m-pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 5px; font-size: 12px; font-weight: bold; }
+.m-pill-field { background: rgba(16, 185, 129, 0.18); color: #6ee7b7; border: 1px solid rgba(16, 185, 129, 0.4); }
+.m-pill-special { background: rgba(245, 158, 11, 0.18); color: #fcd34d; border: 1px solid rgba(245, 158, 11, 0.4); }
+.m-pill-cadre { background: rgba(168, 85, 247, 0.18); color: #d8b4fe; border: 1px solid rgba(168, 85, 247, 0.4); }
+.m-del { cursor: pointer; }
+.m-del:hover { color: #f87171; }
 
-.empty-cell { padding: 36px; color: #64748b; font-weight: bold; }
-.text-blue { color: #38bdf8; }
-.text-purple { color: #c084fc; }
-.text-green { color: #4ade80; }
-.text-yellow { color: #facc15; }
-.text-red { color: #f87171; }
-.text-dim { color: #94a3b8; }
+.empty-table-row { padding: 36px; color: #94a3b8; font-weight: bold; }
+.text-slate-900 { color: #0f172a; }
+.text-slate-700 { color: #334155; }
+.text-emerald { color: #059669; }
+.text-rose { color: #e11d48; }
+.text-amber { color: #b45309; }
+.text-sky-700 { color: #0369a1; }
+.text-amber-700 { color: #b45309; }
+.text-purple-700 { color: #6b21a8; }
 .font-bold { font-weight: bold; }
+.font-extrabold { font-weight: 800; }
 </style>
