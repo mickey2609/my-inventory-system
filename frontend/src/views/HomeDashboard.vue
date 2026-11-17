@@ -196,6 +196,12 @@
           <div class="action-desc">物流商均價、紙箱單價耗用、一單多箱拆箱成本與遲到率稽核</div>
         </div>
 
+        <div v-if="hasPermission('delivery_undelivered')" class="action-card" @click="openTab('delivery_undelivered')">
+          <div class="action-icon">🚨</div>
+          <div class="action-title">未配達與異常貨態追蹤</div>
+          <div class="action-desc">跨日掃描配達日期空白件（排除超取），追蹤拒收退回與超時滯留</div>
+        </div>
+
         <div v-if="hasPermission('wms_fish_screenshot')" class="action-card" @click="openTab('wms_fish_screenshot')">
           <div class="action-icon">📸</div>
           <div class="action-title">WMS 魚群截圖辨識</div>
