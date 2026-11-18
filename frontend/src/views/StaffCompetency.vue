@@ -154,7 +154,7 @@
         </div>
       </div>
 
-      <!-- 作業組別快篩膠囊列 -->
+      <!-- 作業組別快篩膠囊列（點選時自動同步篩選人員組別） -->
       <div class="group-pills-row">
         <span class="grp-title">📂 作業組別：</span>
         <button
@@ -330,7 +330,7 @@
         </table>
       </div>
 
-      <!-- 底部分頁列（原生按鈕防止空白鍵誤觸與聚焦卡死） -->
+      <!-- 底部分頁列 -->
       <div class="pagination-bar">
         <span>
           顯示第 <strong>{{ totalFiltered === 0 ? 0 : (currentPage - 1) * pageSize + 1 }} - {{ Math.min(currentPage * pageSize, totalFiltered) }}</strong> 筆，共 <strong>{{ totalFiltered }}</strong> 筆人員資料
@@ -523,8 +523,6 @@ export default {
 
       syncState: 'synced',
       syncStatusText: '✅ 地端已同步',
-      pendingUpdates: [],
-      syncTimer: null,
 
       showEmpModal: false,
       editingOriginalEmp: null,
@@ -543,6 +541,11 @@ export default {
       newSkillType: 'field',
       newSkillName: ''
     }
+  },
+  created() {
+    // 使用非響應式佇列，避免快速連打時每次都觸發上方狀態文字重繪造成卡頓
+    this._rawPendingMap = new Map();
+    this._syncTimer = null;
   },
   computed: {
     canImport() {
@@ -835,9 +838,17 @@ export default {
       this.staffGroupFilter = 'all';
       this.changePage(1);
     },
+    // 切換作業組別膠囊時，自動同步人員組別篩選
     setGroupFilter(grp) {
       this.groupFilter = grp;
-      this.resetFocus();
+      if (grp === 'all') {
+        this.staffGroupFilter = 'all';
+      } else if (this.staffGroupCounts[grp]) {
+        this.staffGroupFilter = grp;
+      } else {
+        this.staffGroupFilter = 'all';
+      }
+      this.changePage(1);
     },
     toggleFilterOverdueOnly() {
       this.updateStatusFilter = this.updateStatusFilter === 'overdue' ? 'all' : 'overdue';
@@ -870,7 +881,6 @@ export default {
       ElMessage.success(`已重新整理【${this.currentWarehouse}】最新資料！`);
     },
 
-    // 僅確保聚焦儲存格不被上下左右邊界遮擋（已取消強制畫面置中）
     ensureFocusedCellVisible() {
       this.$nextTick(() => {
         const container = this.$refs.tableScrollContainer;
@@ -994,33 +1004,37 @@ export default {
       ElMessage.success(targetVal === 1 ? `已全勾選「${emp.name}」目前顯示能力` : `已取消「${emp.name}」目前顯示能力`);
     },
 
+    // 非響應式靜默佇列 + 1.2 秒防抖（連打按鍵時不重繪上方狀態文字，停止操作後一次寫入）
     queueUpdate(whName, empId, skillId, val, lastUpdated) {
-      const idx = this.pendingUpdates.findIndex(x => x.whName === whName && x.empId === empId && x.skillId === skillId);
-      if (idx !== -1) {
-        this.pendingUpdates[idx].val = val;
-        this.pendingUpdates[idx].lastUpdated = lastUpdated;
-      } else {
-        this.pendingUpdates.push({ whName, empId, skillId, val, lastUpdated });
-      }
-      this.syncState = 'syncing';
-      this.syncStatusText = `⏳ 儲存中 (${this.pendingUpdates.length})...`;
-      clearTimeout(this.syncTimer);
-      this.syncTimer = setTimeout(() => this.flushUpdates(), 450);
+      const key = `${whName}|||${empId}|||${skillId}`;
+      this._rawPendingMap.set(key, { whName, empId, skillId, val, lastUpdated });
+
+      clearTimeout(this._syncTimer);
+      this._syncTimer = setTimeout(() => this.flushUpdates(), 1200);
     },
     async flushUpdates() {
-      if (this.pendingUpdates.length === 0) return;
-      const batch = this.pendingUpdates.splice(0, this.pendingUpdates.length);
+      if (!this._rawPendingMap || this._rawPendingMap.size === 0) return;
+      const batch = Array.from(this._rawPendingMap.values());
+      this._rawPendingMap.clear();
+
+      this.syncState = 'syncing';
+      this.syncStatusText = '⏳ 同步寫入中...';
+
       try {
         await axios.post('/api/staff-competency/batch-toggle', { updates: batch });
-        if (this.pendingUpdates.length === 0) {
+        if (this._rawPendingMap.size === 0) {
           this.syncState = 'synced';
           this.syncStatusText = '✅ 地端已同步';
         }
       } catch (e) {
-        // 失敗時將未寫入的項目退回佇列重試，避免卡死
-        this.pendingUpdates.unshift(...batch);
+        batch.forEach(item => {
+          const key = `${item.whName}|||${item.empId}|||${item.skillId}`;
+          if (!this._rawPendingMap.has(key)) {
+            this._rawPendingMap.set(key, item);
+          }
+        });
         this.syncState = 'error';
-        this.syncStatusText = '⚠️ 儲存重試中';
+        this.syncStatusText = '⚠️ 同步重試中';
       }
     },
 
