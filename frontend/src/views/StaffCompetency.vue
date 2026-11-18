@@ -1067,7 +1067,15 @@ export default {
               if (groupedEmps[wh].length > 0) updatedPayload[wh] = { employees: groupedEmps[wh] };
             });
             const res = await axios.post('/api/staff-competency/sync-all', { data: updatedPayload });
-            await this.fetchAllData();
+            if (res.data?.data) {
+              this.appData = res.data.data;
+            } else {
+              Object.keys(updatedPayload).forEach(wh => {
+                if (updatedPayload[wh].employees) this.appData[wh].employees = updatedPayload[wh].employees;
+              });
+            }
+            this.syncState = 'synced';
+            this.syncStatusText = '✅ 地端已同步';
             ElMessage.success(res.data?.message || `🎉 成功匯入純人員名冊共 ${cnt} 筆資料！`);
             return;
           }
@@ -1158,11 +1166,14 @@ export default {
 
         if (importedSheets > 0) {
           const res = await axios.post('/api/staff-competency/sync-all', { data: updatedPayload });
-          Object.keys(updatedPayload).forEach(wh => {
-            if (updatedPayload[wh].skills) this.appData[wh].skills = updatedPayload[wh].skills;
-            if (updatedPayload[wh].employees) this.appData[wh].employees = updatedPayload[wh].employees;
-          });
-          await this.fetchAllData();
+          if (res.data?.data) {
+            this.appData = res.data.data;
+          } else {
+            Object.keys(updatedPayload).forEach(wh => {
+              if (updatedPayload[wh].skills) this.appData[wh].skills = updatedPayload[wh].skills;
+              if (updatedPayload[wh].employees) this.appData[wh].employees = updatedPayload[wh].employees;
+            });
+          }
           this.syncState = 'synced';
           this.syncStatusText = '✅ 地端已同步';
           ElMessage.success(res.data?.message || `🎉 成功匯入 ${importedSheets} 個倉別能力矩陣與人員資料！`);

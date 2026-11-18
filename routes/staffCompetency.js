@@ -52,16 +52,13 @@ module.exports = function(db) {
     });
   }
 
-  ensureTables();
-
-  // 1. 取得全部倉別能力項目與人員資料
-  router.get('/all', (req, res) => {
+  function queryAllData(callback) {
     ensureTables(() => {
       db.all(`SELECT * FROM staff_competency_skills ORDER BY warehouse ASC, sort_order ASC, id ASC`, [], (sErr, skillRows) => {
-        if (sErr) return res.status(500).json({ success: false, message: sErr.message });
+        if (sErr) return callback(sErr);
 
         db.all(`SELECT * FROM staff_competency_employees ORDER BY warehouse ASC, sort_order ASC, id ASC`, [], (eErr, empRows) => {
-          if (eErr) return res.status(500).json({ success: false, message: eErr.message });
+          if (eErr) return callback(eErr);
 
           const data = {};
           WAREHOUSES.forEach(wh => {
@@ -92,13 +89,23 @@ module.exports = function(db) {
             });
           });
 
-          res.json({ success: true, data });
+          callback(null, data);
         });
       });
     });
+  }
+
+  ensureTables();
+
+  // 1. 取得全部倉別能力項目與人員資料
+  router.get('/all', (req, res) => {
+    queryAllData((err, data) => {
+      if (err) return res.status(500).json({ success: false, message: err.message });
+      res.json({ success: true, data });
+    });
   });
 
-  // 2. 批次快速更新打勾狀態（鍵盤 / 點擊即時儲存）
+  // 2. 批次快速更新打勾狀態
   router.post('/batch-toggle', (req, res) => {
     const updates = req.body.updates || [];
     if (!Array.isArray(updates) || updates.length === 0) {
@@ -242,7 +249,7 @@ module.exports = function(db) {
     });
   });
 
-  // 7. 整批匯入 / 覆蓋同步（確保完全寫入地端 SQLite 後才回傳）
+  // 7. 整批匯入 / 覆蓋同步（等待 finalize 與 COMMIT 完全落盤後才查回最新資料）
   router.post('/sync-all', (req, res) => {
     const payload = req.body.data || {};
     let totalSkills = 0;
@@ -252,54 +259,44 @@ module.exports = function(db) {
       db.serialize(() => {
         db.run('BEGIN TRANSACTION');
 
-        const skillStmt = db.prepare(`
-          INSERT OR REPLACE INTO staff_competency_skills
-          (warehouse, skill_id, group_name, skill_type, skill_name, sub_header, sort_order)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-        `);
-        const empStmt = db.prepare(`
-          INSERT OR REPLACE INTO staff_competency_employees
-          (warehouse, emp_id, emp_name, staff_group, last_updated, skills_json, sort_order)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-        `);
-
         Object.keys(payload).forEach(wh => {
           const whBlock = payload[wh];
           if (!whBlock) return;
           if (Array.isArray(whBlock.skills) && whBlock.skills.length > 0) {
             db.run(`DELETE FROM staff_competency_skills WHERE warehouse = ?`, [wh]);
             whBlock.skills.forEach((s, idx) => {
-              skillStmt.run(wh, s.id, s.group, s.type, s.name, s.subHeader || '', idx);
+              db.run(
+                `INSERT OR REPLACE INTO staff_competency_skills (warehouse, skill_id, group_name, skill_type, skill_name, sub_header, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                [wh, s.id, s.group, s.type, s.name, s.subHeader || '', idx]
+              );
               totalSkills++;
             });
           }
           if (Array.isArray(whBlock.employees) && whBlock.employees.length > 0) {
             db.run(`DELETE FROM staff_competency_employees WHERE warehouse = ?`, [wh]);
             whBlock.employees.forEach((e, idx) => {
-              empStmt.run(
-                wh,
-                normalizeEmpId(e.id),
-                e.name,
-                e.staffGroup || '一般作業組',
-                e.lastUpdated || '',
-                JSON.stringify(e.skills || {}),
-                idx
+              db.run(
+                `INSERT OR REPLACE INTO staff_competency_employees (warehouse, emp_id, emp_name, staff_group, last_updated, skills_json, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                [wh, normalizeEmpId(e.id), e.name, e.staffGroup || '一般作業組', e.lastUpdated || '', JSON.stringify(e.skills || {}), idx]
               );
               totalEmployees++;
             });
           }
         });
 
-        skillStmt.finalize();
-        empStmt.finalize();
-
         db.run('COMMIT', (err) => {
-          if (err) return res.status(500).json({ success: false, message: '寫入資料庫失敗：' + err.message });
-          res.json({
-            success: true,
-            totalSkills,
-            totalEmployees,
-            message: `已成功寫入地端資料庫（共 ${totalEmployees} 位人員、${totalSkills} 項能力）`
+          if (err) {
+            db.run('ROLLBACK');
+            return res.status(500).json({ success: false, message: '寫入資料庫失敗：' + err.message });
+          }
+          queryAllData((qErr, freshData) => {
+            res.json({
+              success: true,
+              totalSkills,
+              totalEmployees,
+              data: qErr ? null : freshData,
+              message: `已成功寫入地端資料庫（共 ${totalEmployees} 位人員、${totalSkills} 項能力）`
+            });
           });
         });
       });
