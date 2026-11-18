@@ -9,7 +9,7 @@
       @change="handleExcelImport"
     />
 
-    <!-- 1. 頂部控制與倉別頁籤列（全站統一深色黑底主題） -->
+    <!-- 1. 頂部控制與倉別頁籤列 -->
     <div class="control-header-panel">
       <div class="top-row">
         <!-- 四大倉別切換 -->
@@ -24,9 +24,9 @@
             <span>{{ getWhIcon(wh) }} {{ wh }}</span>
             <span class="wh-count-badge">{{ (appData[wh]?.employees || []).length }}</span>
             <span
-              v-if="getOverdueCount(wh) > 0"
+              v-if="overdueCountByWh[wh] > 0"
               class="overdue-dot"
-              :title="`有 ${getOverdueCount(wh)} 位逾 30 天未更新`"
+              :title="`有 ${overdueCountByWh[wh]} 位逾 30 天未更新`"
             ></span>
           </button>
 
@@ -36,7 +36,7 @@
             @click="toggleFilterOverdueOnly"
           >
             🔔 逾30天未更新
-            <span class="overdue-pill">{{ getOverdueCount(currentWarehouse) }}</span>
+            <span class="overdue-pill">{{ currentOverdueCount }}</span>
           </button>
         </div>
 
@@ -56,7 +56,7 @@
           </div>
           <div class="kpi-chip clickable" @click="toggleFilterOverdueOnly" title="點擊篩選逾30天未更新人員">
             <span class="k-lbl text-red">逾1月未更</span>
-            <span class="k-val text-red">{{ getOverdueCount(currentWarehouse) }} 人</span>
+            <span class="k-val text-red">{{ currentOverdueCount }} 人</span>
           </div>
         </div>
 
@@ -88,12 +88,12 @@
       </div>
 
       <!-- 逾 30 天未更新警告橫幅 -->
-      <div v-if="getOverdueCount(currentWarehouse) > 0" class="overdue-banner">
+      <div v-if="currentOverdueCount > 0" class="overdue-banner">
         <span>
-          ⚠️ <strong>【{{ currentWarehouse }}】</strong>目前共有 <strong>{{ getOverdueCount(currentWarehouse) }}</strong> 位人員超過 1 個月（30 天）尚未更新能力紀錄！
+          ⚠️ <strong>【{{ currentWarehouse }}】</strong>目前共有 <strong>{{ currentOverdueCount }}</strong> 位人員超過 1 個月（30 天）尚未更新能力紀錄！
         </span>
         <el-button size="mini" type="danger" plain @click="toggleFilterOverdueOnly">
-          {{ updateStatusFilter === 'overdue' ? '顯示全部人員' : `只顯示逾 30 天未更新 (${getOverdueCount(currentWarehouse)}人)` }}
+          {{ updateStatusFilter === 'overdue' ? '顯示全部人員' : `只顯示逾 30 天未更新 (${currentOverdueCount}人)` }}
         </el-button>
       </div>
 
@@ -168,12 +168,12 @@
           :class="{ active: groupFilter === g }"
           @click="setGroupFilter(g)"
         >
-          {{ g }} ({{ currentSkills.filter(s => s.group === g).length }})
+          {{ g }} ({{ skillGroupCounts[g] || 0 }})
         </button>
       </div>
     </div>
 
-    <!-- 2. 主能力矩陣表格區（黑底風格＋左側凍結4欄＋三層群組表頭） -->
+    <!-- 2. 主能力矩陣表格區（極速零延遲渲染） -->
     <div class="matrix-wrapper" v-loading="loading">
       <div
         class="table-scroll-container"
@@ -232,7 +232,7 @@
             </tr>
           </thead>
 
-          <tbody>
+          <tbody @click="onTbodyClick">
             <tr v-if="pagedRows.length === 0">
               <td :colspan="visibleSkills.length + 11" class="empty-cell">
                 {{ currentEmployees.length === 0 ? '尚無人員資料，請點擊右上角「📂 匯入 Excel」上傳人員能力表！' : '找不到符合條件的人員資料' }}
@@ -261,15 +261,18 @@
                 </div>
               </td>
 
+              <!-- 使用 v-memo + 事件委派，只有變動的那 1 格會更新 DOM -->
               <td
                 v-for="(s, cIdx) in visibleSkills"
                 :key="s.id"
+                v-memo="[row.emp.skills[s.id] === 1, focusedRowIdx === rIdx && focusedColIdx === cIdx]"
+                :data-r="rIdx"
+                :data-c="cIdx"
                 class="skill-cell"
                 :class="[
                   row.emp.skills[s.id] === 1 ? `cell-checked-${s.type}` : '',
                   focusedRowIdx === rIdx && focusedColIdx === cIdx ? 'cell-focused' : ''
                 ]"
-                @click="handleCellClick(rIdx, cIdx)"
               >
                 <span
                   class="skill-box"
@@ -297,12 +300,12 @@
                 <button
                   class="mini-icon-btn btn-check-all"
                   :title="isAllVisibleChecked(row.emp) ? '一鍵取消目前篩選能力' : '一鍵全勾選目前篩選能力'"
-                  @click="toggleAllSkillsForEmployee(row.emp)"
+                  @click.stop="toggleAllSkillsForEmployee(row.emp)"
                 >
                   ✓✓
                 </button>
-                <button class="mini-icon-btn btn-edit" title="編輯人員" @click="openEditEmployeeModal(row.emp)">✎</button>
-                <button class="mini-icon-btn btn-del" title="刪除人員" @click="confirmDeleteEmployee(row.emp)">✕</button>
+                <button class="mini-icon-btn btn-edit" title="編輯人員" @click.stop="openEditEmployeeModal(row.emp)">✎</button>
+                <button class="mini-icon-btn btn-del" title="刪除人員" @click.stop="confirmDeleteEmployee(row.emp)">✕</button>
               </td>
             </tr>
           </tbody>
@@ -311,10 +314,10 @@
             <tr>
               <td colspan="4" class="sticky-col-1 tfoot-title">各項目會做人數 / 覆蓋率</td>
               <td v-for="s in visibleSkills" :key="'foot_' + s.id" class="tfoot-cell">
-                <div :class="getSkillCoverage(s.id).pct === 0 ? 'text-red' : (getSkillCoverage(s.id).pct >= 80 ? 'text-green' : 'text-yellow')">
-                  {{ getSkillCoverage(s.id).count }}人
+                <div :class="getSkillPct(s.id) === 0 ? 'text-red' : (getSkillPct(s.id) >= 80 ? 'text-green' : 'text-yellow')">
+                  {{ skillCapableCounts[s.id] || 0 }}人
                 </div>
-                <div class="text-dim" style="font-size: 10px;">{{ getSkillCoverage(s.id).pct }}%</div>
+                <div class="text-dim" style="font-size: 10px;">{{ getSkillPct(s.id) }}%</div>
               </td>
               <td colspan="7" class="tfoot-goal border-left-heavy">目標：全倉全能覆蓋 100%</td>
             </tr>
@@ -476,6 +479,7 @@
 </template>
 
 <script>
+import { markRaw } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as XLSX from 'xlsx'
@@ -499,6 +503,7 @@ export default {
         '3PL一組': { skills: [], employees: [] },
         '3PL二組': { skills: [], employees: [] }
       },
+      renderTick: 0, // 輕量版本號，觸發極速局部更新而不重算全表 Proxy
 
       searchTerm: '',
       staffGroupFilter: 'all',
@@ -557,6 +562,13 @@ export default {
       });
       return list;
     },
+    skillGroupCounts() {
+      const map = {};
+      this.currentSkills.forEach(s => {
+        map[s.group] = (map[s.group] || 0) + 1;
+      });
+      return map;
+    },
     staffGroupCounts() {
       const map = {};
       this.currentEmployees.forEach(e => {
@@ -564,6 +576,17 @@ export default {
         map[g] = (map[g] || 0) + 1;
       });
       return map;
+    },
+    overdueCountByWh() {
+      void this.renderTick;
+      const res = {};
+      this.warehouses.forEach(wh => {
+        res[wh] = (this.appData[wh]?.employees || []).filter(e => this.isEmployeeOverdue(e)).length;
+      });
+      return res;
+    },
+    currentOverdueCount() {
+      return this.overdueCountByWh[this.currentWarehouse] || 0;
     },
     visibleSkills() {
       return this.currentSkills.filter(s => {
@@ -591,27 +614,41 @@ export default {
       });
       return segs;
     },
+    // 使用快取分數計算排名與進度（避免每次點選重跑 15 萬次迴圈）
     scoredRows() {
+      void this.renderTick;
       const totalSkillCnt = this.currentSkills.length;
       const rows = this.currentEmployees.map(emp => {
-        let fieldScore = 0, specialScore = 0, cadreScore = 0;
-        this.currentSkills.forEach(s => {
-          if (emp.skills && emp.skills[s.id] === 1) {
-            if (s.type === 'field') fieldScore++;
-            else if (s.type === 'special') specialScore++;
-            else if (s.type === 'cadre') cadreScore++;
-          }
-        });
-        const totalScore = fieldScore + specialScore + cadreScore;
+        const f = emp._f || 0;
+        const sp = emp._sp || 0;
+        const ca = emp._ca || 0;
+        const totalScore = f + sp + ca;
         const pct = totalSkillCnt > 0 ? Math.round((totalScore / totalSkillCnt) * 100) : 0;
-        return { emp, fieldScore, specialScore, cadreScore, totalScore, pct, rank: 1 };
+        return { emp, fieldScore: f, specialScore: sp, cadreScore: ca, totalScore, pct, rank: 1 };
       });
 
       const sortedScores = [...rows].map(r => r.totalScore).sort((a, b) => b - a);
+      const rankLookup = new Map();
+      sortedScores.forEach((sc, idx) => {
+        if (!rankLookup.has(sc)) rankLookup.set(sc, idx + 1);
+      });
       rows.forEach(r => {
-        r.rank = sortedScores.indexOf(r.totalScore) + 1;
+        r.rank = rankLookup.get(r.totalScore) || 1;
       });
       return rows;
+    },
+    skillCapableCounts() {
+      void this.renderTick;
+      const counts = {};
+      const emps = this.currentEmployees;
+      for (let i = 0; i < emps.length; i++) {
+        const sk = emps[i].skills;
+        if (!sk) continue;
+        for (const k in sk) {
+          if (sk[k] === 1) counts[k] = (counts[k] || 0) + 1;
+        }
+      }
+      return counts;
     },
     filteredRows() {
       const kw = this.searchTerm.trim().toLowerCase();
@@ -647,10 +684,15 @@ export default {
       return this.filteredRows.slice(start, start + this.pageSize);
     },
     avgMasteryPct() {
+      void this.renderTick;
       const staffCnt = this.currentEmployees.length;
       const skillCnt = this.currentSkills.length;
       if (!staffCnt || !skillCnt) return 0;
-      const sumChecked = this.scoredRows.reduce((acc, r) => acc + r.totalScore, 0);
+      let sumChecked = 0;
+      for (let i = 0; i < staffCnt; i++) {
+        const e = this.currentEmployees[i];
+        sumChecked += (e._f || 0) + (e._sp || 0) + (e._ca || 0);
+      }
       return Math.round((sumChecked / (staffCnt * skillCnt)) * 100);
     },
     activeCellText() {
@@ -668,6 +710,40 @@ export default {
     this.flushUpdates();
   },
   methods: {
+    // 預先計算並標記 markRaw，徹底消除 7 萬個物件鍵的響應式追蹤開銷
+    hydrateAppData(rawData) {
+      const result = {};
+      this.warehouses.forEach(wh => {
+        const block = rawData?.[wh] || { skills: [], employees: [] };
+        const skills = markRaw(block.skills || []);
+        const typeMap = new Map(skills.map(s => [s.id, s.type]));
+
+        const employees = (block.employees || []).map(emp => {
+          const rawSkills = markRaw({ ...(emp.skills || {}) });
+          let f = 0, sp = 0, ca = 0;
+          for (const sid in rawSkills) {
+            if (rawSkills[sid] === 1) {
+              const t = typeMap.get(sid);
+              if (t === 'field') f++;
+              else if (t === 'special') sp++;
+              else if (t === 'cadre') ca++;
+            }
+          }
+          return {
+            ...emp,
+            skills: rawSkills,
+            _f: f,
+            _sp: sp,
+            _ca: ca
+          };
+        });
+
+        result[wh] = { skills, employees };
+      });
+      this.appData = result;
+      this.renderTick++;
+    },
+
     getWhIcon(wh) {
       if (wh === '大園倉') return '🏭';
       if (wh === '林口倉') return '🏢';
@@ -702,9 +778,6 @@ export default {
       const days = this.getDaysSince(emp.lastUpdated);
       return days === null || days >= OVERDUE_DAYS_LIMIT;
     },
-    getOverdueCount(wh) {
-      return (this.appData[wh]?.employees || []).filter(e => this.isEmployeeOverdue(e)).length;
-    },
     getUpdateBadgeLabel(lastUpdated) {
       if (!lastUpdated) return '尚未更新';
       const days = this.getDaysSince(lastUpdated);
@@ -718,14 +791,11 @@ export default {
       if (days === null || days >= OVERDUE_DAYS_LIMIT) return 'upd-danger';
       return 'upd-ok';
     },
-    getSkillCoverage(skillId) {
+    getSkillPct(skillId) {
       const tot = this.currentEmployees.length;
-      if (!tot) return { count: 0, pct: 0 };
-      let count = 0;
-      this.currentEmployees.forEach(e => {
-        if (e.skills && e.skills[skillId] === 1) count++;
-      });
-      return { count, pct: Math.round((count / tot) * 100) };
+      if (!tot) return 0;
+      const cnt = this.skillCapableCounts[skillId] || 0;
+      return Math.round((cnt / tot) * 100);
     },
     isAllVisibleChecked(emp) {
       if (this.visibleSkills.length === 0) return false;
@@ -773,7 +843,7 @@ export default {
       try {
         const res = await axios.get('/api/staff-competency/all');
         if (res.data?.success && res.data.data) {
-          this.appData = res.data.data;
+          this.hydrateAppData(res.data.data);
         }
       } catch (e) {
         ElMessage.error('載入人員綜合能力資料失敗：' + e.message);
@@ -787,10 +857,17 @@ export default {
       ElMessage.success(`已重新整理【${this.currentWarehouse}】最新資料！`);
     },
 
-    handleCellClick(rIdx, cIdx) {
-      this.focusedRowIdx = rIdx;
-      this.focusedColIdx = cIdx;
-      this.toggleCell(rIdx, cIdx);
+    // 事件委派：5,000 格共用 1 個 click listener，點選零延遲
+    onTbodyClick(e) {
+      const td = e.target.closest('td.skill-cell');
+      if (!td) return;
+      const rIdx = Number(td.dataset.r);
+      const cIdx = Number(td.dataset.c);
+      if (!isNaN(rIdx) && !isNaN(cIdx)) {
+        this.focusedRowIdx = rIdx;
+        this.focusedColIdx = cIdx;
+        this.toggleCell(rIdx, cIdx);
+      }
     },
     handleMatrixKeydown(e) {
       if (this.pagedRows.length === 0 || this.visibleSkills.length === 0) return;
@@ -819,11 +896,19 @@ export default {
 
       const emp = row.emp;
       const newVal = emp.skills[skill.id] === 1 ? 0 : 1;
+      const delta = newVal === 1 ? 1 : -1;
       const nowStr = this.formatNow();
 
       if (newVal === 1) emp.skills[skill.id] = 1;
       else delete emp.skills[skill.id];
+
+      // O(1) 即時增減分數快取
+      if (skill.type === 'field') emp._f = Math.max(0, (emp._f || 0) + delta);
+      else if (skill.type === 'special') emp._sp = Math.max(0, (emp._sp || 0) + delta);
+      else if (skill.type === 'cadre') emp._ca = Math.max(0, (emp._ca || 0) + delta);
+
       emp.lastUpdated = nowStr;
+      this.renderTick++;
 
       this.queueUpdate(this.currentWarehouse, emp.id, skill.id, newVal, nowStr);
     },
@@ -833,11 +918,23 @@ export default {
       const nowStr = this.formatNow();
 
       this.visibleSkills.forEach(s => {
-        if (targetVal === 1) emp.skills[s.id] = 1;
-        else delete emp.skills[s.id];
-        this.queueUpdate(this.currentWarehouse, emp.id, s.id, targetVal, nowStr);
+        const wasChecked = emp.skills[s.id] === 1;
+        if (targetVal === 1 && !wasChecked) {
+          emp.skills[s.id] = 1;
+          if (s.type === 'field') emp._f = (emp._f || 0) + 1;
+          else if (s.type === 'special') emp._sp = (emp._sp || 0) + 1;
+          else if (s.type === 'cadre') emp._ca = (emp._ca || 0) + 1;
+          this.queueUpdate(this.currentWarehouse, emp.id, s.id, 1, nowStr);
+        } else if (targetVal === 0 && wasChecked) {
+          delete emp.skills[s.id];
+          if (s.type === 'field') emp._f = Math.max(0, (emp._f || 0) - 1);
+          else if (s.type === 'special') emp._sp = Math.max(0, (emp._sp || 0) - 1);
+          else if (s.type === 'cadre') emp._ca = Math.max(0, (emp._ca || 0) - 1);
+          this.queueUpdate(this.currentWarehouse, emp.id, s.id, 0, nowStr);
+        }
       });
       emp.lastUpdated = nowStr;
+      this.renderTick++;
       ElMessage.success(targetVal === 1 ? `已全勾選「${emp.name}」目前顯示能力` : `已取消「${emp.name}」目前顯示能力`);
     },
 
@@ -1068,11 +1165,13 @@ export default {
             });
             const res = await axios.post('/api/staff-competency/sync-all', { data: updatedPayload });
             if (res.data?.data) {
-              this.appData = res.data.data;
+              this.hydrateAppData(res.data.data);
             } else {
+              const merged = { ...this.appData };
               Object.keys(updatedPayload).forEach(wh => {
-                if (updatedPayload[wh].employees) this.appData[wh].employees = updatedPayload[wh].employees;
+                if (updatedPayload[wh].employees) merged[wh].employees = updatedPayload[wh].employees;
               });
+              this.hydrateAppData(merged);
             }
             this.syncState = 'synced';
             this.syncStatusText = '✅ 地端已同步';
@@ -1167,12 +1266,14 @@ export default {
         if (importedSheets > 0) {
           const res = await axios.post('/api/staff-competency/sync-all', { data: updatedPayload });
           if (res.data?.data) {
-            this.appData = res.data.data;
+            this.hydrateAppData(res.data.data);
           } else {
+            const merged = { ...this.appData };
             Object.keys(updatedPayload).forEach(wh => {
-              if (updatedPayload[wh].skills) this.appData[wh].skills = updatedPayload[wh].skills;
-              if (updatedPayload[wh].employees) this.appData[wh].employees = updatedPayload[wh].employees;
+              if (updatedPayload[wh].skills) merged[wh].skills = updatedPayload[wh].skills;
+              if (updatedPayload[wh].employees) merged[wh].employees = updatedPayload[wh].employees;
             });
+            this.hydrateAppData(merged);
           }
           this.syncState = 'synced';
           this.syncStatusText = '✅ 地端已同步';
@@ -1209,17 +1310,13 @@ export default {
         row2.push('現場小計', '異動單小計', '幹部小計', '能力總分', '排名', '能力最後更新時間');
         row3.push('', '', '', '', '', '');
 
-        const scored = employees.map(emp => {
-          let f = 0, sp = 0, ca = 0;
-          skills.forEach(s => {
-            if (emp.skills && emp.skills[s.id] === 1) {
-              if (s.type === 'field') f++;
-              else if (s.type === 'special') sp++;
-              else if (s.type === 'cadre') ca++;
-            }
-          });
-          return { emp, f, sp, ca, total: f + sp + ca };
-        });
+        const scored = employees.map(emp => ({
+          emp,
+          f: emp._f || 0,
+          sp: emp._sp || 0,
+          ca: emp._ca || 0,
+          total: (emp._f || 0) + (emp._sp || 0) + (emp._ca || 0)
+        }));
 
         const sortedTotals = [...scored].map(x => x.total).sort((a, b) => b - a);
         const sheetRows = [row1, row2, row3];
@@ -1297,7 +1394,6 @@ export default {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  transition: all 0.15s;
 }
 .wh-tab-btn:hover { background: rgba(255, 255, 255, 0.06); color: #ffffff; }
 .wh-tab-btn.active {
@@ -1438,7 +1534,7 @@ export default {
   color: #ffffff;
 }
 
-/* 黑底矩陣表格區 */
+/* 黑底矩陣表格區（加入 GPU 合成層與 contain 隔離重繪） */
 .matrix-wrapper {
   flex: 1;
   min-height: 0;
@@ -1448,12 +1544,14 @@ export default {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  contain: layout style;
 }
 .table-scroll-container {
   flex: 1;
   overflow: auto;
   position: relative;
   outline: none;
+  will-change: scroll-position;
 }
 
 .competency-table {
@@ -1495,6 +1593,7 @@ thead tr:nth-child(3) th { top: 54px; height: 48px; }
   width: 76px;
   min-width: 76px;
   max-width: 76px;
+  contain: content;
 }
 .skill-col-th {
   padding: 4px 3px;
@@ -1546,9 +1645,9 @@ tbody tr:hover td { background: #1e293b !important; }
 .pct-txt { font-size: 11px; font-weight: bold; color: #cbd5e1; }
 
 .skill-cell { cursor: pointer; padding: 5px 2px; }
-.cell-checked-field { background: rgba(16, 185, 129, 0.14) !important; }
-.cell-checked-special { background: rgba(245, 158, 11, 0.14) !important; }
-.cell-checked-cadre { background: rgba(168, 85, 247, 0.16) !important; }
+.cell-checked-field { background: #0f2922 !important; }
+.cell-checked-special { background: #261d0f !important; }
+.cell-checked-cadre { background: #1f1633 !important; }
 .cell-focused { outline: 2px solid #38bdf8 !important; outline-offset: -2px; }
 
 .skill-box {
@@ -1560,6 +1659,7 @@ tbody tr:hover td { background: #1e293b !important; }
   border-radius: 4px;
   font-weight: bold;
   font-size: 12px;
+  pointer-events: none;
 }
 .box-empty { border: 1px dashed #475569; color: #475569; }
 .box-field { background: #10b981; color: #ffffff; }
