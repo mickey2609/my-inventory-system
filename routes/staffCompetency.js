@@ -5,6 +5,14 @@ module.exports = function(db) {
   const router = express.Router();
   const WAREHOUSES = ['大園倉', '林口倉', '3PL一組', '3PL二組'];
 
+  // 記憶體內版本號（每次寫入 SQLite COMMIT 後自動遞增）
+  let currentDataVersion = Date.now();
+
+  function bumpVersion() {
+    currentDataVersion++;
+    return currentDataVersion;
+  }
+
   function formatNow() {
     const d = new Date();
     const pad = (n) => String(n).padStart(2, '0');
@@ -97,11 +105,16 @@ module.exports = function(db) {
 
   ensureTables();
 
-  // 1. 取得全部倉別能力項目與人員資料
+  // 0. 輕量版本號檢查（5秒背景輪詢專用，極低負擔）
+  router.get('/version', (req, res) => {
+    res.json({ success: true, version: currentDataVersion });
+  });
+
+  // 1. 取得全部倉別能力項目與人員資料（附帶目前版本號）
   router.get('/all', (req, res) => {
     queryAllData((err, data) => {
       if (err) return res.status(500).json({ success: false, message: err.message });
-      res.json({ success: true, data });
+      res.json({ success: true, version: currentDataVersion, data });
     });
   });
 
@@ -109,7 +122,7 @@ module.exports = function(db) {
   router.post('/batch-toggle', (req, res) => {
     const updates = req.body.updates || [];
     if (!Array.isArray(updates) || updates.length === 0) {
-      return res.json({ success: true, count: 0 });
+      return res.json({ success: true, version: currentDataVersion, count: 0 });
     }
 
     const grouped = {};
@@ -147,7 +160,8 @@ module.exports = function(db) {
             if (done === entries.length) {
               db.run('COMMIT', (cErr) => {
                 if (cErr) return res.status(500).json({ success: false, message: cErr.message });
-                res.json({ success: true, updatedEmployees: entries.length });
+                const ver = bumpVersion();
+                res.json({ success: true, version: ver, updatedEmployees: entries.length });
               });
             }
           }
@@ -189,7 +203,8 @@ module.exports = function(db) {
 
       db.run('COMMIT', (err) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
-        res.json({ success: true });
+        const ver = bumpVersion();
+        res.json({ success: true, version: ver });
       });
     });
   });
@@ -202,7 +217,8 @@ module.exports = function(db) {
       [warehouse, normalizeEmpId(empId)],
       (err) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
-        res.json({ success: true });
+        const ver = bumpVersion();
+        res.json({ success: true, version: ver });
       }
     );
   });
@@ -221,7 +237,8 @@ module.exports = function(db) {
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `, [warehouse, skill.id, skill.group, skill.type, skill.name, skill.subHeader || '', nextOrd], (iErr) => {
         if (iErr) return res.status(500).json({ success: false, message: iErr.message });
-        res.json({ success: true });
+        const ver = bumpVersion();
+        res.json({ success: true, version: ver });
       });
     });
   });
@@ -243,13 +260,14 @@ module.exports = function(db) {
         });
         db.run('COMMIT', (cErr) => {
           if (cErr) return res.status(500).json({ success: false, message: cErr.message });
-          res.json({ success: true });
+          const ver = bumpVersion();
+          res.json({ success: true, version: ver });
         });
       });
     });
   });
 
-  // 7. 整批匯入 / 覆蓋同步（等待 finalize 與 COMMIT 完全落盤後才查回最新資料）
+  // 7. 整批匯入 / 覆蓋同步
   router.post('/sync-all', (req, res) => {
     const payload = req.body.data || {};
     let totalSkills = 0;
@@ -289,9 +307,11 @@ module.exports = function(db) {
             db.run('ROLLBACK');
             return res.status(500).json({ success: false, message: '寫入資料庫失敗：' + err.message });
           }
+          const ver = bumpVersion();
           queryAllData((qErr, freshData) => {
             res.json({
               success: true,
+              version: ver,
               totalSkills,
               totalEmployees,
               data: qErr ? null : freshData,

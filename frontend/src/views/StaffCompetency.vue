@@ -550,9 +550,13 @@ export default {
   created() {
     this._rawPendingMap = new Map();
     this._syncTimer = null;
-    // 滑鼠按住左鍵拖曳批量勾選狀態
+    this._pollTimer = null;
+    this._isFlushing = false;
+    this._isPolling = false;
+    this._localVersion = 0;
+
     this._isMouseDragging = false;
-    this._dragTargetVal = 1; // 1 = 批量打勾, 0 = 批量取消
+    this._dragTargetVal = 1;
   },
   computed: {
     canImport() {
@@ -718,14 +722,70 @@ export default {
     }
   },
   mounted() {
-    this.fetchAllData();
+    this.fetchAllData(true);
     window.addEventListener('mouseup', this.handleGlobalMouseUp);
+    document.addEventListener('visibilitychange', this.handleVisibilityChange);
+    this.startAutoSyncPoll();
   },
   beforeUnmount() {
     window.removeEventListener('mouseup', this.handleGlobalMouseUp);
+    document.removeEventListener('visibilitychange', this.handleVisibilityChange);
+    this.stopAutoSyncPoll();
     this.flushUpdates();
   },
   methods: {
+    // 5 秒背景無感自動同步（含編輯中防覆蓋保護）
+    startAutoSyncPoll() {
+      this.stopAutoSyncPoll();
+      this._pollTimer = setInterval(() => {
+        this.checkVersionAndSilentSync();
+      }, 5000);
+    },
+    stopAutoSyncPoll() {
+      if (this._pollTimer) {
+        clearInterval(this._pollTimer);
+        this._pollTimer = null;
+      }
+    },
+    handleVisibilityChange() {
+      if (!document.hidden) {
+        this.checkVersionAndSilentSync();
+      }
+    },
+    isUserActivelyEditing() {
+      return (
+        this._isMouseDragging ||
+        this._isFlushing ||
+        (this._rawPendingMap && this._rawPendingMap.size > 0) ||
+        this.showEmpModal ||
+        this.showSkillsModal ||
+        this.loading
+      );
+    },
+    async checkVersionAndSilentSync() {
+      if (document.hidden || this._isPolling || this.isUserActivelyEditing()) return;
+      this._isPolling = true;
+      try {
+        const verRes = await axios.get('/api/staff-competency/version');
+        const remoteVer = verRes.data?.version || 0;
+        if (remoteVer && remoteVer !== this._localVersion) {
+          // 再次確認檢查期間使用者沒有開始打勾或拖曳，防止覆蓋本機未存檔操作
+          if (this.isUserActivelyEditing()) return;
+          const allRes = await axios.get('/api/staff-competency/all');
+          if (allRes.data?.success && allRes.data.data && !this.isUserActivelyEditing()) {
+            this.hydrateAppData(allRes.data.data);
+            this._localVersion = allRes.data.version || remoteVer;
+            this.syncState = 'synced';
+            this.syncStatusText = '✅ 地端已同步';
+          }
+        }
+      } catch (e) {
+        // 背景靜默檢查失敗不跳干擾提示
+      } finally {
+        this._isPolling = false;
+      }
+    },
+
     hydrateAppData(rawData) {
       const result = {};
       this.warehouses.forEach(wh => {
@@ -870,22 +930,23 @@ export default {
       }
     },
 
-    async fetchAllData() {
-      this.loading = true;
+    async fetchAllData(showSpinner = true) {
+      if (showSpinner) this.loading = true;
       try {
         const res = await axios.get('/api/staff-competency/all');
         if (res.data?.success && res.data.data) {
           this.hydrateAppData(res.data.data);
+          if (res.data.version) this._localVersion = res.data.version;
         }
       } catch (e) {
         ElMessage.error('載入人員綜合能力資料失敗：' + e.message);
       } finally {
-        this.loading = false;
+        if (showSpinner) this.loading = false;
       }
     },
 
     async resetWarehouseSkillsToLatest() {
-      await this.fetchAllData();
+      await this.fetchAllData(true);
       ElMessage.success(`已重新整理【${this.currentWarehouse}】最新資料！`);
     },
 
@@ -926,9 +987,8 @@ export default {
       });
     },
 
-    // 滑鼠左鍵按下：決定本次拖曳是「批量打勾 (1)」還是「批量取消 (0)」
     onTbodyMouseDown(e) {
-      if (e.button !== 0) return; // 只響應滑鼠左鍵
+      if (e.button !== 0) return;
       const td = e.target.closest('td.skill-cell');
       if (!td) return;
       const rIdx = Number(td.dataset.r);
@@ -953,7 +1013,6 @@ export default {
       }
     },
 
-    // 按住滑鼠左鍵滑過其他格子時，自動套用同一批勾選/取消狀態
     onTbodyMouseOver(e) {
       if (!this._isMouseDragging) return;
       const td = e.target.closest('td.skill-cell');
@@ -1002,7 +1061,7 @@ export default {
       const emp = row.emp;
       if (!emp.skills) emp.skills = {};
       const curVal = emp.skills[skill.id] === 1 ? 1 : 0;
-      if (curVal === targetVal) return; // 狀態已相同則不重複寫入
+      if (curVal === targetVal) return;
 
       const delta = targetVal === 1 ? 1 : -1;
       const nowStr = this.formatNow();
@@ -1066,12 +1125,16 @@ export default {
       if (!this._rawPendingMap || this._rawPendingMap.size === 0) return;
       const batch = Array.from(this._rawPendingMap.values());
       this._rawPendingMap.clear();
+      this._isFlushing = true;
 
       this.syncState = 'syncing';
       this.syncStatusText = '⏳ 同步寫入中...';
 
       try {
-        await axios.post('/api/staff-competency/batch-toggle', { updates: batch });
+        const res = await axios.post('/api/staff-competency/batch-toggle', { updates: batch });
+        if (res.data?.version) {
+          this._localVersion = res.data.version;
+        }
         if (this._rawPendingMap.size === 0) {
           this.syncState = 'synced';
           this.syncStatusText = '✅ 地端已同步';
@@ -1085,6 +1148,8 @@ export default {
         });
         this.syncState = 'error';
         this.syncStatusText = '⚠️ 同步重試中';
+      } finally {
+        this._isFlushing = false;
       }
     },
 
@@ -1153,7 +1218,7 @@ export default {
           emp: payloadEmp
         });
         this.showEmpModal = false;
-        await this.fetchAllData();
+        await this.fetchAllData(true);
         this.currentWarehouse = this.empForm.warehouse;
         ElMessage.success(`🎉 已儲存人員資料：${cleanName} (${cleanId})`);
       } catch (e) {
@@ -1170,7 +1235,7 @@ export default {
           warehouse: this.currentWarehouse,
           empId: emp.id
         });
-        await this.fetchAllData();
+        await this.fetchAllData(true);
         ElMessage.success(`已移除 ${emp.name}`);
       }).catch(() => {});
     },
@@ -1202,7 +1267,7 @@ export default {
           skill
         });
         this.newSkillName = '';
-        await this.fetchAllData();
+        await this.fetchAllData(true);
         ElMessage.success(`已新增能力：【${this.manageWh} - ${group}】${name}`);
       } catch (e) {
         ElMessage.error('新增能力失敗：' + e.message);
@@ -1218,7 +1283,7 @@ export default {
           warehouse: this.manageWh,
           skillId: skill.id
         });
-        await this.fetchAllData();
+        await this.fetchAllData(true);
         ElMessage.success(`已刪除能力項目：${skill.name}`);
       }).catch(() => {});
     },
@@ -1286,6 +1351,7 @@ export default {
               if (groupedEmps[wh].length > 0) updatedPayload[wh] = { employees: groupedEmps[wh] };
             });
             const res = await axios.post('/api/staff-competency/sync-all', { data: updatedPayload });
+            if (res.data?.version) this._localVersion = res.data.version;
             if (res.data?.data) {
               this.hydrateAppData(res.data.data);
             } else {
@@ -1387,6 +1453,7 @@ export default {
 
         if (importedSheets > 0) {
           const res = await axios.post('/api/staff-competency/sync-all', { data: updatedPayload });
+          if (res.data?.version) this._localVersion = res.data.version;
           if (res.data?.data) {
             this.hydrateAppData(res.data.data);
           } else {
