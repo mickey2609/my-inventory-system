@@ -18,75 +18,82 @@ module.exports = function(db) {
     return s;
   }
 
-  // 初始化 SQLite 資料表（不依賴任何外部 JSON 種子檔）
-  db.serialize(() => {
-    db.run(`
-      CREATE TABLE IF NOT EXISTS staff_competency_skills (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        warehouse TEXT NOT NULL,
-        skill_id TEXT NOT NULL,
-        group_name TEXT NOT NULL,
-        skill_type TEXT NOT NULL,
-        skill_name TEXT NOT NULL,
-        sub_header TEXT NOT NULL,
-        sort_order INTEGER DEFAULT 0,
-        UNIQUE(warehouse, skill_id)
-      )
-    `);
+  function ensureTables(callback) {
+    db.serialize(() => {
+      db.run(`
+        CREATE TABLE IF NOT EXISTS staff_competency_skills (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          warehouse TEXT NOT NULL,
+          skill_id TEXT NOT NULL,
+          group_name TEXT NOT NULL,
+          skill_type TEXT NOT NULL,
+          skill_name TEXT NOT NULL,
+          sub_header TEXT NOT NULL,
+          sort_order INTEGER DEFAULT 0,
+          UNIQUE(warehouse, skill_id)
+        )
+      `);
 
-    db.run(`
-      CREATE TABLE IF NOT EXISTS staff_competency_employees (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        warehouse TEXT NOT NULL,
-        emp_id TEXT NOT NULL,
-        emp_name TEXT NOT NULL,
-        staff_group TEXT NOT NULL,
-        last_updated TEXT DEFAULT '',
-        skills_json TEXT DEFAULT '{}',
-        sort_order INTEGER DEFAULT 0,
-        UNIQUE(warehouse, emp_id)
-      )
-    `);
-  });
+      db.run(`
+        CREATE TABLE IF NOT EXISTS staff_competency_employees (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          warehouse TEXT NOT NULL,
+          emp_id TEXT NOT NULL,
+          emp_name TEXT NOT NULL,
+          staff_group TEXT NOT NULL,
+          last_updated TEXT DEFAULT '',
+          skills_json TEXT DEFAULT '{}',
+          sort_order INTEGER DEFAULT 0,
+          UNIQUE(warehouse, emp_id)
+        )
+      `, () => {
+        if (typeof callback === 'function') callback();
+      });
+    });
+  }
+
+  ensureTables();
 
   // 1. 取得全部倉別能力項目與人員資料
   router.get('/all', (req, res) => {
-    db.all(`SELECT * FROM staff_competency_skills ORDER BY warehouse ASC, sort_order ASC, id ASC`, [], (sErr, skillRows) => {
-      if (sErr) return res.status(500).json({ success: false, message: sErr.message });
+    ensureTables(() => {
+      db.all(`SELECT * FROM staff_competency_skills ORDER BY warehouse ASC, sort_order ASC, id ASC`, [], (sErr, skillRows) => {
+        if (sErr) return res.status(500).json({ success: false, message: sErr.message });
 
-      db.all(`SELECT * FROM staff_competency_employees ORDER BY warehouse ASC, sort_order ASC, id ASC`, [], (eErr, empRows) => {
-        if (eErr) return res.status(500).json({ success: false, message: eErr.message });
+        db.all(`SELECT * FROM staff_competency_employees ORDER BY warehouse ASC, sort_order ASC, id ASC`, [], (eErr, empRows) => {
+          if (eErr) return res.status(500).json({ success: false, message: eErr.message });
 
-        const data = {};
-        WAREHOUSES.forEach(wh => {
-          data[wh] = { skills: [], employees: [] };
-        });
-
-        (skillRows || []).forEach(r => {
-          if (!data[r.warehouse]) data[r.warehouse] = { skills: [], employees: [] };
-          data[r.warehouse].skills.push({
-            id: r.skill_id,
-            group: r.group_name,
-            type: r.skill_type,
-            name: r.skill_name,
-            subHeader: r.sub_header
+          const data = {};
+          WAREHOUSES.forEach(wh => {
+            data[wh] = { skills: [], employees: [] };
           });
-        });
 
-        (empRows || []).forEach(r => {
-          if (!data[r.warehouse]) data[r.warehouse] = { skills: [], employees: [] };
-          let parsedSkills = {};
-          try { parsedSkills = JSON.parse(r.skills_json || '{}'); } catch (e) {}
-          data[r.warehouse].employees.push({
-            id: normalizeEmpId(r.emp_id),
-            name: r.emp_name,
-            staffGroup: r.staff_group,
-            lastUpdated: r.last_updated || '',
-            skills: parsedSkills
+          (skillRows || []).forEach(r => {
+            if (!data[r.warehouse]) data[r.warehouse] = { skills: [], employees: [] };
+            data[r.warehouse].skills.push({
+              id: r.skill_id,
+              group: r.group_name,
+              type: r.skill_type,
+              name: r.skill_name,
+              subHeader: r.sub_header
+            });
           });
-        });
 
-        res.json({ success: true, data });
+          (empRows || []).forEach(r => {
+            if (!data[r.warehouse]) data[r.warehouse] = { skills: [], employees: [] };
+            let parsedSkills = {};
+            try { parsedSkills = JSON.parse(r.skills_json || '{}'); } catch (e) {}
+            data[r.warehouse].employees.push({
+              id: normalizeEmpId(r.emp_id),
+              name: r.emp_name,
+              staffGroup: r.staff_group,
+              lastUpdated: r.last_updated || '',
+              skills: parsedSkills
+            });
+          });
+
+          res.json({ success: true, data });
+        });
       });
     });
   });
@@ -235,55 +242,69 @@ module.exports = function(db) {
     });
   });
 
-  // 7. 整批匯入 / 覆蓋同步（支援完整能力矩陣表與純人員名冊匯入）
+  // 7. 整批匯入 / 覆蓋同步（確保完全寫入地端 SQLite 後才回傳）
   router.post('/sync-all', (req, res) => {
     const payload = req.body.data || {};
-    db.serialize(() => {
-      db.run('BEGIN TRANSACTION');
-      const skillStmt = db.prepare(`
-        INSERT INTO staff_competency_skills
-        (warehouse, skill_id, group_name, skill_type, skill_name, sub_header, sort_order)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `);
-      const empStmt = db.prepare(`
-        INSERT INTO staff_competency_employees
-        (warehouse, emp_id, emp_name, staff_group, last_updated, skills_json, sort_order)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `);
+    let totalSkills = 0;
+    let totalEmployees = 0;
 
-      Object.keys(payload).forEach(wh => {
-        const whBlock = payload[wh];
-        if (!whBlock) return;
-        if (Array.isArray(whBlock.skills) && whBlock.skills.length > 0) {
-          db.run(`DELETE FROM staff_competency_skills WHERE warehouse = ?`, [wh]);
-          whBlock.skills.forEach((s, idx) => {
-            skillStmt.run(wh, s.id, s.group, s.type, s.name, s.subHeader || '', idx);
-          });
-        }
-        if (Array.isArray(whBlock.employees) && whBlock.employees.length > 0) {
-          db.run(`DELETE FROM staff_competency_employees WHERE warehouse = ?`, [wh]);
-          whBlock.employees.forEach((e, idx) => {
-            empStmt.run(
-              wh,
-              normalizeEmpId(e.id),
-              e.name,
-              e.staffGroup || '一般作業組',
-              e.lastUpdated || '',
-              JSON.stringify(e.skills || {}),
-              idx
-            );
-          });
-        }
-      });
+    ensureTables(() => {
+      db.serialize(() => {
+        db.run('BEGIN TRANSACTION');
 
-      skillStmt.finalize();
-      empStmt.finalize();
-      db.run('COMMIT', (err) => {
-        if (err) return res.status(500).json({ success: false, message: err.message });
-        res.json({ success: true });
+        const skillStmt = db.prepare(`
+          INSERT OR REPLACE INTO staff_competency_skills
+          (warehouse, skill_id, group_name, skill_type, skill_name, sub_header, sort_order)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `);
+        const empStmt = db.prepare(`
+          INSERT OR REPLACE INTO staff_competency_employees
+          (warehouse, emp_id, emp_name, staff_group, last_updated, skills_json, sort_order)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `);
+
+        Object.keys(payload).forEach(wh => {
+          const whBlock = payload[wh];
+          if (!whBlock) return;
+          if (Array.isArray(whBlock.skills) && whBlock.skills.length > 0) {
+            db.run(`DELETE FROM staff_competency_skills WHERE warehouse = ?`, [wh]);
+            whBlock.skills.forEach((s, idx) => {
+              skillStmt.run(wh, s.id, s.group, s.type, s.name, s.subHeader || '', idx);
+              totalSkills++;
+            });
+          }
+          if (Array.isArray(whBlock.employees) && whBlock.employees.length > 0) {
+            db.run(`DELETE FROM staff_competency_employees WHERE warehouse = ?`, [wh]);
+            whBlock.employees.forEach((e, idx) => {
+              empStmt.run(
+                wh,
+                normalizeEmpId(e.id),
+                e.name,
+                e.staffGroup || '一般作業組',
+                e.lastUpdated || '',
+                JSON.stringify(e.skills || {}),
+                idx
+              );
+              totalEmployees++;
+            });
+          }
+        });
+
+        skillStmt.finalize();
+        empStmt.finalize();
+
+        db.run('COMMIT', (err) => {
+          if (err) return res.status(500).json({ success: false, message: '寫入資料庫失敗：' + err.message });
+          res.json({
+            success: true,
+            totalSkills,
+            totalEmployees,
+            message: `已成功寫入地端資料庫（共 ${totalEmployees} 位人員、${totalSkills} 項能力）`
+          });
+        });
       });
     });
   });
-  
+
   return router;
 };
