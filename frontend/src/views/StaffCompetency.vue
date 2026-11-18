@@ -173,7 +173,7 @@
       </div>
     </div>
 
-    <!-- 2. 主能力矩陣表格區（極速零延遲渲染） -->
+    <!-- 2. 主能力矩陣表格區（極速零延遲渲染 + 鏡頭自動置中） -->
     <div class="matrix-wrapper" v-loading="loading">
       <div
         class="table-scroll-container"
@@ -503,7 +503,7 @@ export default {
         '3PL一組': { skills: [], employees: [] },
         '3PL二組': { skills: [], employees: [] }
       },
-      renderTick: 0, // 輕量版本號，觸發極速局部更新而不重算全表 Proxy
+      renderTick: 0,
 
       searchTerm: '',
       staffGroupFilter: 'all',
@@ -614,7 +614,6 @@ export default {
       });
       return segs;
     },
-    // 使用快取分數計算排名與進度（避免每次點選重跑 15 萬次迴圈）
     scoredRows() {
       void this.renderTick;
       const totalSkillCnt = this.currentSkills.length;
@@ -710,7 +709,6 @@ export default {
     this.flushUpdates();
   },
   methods: {
-    // 預先計算並標記 markRaw，徹底消除 7 萬個物件鍵的響應式追蹤開銷
     hydrateAppData(rawData) {
       const result = {};
       this.warehouses.forEach(wh => {
@@ -857,7 +855,36 @@ export default {
       ElMessage.success(`已重新整理【${this.currentWarehouse}】最新資料！`);
     },
 
-    // 事件委派：5,000 格共用 1 個 click listener，點選零延遲
+    // 鏡頭自動置中：讓目前聚焦的格子永遠保持在（扣除左側凍結 316px 後）可視區域的正中央，直到捲動到底為止
+    scrollFocusedCellToCenter() {
+      this.$nextTick(() => {
+        const container = this.$refs.tableScrollContainer;
+        if (!container || this.focusedRowIdx < 0 || this.focusedColIdx < 0) return;
+
+        const cell = container.querySelector(
+          `tbody td.skill-cell[data-r="${this.focusedRowIdx}"][data-c="${this.focusedColIdx}"]`
+        );
+        if (!cell) return;
+
+        // 1. 水平置中（扣除左側 4 欄凍結寬度 76 + 74 + 78 + 88 = 316px）
+        const stickyLeftWidth = 316;
+        const visibleDataWidth = Math.max(0, container.clientWidth - stickyLeftWidth);
+        const cellCenterX = cell.offsetLeft + cell.offsetWidth / 2;
+        const targetScrollLeft = cellCenterX - stickyLeftWidth - visibleDataWidth / 2;
+        const maxScrollLeft = container.scrollWidth - container.clientWidth;
+        container.scrollLeft = Math.max(0, Math.min(maxScrollLeft, targetScrollLeft));
+
+        // 2. 垂直置中（扣除上方三層表頭 102px 與底部統計列 40px）
+        const stickyTopHeight = 102;
+        const stickyBottomHeight = 40;
+        const visibleDataHeight = Math.max(0, container.clientHeight - stickyTopHeight - stickyBottomHeight);
+        const cellCenterY = cell.offsetTop + cell.offsetHeight / 2;
+        const targetScrollTop = cellCenterY - stickyTopHeight - visibleDataHeight / 2;
+        const maxScrollTop = container.scrollHeight - container.clientHeight;
+        container.scrollTop = Math.max(0, Math.min(maxScrollTop, targetScrollTop));
+      });
+    },
+
     onTbodyClick(e) {
       const td = e.target.closest('td.skill-cell');
       if (!td) return;
@@ -867,6 +894,7 @@ export default {
         this.focusedRowIdx = rIdx;
         this.focusedColIdx = cIdx;
         this.toggleCell(rIdx, cIdx);
+        this.scrollFocusedCellToCenter();
       }
     },
     handleMatrixKeydown(e) {
@@ -876,12 +904,14 @@ export default {
         if (this.focusedRowIdx < 0 || this.focusedColIdx < 0) {
           this.focusedRowIdx = 0;
           this.focusedColIdx = 0;
+          this.scrollFocusedCellToCenter();
           return;
         }
         if (e.key === 'ArrowUp') this.focusedRowIdx = Math.max(0, this.focusedRowIdx - 1);
         if (e.key === 'ArrowDown') this.focusedRowIdx = Math.min(this.pagedRows.length - 1, this.focusedRowIdx + 1);
         if (e.key === 'ArrowLeft') this.focusedColIdx = Math.max(0, this.focusedColIdx - 1);
         if (e.key === 'ArrowRight') this.focusedColIdx = Math.min(this.visibleSkills.length - 1, this.focusedColIdx + 1);
+        this.scrollFocusedCellToCenter();
       } else if (e.key === ' ' || e.key === 'Enter') {
         if (this.focusedRowIdx >= 0 && this.focusedColIdx >= 0) {
           e.preventDefault();
@@ -902,7 +932,6 @@ export default {
       if (newVal === 1) emp.skills[skill.id] = 1;
       else delete emp.skills[skill.id];
 
-      // O(1) 即時增減分數快取
       if (skill.type === 'field') emp._f = Math.max(0, (emp._f || 0) + delta);
       else if (skill.type === 'special') emp._sp = Math.max(0, (emp._sp || 0) + delta);
       else if (skill.type === 'cadre') emp._ca = Math.max(0, (emp._ca || 0) + delta);
@@ -1534,7 +1563,7 @@ export default {
   color: #ffffff;
 }
 
-/* 黑底矩陣表格區（加入 GPU 合成層與 contain 隔離重繪） */
+/* 黑底矩陣表格區 */
 .matrix-wrapper {
   flex: 1;
   min-height: 0;
