@@ -149,12 +149,12 @@
         </el-select>
 
         <div class="kbd-guide">
-          <span>⌨️ 方向鍵 <kbd>↑↓←→</kbd> 移動 + <kbd>Space</kbd> 秒速打勾</span>
+          <span>🖱️ <strong>按住左鍵拖曳</strong>批量勾選 ｜ ⌨️ <kbd>↑↓←→</kbd>+<kbd>Space</kbd></span>
           <span v-if="activeCellText" class="active-cell-lbl">{{ activeCellText }}</span>
         </div>
       </div>
 
-      <!-- 作業組別快篩膠囊列（點選時自動同步篩選人員組別） -->
+      <!-- 作業組別快篩膠囊列 -->
       <div class="group-pills-row">
         <span class="grp-title">📂 作業組別：</span>
         <button
@@ -237,7 +237,11 @@
             </tr>
           </thead>
 
-          <tbody @click="onTbodyClick">
+          <!-- 滑鼠左鍵按住拖曳批量勾選 / 取消 -->
+          <tbody
+            @mousedown.prevent="onTbodyMouseDown"
+            @mouseover="onTbodyMouseOver"
+          >
             <tr v-if="pagedRows.length === 0">
               <td :colspan="visibleSkills.length + 11" class="empty-cell">
                 {{ currentEmployees.length === 0 ? '尚無人員資料，請點擊右上角「📂 匯入 Excel」上傳人員能力表！' : '找不到符合條件的人員資料' }}
@@ -305,12 +309,13 @@
                   type="button"
                   class="mini-icon-btn btn-check-all"
                   :title="isAllVisibleChecked(row.emp) ? '一鍵取消目前篩選能力' : '一鍵全勾選目前篩選能力'"
+                  @mousedown.stop
                   @click.stop="toggleAllSkillsForEmployee(row.emp)"
                 >
                   ✓✓
                 </button>
-                <button type="button" class="mini-icon-btn btn-edit" title="編輯人員" @click.stop="openEditEmployeeModal(row.emp)">✎</button>
-                <button type="button" class="mini-icon-btn btn-del" title="刪除人員" @click.stop="confirmDeleteEmployee(row.emp)">✕</button>
+                <button type="button" class="mini-icon-btn btn-edit" title="編輯人員" @mousedown.stop @click.stop="openEditEmployeeModal(row.emp)">✎</button>
+                <button type="button" class="mini-icon-btn btn-del" title="刪除人員" @mousedown.stop @click.stop="confirmDeleteEmployee(row.emp)">✕</button>
               </td>
             </tr>
           </tbody>
@@ -543,9 +548,11 @@ export default {
     }
   },
   created() {
-    // 使用非響應式佇列，避免快速連打時每次都觸發上方狀態文字重繪造成卡頓
     this._rawPendingMap = new Map();
     this._syncTimer = null;
+    // 滑鼠按住左鍵拖曳批量勾選狀態
+    this._isMouseDragging = false;
+    this._dragTargetVal = 1; // 1 = 批量打勾, 0 = 批量取消
   },
   computed: {
     canImport() {
@@ -712,8 +719,10 @@ export default {
   },
   mounted() {
     this.fetchAllData();
+    window.addEventListener('mouseup', this.handleGlobalMouseUp);
   },
   beforeUnmount() {
+    window.removeEventListener('mouseup', this.handleGlobalMouseUp);
     this.flushUpdates();
   },
   methods: {
@@ -838,7 +847,6 @@ export default {
       this.staffGroupFilter = 'all';
       this.changePage(1);
     },
-    // 切換作業組別膠囊時，自動同步人員組別篩選
     setGroupFilter(grp) {
       this.groupFilter = grp;
       if (grp === 'all') {
@@ -918,20 +926,51 @@ export default {
       });
     },
 
-    onTbodyClick(e) {
+    // 滑鼠左鍵按下：決定本次拖曳是「批量打勾 (1)」還是「批量取消 (0)」
+    onTbodyMouseDown(e) {
+      if (e.button !== 0) return; // 只響應滑鼠左鍵
       const td = e.target.closest('td.skill-cell');
       if (!td) return;
       const rIdx = Number(td.dataset.r);
       const cIdx = Number(td.dataset.c);
-      if (!isNaN(rIdx) && !isNaN(cIdx)) {
-        this.focusedRowIdx = rIdx;
-        this.focusedColIdx = cIdx;
-        this.toggleCell(rIdx, cIdx);
-        if (this.$refs.tableScrollContainer) {
-          this.$refs.tableScrollContainer.focus({ preventScroll: true });
-        }
+      if (isNaN(rIdx) || isNaN(cIdx)) return;
+
+      const row = this.pagedRows[rIdx];
+      const skill = this.visibleSkills[cIdx];
+      if (!row || !skill) return;
+
+      const curVal = row.emp.skills?.[skill.id] === 1 ? 1 : 0;
+      const targetVal = curVal === 1 ? 0 : 1;
+
+      this._isMouseDragging = true;
+      this._dragTargetVal = targetVal;
+      this.focusedRowIdx = rIdx;
+      this.focusedColIdx = cIdx;
+      this.setCellExplicitValue(rIdx, cIdx, targetVal);
+
+      if (this.$refs.tableScrollContainer) {
+        this.$refs.tableScrollContainer.focus({ preventScroll: true });
       }
     },
+
+    // 按住滑鼠左鍵滑過其他格子時，自動套用同一批勾選/取消狀態
+    onTbodyMouseOver(e) {
+      if (!this._isMouseDragging) return;
+      const td = e.target.closest('td.skill-cell');
+      if (!td) return;
+      const rIdx = Number(td.dataset.r);
+      const cIdx = Number(td.dataset.c);
+      if (isNaN(rIdx) || isNaN(cIdx)) return;
+
+      this.focusedRowIdx = rIdx;
+      this.focusedColIdx = cIdx;
+      this.setCellExplicitValue(rIdx, cIdx, this._dragTargetVal);
+    },
+
+    handleGlobalMouseUp() {
+      this._isMouseDragging = false;
+    },
+
     handleMatrixKeydown(e) {
       if (this.pagedRows.length === 0 || this.visibleSkills.length === 0) return;
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
@@ -954,18 +993,21 @@ export default {
         }
       }
     },
-    toggleCell(rIdx, cIdx) {
+
+    setCellExplicitValue(rIdx, cIdx, targetVal) {
       const row = this.pagedRows[rIdx];
       const skill = this.visibleSkills[cIdx];
       if (!row || !skill) return;
 
       const emp = row.emp;
       if (!emp.skills) emp.skills = {};
-      const newVal = emp.skills[skill.id] === 1 ? 0 : 1;
-      const delta = newVal === 1 ? 1 : -1;
+      const curVal = emp.skills[skill.id] === 1 ? 1 : 0;
+      if (curVal === targetVal) return; // 狀態已相同則不重複寫入
+
+      const delta = targetVal === 1 ? 1 : -1;
       const nowStr = this.formatNow();
 
-      if (newVal === 1) emp.skills[skill.id] = 1;
+      if (targetVal === 1) emp.skills[skill.id] = 1;
       else delete emp.skills[skill.id];
 
       if (skill.type === 'field') emp._f = Math.max(0, (emp._f || 0) + delta);
@@ -975,8 +1017,17 @@ export default {
       emp.lastUpdated = nowStr;
       this.renderTick++;
 
-      this.queueUpdate(this.currentWarehouse, emp.id, skill.id, newVal, nowStr);
+      this.queueUpdate(this.currentWarehouse, emp.id, skill.id, targetVal, nowStr);
     },
+
+    toggleCell(rIdx, cIdx) {
+      const row = this.pagedRows[rIdx];
+      const skill = this.visibleSkills[cIdx];
+      if (!row || !skill) return;
+      const newVal = row.emp.skills?.[skill.id] === 1 ? 0 : 1;
+      this.setCellExplicitValue(rIdx, cIdx, newVal);
+    },
+
     toggleAllSkillsForEmployee(emp) {
       if (this.visibleSkills.length === 0) return;
       if (!emp.skills) emp.skills = {};
@@ -1004,7 +1055,6 @@ export default {
       ElMessage.success(targetVal === 1 ? `已全勾選「${emp.name}」目前顯示能力` : `已取消「${emp.name}」目前顯示能力`);
     },
 
-    // 非響應式靜默佇列 + 1.2 秒防抖（連打按鍵時不重繪上方狀態文字，停止操作後一次寫入）
     queueUpdate(whName, empId, skillId, val, lastUpdated) {
       const key = `${whName}|||${empId}|||${skillId}`;
       this._rawPendingMap.set(key, { whName, empId, skillId, val, lastUpdated });
