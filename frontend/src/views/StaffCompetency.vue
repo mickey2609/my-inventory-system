@@ -1062,7 +1062,7 @@ export default {
       }).catch(() => {});
     },
 
-    // Excel 匯入（無需 JSON 種子檔：自動解析能力表頭、補零 5 碼員編、支援完整能力矩陣與純人員名冊）
+    // Excel 匯入（自動建立能力表頭 + 補零 5 碼員編 + 還原大園倉組別 + 支援純人員名冊）
     async handleExcelImport(e) {
       const file = e.target.files?.[0];
       if (!file) return;
@@ -1133,7 +1133,7 @@ export default {
           }
         }
 
-        // 支援格式 A：4 個倉別能力矩陣分頁（自動建立能力表頭＋人員勾選紀錄）
+        // 支援格式 A：四大倉別能力矩陣分頁（自動建立能力表頭＋人員勾選紀錄）
         wb.SheetNames.forEach(sheetName => {
           const matchedWh = mapWhName(sheetName);
           if (!matchedWh) return;
@@ -1168,7 +1168,7 @@ export default {
             }
             if (!nTxt) continue;
 
-            // 自動排除重複欄位 ID（若同組同分類出現同名欄位則自動加編號區隔）
+            // 自動排除重複欄位 ID（同組同分類出現同名欄位則自動加編號區隔）
             let sid = `${actGrp}::${actSub}::${nTxt}`;
             let suffix = 2;
             while (seenSkillIds.has(sid)) {
@@ -1289,7 +1289,6 @@ export default {
 </script>
 
 <style scoped>
-/* 亮白底色 ERP 風格 */
 .staff-competency-light-page {
   height: calc(100vh - 52px);
   background-color: #e2e8f0;
