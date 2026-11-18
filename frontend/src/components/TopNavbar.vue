@@ -1,3 +1,4 @@
+<!-- frontend/src/components/TopNavbar.vue -->
 <template>
   <div class="top-navbar">
     <div class="nav-left">
@@ -81,6 +82,7 @@ export default {
         'delivery_cost': '💰 物流費與包材成本分析',
         'delivery_undelivered': '🚨 未配達與異常貨態追蹤',
         'staff_competency': '🧑‍💼 人員綜合能力管理',
+        'storage_accuracy': '📍 80庫儲位準確率',
         'wms_fish_screenshot': '📸 WMS 魚群截圖辨識',
         'settings_perm': '⚙️ 權限管理',
         'settings_log': '📜 日誌歷程查詢'

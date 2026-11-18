@@ -142,6 +142,12 @@
           <div class="action-desc">各樓層儲位類型統計</div>
         </div>
 
+        <div v-if="hasPermission('storage_accuracy')" class="action-card" @click="openTab('storage_accuracy')">
+          <div class="action-icon">📍</div>
+          <div class="action-title">80庫儲位準確率</div>
+          <div class="action-desc">線上設定借/採與大區儲位規則，稽核擺放合規率與異常移庫單</div>
+        </div>
+
         <div v-if="hasPermission('turnover')" class="action-card" @click="openTab('turnover')">
           <div class="action-icon">📈</div>
           <div class="action-title">迴轉率清單</div>

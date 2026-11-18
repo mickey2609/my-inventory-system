@@ -138,6 +138,10 @@
             :is-sys-admin="isSysAdmin"
           />
 
+          <StorageAccuracy 
+            v-else-if="currentTab === 'storage_accuracy'" key="storage_accuracy"
+          />
+
           <WmsFishScreenshot 
             v-else-if="currentTab === 'wms_fish_screenshot'" key="wms_fish_screenshot"
             :is-admin="isAdmin"
@@ -269,6 +273,7 @@ import DeliveryFlowList from './views/DeliveryFlowList.vue'
 import DeliveryCostAnalysis from './views/DeliveryCostAnalysis.vue'
 import DeliveryUndeliveredAnalysis from './views/DeliveryUndeliveredAnalysis.vue'
 import StaffCompetency from './views/StaffCompetency.vue'
+import StorageAccuracy from './views/StorageAccuracy.vue'
 import WmsFishScreenshot from './views/WmsFishScreenshot.vue'
 import SettingsPerm from './views/SettingsPerm.vue'
 import SettingsLog from './views/SettingsLog.vue'
@@ -289,13 +294,14 @@ const TAB_PATH_MAP = {
   'abnormal_purchase': '/abnormal-purchase',
   'inbound_fish': '/inbound-fish',
   'replenish_fish': '/replenish-fish',
-  'transfer_80_15': '/transfer-8015',
-  'transfer_15_80': '/transfer-1580',
+  'transfer_80_15': '/transfer-80-15',
+  'transfer_15_80': '/transfer-15-80',
   'dispatch_fish': '/dispatch-fish',
   'delivery_flow': '/delivery-flow',
   'delivery_cost': '/delivery-cost',
   'delivery_undelivered': '/delivery-undelivered',
   'staff_competency': '/staff-competency',
+  'storage_accuracy': '/storage-accuracy',
   'wms_fish_screenshot': '/wms-fish-screenshot',
   'settings_perm': '/settings-perm',
   'settings_log': '/settings-log'
@@ -312,7 +318,7 @@ export default {
     ImportTipModal, UserManagementModals, InventorySearchModal, HomeDashboard,
     LoginOverlay, InvQuery80, InvSearch15, LocSummary, ItemSalesHistory, TurnoverList, AbnormalPurchase,
     InboundFishList, ReplenishFishList, Transfer8015FishList, Transfer1580FishList, DispatchFishList,
-    DeliveryFlowList, DeliveryCostAnalysis, DeliveryUndeliveredAnalysis, StaffCompetency, WmsFishScreenshot,
+    DeliveryFlowList, DeliveryCostAnalysis, DeliveryUndeliveredAnalysis, StaffCompetency, StorageAccuracy, WmsFishScreenshot,
     SettingsPerm, SettingsLog
   },
   setup() {
@@ -400,6 +406,7 @@ export default {
         { key: 'delivery_cost', name: '💰 物流費與包材成本分析' },
         { key: 'delivery_undelivered', name: '🚨 未配達與異常貨態追蹤' },
         { key: 'staff_competency', name: '🧑‍💼 人員綜合能力管理' },
+        { key: 'storage_accuracy', name: '📍 80庫儲位準確率' },
         { key: 'wms_fish_screenshot', name: '📸 WMS 魚群截圖辨識' }
       ],
 
@@ -1041,6 +1048,7 @@ export default {
         'delivery_cost': '💰 物流費與包材成本分析',
         'delivery_undelivered': '🚨 未配達與異常貨態追蹤',
         'staff_competency': '🧑‍💼 人員綜合能力管理',
+        'storage_accuracy': '📍 80庫儲位準確率',
         'wms_fish_screenshot': '📸 WMS 魚群截圖辨識',
         'settings_perm': '⚙️ 權限管理',
         'settings_log': '📜 日誌歷程查詢'

@@ -70,6 +70,9 @@ app.use('/api/dispatch', dispatchFishRouter);
 const deliveryFlowRouter = require('./routes/deliveryFlow');
 app.use('/api/delivery', deliveryFlowRouter(db));
 
+const storageAccuracyRouter = require('./routes/storageAccuracy')(db);
+app.use('/api/storage-accuracy', storageAccuracyRouter);
+
 // 5.2 🌟 人員綜合能力管理系統 API
 const staffCompetencyRouter = require('./routes/staffCompetency')(db);
 app.use('/api/staff-competency', staffCompetencyRouter);
