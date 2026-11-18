@@ -105,12 +105,12 @@
           v-model="searchTerm"
           size="mini"
           placeholder="🔍 搜尋員編 / 姓名..."
-          style="width: 170px;"
+          style="width: 160px;"
           clearable
           @input="changePage(1)"
         />
 
-        <el-select v-model="staffGroupFilter" size="mini" style="width: 155px;" @change="changePage(1)">
+        <el-select v-model="staffGroupFilter" size="mini" style="width: 150px;" @change="changePage(1)">
           <el-option :label="`全部人員組別 (${currentEmployees.length}人)`" value="all" />
           <el-option
             v-for="(cnt, grp) in staffGroupCounts"
@@ -120,7 +120,17 @@
           />
         </el-select>
 
-        <el-select v-model="updateStatusFilter" size="mini" style="width: 165px;" @change="changePage(1)">
+        <el-select v-model="shiftFilter" size="mini" style="width: 130px;" @change="changePage(1)">
+          <el-option label="全部班別" value="all" />
+          <el-option
+            v-for="(cnt, sh) in shiftCounts"
+            :key="sh"
+            :label="`${sh} (${cnt}人)`"
+            :value="sh"
+          />
+        </el-select>
+
+        <el-select v-model="updateStatusFilter" size="mini" style="width: 160px;" @change="changePage(1)">
           <el-option label="全部更新狀態" value="all" />
           <el-option label="逾 30 天未更新 / 未建檔" value="overdue" />
           <el-option label="30 天內已更新" value="fresh" />
@@ -133,7 +143,7 @@
           <el-radio-button label="cadre">幹部</el-radio-button>
         </el-radio-group>
 
-        <el-select v-model="sortBy" size="mini" style="width: 135px;" @change="changePage(1)">
+        <el-select v-model="sortBy" size="mini" style="width: 130px;" @change="changePage(1)">
           <el-option label="預設順序" value="default" />
           <el-option label="總分高到低" value="rankAsc" />
           <el-option label="總分低到高" value="rankDesc" />
@@ -141,7 +151,7 @@
           <el-option label="員編順序" value="idAsc" />
         </el-select>
 
-        <el-select v-model="pageSize" size="mini" style="width: 115px;" @change="changePage(1)">
+        <el-select v-model="pageSize" size="mini" style="width: 110px;" @change="changePage(1)">
           <el-option label="每頁 50 筆" :value="50" />
           <el-option label="每頁 100 筆" :value="100" />
           <el-option label="每頁 200 筆" :value="200" />
@@ -178,7 +188,7 @@
       </div>
     </div>
 
-    <!-- 2. 主能力矩陣表格區 -->
+    <!-- 2. 主能力矩陣表格區（左側 6 欄凍結：組別、班別、員編、姓名、該組進度、全能進度） -->
     <div class="matrix-wrapper" v-loading="loading">
       <div
         class="table-scroll-container"
@@ -190,9 +200,11 @@
           <thead>
             <tr>
               <th rowspan="3" class="sticky-col-1 th-base">所屬組別</th>
-              <th rowspan="3" class="sticky-col-2 th-base">員編</th>
-              <th rowspan="3" class="sticky-col-3 th-base">姓名</th>
-              <th rowspan="3" class="sticky-col-4 th-base">全能進度</th>
+              <th rowspan="3" class="sticky-col-2 th-base">班別</th>
+              <th rowspan="3" class="sticky-col-3 th-base">員編</th>
+              <th rowspan="3" class="sticky-col-4 th-base">姓名</th>
+              <th rowspan="3" class="sticky-col-5 th-base" title="僅計算該員所屬組別工作項目的完成比例">該組進度</th>
+              <th rowspan="3" class="sticky-col-6 th-base" title="計算全倉所有工作項目的完成比例">全能進度</th>
               <th
                 v-for="(seg, idx) in groupSegments"
                 :key="'g_' + idx"
@@ -237,13 +249,12 @@
             </tr>
           </thead>
 
-          <!-- 滑鼠左鍵按住拖曳批量勾選 / 取消 -->
           <tbody
             @mousedown.prevent="onTbodyMouseDown"
             @mouseover="onTbodyMouseOver"
           >
             <tr v-if="pagedRows.length === 0">
-              <td :colspan="visibleSkills.length + 11" class="empty-cell">
+              <td :colspan="visibleSkills.length + 13" class="empty-cell">
                 {{ currentEmployees.length === 0 ? '尚無人員資料，請點擊右上角「📂 匯入 Excel」上傳人員能力表！' : '找不到符合條件的人員資料' }}
               </td>
             </tr>
@@ -255,9 +266,25 @@
               <td class="sticky-col-1">
                 <span class="staff-grp-badge">{{ row.emp.staffGroup || '未分組' }}</span>
               </td>
-              <td class="sticky-col-2 font-bold text-blue">{{ row.emp.id }}</td>
-              <td class="sticky-col-3 font-bold">{{ row.emp.name }}</td>
-              <td class="sticky-col-4">
+              <td class="sticky-col-2">
+                <span v-if="row.emp.shiftName" class="shift-badge">{{ row.emp.shiftName }}</span>
+                <span v-else class="text-dim" style="font-size: 11px;">-</span>
+              </td>
+              <td class="sticky-col-3 font-bold text-blue">{{ row.emp.id }}</td>
+              <td class="sticky-col-4 font-bold">{{ row.emp.name }}</td>
+              <td class="sticky-col-5">
+                <div class="pct-box">
+                  <div class="pct-track">
+                    <div
+                      class="pct-fill"
+                      :class="row.groupPct === 100 ? 'fill-full' : (row.groupPct >= 60 ? 'fill-group-mid' : 'fill-group-low')"
+                      :style="{ width: `${row.groupPct}%` }"
+                    ></div>
+                  </div>
+                  <span class="pct-txt text-cyan">{{ row.groupPct }}%</span>
+                </div>
+              </td>
+              <td class="sticky-col-6">
                 <div class="pct-box">
                   <div class="pct-track">
                     <div
@@ -322,7 +349,7 @@
 
           <tfoot v-if="visibleSkills.length > 0">
             <tr>
-              <td colspan="4" class="sticky-col-1 tfoot-title">各項目會做人數 / 覆蓋率</td>
+              <td colspan="6" class="sticky-col-1 tfoot-title">各項目會做人數 / 覆蓋率</td>
               <td v-for="s in visibleSkills" :key="'foot_' + s.id" class="tfoot-cell">
                 <div :class="getSkillPct(s.id) === 0 ? 'text-red' : (getSkillPct(s.id) >= 80 ? 'text-green' : 'text-yellow')">
                   {{ skillCapableCounts[s.id] || 0 }}人
@@ -350,17 +377,17 @@
       </div>
     </div>
 
-    <!-- 3. 新增 / 編輯人員 Modal -->
+    <!-- 3. 新增 / 編輯人員 Modal（新增班別欄位） -->
     <el-dialog
       v-model="showEmpModal"
       :title="editingOriginalEmp ? `編輯人員能力 - ${empForm.name} (${empForm.id})` : '新增人員與能力登記'"
-      width="740px"
+      width="780px"
       top="4vh"
       append-to-body
       custom-class="dark-dialog"
     >
       <div class="emp-modal-body">
-        <div class="emp-form-grid">
+        <div class="emp-form-grid-5">
           <div>
             <label class="f-lbl">所屬倉別 *</label>
             <el-select v-model="empForm.warehouse" size="mini" style="width: 100%;">
@@ -371,6 +398,15 @@
             <label class="f-lbl">所屬組別 *</label>
             <el-select v-model="empForm.staffGroup" size="mini" filterable allow-create style="width: 100%;">
               <el-option v-for="g in getWarehouseGroups(empForm.warehouse)" :key="g" :label="g" :value="g" />
+            </el-select>
+          </div>
+          <div>
+            <label class="f-lbl">班別</label>
+            <el-select v-model="empForm.shiftName" size="mini" filterable allow-create clearable placeholder="選擇或輸入班別" style="width: 100%;">
+              <el-option label="早班" value="早班" />
+              <el-option label="中班" value="中班" />
+              <el-option label="晚班" value="晚班" />
+              <el-option label="常日班" value="常日班" />
             </el-select>
           </div>
           <div>
@@ -494,6 +530,8 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import * as XLSX from 'xlsx'
 
 const OVERDUE_DAYS_LIMIT = 30;
+// 左側 6 欄凍結總寬度：組別(74) + 班別(64) + 員編(72) + 姓名(76) + 該組進度(84) + 全能進度(84) = 454px
+const STICKY_LEFT_TOTAL_PX = 454;
 
 export default {
   name: 'StaffCompetency',
@@ -516,6 +554,7 @@ export default {
 
       searchTerm: '',
       staffGroupFilter: 'all',
+      shiftFilter: 'all',
       updateStatusFilter: 'all',
       skillTypeFilter: 'all',
       groupFilter: 'all',
@@ -534,6 +573,7 @@ export default {
       empForm: {
         warehouse: '林口倉',
         staffGroup: '進貨組',
+        shiftName: '',
         id: '',
         name: '',
         markReviewed: true,
@@ -595,6 +635,14 @@ export default {
       });
       return map;
     },
+    shiftCounts() {
+      const map = {};
+      this.currentEmployees.forEach(e => {
+        const sh = e.shiftName || '未設定班別';
+        map[sh] = (map[sh] || 0) + 1;
+      });
+      return map;
+    },
     overdueCountByWh() {
       void this.renderTick;
       const res = {};
@@ -635,13 +683,21 @@ export default {
     scoredRows() {
       void this.renderTick;
       const totalSkillCnt = this.currentSkills.length;
+      const grpCntMap = this.skillGroupCounts;
+
       const rows = this.currentEmployees.map(emp => {
         const f = emp._f || 0;
         const sp = emp._sp || 0;
         const ca = emp._ca || 0;
         const totalScore = f + sp + ca;
         const pct = totalSkillCnt > 0 ? Math.round((totalScore / totalSkillCnt) * 100) : 0;
-        return { emp, fieldScore: f, specialScore: sp, cadreScore: ca, totalScore, pct, rank: 1 };
+
+        // 計算「該組進度」：該員所屬組別已會項目數 / 該組總項目數
+        const grpTotal = grpCntMap[emp.staffGroup] || 0;
+        const grpDone = emp._grpDone || 0;
+        const groupPct = grpTotal > 0 ? Math.round((grpDone / grpTotal) * 100) : 0;
+
+        return { emp, fieldScore: f, specialScore: sp, cadreScore: ca, totalScore, pct, groupPct, rank: 1 };
       });
 
       const sortedScores = [...rows].map(r => r.totalScore).sort((a, b) => b - a);
@@ -672,10 +728,12 @@ export default {
       let list = this.scoredRows.filter(item => {
         const okKw = !kw || item.emp.id.toLowerCase().includes(kw) || item.emp.name.toLowerCase().includes(kw);
         const okGrp = this.staffGroupFilter === 'all' || (item.emp.staffGroup || '未分組') === this.staffGroupFilter;
+        const empShift = item.emp.shiftName || '未設定班別';
+        const okShift = this.shiftFilter === 'all' || empShift === this.shiftFilter;
         let okUpd = true;
         if (this.updateStatusFilter === 'overdue') okUpd = this.isEmployeeOverdue(item.emp);
         else if (this.updateStatusFilter === 'fresh') okUpd = !this.isEmployeeOverdue(item.emp);
-        return okKw && okGrp && okUpd;
+        return okKw && okGrp && okShift && okUpd;
       });
 
       if (this.sortBy === 'rankAsc') list = [...list].sort((a, b) => b.totalScore - a.totalScore);
@@ -734,7 +792,6 @@ export default {
     this.flushUpdates();
   },
   methods: {
-    // 5 秒背景無感自動同步（含編輯中防覆蓋保護）
     startAutoSyncPoll() {
       this.stopAutoSyncPoll();
       this._pollTimer = setInterval(() => {
@@ -769,7 +826,6 @@ export default {
         const verRes = await axios.get('/api/staff-competency/version');
         const remoteVer = verRes.data?.version || 0;
         if (remoteVer && remoteVer !== this._localVersion) {
-          // 再次確認檢查期間使用者沒有開始打勾或拖曳，防止覆蓋本機未存檔操作
           if (this.isUserActivelyEditing()) return;
           const allRes = await axios.get('/api/staff-competency/all');
           if (allRes.data?.success && allRes.data.data && !this.isUserActivelyEditing()) {
@@ -780,7 +836,6 @@ export default {
           }
         }
       } catch (e) {
-        // 背景靜默檢查失敗不跳干擾提示
       } finally {
         this._isPolling = false;
       }
@@ -791,25 +846,30 @@ export default {
       this.warehouses.forEach(wh => {
         const block = rawData?.[wh] || { skills: [], employees: [] };
         const skills = block.skills || [];
-        const typeMap = new Map(skills.map(s => [s.id, s.type]));
+        const skillMetaMap = new Map(skills.map(s => [s.id, { type: s.type, group: s.group }]));
 
         const employees = (block.employees || []).map(emp => {
           const rawSkills = { ...(emp.skills || {}) };
-          let f = 0, sp = 0, ca = 0;
+          let f = 0, sp = 0, ca = 0, grpDone = 0;
           for (const sid in rawSkills) {
             if (rawSkills[sid] === 1) {
-              const t = typeMap.get(sid);
-              if (t === 'field') f++;
-              else if (t === 'special') sp++;
-              else if (t === 'cadre') ca++;
+              const meta = skillMetaMap.get(sid);
+              if (meta) {
+                if (meta.type === 'field') f++;
+                else if (meta.type === 'special') sp++;
+                else if (meta.type === 'cadre') ca++;
+                if (meta.group === emp.staffGroup) grpDone++;
+              }
             }
           }
           return {
             ...emp,
+            shiftName: emp.shiftName || '',
             skills: rawSkills,
             _f: f,
             _sp: sp,
-            _ca: ca
+            _ca: ca,
+            _grpDone: grpDone
           };
         });
 
@@ -905,6 +965,7 @@ export default {
       this.currentWarehouse = wh;
       this.groupFilter = 'all';
       this.staffGroupFilter = 'all';
+      this.shiftFilter = 'all';
       this.changePage(1);
     },
     setGroupFilter(grp) {
@@ -960,14 +1021,13 @@ export default {
         );
         if (!cell) return;
 
-        const stickyLeftWidth = 316;
         const cellLeft = cell.offsetLeft;
         const cellRight = cellLeft + cell.offsetWidth;
-        const viewLeft = container.scrollLeft + stickyLeftWidth;
+        const viewLeft = container.scrollLeft + STICKY_LEFT_TOTAL_PX;
         const viewRight = container.scrollLeft + container.clientWidth - 16;
 
         if (cellLeft < viewLeft) {
-          container.scrollLeft = Math.max(0, cellLeft - stickyLeftWidth - 8);
+          container.scrollLeft = Math.max(0, cellLeft - STICKY_LEFT_TOTAL_PX - 8);
         } else if (cellRight > viewRight) {
           container.scrollLeft = cellRight - container.clientWidth + 24;
         }
@@ -1073,6 +1133,11 @@ export default {
       else if (skill.type === 'special') emp._sp = Math.max(0, (emp._sp || 0) + delta);
       else if (skill.type === 'cadre') emp._ca = Math.max(0, (emp._ca || 0) + delta);
 
+      // 同步更新該組進度快取
+      if (skill.group === emp.staffGroup) {
+        emp._grpDone = Math.max(0, (emp._grpDone || 0) + delta);
+      }
+
       emp.lastUpdated = nowStr;
       this.renderTick++;
 
@@ -1100,12 +1165,14 @@ export default {
           if (s.type === 'field') emp._f = (emp._f || 0) + 1;
           else if (s.type === 'special') emp._sp = (emp._sp || 0) + 1;
           else if (s.type === 'cadre') emp._ca = (emp._ca || 0) + 1;
+          if (s.group === emp.staffGroup) emp._grpDone = (emp._grpDone || 0) + 1;
           this.queueUpdate(this.currentWarehouse, emp.id, s.id, 1, nowStr);
         } else if (targetVal === 0 && wasChecked) {
           delete emp.skills[s.id];
           if (s.type === 'field') emp._f = Math.max(0, (emp._f || 0) - 1);
           else if (s.type === 'special') emp._sp = Math.max(0, (emp._sp || 0) - 1);
           else if (s.type === 'cadre') emp._ca = Math.max(0, (emp._ca || 0) - 1);
+          if (s.group === emp.staffGroup) emp._grpDone = Math.max(0, (emp._grpDone || 0) - 1);
           this.queueUpdate(this.currentWarehouse, emp.id, s.id, 0, nowStr);
         }
       });
@@ -1158,6 +1225,7 @@ export default {
       this.empForm = {
         warehouse: this.currentWarehouse,
         staffGroup: this.groupFilter !== 'all' ? this.groupFilter : '進貨組',
+        shiftName: '',
         id: '',
         name: '',
         markReviewed: true,
@@ -1170,6 +1238,7 @@ export default {
       this.empForm = {
         warehouse: this.currentWarehouse,
         staffGroup: emp.staffGroup || '進貨組',
+        shiftName: emp.shiftName || '',
         id: emp.id,
         name: emp.name,
         markReviewed: true,
@@ -1206,6 +1275,7 @@ export default {
         id: cleanId,
         name: cleanName,
         staffGroup: this.empForm.staffGroup || '一般作業組',
+        shiftName: String(this.empForm.shiftName || '').trim(),
         lastUpdated: finalLastUpdated,
         skills: { ...this.empForm.skills }
       };
@@ -1309,14 +1379,16 @@ export default {
           return '';
         };
 
+        // 支援格式 B：單一工作表純人員名冊（欄位含 倉別 / 組別 / 班別(選填) / 員編 / 姓名）
         const firstSheetRows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
-        let rosterHeaderRow = -1, whCol = -1, grpCol = -1, idCol = -1, nameCol = -1;
+        let rosterHeaderRow = -1, whCol = -1, grpCol = -1, shiftCol = -1, idCol = -1, nameCol = -1;
         for (let r = 0; r < Math.min(firstSheetRows.length, 10); r++) {
           const row = firstSheetRows[r] || [];
           row.forEach((cell, idx) => {
             const txt = String(cell || '').replace(/\s+/g, '');
             if (txt === '倉別' || txt === '倉區') whCol = idx;
             if (txt === '組別' || txt === '所屬組別' || txt === '單位') grpCol = idx;
+            if (txt === '班別' || txt === '班次') shiftCol = idx;
             if (txt === '員編' || txt === '員工編號' || txt === '工號') { rosterHeaderRow = r; idCol = idx; }
             if (txt === '姓名' || txt === '員工姓名') nameCol = idx;
           });
@@ -1337,10 +1409,12 @@ export default {
 
             const prevEmp = (this.appData[whName]?.employees || []).find(x => x.id === rawId);
             const rawGrp = grpCol !== -1 ? String(row[grpCol] ?? '').trim() : '';
+            const rawShift = shiftCol !== -1 ? String(row[shiftCol] ?? '').trim() : '';
             groupedEmps[whName].push({
               id: rawId,
               name: empName,
               staffGroup: rawGrp || prevEmp?.staffGroup || '一般作業組',
+              shiftName: rawShift || prevEmp?.shiftName || '',
               lastUpdated: prevEmp?.lastUpdated || '',
               skills: prevEmp?.skills || {}
             });
@@ -1368,6 +1442,7 @@ export default {
           }
         }
 
+        // 支援格式 A：四大倉別能力矩陣分頁（自動偵測是否含「班別」欄）
         wb.SheetNames.forEach(sheetName => {
           const matchedWh = mapWhName(sheetName);
           if (!matchedWh) return;
@@ -1376,8 +1451,13 @@ export default {
           if (rows.length < 4) return;
 
           const row1 = (rows[1] || []).map(x => String(x || '').replace(/\s+/g, ''));
+          const hasShiftCol = row1[1] === '班別';
+          const idColIdx = hasShiftCol ? 2 : 1;
+          const nameColIdx = hasShiftCol ? 3 : 2;
+          const skillStartCol = hasShiftCol ? 4 : 3;
+
           let fCol = row1.findIndex(x => x === '現場小計' || x === '能力總分' || x === '現場');
-          if (fCol <= 3) fCol = rows[2].length;
+          if (fCol <= skillStartCol) fCol = rows[2].length;
           const updCol = row1.findIndex(x => x.includes('最後更新'));
 
           const existingEmpMap = new Map((this.appData[matchedWh]?.employees || []).map(emp => [emp.id, emp]));
@@ -1389,7 +1469,7 @@ export default {
           let actSub = '現場人員所需能力';
           let actType = 'field';
 
-          for (let c = 3; c < fCol; c++) {
+          for (let c = skillStartCol; c < fCol; c++) {
             const gTxt = String(rows[0]?.[c] || '').trim();
             const sTxt = String(rows[1]?.[c] || '').trim();
             const nTxt = String(rows[2]?.[c] || '').trim();
@@ -1422,15 +1502,16 @@ export default {
           const newEmployees = [];
           for (let r = 3; r < rows.length; r++) {
             const row = rows[r] || [];
-            let rawId = String(row[1] ?? '').trim();
+            let rawId = String(row[idColIdx] ?? '').trim();
             if (rawId.endsWith('.0')) rawId = rawId.slice(0, -2);
             if (/^\d{5}$/.test(rawId)) rawId = rawId.padStart(6, '0');
-            const empName = String(row[2] ?? '').trim();
+            const empName = String(row[nameColIdx] ?? '').trim();
             if (!rawId || !empName || rawId.includes('會做人數')) continue;
 
             const prevEmp = existingEmpMap.get(rawId);
             const rawGrp = String(row[0] ?? '').trim();
             const staffGroup = (rawGrp && rawGrp !== '十二倉') ? rawGrp : (prevEmp?.staffGroup || '一般作業組');
+            const shiftName = hasShiftCol ? String(row[1] ?? '').trim() : (prevEmp?.shiftName || '');
             const skills = {};
             Object.entries(colToSkillId).forEach(([cStr, sid]) => {
               const v = row[Number(cStr)];
@@ -1439,7 +1520,7 @@ export default {
               }
             });
             const lastUpdated = updCol !== -1 ? String(row[updCol] ?? '').trim() : (prevEmp?.lastUpdated || '');
-            newEmployees.push({ id: rawId, name: empName, staffGroup, lastUpdated, skills });
+            newEmployees.push({ id: rawId, name: empName, staffGroup, shiftName, lastUpdated, skills });
           }
 
           if (parsedSkills.length > 0 || newEmployees.length > 0) {
@@ -1485,9 +1566,9 @@ export default {
         const skills = whData.skills;
         const employees = whData.employees;
 
-        const row1 = ['基本資料', '', ''];
-        const row2 = ['組別', '員編', '姓名'];
-        const row3 = ['', '', ''];
+        const row1 = ['基本資料', '', '', ''];
+        const row2 = ['組別', '班別', '員編', '姓名'];
+        const row3 = ['', '', '', ''];
 
         skills.forEach(s => {
           row1.push(s.group);
@@ -1512,7 +1593,7 @@ export default {
 
         scored.forEach(item => {
           const rank = sortedTotals.indexOf(item.total) + 1;
-          const r = [item.emp.staffGroup || '', item.emp.id, item.emp.name];
+          const r = [item.emp.staffGroup || '', item.emp.shiftName || '', item.emp.id, item.emp.name];
           skills.forEach(s => r.push(item.emp.skills && item.emp.skills[s.id] === 1 ? 1 : ''));
           r.push(item.f, item.sp, item.ca, item.total, rank, item.emp.lastUpdated || '');
           sheetRows.push(r);
@@ -1800,15 +1881,18 @@ thead tr:nth-child(3) th { top: 54px; height: 48px; }
 .th-sum-total { background: #064e3b; color: #4ade80; min-width: 46px; }
 .border-left-heavy { border-left: 2px solid #64748b !important; }
 
-/* 左側 4 欄凍結（100% 不透明深黑底色） */
-.sticky-col-1 { position: sticky; left: 0; z-index: 15; width: 76px; min-width: 76px; max-width: 76px; }
-.sticky-col-2 { position: sticky; left: 76px; z-index: 15; width: 74px; min-width: 74px; max-width: 74px; }
-.sticky-col-3 { position: sticky; left: 150px; z-index: 15; width: 78px; min-width: 78px; max-width: 78px; }
-.sticky-col-4 {
-  position: sticky; left: 228px; z-index: 15; width: 88px; min-width: 88px; max-width: 88px;
+/* 左側 6 欄凍結（組別74 + 班別64 + 員編72 + 姓名76 + 該組進度84 + 全能進度84 = 454px） */
+.sticky-col-1 { position: sticky; left: 0; z-index: 15; width: 74px; min-width: 74px; max-width: 74px; }
+.sticky-col-2 { position: sticky; left: 74px; z-index: 15; width: 64px; min-width: 64px; max-width: 64px; }
+.sticky-col-3 { position: sticky; left: 138px; z-index: 15; width: 72px; min-width: 72px; max-width: 72px; }
+.sticky-col-4 { position: sticky; left: 210px; z-index: 15; width: 76px; min-width: 76px; max-width: 76px; }
+.sticky-col-5 { position: sticky; left: 286px; z-index: 15; width: 84px; min-width: 84px; max-width: 84px; }
+.sticky-col-6 {
+  position: sticky; left: 370px; z-index: 15; width: 84px; min-width: 84px; max-width: 84px;
   border-right: 2px solid #64748b !important;
 }
-thead .sticky-col-1, thead .sticky-col-2, thead .sticky-col-3, thead .sticky-col-4 {
+thead .sticky-col-1, thead .sticky-col-2, thead .sticky-col-3,
+thead .sticky-col-4, thead .sticky-col-5, thead .sticky-col-6 {
   z-index: 30;
   background: #0f172a !important;
 }
@@ -1824,14 +1908,25 @@ tbody tr:hover td { background: #1e293b !important; }
   font-size: 11px;
   font-weight: bold;
 }
+.shift-badge {
+  background: rgba(250, 204, 21, 0.16);
+  color: #fde047;
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: bold;
+}
 
-.pct-box { display: flex; align-items: center; justify-content: center; gap: 4px; padding: 0 4px; }
-.pct-track { width: 38px; height: 7px; background: #334155; border-radius: 4px; overflow: hidden; }
+.pct-box { display: flex; align-items: center; justify-content: center; gap: 4px; padding: 0 3px; }
+.pct-track { width: 36px; height: 7px; background: #334155; border-radius: 4px; overflow: hidden; }
 .pct-fill { height: 100%; }
 .fill-low { background: #f59e0b; }
 .fill-mid { background: #38bdf8; }
+.fill-group-low { background: #06b6d4; }
+.fill-group-mid { background: #22d3ee; }
 .fill-full { background: #4ade80; }
 .pct-txt { font-size: 11px; font-weight: bold; color: #cbd5e1; }
+.text-cyan { color: #22d3ee !important; }
 
 .skill-cell { cursor: pointer; padding: 5px 2px; }
 .cell-checked-field { background: #0f2922 !important; }
@@ -1936,7 +2031,7 @@ tfoot .sticky-col-1 { z-index: 25; border-right: 2px solid #64748b !important; }
 .page-indicator { color: #f8fafc; font-weight: bold; padding: 0 6px; }
 
 .emp-modal-body, .skills-modal-body { display: flex; flex-direction: column; gap: 10px; }
-.emp-form-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.emp-form-grid-5 { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
 .f-lbl { display: block; font-size: 12px; color: #cbd5e1; margin-bottom: 4px; font-weight: bold; }
 .review-check-bar { background: rgba(74, 222, 128, 0.08); border: 1px solid rgba(74, 222, 128, 0.3); padding: 6px 10px; border-radius: 6px; }
 .quick-skill-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

@@ -5,7 +5,6 @@ module.exports = function(db) {
   const router = express.Router();
   const WAREHOUSES = ['大園倉', '林口倉', '3PL一組', '3PL二組'];
 
-  // 記憶體內版本號（每次寫入 SQLite COMMIT 後自動遞增）
   let currentDataVersion = Date.now();
 
   function bumpVersion() {
@@ -49,13 +48,24 @@ module.exports = function(db) {
           emp_id TEXT NOT NULL,
           emp_name TEXT NOT NULL,
           staff_group TEXT NOT NULL,
+          shift_name TEXT DEFAULT '',
           last_updated TEXT DEFAULT '',
           skills_json TEXT DEFAULT '{}',
           sort_order INTEGER DEFAULT 0,
           UNIQUE(warehouse, emp_id)
         )
-      `, () => {
-        if (typeof callback === 'function') callback();
+      `);
+
+      // 自動檢查舊表是否缺少 shift_name（班別）欄位，無痛補齊不遺失既有資料
+      db.all(`PRAGMA table_info(staff_competency_employees)`, [], (err, cols) => {
+        const hasShift = Array.isArray(cols) && cols.some(c => c.name === 'shift_name');
+        if (!err && Array.isArray(cols) && cols.length > 0 && !hasShift) {
+          db.run(`ALTER TABLE staff_competency_employees ADD COLUMN shift_name TEXT DEFAULT ''`, () => {
+            if (typeof callback === 'function') callback();
+          });
+        } else {
+          if (typeof callback === 'function') callback();
+        }
       });
     });
   }
@@ -92,6 +102,7 @@ module.exports = function(db) {
               id: normalizeEmpId(r.emp_id),
               name: r.emp_name,
               staffGroup: r.staff_group,
+              shiftName: r.shift_name || '',
               lastUpdated: r.last_updated || '',
               skills: parsedSkills
             });
@@ -105,12 +116,12 @@ module.exports = function(db) {
 
   ensureTables();
 
-  // 0. 輕量版本號檢查（5秒背景輪詢專用，極低負擔）
+  // 0. 輕量版本號檢查
   router.get('/version', (req, res) => {
     res.json({ success: true, version: currentDataVersion });
   });
 
-  // 1. 取得全部倉別能力項目與人員資料（附帶目前版本號）
+  // 1. 取得全部倉別能力項目與人員資料
   router.get('/all', (req, res) => {
     queryAllData((err, data) => {
       if (err) return res.status(500).json({ success: false, message: err.message });
@@ -170,7 +181,7 @@ module.exports = function(db) {
     });
   });
 
-  // 3. 新增 / 編輯 / 調倉單一人員
+  // 3. 新增 / 編輯 / 調倉單一人員（含 shiftName 班別）
   router.post('/employee/save', (req, res) => {
     const { originalWarehouse, originalEmpId, targetWarehouse, emp } = req.body;
     if (!targetWarehouse || !emp || !emp.id || !emp.name) {
@@ -178,33 +189,37 @@ module.exports = function(db) {
     }
     const cleanId = normalizeEmpId(emp.id);
 
-    db.serialize(() => {
-      db.run('BEGIN TRANSACTION');
-      if (originalWarehouse && originalEmpId && (originalWarehouse !== targetWarehouse || normalizeEmpId(originalEmpId) !== cleanId)) {
-        db.run(`DELETE FROM staff_competency_employees WHERE warehouse = ? AND emp_id = ?`, [originalWarehouse, normalizeEmpId(originalEmpId)]);
-      }
+    ensureTables(() => {
+      db.serialize(() => {
+        db.run('BEGIN TRANSACTION');
+        if (originalWarehouse && originalEmpId && (originalWarehouse !== targetWarehouse || normalizeEmpId(originalEmpId) !== cleanId)) {
+          db.run(`DELETE FROM staff_competency_employees WHERE warehouse = ? AND emp_id = ?`, [originalWarehouse, normalizeEmpId(originalEmpId)]);
+        }
 
-      db.run(`
-        INSERT INTO staff_competency_employees (warehouse, emp_id, emp_name, staff_group, last_updated, skills_json)
-        VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT(warehouse, emp_id) DO UPDATE SET
-          emp_name = EXCLUDED.emp_name,
-          staff_group = EXCLUDED.staff_group,
-          last_updated = EXCLUDED.last_updated,
-          skills_json = EXCLUDED.skills_json
-      `, [
-        targetWarehouse,
-        cleanId,
-        String(emp.name).trim(),
-        String(emp.staffGroup || '一般作業組').trim(),
-        emp.lastUpdated || '',
-        JSON.stringify(emp.skills || {})
-      ]);
+        db.run(`
+          INSERT INTO staff_competency_employees (warehouse, emp_id, emp_name, staff_group, shift_name, last_updated, skills_json)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(warehouse, emp_id) DO UPDATE SET
+            emp_name = EXCLUDED.emp_name,
+            staff_group = EXCLUDED.staff_group,
+            shift_name = EXCLUDED.shift_name,
+            last_updated = EXCLUDED.last_updated,
+            skills_json = EXCLUDED.skills_json
+        `, [
+          targetWarehouse,
+          cleanId,
+          String(emp.name).trim(),
+          String(emp.staffGroup || '一般作業組').trim(),
+          String(emp.shiftName || '').trim(),
+          emp.lastUpdated || '',
+          JSON.stringify(emp.skills || {})
+        ]);
 
-      db.run('COMMIT', (err) => {
-        if (err) return res.status(500).json({ success: false, message: err.message });
-        const ver = bumpVersion();
-        res.json({ success: true, version: ver });
+        db.run('COMMIT', (err) => {
+          if (err) return res.status(500).json({ success: false, message: err.message });
+          const ver = bumpVersion();
+          res.json({ success: true, version: ver });
+        });
       });
     });
   });
@@ -267,7 +282,7 @@ module.exports = function(db) {
     });
   });
 
-  // 7. 整批匯入 / 覆蓋同步
+  // 7. 整批匯入 / 覆蓋同步（含 shiftName 班別）
   router.post('/sync-all', (req, res) => {
     const payload = req.body.data || {};
     let totalSkills = 0;
@@ -294,8 +309,8 @@ module.exports = function(db) {
             db.run(`DELETE FROM staff_competency_employees WHERE warehouse = ?`, [wh]);
             whBlock.employees.forEach((e, idx) => {
               db.run(
-                `INSERT OR REPLACE INTO staff_competency_employees (warehouse, emp_id, emp_name, staff_group, last_updated, skills_json, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                [wh, normalizeEmpId(e.id), e.name, e.staffGroup || '一般作業組', e.lastUpdated || '', JSON.stringify(e.skills || {}), idx]
+                `INSERT OR REPLACE INTO staff_competency_employees (warehouse, emp_id, emp_name, staff_group, shift_name, last_updated, skills_json, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                [wh, normalizeEmpId(e.id), e.name, e.staffGroup || '一般作業組', String(e.shiftName || '').trim(), e.lastUpdated || '', JSON.stringify(e.skills || {}), idx]
               );
               totalEmployees++;
             });
