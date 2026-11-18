@@ -15,6 +15,7 @@
         <!-- 四大倉別切換 -->
         <div class="wh-tabs-group">
           <button
+            type="button"
             v-for="wh in warehouses"
             :key="wh"
             class="wh-tab-btn"
@@ -31,6 +32,7 @@
           </button>
 
           <button
+            type="button"
             class="wh-tab-btn overdue-filter-btn"
             :class="{ 'overdue-active': updateStatusFilter === 'overdue' }"
             @click="toggleFilterOverdueOnly"
@@ -105,10 +107,10 @@
           placeholder="🔍 搜尋員編 / 姓名..."
           style="width: 170px;"
           clearable
-          @input="currentPage = 1"
+          @input="changePage(1)"
         />
 
-        <el-select v-model="staffGroupFilter" size="mini" style="width: 155px;" @change="currentPage = 1">
+        <el-select v-model="staffGroupFilter" size="mini" style="width: 155px;" @change="changePage(1)">
           <el-option :label="`全部人員組別 (${currentEmployees.length}人)`" value="all" />
           <el-option
             v-for="(cnt, grp) in staffGroupCounts"
@@ -118,7 +120,7 @@
           />
         </el-select>
 
-        <el-select v-model="updateStatusFilter" size="mini" style="width: 165px;" @change="currentPage = 1">
+        <el-select v-model="updateStatusFilter" size="mini" style="width: 165px;" @change="changePage(1)">
           <el-option label="全部更新狀態" value="all" />
           <el-option label="逾 30 天未更新 / 未建檔" value="overdue" />
           <el-option label="30 天內已更新" value="fresh" />
@@ -131,7 +133,7 @@
           <el-radio-button label="cadre">幹部</el-radio-button>
         </el-radio-group>
 
-        <el-select v-model="sortBy" size="mini" style="width: 135px;" @change="currentPage = 1">
+        <el-select v-model="sortBy" size="mini" style="width: 135px;" @change="changePage(1)">
           <el-option label="預設順序" value="default" />
           <el-option label="總分高到低" value="rankAsc" />
           <el-option label="總分低到高" value="rankDesc" />
@@ -139,10 +141,11 @@
           <el-option label="員編順序" value="idAsc" />
         </el-select>
 
-        <el-select v-model="pageSize" size="mini" style="width: 105px;" @change="currentPage = 1">
-          <el-option label="每頁 30 筆" :value="30" />
+        <el-select v-model="pageSize" size="mini" style="width: 115px;" @change="changePage(1)">
           <el-option label="每頁 50 筆" :value="50" />
           <el-option label="每頁 100 筆" :value="100" />
+          <el-option label="每頁 200 筆" :value="200" />
+          <el-option label="每頁 500 筆" :value="500" />
         </el-select>
 
         <div class="kbd-guide">
@@ -155,6 +158,7 @@
       <div class="group-pills-row">
         <span class="grp-title">📂 作業組別：</span>
         <button
+          type="button"
           class="grp-pill"
           :class="{ active: groupFilter === 'all' }"
           @click="setGroupFilter('all')"
@@ -162,6 +166,7 @@
           全部 ({{ currentSkills.length }})
         </button>
         <button
+          type="button"
           v-for="g in orderedSkillGroups"
           :key="g"
           class="grp-pill"
@@ -173,7 +178,7 @@
       </div>
     </div>
 
-    <!-- 2. 主能力矩陣表格區（極速零延遲渲染 + 鏡頭自動置中） -->
+    <!-- 2. 主能力矩陣表格區 -->
     <div class="matrix-wrapper" v-loading="loading">
       <div
         class="table-scroll-container"
@@ -240,7 +245,7 @@
             </tr>
             <tr
               v-for="(row, rIdx) in pagedRows"
-              :key="row.emp.id"
+              :key="`${currentWarehouse}_${currentPage}_${row.emp.id}`"
               :class="rIdx % 2 === 0 ? 'row-even' : 'row-odd'"
             >
               <td class="sticky-col-1">
@@ -261,11 +266,10 @@
                 </div>
               </td>
 
-              <!-- 使用 v-memo + 事件委派，只有變動的那 1 格會更新 DOM -->
               <td
                 v-for="(s, cIdx) in visibleSkills"
                 :key="s.id"
-                v-memo="[row.emp.skills[s.id] === 1, focusedRowIdx === rIdx && focusedColIdx === cIdx]"
+                v-memo="[row.emp.id, row.emp.skills[s.id] === 1, focusedRowIdx === rIdx && focusedColIdx === cIdx]"
                 :data-r="rIdx"
                 :data-c="cIdx"
                 class="skill-cell"
@@ -298,14 +302,15 @@
               </td>
               <td class="row-actions-cell">
                 <button
+                  type="button"
                   class="mini-icon-btn btn-check-all"
                   :title="isAllVisibleChecked(row.emp) ? '一鍵取消目前篩選能力' : '一鍵全勾選目前篩選能力'"
                   @click.stop="toggleAllSkillsForEmployee(row.emp)"
                 >
                   ✓✓
                 </button>
-                <button class="mini-icon-btn btn-edit" title="編輯人員" @click.stop="openEditEmployeeModal(row.emp)">✎</button>
-                <button class="mini-icon-btn btn-del" title="刪除人員" @click.stop="confirmDeleteEmployee(row.emp)">✕</button>
+                <button type="button" class="mini-icon-btn btn-edit" title="編輯人員" @click.stop="openEditEmployeeModal(row.emp)">✎</button>
+                <button type="button" class="mini-icon-btn btn-del" title="刪除人員" @click.stop="confirmDeleteEmployee(row.emp)">✕</button>
               </td>
             </tr>
           </tbody>
@@ -325,17 +330,17 @@
         </table>
       </div>
 
-      <!-- 底部分頁列 -->
+      <!-- 底部分頁列（原生按鈕防止空白鍵誤觸與聚焦卡死） -->
       <div class="pagination-bar">
         <span>
           顯示第 <strong>{{ totalFiltered === 0 ? 0 : (currentPage - 1) * pageSize + 1 }} - {{ Math.min(currentPage * pageSize, totalFiltered) }}</strong> 筆，共 <strong>{{ totalFiltered }}</strong> 筆人員資料
         </span>
         <div class="page-btns">
-          <el-button size="mini" :disabled="currentPage <= 1" @click="currentPage = 1">首頁</el-button>
-          <el-button size="mini" :disabled="currentPage <= 1" @click="currentPage--">上一頁</el-button>
+          <button type="button" class="nav-page-btn" :disabled="currentPage <= 1" @click="changePage(1)">首頁</button>
+          <button type="button" class="nav-page-btn" :disabled="currentPage <= 1" @click="changePage(currentPage - 1)">上一頁</button>
           <span class="page-indicator">第 {{ currentPage }} / {{ totalPages }} 頁</span>
-          <el-button size="mini" :disabled="currentPage >= totalPages" @click="currentPage++">下一頁</el-button>
-          <el-button size="mini" :disabled="currentPage >= totalPages" @click="currentPage = totalPages">末頁</el-button>
+          <button type="button" class="nav-page-btn" :disabled="currentPage >= totalPages" @click="changePage(currentPage + 1)">下一頁</button>
+          <button type="button" class="nav-page-btn" :disabled="currentPage >= totalPages" @click="changePage(totalPages)">末頁</button>
         </div>
       </div>
     </div>
@@ -479,7 +484,6 @@
 </template>
 
 <script>
-import { markRaw } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as XLSX from 'xlsx'
@@ -512,7 +516,7 @@ export default {
       groupFilter: 'all',
       sortBy: 'default',
       currentPage: 1,
-      pageSize: 30,
+      pageSize: 100,
 
       focusedRowIdx: -1,
       focusedColIdx: -1,
@@ -679,7 +683,8 @@ export default {
       return Math.max(1, Math.ceil(this.totalFiltered / this.pageSize));
     },
     pagedRows() {
-      const start = (this.currentPage - 1) * this.pageSize;
+      const safePage = Math.max(1, Math.min(this.currentPage, this.totalPages));
+      const start = (safePage - 1) * this.pageSize;
       return this.filteredRows.slice(start, start + this.pageSize);
     },
     avgMasteryPct() {
@@ -713,11 +718,11 @@ export default {
       const result = {};
       this.warehouses.forEach(wh => {
         const block = rawData?.[wh] || { skills: [], employees: [] };
-        const skills = markRaw(block.skills || []);
+        const skills = block.skills || [];
         const typeMap = new Map(skills.map(s => [s.id, s.type]));
 
         const employees = (block.employees || []).map(emp => {
-          const rawSkills = markRaw({ ...(emp.skills || {}) });
+          const rawSkills = { ...(emp.skills || {}) };
           let f = 0, sp = 0, ca = 0;
           for (const sid in rawSkills) {
             if (rawSkills[sid] === 1) {
@@ -811,13 +816,24 @@ export default {
       this.focusedRowIdx = -1;
       this.focusedColIdx = -1;
     },
+    changePage(targetPage) {
+      const clamped = Math.max(1, Math.min(targetPage, this.totalPages));
+      this.currentPage = clamped;
+      this.resetFocus();
+      this.$nextTick(() => {
+        const container = this.$refs.tableScrollContainer;
+        if (container) {
+          container.scrollTop = 0;
+          container.focus();
+        }
+      });
+    },
     switchWarehouse(wh) {
       this.flushUpdates();
       this.currentWarehouse = wh;
       this.groupFilter = 'all';
       this.staffGroupFilter = 'all';
-      this.currentPage = 1;
-      this.resetFocus();
+      this.changePage(1);
     },
     setGroupFilter(grp) {
       this.groupFilter = grp;
@@ -825,8 +841,7 @@ export default {
     },
     toggleFilterOverdueOnly() {
       this.updateStatusFilter = this.updateStatusFilter === 'overdue' ? 'all' : 'overdue';
-      this.currentPage = 1;
-      this.resetFocus();
+      this.changePage(1);
     },
 
     triggerExcelPicker() {
@@ -855,8 +870,8 @@ export default {
       ElMessage.success(`已重新整理【${this.currentWarehouse}】最新資料！`);
     },
 
-    // 鏡頭自動置中：讓目前聚焦的格子永遠保持在（扣除左側凍結 316px 後）可視區域的正中央，直到捲動到底為止
-    scrollFocusedCellToCenter() {
+    // 僅確保聚焦儲存格不被上下左右邊界遮擋（已取消強制畫面置中）
+    ensureFocusedCellVisible() {
       this.$nextTick(() => {
         const container = this.$refs.tableScrollContainer;
         if (!container || this.focusedRowIdx < 0 || this.focusedColIdx < 0) return;
@@ -866,22 +881,30 @@ export default {
         );
         if (!cell) return;
 
-        // 1. 水平置中（扣除左側 4 欄凍結寬度 76 + 74 + 78 + 88 = 316px）
         const stickyLeftWidth = 316;
-        const visibleDataWidth = Math.max(0, container.clientWidth - stickyLeftWidth);
-        const cellCenterX = cell.offsetLeft + cell.offsetWidth / 2;
-        const targetScrollLeft = cellCenterX - stickyLeftWidth - visibleDataWidth / 2;
-        const maxScrollLeft = container.scrollWidth - container.clientWidth;
-        container.scrollLeft = Math.max(0, Math.min(maxScrollLeft, targetScrollLeft));
+        const cellLeft = cell.offsetLeft;
+        const cellRight = cellLeft + cell.offsetWidth;
+        const viewLeft = container.scrollLeft + stickyLeftWidth;
+        const viewRight = container.scrollLeft + container.clientWidth - 16;
 
-        // 2. 垂直置中（扣除上方三層表頭 102px 與底部統計列 40px）
+        if (cellLeft < viewLeft) {
+          container.scrollLeft = Math.max(0, cellLeft - stickyLeftWidth - 8);
+        } else if (cellRight > viewRight) {
+          container.scrollLeft = cellRight - container.clientWidth + 24;
+        }
+
         const stickyTopHeight = 102;
         const stickyBottomHeight = 40;
-        const visibleDataHeight = Math.max(0, container.clientHeight - stickyTopHeight - stickyBottomHeight);
-        const cellCenterY = cell.offsetTop + cell.offsetHeight / 2;
-        const targetScrollTop = cellCenterY - stickyTopHeight - visibleDataHeight / 2;
-        const maxScrollTop = container.scrollHeight - container.clientHeight;
-        container.scrollTop = Math.max(0, Math.min(maxScrollTop, targetScrollTop));
+        const cellTop = cell.offsetTop;
+        const cellBottom = cellTop + cell.offsetHeight;
+        const viewTop = container.scrollTop + stickyTopHeight;
+        const viewBottom = container.scrollTop + container.clientHeight - stickyBottomHeight;
+
+        if (cellTop < viewTop) {
+          container.scrollTop = Math.max(0, cellTop - stickyTopHeight - 8);
+        } else if (cellBottom > viewBottom) {
+          container.scrollTop = cellBottom - container.clientHeight + stickyBottomHeight + 8;
+        }
       });
     },
 
@@ -894,7 +917,9 @@ export default {
         this.focusedRowIdx = rIdx;
         this.focusedColIdx = cIdx;
         this.toggleCell(rIdx, cIdx);
-        this.scrollFocusedCellToCenter();
+        if (this.$refs.tableScrollContainer) {
+          this.$refs.tableScrollContainer.focus({ preventScroll: true });
+        }
       }
     },
     handleMatrixKeydown(e) {
@@ -904,14 +929,14 @@ export default {
         if (this.focusedRowIdx < 0 || this.focusedColIdx < 0) {
           this.focusedRowIdx = 0;
           this.focusedColIdx = 0;
-          this.scrollFocusedCellToCenter();
+          this.ensureFocusedCellVisible();
           return;
         }
         if (e.key === 'ArrowUp') this.focusedRowIdx = Math.max(0, this.focusedRowIdx - 1);
         if (e.key === 'ArrowDown') this.focusedRowIdx = Math.min(this.pagedRows.length - 1, this.focusedRowIdx + 1);
         if (e.key === 'ArrowLeft') this.focusedColIdx = Math.max(0, this.focusedColIdx - 1);
         if (e.key === 'ArrowRight') this.focusedColIdx = Math.min(this.visibleSkills.length - 1, this.focusedColIdx + 1);
-        this.scrollFocusedCellToCenter();
+        this.ensureFocusedCellVisible();
       } else if (e.key === ' ' || e.key === 'Enter') {
         if (this.focusedRowIdx >= 0 && this.focusedColIdx >= 0) {
           e.preventDefault();
@@ -925,6 +950,7 @@ export default {
       if (!row || !skill) return;
 
       const emp = row.emp;
+      if (!emp.skills) emp.skills = {};
       const newVal = emp.skills[skill.id] === 1 ? 0 : 1;
       const delta = newVal === 1 ? 1 : -1;
       const nowStr = this.formatNow();
@@ -943,6 +969,7 @@ export default {
     },
     toggleAllSkillsForEmployee(emp) {
       if (this.visibleSkills.length === 0) return;
+      if (!emp.skills) emp.skills = {};
       const targetVal = this.isAllVisibleChecked(emp) ? 0 : 1;
       const nowStr = this.formatNow();
 
@@ -978,7 +1005,7 @@ export default {
       this.syncState = 'syncing';
       this.syncStatusText = `⏳ 儲存中 (${this.pendingUpdates.length})...`;
       clearTimeout(this.syncTimer);
-      this.syncTimer = setTimeout(() => this.flushUpdates(), 600);
+      this.syncTimer = setTimeout(() => this.flushUpdates(), 450);
     },
     async flushUpdates() {
       if (this.pendingUpdates.length === 0) return;
@@ -990,8 +1017,10 @@ export default {
           this.syncStatusText = '✅ 地端已同步';
         }
       } catch (e) {
+        // 失敗時將未寫入的項目退回佇列重試，避免卡死
+        this.pendingUpdates.unshift(...batch);
         this.syncState = 'error';
-        this.syncStatusText = '⚠️ 儲存異常';
+        this.syncStatusText = '⚠️ 儲存重試中';
       }
     },
 
@@ -1754,6 +1783,25 @@ tfoot .sticky-col-1 { z-index: 25; border-right: 2px solid #64748b !important; }
   flex-shrink: 0;
 }
 .page-btns { display: flex; align-items: center; gap: 6px; }
+.nav-page-btn {
+  background: #1e293b;
+  border: 1px solid #475569;
+  color: #f8fafc;
+  padding: 4px 10px;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: bold;
+  cursor: pointer;
+}
+.nav-page-btn:hover:not(:disabled) {
+  background: #334155;
+  border-color: #38bdf8;
+  color: #38bdf8;
+}
+.nav-page-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
 .page-indicator { color: #f8fafc; font-weight: bold; padding: 0 6px; }
 
 .emp-modal-body, .skills-modal-body { display: flex; flex-direction: column; gap: 10px; }
