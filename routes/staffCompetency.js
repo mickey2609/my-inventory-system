@@ -10,7 +10,6 @@ module.exports = function(db) {
     currentVersion = Date.now();
   }
 
-  // Promise 化 SQLite 操作，徹底避免交易巢狀衝突導致 500 錯誤
   function dbRun(sql, params = []) {
     return new Promise((resolve, reject) => {
       db.run(sql, params, function(err) {
@@ -56,6 +55,12 @@ module.exports = function(db) {
   function ensureTables() {
     if (tablesReadyPromise) return tablesReadyPromise;
     tablesReadyPromise = (async () => {
+      // 1. 檢查並升級 staff_competency_skills（若為舊表缺少 wh_name 或 skill_id 則重建）
+      const skillCols = await dbAll(`PRAGMA table_info(staff_competency_skills)`);
+      if (skillCols.length > 0 && (!skillCols.some(c => c.name === 'wh_name') || !skillCols.some(c => c.name === 'skill_id'))) {
+        await dbRun(`DROP TABLE IF EXISTS staff_competency_skills`);
+      }
+
       await dbRun(`
         CREATE TABLE IF NOT EXISTS staff_competency_skills (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -69,6 +74,12 @@ module.exports = function(db) {
           UNIQUE(wh_name, skill_id)
         )
       `);
+
+      // 2. 檢查並升級 staff_competency_employees（若為舊表缺少 wh_name 或 emp_id 則重建）
+      const empCols = await dbAll(`PRAGMA table_info(staff_competency_employees)`);
+      if (empCols.length > 0 && (!empCols.some(c => c.name === 'wh_name') || !empCols.some(c => c.name === 'emp_id'))) {
+        await dbRun(`DROP TABLE IF EXISTS staff_competency_employees`);
+      }
 
       await dbRun(`
         CREATE TABLE IF NOT EXISTS staff_competency_employees (
@@ -85,6 +96,12 @@ module.exports = function(db) {
         )
       `);
 
+      const updatedEmpCols = await dbAll(`PRAGMA table_info(staff_competency_employees)`);
+      if (!updatedEmpCols.some(c => c.name === 'shift_name')) {
+        await dbRun(`ALTER TABLE staff_competency_employees ADD COLUMN shift_name TEXT DEFAULT ''`);
+      }
+
+      // 3. 每週快照資料表
       await dbRun(`
         CREATE TABLE IF NOT EXISTS staff_competency_snapshots (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -97,6 +114,7 @@ module.exports = function(db) {
         )
       `);
 
+      // 4. 幹部組別權限資料表
       await dbRun(`
         CREATE TABLE IF NOT EXISTS staff_competency_group_perms (
           username TEXT PRIMARY KEY,
@@ -104,11 +122,6 @@ module.exports = function(db) {
           updated_at TEXT DEFAULT ''
         )
       `);
-
-      const cols = await dbAll(`PRAGMA table_info(staff_competency_employees)`);
-      if (!cols.some(c => c.name === 'shift_name')) {
-        await dbRun(`ALTER TABLE staff_competency_employees ADD COLUMN shift_name TEXT DEFAULT ''`);
-      }
     })().catch(err => {
       tablesReadyPromise = null;
       throw err;
