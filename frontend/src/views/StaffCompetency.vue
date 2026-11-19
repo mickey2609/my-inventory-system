@@ -628,6 +628,8 @@ export default {
       // 目前登入者資訊（用於記名備份與權限）
       currentUsername: '',
       currentUserRealName: '',
+      currentUserRole: '',
+      liveUserPermissions: null,
 
       snapshotsList: [],
       viewingSnapshotId: null,
@@ -684,6 +686,7 @@ export default {
       const sess = JSON.parse(localStorage.getItem('auth_session') || '{}');
       this.currentUsername = sess.username || '';
       this.currentUserRealName = sess.name || sess.username || '';
+      this.currentUserRole = sess.role || '';
     } catch (e) {}
   },
   computed: {
@@ -695,21 +698,38 @@ export default {
     },
     // 從系統帳號權限（UserManagementModals 設定的 staff_competency:group:*）讀取可管理組別
     myAllowedGroups() {
-      if (this.isSysAdmin || this.isAdmin) return ['*'];
+      // 只有最高系統管理員 (sys_admin) 無條件全開
+      if (this.isSysAdmin || this.currentUserRole === 'sys_admin' || this.currentUsername === 'admin') {
+        return ['*'];
+      }
+
       const set = new Set();
       try {
         const sess = JSON.parse(localStorage.getItem('auth_session') || '{}');
-        const perms = Array.isArray(sess.permissions)
-          ? sess.permissions
-          : String(sess.permissions || '').split(',').map(s => s.trim());
+        const rawPerms = this.liveUserPermissions !== null ? this.liveUserPermissions : sess.permissions;
+        const perms = Array.isArray(rawPerms)
+          ? rawPerms
+          : String(rawPerms || '').split(',').map(s => s.trim());
+
         perms.forEach(p => {
           if (p.startsWith('staff_competency:group:')) {
-            set.add(p.replace('staff_competency:group:', ''));
+            set.add(p.replace('staff_competency:group:', '').trim());
           }
         });
       } catch (e) {}
-      return Array.from(set);
+
+      // 若帳號有明確勾選指定組別（例如只勾「進貨驗收組」），即使身份為 admin 也嚴格鎖定在該組別
+      if (set.size > 0) {
+        return Array.from(set);
+      }
+
+      // 若未勾選任何組別限制，且為 admin 管理員，則開放全倉；一般 user 未勾選則為唯讀 []
+      if (this.isAdmin || this.currentUserRole === 'admin') {
+        return ['*'];
+      }
+      return [];
     },
+
     myEditableGroupsLabel() {
       if (this.isSysAdmin || this.isAdmin) return '全部組別';
       return this.myAllowedGroups.length > 0 ? this.myAllowedGroups.join('、') : '無編輯權限（僅唯讀）';
@@ -950,8 +970,8 @@ export default {
   },
   methods: {
     canEditStaffGroup(staffGrp) {
-      if (this.isSysAdmin || this.isAdmin) return true;
-      const g = staffGrp || '未分組';
+      if (this.myAllowedGroups.includes('*')) return true;
+      const g = String(staffGrp || '未分組').trim();
       return this.myAllowedGroups.includes(g);
     },
     startAutoSyncPoll() {
@@ -1166,7 +1186,26 @@ export default {
     async fetchAllData(showSpinner = true) {
       if (showSpinner) this.loading = true;
       try {
-        const res = await axios.get('/api/staff-competency/all');
+        const [res, usersRes] = await Promise.all([
+          axios.get('/api/staff-competency/all'),
+          this.currentUsername ? axios.get('/api/get-users').catch(() => null) : Promise.resolve(null)
+        ]);
+
+        if (usersRes?.data?.users && this.currentUsername) {
+          const me = usersRes.data.users.find(u => u.username === this.currentUsername);
+          if (me) {
+            this.liveUserPermissions = me.permissions || '';
+            this.currentUserRole = me.role || this.currentUserRole;
+            // 同步更新 localStorage
+            try {
+              const sess = JSON.parse(localStorage.getItem('auth_session') || '{}');
+              sess.permissions = me.permissions;
+              sess.role = me.role;
+              localStorage.setItem('auth_session', JSON.stringify(sess));
+            } catch (e) {}
+          }
+        }
+
         if (res.data?.success && res.data.data) {
           this.hydrateAppData(res.data.data);
           if (res.data.version) this._localVersion = res.data.version;
