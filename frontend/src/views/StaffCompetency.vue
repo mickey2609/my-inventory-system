@@ -99,7 +99,7 @@
         </el-button>
       </div>
 
-      <!-- 篩選與搜尋列（能力項目已整合為下拉選單） -->
+      <!-- 篩選與搜尋列（全下拉選單化） -->
       <div class="filter-row">
         <el-input
           v-model="searchTerm"
@@ -110,7 +110,13 @@
           @input="changePage(1)"
         />
 
-        <el-select v-model="staffGroupFilter" size="mini" style="width: 145px;" @change="changePage(1)">
+        <!-- 選擇人員組別時，自動帶出該組別的能力項目 -->
+        <el-select
+          v-model="staffGroupFilter"
+          size="mini"
+          style="width: 150px;"
+          @change="onStaffGroupChange"
+        >
           <el-option :label="`全部人員組別 (${currentEmployees.length}人)`" value="all" />
           <el-option
             v-for="(cnt, grp) in staffGroupCounts"
@@ -130,12 +136,13 @@
           />
         </el-select>
 
+        <!-- 單獨切換能力項目（可切回「全部能力項目」進行跨組能力勾選，不會重置人員組別） -->
         <el-select
           v-model="groupFilter"
           size="mini"
-          style="width: 165px;"
+          style="width: 168px;"
           placeholder="選擇能力項目"
-          @change="setGroupFilter"
+          @change="onSkillGroupChange"
         >
           <el-option :label="`全部能力項目 (${currentSkills.length}項)`" value="all" />
           <el-option
@@ -146,18 +153,24 @@
           />
         </el-select>
 
+        <!-- 技能性質下拉選單（全部 / 現場 / 異動 / 幹部） -->
+        <el-select
+          v-model="skillTypeFilter"
+          size="mini"
+          style="width: 120px;"
+          @change="resetFocus"
+        >
+          <el-option label="全部性質" value="all" />
+          <el-option label="現場能力" value="field" />
+          <el-option label="異動單人員" value="special" />
+          <el-option label="幹部能力" value="cadre" />
+        </el-select>
+
         <el-select v-model="updateStatusFilter" size="mini" style="width: 155px;" @change="changePage(1)">
           <el-option label="全部更新狀態" value="all" />
           <el-option label="逾 30 天未更新 / 未建檔" value="overdue" />
           <el-option label="30 天內已更新" value="fresh" />
         </el-select>
-
-        <el-radio-group v-model="skillTypeFilter" size="mini" @change="resetFocus">
-          <el-radio-button label="all">全部</el-radio-button>
-          <el-radio-button label="field">現場</el-radio-button>
-          <el-radio-button label="special">異動</el-radio-button>
-          <el-radio-button label="cadre">幹部</el-radio-button>
-        </el-radio-group>
 
         <el-select v-model="sortBy" size="mini" style="width: 125px;" @change="changePage(1)">
           <el-option label="預設順序" value="default" />
@@ -181,7 +194,7 @@
       </div>
     </div>
 
-    <!-- 2. 主能力矩陣表格區（左側 6 欄凍結：組別、班別、員編、姓名、該組進度、全能進度） -->
+    <!-- 2. 主能力矩陣表格區 -->
     <div class="matrix-wrapper" v-loading="loading">
       <div
         class="table-scroll-container"
@@ -959,16 +972,20 @@ export default {
       this.shiftFilter = 'all';
       this.changePage(1);
     },
-    setGroupFilter(grp) {
-      this.groupFilter = grp;
+    // 1. 選「人員組別」時，自動帶出該組別的能力項目；若選全部人員組別，則顯示全部能力項目
+    onStaffGroupChange(grp) {
       if (grp === 'all') {
-        this.staffGroupFilter = 'all';
-      } else if (this.staffGroupCounts[grp]) {
-        this.staffGroupFilter = grp;
+        this.groupFilter = 'all';
+      } else if (this.skillGroupCounts[grp]) {
+        this.groupFilter = grp;
       } else {
-        this.staffGroupFilter = 'all';
+        this.groupFilter = 'all';
       }
       this.changePage(1);
+    },
+    // 2. 單獨選「能力項目」時（例如切回「全部能力項目」幫該組同仁勾選他組能力），保留原本的人員組別不變！
+    onSkillGroupChange() {
+      this.resetFocus();
     },
     toggleFilterOverdueOnly() {
       this.updateStatusFilter = this.updateStatusFilter === 'overdue' ? 'all' : 'overdue';
@@ -1214,7 +1231,7 @@ export default {
       this.editingOriginalEmp = null;
       this.empForm = {
         warehouse: this.currentWarehouse,
-        staffGroup: this.groupFilter !== 'all' ? this.groupFilter : '進貨組',
+        staffGroup: this.staffGroupFilter !== 'all' ? this.staffGroupFilter : '進貨組',
         shiftName: '',
         id: '',
         name: '',
