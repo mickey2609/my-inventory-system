@@ -782,16 +782,7 @@ export default {
       return `（${this.targetGroupsForBackup.length}組）`;
     },
     visibleSnapshotsList() {
-      if (this.isFullAccessAdmin) return this.snapshotsList;
-      return this.snapshotsList.filter(sn => {
-        if (!sn.target_groups || sn.target_groups === 'ALL') return true;
-        try {
-          const grps = JSON.parse(sn.target_groups);
-          return Array.isArray(grps) && grps.some(g => this.myAllowedGroups.includes(g));
-        } catch (e) {
-          return true;
-        }
-      });
+      return this.snapshotsList;
     },
     canImport() {
       if (this.isFullAccessAdmin || this.myAllowedGroups.length > 0) return true;
