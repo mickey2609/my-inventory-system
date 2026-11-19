@@ -147,7 +147,7 @@ app.get('/api/dashboard/stats', (req, res) => {
   });
 });
 
-// 11. 批次匯入/更新帳號 API
+// 11. 批次匯入/更新帳號 API（支援組別欄位）
 app.post('/api/batch-import-users', (req, res) => {
   const users = req.body.users || req.body;
 
@@ -159,10 +159,11 @@ app.post('/api/batch-import-users', (req, res) => {
     db.run('BEGIN TRANSACTION');
 
     const stmt = db.prepare(`
-      INSERT INTO users (username, name, password, role, permissions)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO users (username, name, staff_group, role, password, permissions)
+      VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT(username) DO UPDATE SET
         name = EXCLUDED.name,
+        staff_group = COALESCE(NULLIF(EXCLUDED.staff_group, ''), users.staff_group),
         role = EXCLUDED.role,
         password = EXCLUDED.password,
         permissions = EXCLUDED.permissions
@@ -174,6 +175,7 @@ app.post('/api/batch-import-users', (req, res) => {
 
       const username = String(u['帳號'] || u['員編'] || u['username'] || u['User'] || '').trim();
       const name = String(u['姓名'] || u['name'] || u['Name'] || username).trim();
+      const staffGroup = String(u['組別'] || u['所屬組別'] || u['staff_group'] || '').trim();
       let role = String(u['身份'] || u['角色'] || u['role'] || u['Role'] || 'user').trim().toLowerCase();
 
       if (!username || username.length < 4) continue;
@@ -182,7 +184,7 @@ app.post('/api/batch-import-users', (req, res) => {
       const password = String(u['密碼'] || u['password'] || username).trim();
       const permissions = (role === 'admin' || role === 'sys_admin') ? 'all' : (u['權限'] || u['permissions'] || '');
 
-      stmt.run(username, name, password, role, permissions);
+      stmt.run(username, name, staffGroup, role, password, permissions);
       importedCount++;
     }
 
@@ -193,7 +195,7 @@ app.post('/api/batch-import-users', (req, res) => {
       }
       res.json({
         status: 'success',
-        message: `🎉 成功批次匯入 / 更新 ${importedCount} 個使用者帳號！`
+        message: `🎉 成功批次匯入 / 更新 ${importedCount} 筆使用者帳號！`
       });
     });
   });
@@ -261,6 +263,7 @@ app.post('/api/login', (req, res) => {
     const userPayload = {
       username: row.username,
       name: realName,
+      staff_group: row.staff_group || '',
       role: userRole,
       permissions: userPermissions,
       token: 'fake-jwt-token'
@@ -273,6 +276,7 @@ app.post('/api/login', (req, res) => {
       status: 'success',
       username: row.username,
       name: realName,
+      staff_group: row.staff_group || '',
       role: userRole,
       permissions: userPermissions,
       user: userPayload,
@@ -795,13 +799,13 @@ app.post('/api/heartbeat', (req, res) => {
 });
 
 app.post('/api/logout', (req, res) => {
-  if (req.body.username) db.run('UPDATE users SET last_active = 0 WHERE username = ?', [Math.floor(Date.now() / 1000), req.body.username]);
+  if (req.body.username) db.run('UPDATE users SET last_active = 0 WHERE username = ?', [req.body.username]);
   res.json({ success: true, message: '已成功登出' });
 });
 
-// 🌟 取得所有使用者清單（含訪客 guest 自動補齊與精準在線判定）
+// 🌟 取得所有使用者清單（含所屬組別 staff_group 與明文密碼供系統管理員檢視）
 app.get('/api/get-users', (req, res) => {
-  db.all('SELECT username, name, role, permissions, last_active FROM users', [], (err, rows) => {
+  db.all('SELECT username, name, COALESCE(staff_group, "") as staff_group, role, password, permissions, last_active FROM users', [], (err, rows) => {
     if (err) return res.status(500).json({ success: false, error: err.message });
     rows = rows || [];
     const now = Math.floor(Date.now() / 1000);
@@ -811,7 +815,9 @@ app.get('/api/get-users', (req, res) => {
       rows.push({
         username: 'guest',
         name: '訪客 (免登直達)',
+        staff_group: '',
         role: 'guest',
+        password: '',
         permissions: 'replenish_fish,transfer_80_15,transfer_15_80,dispatch_fish',
         last_active: 0
       });
@@ -827,21 +833,36 @@ app.get('/api/get-users', (req, res) => {
 });
 
 app.post('/api/add-user', (req, res) => {
-  const { username, name, role, password } = req.body;
+  const { username, name, staff_group, role, password } = req.body;
   if (!username) return res.status(400).json({ success: false, message: '帳號名稱不可為空！' });
-  const stmt = db.prepare(`INSERT INTO users (username, name, role, password, permissions, last_active) VALUES (?, ?, ?, ?, '', ?) ON CONFLICT(username) DO UPDATE SET name = excluded.name, role = excluded.role, password = excluded.password`);
-  stmt.run(username, name || username, role || 'user', password || '123456', Math.floor(Date.now() / 1000), (err) => {
+  const stmt = db.prepare(`
+    INSERT INTO users (username, name, staff_group, role, password, permissions, last_active)
+    VALUES (?, ?, ?, ?, ?, '', ?)
+    ON CONFLICT(username) DO UPDATE SET
+      name = excluded.name,
+      staff_group = excluded.staff_group,
+      role = excluded.role,
+      password = excluded.password
+  `);
+  stmt.run(username, name || username, staff_group || '', role || 'user', password || '123456', Math.floor(Date.now() / 1000), (err) => {
     if (err) return res.status(500).json({ success: false, error: err.message });
     res.json({ success: true, message: '新增帳號成功！' });
   });
 });
 
 app.post(['/api/update-role', '/api/update-user-role', '/api/update-user'], (req, res) => {
-  const { username, target_role, role, target_name, name } = req.body;
-  db.run('UPDATE users SET role = COALESCE(?, role), name = COALESCE(?, name) WHERE username = ?', [role || target_role, name || target_name, username], (err) => {
-    if (err) return res.status(500).json({ success: false, error: err.message });
-    res.json({ success: true, message: '角色已成功更新！' });
-  });
+  const { username, target_role, role, target_name, name, target_group, staff_group } = req.body;
+  const finalRole = role !== undefined ? role : target_role;
+  const finalName = name !== undefined ? name : target_name;
+  const finalGroup = staff_group !== undefined ? staff_group : target_group;
+  db.run(
+    'UPDATE users SET role = COALESCE(?, role), name = COALESCE(?, name), staff_group = COALESCE(?, staff_group) WHERE username = ?',
+    [finalRole, finalName, finalGroup, username],
+    (err) => {
+      if (err) return res.status(500).json({ success: false, error: err.message });
+      res.json({ success: true, message: '帳號資料與組別已成功更新！' });
+    }
+  );
 });
 
 app.post(['/api/update-password', '/api/update-user-password'], (req, res) => {
@@ -1178,7 +1199,15 @@ db.serialize(() => {
       );
     `);
   });
-  db.run(`CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, name TEXT, role TEXT, password TEXT, permissions TEXT, last_active INTEGER);`);
+
+  db.run(`CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, name TEXT, staff_group TEXT DEFAULT '', role TEXT, password TEXT, permissions TEXT, last_active INTEGER);`);
+  db.all("PRAGMA table_info(users)", [], (err, uCols) => {
+    if (uCols && !uCols.some(c => c.name === 'staff_group')) {
+      db.run(`ALTER TABLE users ADD COLUMN staff_group TEXT DEFAULT ''`);
+    }
+    db.run(`UPDATE users SET staff_group = '管理組' WHERE username = 'admin' AND (staff_group IS NULL OR staff_group = '')`);
+  });
+
   db.run(`CREATE TABLE IF NOT EXISTS system_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, name TEXT, role TEXT, device TEXT, feature TEXT, action TEXT, created_at TEXT);`);
   db.run(`CREATE TABLE IF NOT EXISTS column_config (key TEXT PRIMARY KEY, config_json TEXT, updated_at TEXT);`);
   db.run(`CREATE TABLE IF NOT EXISTS system_config (config_key TEXT PRIMARY KEY, config_value TEXT);`);
@@ -1228,9 +1257,9 @@ db.serialize(() => {
   `);
 
   // 基礎系統帳號 (已確保收發魚群權限健全)
-  db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions) VALUES ('admin', '系統管理員', 'sys_admin', 'admin', 'all');`);
-  db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions) VALUES ('801854', '黃勝鴻', 'sys_admin', '801854', 'all');`);
-  db.run(`INSERT OR IGNORE INTO users (username, name, role, password, permissions, last_active) VALUES ('guest', '訪客 (免登直達)', 'guest', 'guest_direct_no_pwd', 'replenish_fish,transfer_80_15,transfer_15_80,dispatch_fish', 0);`);
+  db.run(`INSERT OR IGNORE INTO users (username, name, staff_group, role, password, permissions) VALUES ('admin', '系統管理員', '管理組', 'sys_admin', 'admin', 'all');`);
+  db.run(`INSERT OR IGNORE INTO users (username, name, staff_group, role, password, permissions) VALUES ('801854', '黃勝鴻', '管理組', 'sys_admin', '801854', 'all');`);
+  db.run(`INSERT OR IGNORE INTO users (username, name, staff_group, role, password, permissions, last_active) VALUES ('guest', '訪客 (免登直達)', '', 'guest', 'guest_direct_no_pwd', 'replenish_fish,transfer_80_15,transfer_15_80,dispatch_fish', 0);`);
 });
 
 // 為高頻查詢欄位建立索引

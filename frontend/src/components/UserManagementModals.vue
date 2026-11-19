@@ -1,9 +1,9 @@
 <!-- frontend/src/components/UserManagementModals.vue -->
 <template>
   <div>
-    <!-- 1. 帳號身份設定彈窗 -->
+    <!-- 1. 帳號身份與組別設定彈窗 -->
     <el-dialog 
-      title="🆔 帳號資料設定" 
+      title="🆔 帳號資料與組別設定" 
       :model-value="showEditRole" 
       @update:model-value="$emit('update:showEditRole', $event)" 
       width="420px" 
@@ -16,6 +16,12 @@
 
         <el-form-item label="使用者姓名">
           <el-input v-model="editRoleForm.target_name" placeholder="請輸入姓名" />
+        </el-form-item>
+
+        <el-form-item label="所屬組別">
+          <el-select v-model="editRoleForm.target_group" placeholder="請選擇所屬組別" clearable style="width: 100%;">
+            <el-option v-for="grp in userAccountGroups" :key="grp" :label="grp" :value="grp" />
+          </el-select>
         </el-form-item>
 
         <el-form-item label="帳號身份">
@@ -37,7 +43,7 @@
       </template>
     </el-dialog>
 
-    <!-- 2. 新增使用者彈窗 (強制 6 碼數字員編驗證) -->
+    <!-- 2. 新增使用者彈窗 (強制 6 碼數字員編驗證 ＋ 所屬組別選單) -->
     <el-dialog 
       title="➕ 新增使用者帳號" 
       :model-value="showAddUser" 
@@ -58,6 +64,12 @@
 
         <el-form-item label="使用者姓名" required>
           <el-input v-model="newUserForm.name" placeholder="請輸入姓名" />
+        </el-form-item>
+
+        <el-form-item label="所屬組別">
+          <el-select v-model="newUserForm.staff_group" placeholder="請選擇所屬組別" clearable style="width: 100%;">
+            <el-option v-for="grp in userAccountGroups" :key="grp" :label="grp" :value="grp" />
+          </el-select>
         </el-form-item>
 
         <el-form-item label="預設密碼" required>
@@ -224,6 +236,7 @@ export default {
     editPasswordForm: Object,
     editPermForm: Object,
     newUserForm: Object,
+    isSysAdmin: Boolean,
     availableModules: {
       type: Array,
       default: () => []
@@ -235,6 +248,15 @@ export default {
   ],
   data() {
     return {
+      userAccountGroups: [
+        '管理組',
+        '進貨驗收組',
+        '儲位上架組',
+        '揀出貨作業組',
+        '庫存作業組',
+        '還貨作業組',
+        '3PL一組'
+      ],
       staffCompetencyGroups: [
         '進貨驗收組',
         '儲位上架組',
@@ -293,7 +315,6 @@ export default {
       return this.selectedList.includes(`${modKey}:${action}`);
     },
     isGroupShiftChecked(grp, sh) {
-      // 兼容舊版僅勾選 group 未細分班別的權限（視為全選該組班別）
       if (this.selectedList.includes(`staff_competency:gs:${grp}:${sh}`)) return true;
       const hasAnyExplicitShift = this.staffCompetencyShifts.some(s =>
         this.selectedList.includes(`staff_competency:gs:${grp}:${s}`)
@@ -352,7 +373,6 @@ export default {
       this.editPermForm.selected_modules = Array.from(set);
     },
 
-    // 一鍵全選 / 取消該組別的所有 5 個班別
     onToggleGroupAllShifts(grp, checked) {
       const set = new Set(this.selectedList);
       set.delete(`staff_competency:group:${grp}`);
@@ -368,10 +388,8 @@ export default {
       this.editPermForm.selected_modules = Array.from(set);
     },
 
-    // 單獨勾選 / 取消某組別底下的單一班別
     onToggleGroupShift(grp, sh, checked) {
       const set = new Set(this.selectedList);
-      // 若原本是舊格式（僅有 group:${grp} 無細分 gs），先展開為完整 5 班再做單項切換
       const hadLegacyOnly = set.has(`staff_competency:group:${grp}`) &&
         !this.staffCompetencyShifts.some(s => set.has(`staff_competency:gs:${grp}:${s}`));
       if (hadLegacyOnly) {

@@ -1,3 +1,4 @@
+// frontend/src/composables/useUserManagement.js
 import { ref } from 'vue';
 import axios from 'axios';
 
@@ -9,10 +10,10 @@ export function useUserManagement(sendCurrentLog) {
   const showAddUserDialog = ref(false);
   const targetUser = ref('');
 
-  const editRoleForm = ref({ target_name: '', target_role: 'user' });
+  const editRoleForm = ref({ target_name: '', target_group: '', target_role: 'user' });
   const editPasswordForm = ref({ new_password: '' });
   const editPermForm = ref({ selected_modules: [] });
-  const newUserForm = ref({ username: '', name: '', role: 'user', password: '123456' });
+  const newUserForm = ref({ username: '', name: '', staff_group: '', role: 'user', password: '123456' });
 
   const fetchUsers = async () => {
     try {
@@ -23,21 +24,22 @@ export function useUserManagement(sendCurrentLog) {
     } catch (e) {}
   };
 
-  // 🌟 修改身份角色
+  // 🌟 修改身份角色與所屬組別
   const handleUpdateRole = async (successCb) => {
     try {
       const res = await axios.post('/api/update-user', {
         username: targetUser.value,
         name: editRoleForm.value.target_name,
+        staff_group: editRoleForm.value.target_group,
         role: editRoleForm.value.target_role
       });
       if (res.data && (res.data.status === 'success' || res.data.success)) {
         showEditRoleDialog.value = false;
         await fetchUsers();
         if (typeof sendCurrentLog === 'function') {
-          sendCurrentLog('帳號管理', `更新使用者 [${targetUser.value}] 身份為 ${editRoleForm.value.target_role}`);
+          sendCurrentLog('帳號管理', `更新使用者 [${targetUser.value}] 身份為 ${editRoleForm.value.target_role}（組別：${editRoleForm.value.target_group || '未設定'}）`);
         }
-        if (typeof successCb === 'function') successCb('已成功更新帳號身份與姓名！');
+        if (typeof successCb === 'function') successCb('已成功更新帳號資料與組別！');
       } else {
         throw new Error(res.data?.detail || '更新失敗');
       }
@@ -68,7 +70,7 @@ export function useUserManagement(sendCurrentLog) {
     }
   };
 
-  // 🌟 修改模組權限 (完美把 Key 的陣列轉成逗號隔開的字串寫入資料庫)
+  // 🌟 修改模組權限
   const handleUpdatePermissions = async (successCb) => {
     try {
       const selectedModules = editPermForm.value.selected_modules || [];
@@ -82,7 +84,7 @@ export function useUserManagement(sendCurrentLog) {
 
       if (res.data && (res.data.status === 'success' || res.data.success)) {
         showEditPermDialog.value = false;
-        await fetchUsers(); // 重新整理表格清單
+        await fetchUsers();
         
         if (typeof sendCurrentLog === 'function') {
           sendCurrentLog('帳號管理', `更新使用者 [${targetUser.value}] 模組權限為: ${permStr || '無'}`);
@@ -99,7 +101,7 @@ export function useUserManagement(sendCurrentLog) {
     }
   };
 
-  // 🌟 新增使用者
+  // 🌟 新增使用者（含所屬組別）
   const handleAddUser = async (successCb) => {
     if (!newUserForm.value.username || !newUserForm.value.username.trim()) {
       throw new Error('請輸入登入帳號！');
@@ -107,6 +109,7 @@ export function useUserManagement(sendCurrentLog) {
 
     const username = newUserForm.value.username.trim();
     const name = newUserForm.value.name?.trim() || username;
+    const staff_group = newUserForm.value.staff_group?.trim() || '';
     const role = newUserForm.value.role || 'user';
     const password = newUserForm.value.password?.trim() || '123456';
 
@@ -114,6 +117,7 @@ export function useUserManagement(sendCurrentLog) {
       const res = await axios.post('/api/add-user', {
         username,
         name,
+        staff_group,
         role,
         password
       });
@@ -122,14 +126,14 @@ export function useUserManagement(sendCurrentLog) {
         showAddUserDialog.value = false;
         
         if (typeof sendCurrentLog === 'function') {
-          sendCurrentLog('帳號管理', `新增使用者 [${username}] 成功`);
+          sendCurrentLog('帳號管理', `新增使用者 [${username}] 成功（組別：${staff_group || '未設定'}）`);
         }
 
-        newUserForm.value = { username: '', name: '', role: 'user', password: '123456' };
+        newUserForm.value = { username: '', name: '', staff_group: '', role: 'user', password: '123456' };
         await fetchUsers();
 
         if (typeof successCb === 'function') {
-          successCb('🎉 新增帳號成功 (預設密碼: 123456)！');
+          successCb('🎉 新增帳號成功！');
         }
       } else {
         throw new Error(res.data?.detail || res.data?.message || '新增失敗');

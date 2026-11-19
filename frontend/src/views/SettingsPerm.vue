@@ -1,3 +1,4 @@
+<!-- frontend/src/views/SettingsPerm.vue -->
 <template>
   <div class="settings-perm-container dark-view">
     <!-- 頂部操作列 -->
@@ -31,13 +32,13 @@
         class="custom-perm-table"
         empty-text="目前尚無帳號資料"
       >
-        <el-table-column prop="username" label="登入帳號" width="130">
+        <el-table-column prop="username" label="登入帳號" width="120">
           <template #default="scope">
             <span class="cell-username">{{ scope.row.username }}</span>
           </template>
         </el-table-column>
 
-        <el-table-column prop="name" label="姓名" width="150">
+        <el-table-column prop="name" label="姓名" width="130">
           <template #default="scope">
             <span class="cell-name">
               {{ scope.row.name || (scope.row.username === 'admin' ? '系統管理員' : scope.row.username) }}
@@ -45,8 +46,18 @@
           </template>
         </el-table-column>
 
+        <!-- 新增：所屬組別欄位 -->
+        <el-table-column prop="staff_group" label="所屬組別" width="135">
+          <template #default="scope">
+            <span v-if="scope.row.staff_group" class="group-badge" :class="scope.row.staff_group === '管理組' ? 'grp-mgmt' : ''">
+              {{ scope.row.staff_group }}
+            </span>
+            <span v-else class="group-empty">未設定</span>
+          </template>
+        </el-table-column>
+
         <!-- 身份角色標籤對應 -->
-        <el-table-column prop="role" label="身份" width="150">
+        <el-table-column prop="role" label="身份" width="145">
           <template #default="scope">
             <el-tag :type="getRoleTagType(scope.row)" size="small">
               {{ getRoleLabel(scope.row) }}
@@ -55,16 +66,18 @@
         </el-table-column>
 
         <!-- 在線狀態 -->
-        <el-table-column label="在線狀態" width="110">
+        <el-table-column label="在線狀態" width="100">
           <template #default="scope">
             <span v-if="isUserOnline(scope.row)" class="status-online">🟢 在線</span>
             <span v-else class="status-offline">⚪ 離線</span>
           </template>
         </el-table-column>
 
-        <el-table-column label="密碼" width="110">
+        <!-- 密碼：只有系統管理員 (isSysAdmin) 可直接檢視明文密碼 -->
+        <el-table-column label="密碼" width="120">
           <template #default="scope">
             <span v-if="scope.row.username === 'guest'" class="guest-pwd-tip">免密碼直達</span>
+            <span v-else-if="isSysAdmin" class="pwd-plain">{{ scope.row.password || '-' }}</span>
             <span v-else class="pwd-mask">******</span>
           </template>
         </el-table-column>
@@ -140,6 +153,10 @@ export default {
     currentUsername: {
       type: String,
       default: ''
+    },
+    isSysAdmin: {
+      type: Boolean,
+      default: false
     }
   },
   emits: [
@@ -218,6 +235,7 @@ export default {
         'delivery_cost': '物流費與包材成本分析',
         'delivery_undelivered': '未配達與異常貨態追蹤',
         'staff_competency': '人員綜合能力管理',
+        'storage_accuracy': '80庫儲位準確率',
         'wms_fish_screenshot': 'WMS 魚群截圖辨識'
       };
 
@@ -306,8 +324,26 @@ export default {
 
 .cell-username { color: #38bdf8 !important; font-weight: bold; }
 .cell-name { color: #f1f5f9 !important; font-weight: bold; font-size: 14px; }
+.group-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: bold;
+  background: rgba(56, 189, 248, 0.16);
+  color: #7dd3fc;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+}
+.group-badge.grp-mgmt {
+  background: rgba(250, 204, 21, 0.18);
+  color: #fde047;
+  border-color: rgba(250, 204, 21, 0.45);
+}
+.group-empty { color: #64748b !important; font-size: 12px; }
+
 .status-online { color: #4ade80 !important; font-weight: bold; font-size: 13px; }
 .status-offline { color: #94a3b8 !important; font-size: 13px; }
+.pwd-plain { color: #fde047 !important; font-weight: bold; font-family: monospace; font-size: 13px; }
 .pwd-mask { color: #64748b !important; }
 .guest-pwd-tip { color: #38bdf8 !important; font-size: 12px; font-weight: bold; }
 .cell-perm-text { color: #cbd5e1 !important; font-size: 13px; line-height: 1.5; }

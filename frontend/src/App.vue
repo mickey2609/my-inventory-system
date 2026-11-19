@@ -156,6 +156,7 @@
           <SettingsPerm 
             v-else-if="currentTab === 'settings_perm'" key="settings_perm"
             :users-list="usersList" :current-user="currentUser" :current-username="currentUsername"
+            :is-sys-admin="isSysAdmin"
             @open-import-tip="showImportTipDialog = true" @export-users="exportUsersExcel"
             @refresh-users="fetchUsers" @open-add-dialog="showAddUserDialog = true"
             @open-role="openRoleDialog" @open-pwd="openPwdDialog" @open-perm="openPermDialog"
@@ -872,6 +873,7 @@ export default {
     openRoleDialog(row) {
       this.targetUser = row.username;
       this.editRoleForm.target_name = row.name || row.username;
+      this.editRoleForm.target_group = row.staff_group || '';
       this.editRoleForm.target_role = row.role || 'user';
       this.showEditRoleDialog = true;
     },
