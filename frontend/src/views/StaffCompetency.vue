@@ -640,7 +640,11 @@ export default {
     },
     shiftCounts() {
       const map = {};
-      this.currentEmployees.forEach(e => {
+      const targetEmps = this.staffGroupFilter === 'all'
+        ? this.currentEmployees
+        : this.currentEmployees.filter(e => (e.staffGroup || '未分組') === this.staffGroupFilter);
+
+      targetEmps.forEach(e => {
         const sh = e.shiftName || '未設定班別';
         map[sh] = (map[sh] || 0) + 1;
       });
@@ -976,6 +980,18 @@ export default {
       } else {
         this.groupFilter = 'all';
       }
+
+      // 若目前選取的班別在新組別中不存在，自動切回「全部班別」
+      if (this.shiftFilter !== 'all') {
+        const hasShiftInGroup = this.currentEmployees.some(e => {
+          const okGrp = grp === 'all' || (e.staffGroup || '未分組') === grp;
+          return okGrp && (e.shiftName || '未設定班別') === this.shiftFilter;
+        });
+        if (!hasShiftInGroup) {
+          this.shiftFilter = 'all';
+        }
+      }
+
       this.changePage(1);
     },
     onSkillGroupChange() {
