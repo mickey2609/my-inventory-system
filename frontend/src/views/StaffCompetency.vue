@@ -112,6 +112,7 @@
           @input="changePage(1)"
         />
 
+        <!-- 選擇人員組別時，自動帶出該組別的能力項目與該組班別人數 -->
         <el-select
           v-model="staffGroupFilter"
           size="mini"
@@ -127,8 +128,8 @@
           />
         </el-select>
 
-        <el-select v-model="shiftFilter" size="mini" style="width: 120px;" @change="changePage(1)">
-          <el-option label="全部班別" value="all" />
+        <el-select v-model="shiftFilter" size="mini" style="width: 128px;" @change="changePage(1)">
+          <el-option :label="`全部班別 (${totalFilteredInSelectedGroup}人)`" value="all" />
           <el-option
             v-for="(cnt, sh) in shiftCounts"
             :key="sh"
@@ -193,7 +194,7 @@
       </div>
     </div>
 
-    <!-- 2. 主能力矩陣表格區（左側 6 欄凍結：組別、班別、員編、姓名、該組進度、全能進度） -->
+    <!-- 2. 主能力矩陣表格區（表頭精簡為 2 層：第一層直接顯示「組別-現場人員」等合併標題） -->
     <div class="matrix-wrapper" v-loading="loading">
       <div
         class="table-scroll-container"
@@ -204,34 +205,20 @@
         <table class="competency-table">
           <thead>
             <tr>
-              <th rowspan="3" class="sticky-col-1 th-base">所屬組別</th>
-              <th rowspan="3" class="sticky-col-2 th-base">班別</th>
-              <th rowspan="3" class="sticky-col-3 th-base">員編</th>
-              <th rowspan="3" class="sticky-col-4 th-base">姓名</th>
-              <th rowspan="3" class="sticky-col-5 th-base" title="僅計算該員所屬組別工作項目的完成比例">該組進度</th>
-              <th rowspan="3" class="sticky-col-6 th-base" title="計算全倉所有工作項目的完成比例">全能進度</th>
+              <th rowspan="2" class="sticky-col-1 th-base">所屬組別</th>
+              <th rowspan="2" class="sticky-col-2 th-base">班別</th>
+              <th rowspan="2" class="sticky-col-3 th-base">員編</th>
+              <th rowspan="2" class="sticky-col-4 th-base">姓名</th>
+              <th rowspan="2" class="sticky-col-5 th-base" title="僅計算該員所屬組別工作項目的完成比例">該組進度</th>
+              <th rowspan="2" class="sticky-col-6 th-base" title="計算全倉所有工作項目的完成比例">全能進度</th>
               <th
-                v-for="(seg, idx) in groupSegments"
-                :key="'g_' + idx"
+                v-for="(seg, idx) in mergedHeaderSegments"
+                :key="'seg_' + idx"
                 :colspan="seg.count"
-                class="th-group"
-                :class="getGroupHeaderClass(seg.group)"
+                class="th-merged-group"
+                :class="`th-sub-${seg.type}`"
               >
-                {{ seg.group }} ({{ seg.count }})
-              </th>
-              <th colspan="6" class="th-base border-left-heavy">能力加總、排名與更新狀態</th>
-              <th rowspan="3" class="th-base" style="min-width: 105px;">操作</th>
-            </tr>
-
-            <tr>
-              <th
-                v-for="(sub, idx) in subSegments"
-                :key="'sub_' + idx"
-                :colspan="sub.count"
-                class="th-sub"
-                :class="`th-sub-${sub.type}`"
-              >
-                {{ sub.subLabel }} ({{ sub.count }})
+                {{ seg.mergedTitle }} ({{ seg.count }})
               </th>
               <th rowspan="2" class="th-sum-field border-left-heavy">現場</th>
               <th rowspan="2" class="th-sum-special">異動</th>
@@ -239,6 +226,7 @@
               <th rowspan="2" class="th-sum-total">總分</th>
               <th rowspan="2" class="th-base">排名</th>
               <th rowspan="2" class="th-base" style="min-width: 88px;">最後更新</th>
+              <th rowspan="2" class="th-base" style="min-width: 105px;">操作</th>
             </tr>
 
             <tr>
@@ -638,6 +626,7 @@ export default {
       });
       return map;
     },
+    // 依目前選取的人員組別，同步統計各班別人數
     shiftCounts() {
       const map = {};
       const targetEmps = this.staffGroupFilter === 'all'
@@ -649,6 +638,9 @@ export default {
         map[sh] = (map[sh] || 0) + 1;
       });
       return map;
+    },
+    totalFilteredInSelectedGroup() {
+      return Object.values(this.shiftCounts).reduce((a, b) => a + b, 0);
     },
     overdueCountByWh() {
       void this.renderTick;
@@ -668,22 +660,20 @@ export default {
         return okType && okGrp;
       });
     },
-    groupSegments() {
+    // 將原本第一列的「組別」跟第二列的「性質」合併為單一表頭：「組別-現場人員」
+    mergedHeaderSegments() {
       const segs = [];
       this.visibleSkills.forEach(s => {
+        const roleLabel = s.type === 'cadre'
+          ? '幹部人員'
+          : (s.type === 'special' ? '異動單人員' : '現場人員');
+        const mergedTitle = `${s.group}-${roleLabel}`;
         const last = segs[segs.length - 1];
-        if (last && last.group === s.group) last.count++;
-        else segs.push({ group: s.group, count: 1 });
-      });
-      return segs;
-    },
-    subSegments() {
-      const segs = [];
-      this.visibleSkills.forEach(s => {
-        const subLabel = s.subHeader || (s.type === 'cadre' ? '幹部所需能力' : (s.type === 'special' ? '異動單人員' : '現場人員所需能力'));
-        const last = segs[segs.length - 1];
-        if (last && last.group === s.group && last.subLabel === subLabel && last.type === s.type) last.count++;
-        else segs.push({ group: s.group, subLabel, type: s.type, count: 1 });
+        if (last && last.mergedTitle === mergedTitle && last.type === s.type) {
+          last.count++;
+        } else {
+          segs.push({ mergedTitle, type: s.type, count: 1 });
+        }
       });
       return segs;
     },
@@ -890,18 +880,6 @@ export default {
       if (wh === '3PL一組') return '📦';
       return '🚚';
     },
-    getGroupHeaderClass(grp) {
-      const map = {
-        '進貨驗收組': 'grp-blue',
-        '儲位上架組': 'grp-green',
-        '揀出貨作業組': 'grp-amber',
-        '庫存作業組': 'grp-purple',
-        '還貨作業組': 'grp-rose',
-        '共同科目': 'grp-orange',
-        '寵物公園': 'grp-teal'
-      };
-      return map[grp] || 'grp-indigo';
-    },
     formatNow() {
       const d = new Date();
       const pad = (n) => String(n).padStart(2, '0');
@@ -981,7 +959,6 @@ export default {
         this.groupFilter = 'all';
       }
 
-      // 若目前選取的班別在新組別中不存在，自動切回「全部班別」
       if (this.shiftFilter !== 'all') {
         const hasShiftInGroup = this.currentEmployees.some(e => {
           const okGrp = grp === 'all' || (e.staffGroup || '未分組') === grp;
@@ -1050,7 +1027,7 @@ export default {
           container.scrollLeft = cellRight - container.clientWidth + 24;
         }
 
-        const stickyTopHeight = 102;
+        const stickyTopHeight = 76;
         const stickyBottomHeight = 40;
         const cellTop = cell.offsetTop;
         const cellBottom = cellTop + cell.offsetHeight;
@@ -1819,7 +1796,7 @@ export default {
   padding-left: 8px;
 }
 
-/* 黑底矩陣表格區 */
+/* 黑底矩陣表格區（表頭精簡為 2 層） */
 .matrix-wrapper {
   flex: 1;
   min-height: 0;
@@ -1856,19 +1833,16 @@ export default {
 
 thead th { position: sticky; z-index: 20; }
 thead tr:nth-child(1) th { top: 0; height: 28px; }
-thead tr:nth-child(2) th { top: 28px; height: 26px; }
-thead tr:nth-child(3) th { top: 54px; height: 48px; }
+thead tr:nth-child(2) th { top: 28px; height: 48px; }
 
 .th-base { background: #0f172a; color: #cbd5e1; font-weight: bold; padding: 0 6px; }
-.th-group { color: #ffffff; font-weight: bold; padding: 0 6px; }
-.grp-blue { background: #1e40af; }
-.grp-green { background: #065f46; }
-.grp-amber { background: #92400e; }
-.grp-purple { background: #5b21b6; }
-.grp-rose { background: #9f1239; }
-.grp-orange { background: #9a3412; }
-.grp-teal { background: #115e59; }
-.grp-indigo { background: #3730a3; }
+.th-merged-group {
+  color: #ffffff;
+  font-weight: bold;
+  padding: 0 8px;
+  font-size: 12px;
+  letter-spacing: 0.3px;
+}
 
 .th-sub-field { background: #075985; color: #e0f2fe; }
 .th-sub-special { background: #b45309; color: #fef3c7; }
