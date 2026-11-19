@@ -99,18 +99,18 @@
         </el-button>
       </div>
 
-      <!-- 篩選與搜尋列 -->
+      <!-- 篩選與搜尋列（能力項目已整合為下拉選單） -->
       <div class="filter-row">
         <el-input
           v-model="searchTerm"
           size="mini"
           placeholder="🔍 搜尋員編 / 姓名..."
-          style="width: 160px;"
+          style="width: 155px;"
           clearable
           @input="changePage(1)"
         />
 
-        <el-select v-model="staffGroupFilter" size="mini" style="width: 150px;" @change="changePage(1)">
+        <el-select v-model="staffGroupFilter" size="mini" style="width: 145px;" @change="changePage(1)">
           <el-option :label="`全部人員組別 (${currentEmployees.length}人)`" value="all" />
           <el-option
             v-for="(cnt, grp) in staffGroupCounts"
@@ -120,7 +120,7 @@
           />
         </el-select>
 
-        <el-select v-model="shiftFilter" size="mini" style="width: 130px;" @change="changePage(1)">
+        <el-select v-model="shiftFilter" size="mini" style="width: 120px;" @change="changePage(1)">
           <el-option label="全部班別" value="all" />
           <el-option
             v-for="(cnt, sh) in shiftCounts"
@@ -130,7 +130,23 @@
           />
         </el-select>
 
-        <el-select v-model="updateStatusFilter" size="mini" style="width: 160px;" @change="changePage(1)">
+        <el-select
+          v-model="groupFilter"
+          size="mini"
+          style="width: 165px;"
+          placeholder="選擇能力項目"
+          @change="setGroupFilter"
+        >
+          <el-option :label="`全部能力項目 (${currentSkills.length}項)`" value="all" />
+          <el-option
+            v-for="g in orderedSkillGroups"
+            :key="g"
+            :label="`${g} (${skillGroupCounts[g] || 0}項)`"
+            :value="g"
+          />
+        </el-select>
+
+        <el-select v-model="updateStatusFilter" size="mini" style="width: 155px;" @change="changePage(1)">
           <el-option label="全部更新狀態" value="all" />
           <el-option label="逾 30 天未更新 / 未建檔" value="overdue" />
           <el-option label="30 天內已更新" value="fresh" />
@@ -143,7 +159,7 @@
           <el-radio-button label="cadre">幹部</el-radio-button>
         </el-radio-group>
 
-        <el-select v-model="sortBy" size="mini" style="width: 130px;" @change="changePage(1)">
+        <el-select v-model="sortBy" size="mini" style="width: 125px;" @change="changePage(1)">
           <el-option label="預設順序" value="default" />
           <el-option label="總分高到低" value="rankAsc" />
           <el-option label="總分低到高" value="rankDesc" />
@@ -151,7 +167,7 @@
           <el-option label="員編順序" value="idAsc" />
         </el-select>
 
-        <el-select v-model="pageSize" size="mini" style="width: 110px;" @change="changePage(1)">
+        <el-select v-model="pageSize" size="mini" style="width: 105px;" @change="changePage(1)">
           <el-option label="每頁 50 筆" :value="50" />
           <el-option label="每頁 100 筆" :value="100" />
           <el-option label="每頁 200 筆" :value="200" />
@@ -162,29 +178,6 @@
           <span>🖱️ <strong>按住左鍵拖曳</strong>批量勾選 ｜ ⌨️ <kbd>↑↓←→</kbd>+<kbd>Space</kbd></span>
           <span v-if="activeCellText" class="active-cell-lbl">{{ activeCellText }}</span>
         </div>
-      </div>
-
-      <!-- 作業組別快篩膠囊列 -->
-      <div class="group-pills-row">
-        <span class="grp-title">📂 作業組別：</span>
-        <button
-          type="button"
-          class="grp-pill"
-          :class="{ active: groupFilter === 'all' }"
-          @click="setGroupFilter('all')"
-        >
-          全部 ({{ currentSkills.length }})
-        </button>
-        <button
-          type="button"
-          v-for="g in orderedSkillGroups"
-          :key="g"
-          class="grp-pill"
-          :class="{ active: groupFilter === g }"
-          @click="setGroupFilter(g)"
-        >
-          {{ g }} ({{ skillGroupCounts[g] || 0 }})
-        </button>
       </div>
     </div>
 
@@ -377,7 +370,7 @@
       </div>
     </div>
 
-    <!-- 3. 新增 / 編輯人員 Modal（新增班別欄位） -->
+    <!-- 3. 新增 / 編輯人員 Modal -->
     <el-dialog
       v-model="showEmpModal"
       :title="editingOriginalEmp ? `編輯人員能力 - ${empForm.name} (${empForm.id})` : '新增人員與能力登記'"
@@ -530,7 +523,6 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import * as XLSX from 'xlsx'
 
 const OVERDUE_DAYS_LIMIT = 30;
-// 左側 6 欄凍結總寬度：組別(74) + 班別(64) + 員編(72) + 姓名(76) + 該組進度(84) + 全能進度(84) = 454px
 const STICKY_LEFT_TOTAL_PX = 454;
 
 export default {
@@ -692,7 +684,6 @@ export default {
         const totalScore = f + sp + ca;
         const pct = totalSkillCnt > 0 ? Math.round((totalScore / totalSkillCnt) * 100) : 0;
 
-        // 計算「該組進度」：該員所屬組別已會項目數 / 該組總項目數
         const grpTotal = grpCntMap[emp.staffGroup] || 0;
         const grpDone = emp._grpDone || 0;
         const groupPct = grpTotal > 0 ? Math.round((grpDone / grpTotal) * 100) : 0;
@@ -1133,7 +1124,6 @@ export default {
       else if (skill.type === 'special') emp._sp = Math.max(0, (emp._sp || 0) + delta);
       else if (skill.type === 'cadre') emp._ca = Math.max(0, (emp._ca || 0) + delta);
 
-      // 同步更新該組進度快取
       if (skill.group === emp.staffGroup) {
         emp._grpDone = Math.max(0, (emp._grpDone || 0) + delta);
       }
@@ -1379,7 +1369,6 @@ export default {
           return '';
         };
 
-        // 支援格式 B：單一工作表純人員名冊（欄位含 倉別 / 組別 / 班別(選填) / 員編 / 姓名）
         const firstSheetRows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
         let rosterHeaderRow = -1, whCol = -1, grpCol = -1, shiftCol = -1, idCol = -1, nameCol = -1;
         for (let r = 0; r < Math.min(firstSheetRows.length, 10); r++) {
@@ -1442,7 +1431,6 @@ export default {
           }
         }
 
-        // 支援格式 A：四大倉別能力矩陣分頁（自動偵測是否含「班別」欄）
         wb.SheetNames.forEach(sheetName => {
           const matchedWh = mapWhName(sheetName);
           if (!matchedWh) return;
@@ -1629,7 +1617,7 @@ export default {
   background: #1e293b;
   border: 1px solid #334155;
   border-radius: 8px;
-  padding: 10px 12px 8px 12px;
+  padding: 10px 12px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -1749,7 +1737,7 @@ export default {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 .kbd-guide {
   margin-left: auto;
@@ -1775,33 +1763,6 @@ export default {
   font-weight: bold;
   border-left: 1px solid #334155;
   padding-left: 8px;
-}
-
-.group-pills-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  border-top: 1px solid #334155;
-  padding-top: 6px;
-  overflow-x: auto;
-}
-.grp-title { font-size: 12px; font-weight: bold; color: #94a3b8; white-space: nowrap; }
-.grp-pill {
-  background: #0f172a;
-  border: 1px solid #334155;
-  color: #cbd5e1;
-  font-size: 11px;
-  font-weight: bold;
-  padding: 3px 10px;
-  border-radius: 12px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.grp-pill:hover { border-color: #38bdf8; }
-.grp-pill.active {
-  background: #0284c7;
-  border-color: #38bdf8;
-  color: #ffffff;
 }
 
 /* 黑底矩陣表格區 */
