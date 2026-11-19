@@ -221,7 +221,7 @@
           <el-option label="30 天內已更新" value="fresh" />
         </el-select>
 
-        <el-select v-model="sortBy" size="mini" style="width: 122px;" @change="changePage(1)">
+        <el-select v-model="sortBy" size="mini" style="width: 122px;" @change="sortSnapshotVersion++; changePage(1)">
           <el-option label="預設順序" value="default" />
           <el-option label="總分高到低" value="rankAsc" />
           <el-option label="總分低到高" value="rankDesc" />
@@ -237,7 +237,7 @@
         </el-select>
 
         <div class="kbd-guide">
-          <span v-if="!isSysAdmin && !isAdmin" class="perm-scope-pill">
+          <span v-if="!myAllowedGroups.includes('*')" class="perm-scope-pill">
             🔑 可編輯組別：<strong>{{ myEditableGroupsLabel }}</strong>
           </span>
           <span v-else>🖱️ <strong>按住左鍵拖曳</strong>批量勾選 ｜ ⌨️ <kbd>↑↓←→</kbd>+<kbd>Space</kbd></span>
@@ -625,7 +625,7 @@ export default {
       },
       renderTick: 0,
 
-      // 目前登入者資訊（用於記名備份與權限）
+      // 目前登入者資訊與即時權限
       currentUsername: '',
       currentUserRealName: '',
       currentUserRole: '',
@@ -643,6 +643,7 @@ export default {
       skillTypeFilter: 'all',
       groupFilter: 'all',
       sortBy: 'default',
+      sortSnapshotVersion: 0,
       currentPage: 1,
       pageSize: 100,
 
@@ -696,9 +697,7 @@ export default {
       }
       return this.currentUserRealName || this.currentUsername || '管理員';
     },
-    // 從系統帳號權限（UserManagementModals 設定的 staff_competency:group:*）讀取可管理組別
     myAllowedGroups() {
-      // 只有最高系統管理員 (sys_admin) 無條件全開
       if (this.isSysAdmin || this.currentUserRole === 'sys_admin' || this.currentUsername === 'admin') {
         return ['*'];
       }
@@ -718,25 +717,21 @@ export default {
         });
       } catch (e) {}
 
-      // 若帳號有明確勾選指定組別（例如只勾「進貨驗收組」），即使身份為 admin 也嚴格鎖定在該組別
       if (set.size > 0) {
         return Array.from(set);
       }
 
-      // 若未勾選任何組別限制，且為 admin 管理員，則開放全倉；一般 user 未勾選則為唯讀 []
       if (this.isAdmin || this.currentUserRole === 'admin') {
         return ['*'];
       }
       return [];
     },
-
     myEditableGroupsLabel() {
-      if (this.isSysAdmin || this.isAdmin) return '全部組別';
+      if (this.myAllowedGroups.includes('*')) return '全部組別';
       return this.myAllowedGroups.length > 0 ? this.myAllowedGroups.join('、') : '無編輯權限（僅唯讀）';
     },
-    // 計算本次點擊「立即備份」只會備份的目標組別（空陣列代表全倉，僅管理員選全部時觸發）
     targetGroupsForBackup() {
-      if (this.isSysAdmin || this.isAdmin) {
+      if (this.myAllowedGroups.includes('*')) {
         return this.staffGroupFilter !== 'all' ? [this.staffGroupFilter] : [];
       }
       if (this.staffGroupFilter !== 'all' && this.myAllowedGroups.includes(this.staffGroupFilter)) {
@@ -749,9 +744,8 @@ export default {
       if (this.targetGroupsForBackup.length === 1) return `（${this.targetGroupsForBackup[0]}）`;
       return `（${this.targetGroupsForBackup.length}組）`;
     },
-    // 下拉選單只顯示自己有權限的組別備份（或全倉自動週備份），不混雜別組私人備份
     visibleSnapshotsList() {
-      if (this.isSysAdmin || this.isAdmin) return this.snapshotsList;
+      if (this.myAllowedGroups.includes('*')) return this.snapshotsList;
       return this.snapshotsList.filter(sn => {
         if (!sn.target_groups || sn.target_groups === 'ALL') return true;
         try {
@@ -763,17 +757,16 @@ export default {
       });
     },
     canImport() {
-      if (this.isSysAdmin || this.isAdmin) return true;
-      if (this.myAllowedGroups.length > 0) return true;
+      if (this.myAllowedGroups.includes('*') || this.myAllowedGroups.length > 0) return true;
       return typeof this.$canImport === 'function' ? this.$canImport('staff_competency') : false;
     },
     canExport() {
-      if (this.isSysAdmin || this.isAdmin) return true;
+      if (this.myAllowedGroups.includes('*')) return true;
       return typeof this.$canExport === 'function' ? this.$canExport('staff_competency') : true;
     },
     editableGroupOptionsForForm() {
       const all = this.getWarehouseGroups(this.empForm.warehouse);
-      if (this.isSysAdmin || this.isAdmin) return all;
+      if (this.myAllowedGroups.includes('*')) return all;
       return all.filter(g => this.myAllowedGroups.includes(g));
     },
     activeDataSource() {
@@ -899,9 +892,41 @@ export default {
       }
       return counts;
     },
+    // 凍結排列順序快照：僅在切換排序、切換倉別或按重新整理時重排，勾選時絕不跳動
+    lockedOrderedIds() {
+      void this.sortSnapshotVersion;
+      const wh = this.currentWarehouse;
+      const sortMode = this.sortBy;
+      const snapId = this.viewingSnapshotId;
+      void wh;
+      void snapId;
+
+      const emps = this.currentEmployees;
+      const enriched = emps.map((emp, idx) => {
+        const total = (emp._f || 0) + (emp._sp || 0) + (emp._ca || 0);
+        const days = emp.lastUpdated ? this.getDaysSince(emp.lastUpdated) : 99999;
+        return { id: emp.id, idx, total, days };
+      });
+
+      if (sortMode === 'rankAsc') {
+        enriched.sort((a, b) => (b.total - a.total) || (a.idx - b.idx));
+      } else if (sortMode === 'rankDesc') {
+        enriched.sort((a, b) => (a.total - b.total) || (a.idx - b.idx));
+      } else if (sortMode === 'idAsc') {
+        enriched.sort((a, b) => a.id.localeCompare(b.id));
+      } else if (sortMode === 'staleFirst') {
+        enriched.sort((a, b) => (b.days - a.days) || (a.idx - b.idx));
+      }
+
+      const orderMap = new Map();
+      enriched.forEach((item, pos) => orderMap.set(item.id, pos));
+      return orderMap;
+    },
     filteredRows() {
       const kw = this.searchTerm.trim().toLowerCase();
-      let list = this.scoredRows.filter(item => {
+      const orderMap = this.lockedOrderedIds;
+
+      const list = this.scoredRows.filter(item => {
         const okKw = !kw || item.emp.id.toLowerCase().includes(kw) || item.emp.name.toLowerCase().includes(kw);
         const okGrp = this.staffGroupFilter === 'all' || (item.emp.staffGroup || '未分組') === this.staffGroupFilter;
         const empShift = item.emp.shiftName || '未設定班別';
@@ -912,17 +937,11 @@ export default {
         return okKw && okGrp && okShift && okUpd;
       });
 
-      if (this.sortBy === 'rankAsc') list = [...list].sort((a, b) => b.totalScore - a.totalScore);
-      else if (this.sortBy === 'rankDesc') list = [...list].sort((a, b) => a.totalScore - b.totalScore);
-      else if (this.sortBy === 'idAsc') list = [...list].sort((a, b) => a.emp.id.localeCompare(b.emp.id));
-      else if (this.sortBy === 'staleFirst') {
-        list = [...list].sort((a, b) => {
-          const da = a.emp.lastUpdated ? this.getDaysSince(a.emp.lastUpdated) : 99999;
-          const db = b.emp.lastUpdated ? this.getDaysSince(b.emp.lastUpdated) : 99999;
-          return db - da;
-        });
-      }
-      return list;
+      return [...list].sort((a, b) => {
+        const pa = orderMap.has(a.emp.id) ? orderMap.get(a.emp.id) : 999999;
+        const pb = orderMap.has(b.emp.id) ? orderMap.get(b.emp.id) : 999999;
+        return pa - pb;
+      });
     },
     totalFiltered() {
       return this.filteredRows.length;
@@ -1064,8 +1083,9 @@ export default {
     hydrateAppData(rawData) {
       this.appData = this.normalizeWarehouseData(rawData);
       this.renderTick++;
+      this.sortSnapshotVersion++;
 
-      if (!this.isSysAdmin && !this.isAdmin && this.staffGroupFilter === 'all' && this.myAllowedGroups.length === 1) {
+      if (!this.myAllowedGroups.includes('*') && this.staffGroupFilter === 'all' && this.myAllowedGroups.length === 1) {
         const myGrp = this.myAllowedGroups[0];
         if (this.staffGroupCounts[myGrp]) {
           this.staffGroupFilter = myGrp;
@@ -1145,6 +1165,7 @@ export default {
       this.groupFilter = 'all';
       this.staffGroupFilter = 'all';
       this.shiftFilter = 'all';
+      this.sortSnapshotVersion++;
       this.changePage(1);
     },
     onStaffGroupChange(grp) {
@@ -1196,7 +1217,6 @@ export default {
           if (me) {
             this.liveUserPermissions = me.permissions || '';
             this.currentUserRole = me.role || this.currentUserRole;
-            // 同步更新 localStorage
             try {
               const sess = JSON.parse(localStorage.getItem('auth_session') || '{}');
               sess.permissions = me.permissions;
@@ -1233,6 +1253,7 @@ export default {
         this.snapshotDataCache = null;
         this.currentSnapshotTitle = '';
         this.renderTick++;
+        this.sortSnapshotVersion++;
         return;
       }
       this.loading = true;
@@ -1242,6 +1263,7 @@ export default {
           this.snapshotDataCache = this.normalizeWarehouseData(res.data.data);
           this.currentSnapshotTitle = res.data.snapshot?.snapshot_name || '';
           this.renderTick++;
+          this.sortSnapshotVersion++;
         }
       } catch (e) {
         ElMessage.error('載入歷史快照失敗：' + e.message);
@@ -1251,9 +1273,8 @@ export default {
       }
     },
 
-    // 記名＋分組獨立建立備份（幹部只備份自己負責的組別，不影響他組）
     async createManualSnapshot() {
-      if (!this.isSysAdmin && !this.isAdmin && this.myAllowedGroups.length === 0) {
+      if (!this.myAllowedGroups.includes('*') && this.myAllowedGroups.length === 0) {
         return ElMessage.warning('您尚未被指派可管理的作業組別，無法建立組別備份！');
       }
       try {
@@ -1320,9 +1341,10 @@ export default {
     },
 
     async resetWarehouseSkillsToLatest() {
+      await this.flushUpdates();
       await this.fetchAllData(true);
       await this.fetchSnapshotsList();
-      ElMessage.success(`已重新整理【${this.currentWarehouse}】最新資料！`);
+      ElMessage.success(`已重新整理【${this.currentWarehouse}】最新資料並更新排序！`);
     },
 
     ensureFocusedCellVisible() {
@@ -1547,7 +1569,7 @@ export default {
 
     openAddEmployeeModal() {
       const allowedOpts = this.editableGroupOptionsForForm;
-      if (!this.isSysAdmin && !this.isAdmin && allowedOpts.length === 0) {
+      if (!this.myAllowedGroups.includes('*') && allowedOpts.length === 0) {
         return ElMessage.warning('您尚未被指派可管理的作業組別，請聯繫管理員於「帳號權限管理」中設定！');
       }
       this.editingOriginalEmp = null;
@@ -1713,7 +1735,7 @@ export default {
         const isMasterWorkbook = wb.SheetNames.some(s => Boolean(mapWhName(s)));
 
         if (isMasterWorkbook) {
-          if (!this.isSysAdmin && !this.isAdmin) {
+          if (!this.myAllowedGroups.includes('*')) {
             ElMessage.error('⛔ 只有最高管理員可以匯入「人員能力表-主檔」！現場幹部請匯入所屬組別的「組檔」。');
             return;
           }
