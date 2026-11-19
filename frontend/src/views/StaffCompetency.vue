@@ -9,10 +9,10 @@
       @change="handleExcelImport"
     />
 
-    <!-- 1. 頂部控制與倉別頁籤列 -->
+    <!-- 1. 頂部控制列（左上角直接配置四大倉別切換頁籤） -->
     <div class="control-header-panel">
       <div class="top-row">
-        <!-- 四大倉別切換 -->
+        <!-- 左上角：四大倉別切換 -->
         <div class="wh-tabs-group">
           <button
             type="button"
@@ -42,7 +42,7 @@
           </button>
         </div>
 
-        <!-- 右側即時 KPI 指標條 -->
+        <!-- 中間：即時 KPI 指標條 -->
         <div class="kpi-strip">
           <div class="kpi-chip">
             <span class="k-lbl">總人數</span>
@@ -62,7 +62,7 @@
           </div>
         </div>
 
-        <!-- 右上角操作按鈕群 -->
+        <!-- 右上角：操作按鈕群 -->
         <div class="action-btns-group">
           <span class="sync-badge" :class="`sync-${syncState}`">{{ syncStatusText }}</span>
           <el-button size="mini" type="warning" icon="el-icon-plus" @click="openAddEmployeeModal">新增人員</el-button>
@@ -99,7 +99,7 @@
         </el-button>
       </div>
 
-      <!-- 篩選與搜尋列（全下拉選單化） -->
+      <!-- 第二排：全下拉選單篩選與搜尋列 -->
       <div class="filter-row">
         <el-input
           v-model="searchTerm"
@@ -153,7 +153,7 @@
           />
         </el-select>
 
-        <!-- 技能性質下拉選單（全部 / 現場 / 異動 / 幹部） -->
+        <!-- 技能性質下拉選單 -->
         <el-select
           v-model="skillTypeFilter"
           size="mini"
@@ -194,7 +194,7 @@
       </div>
     </div>
 
-    <!-- 2. 主能力矩陣表格區 -->
+    <!-- 2. 主能力矩陣表格區（左側 6 欄凍結：組別、班別、員編、姓名、該組進度、全能進度） -->
     <div class="matrix-wrapper" v-loading="loading">
       <div
         class="table-scroll-container"
@@ -983,7 +983,7 @@ export default {
       }
       this.changePage(1);
     },
-    // 2. 單獨選「能力項目」時（例如切回「全部能力項目」幫該組同仁勾選他組能力），保留原本的人員組別不變！
+    // 2. 單獨選「能力項目」時（可切回「全部能力項目」幫該組同仁勾選他組能力），保留原本的人員組別不變
     onSkillGroupChange() {
       this.resetFocus();
     },
@@ -1618,12 +1618,12 @@ export default {
 
 <style scoped>
 .staff-competency-dark-page {
-  padding: 12px 14px;
+  padding: 8px 12px 10px 12px;
   height: calc(100vh - 52px);
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   background: #0b1120;
   color: #f8fafc;
   overflow: hidden;
@@ -1634,18 +1634,18 @@ export default {
   background: #1e293b;
   border: 1px solid #334155;
   border-radius: 8px;
-  padding: 10px 12px;
+  padding: 8px 10px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 7px;
 }
 
 .top-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .wh-tabs-group {
