@@ -639,7 +639,8 @@ module.exports = function(db) {
           JSON.stringify(fullData)
         ]
       );
-      res.json({ success: true, id: info.lastID, message: `📸 已建立記名備份：${title}` });
+      bumpVersion();
+      res.json({ success: true, id: info.lastID, version: currentVersion, message: `📸 已建立記名備份：${title}` });
     } catch (err) {
       res.status(500).json({ success: false, message: err.message });
     }

@@ -1104,6 +1104,7 @@ export default {
             this.appData = this.normalizeWarehouseData(allRes.data.data);
             this.renderTick++;
             this._localVersion = allRes.data.version || remoteVer;
+            await this.fetchSnapshotsList();
             this.syncState = 'synced';
             this.syncStatusText = '✅ 地端已同步';
           }
