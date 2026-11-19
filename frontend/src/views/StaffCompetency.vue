@@ -472,6 +472,7 @@
               :allow-create="isFullAccessAdmin"
               placeholder="選擇組別"
               style="width: 100%;"
+              @change="onEmpFormGroupChange"
             >
               <el-option v-for="g in editableGroupOptionsForForm" :key="g" :label="g" :value="g" />
             </el-select>
@@ -712,40 +713,59 @@ export default {
         return [];
       }
     },
-    myAllowedGroups() {
+    // 解析每一組對應允許的班別 Map：{ '儲位上架組': Set(['日班']), '還貨作業組': Set(['夜班']) }
+    myGroupShiftPermMap() {
+      const map = new Map();
       if (this.isSysAdmin || this.currentUserRole === 'sys_admin' || this.currentUsername === 'admin') {
-        return ['*'];
+        map.set('*', new Set(['*']));
+        return map;
       }
-      const set = new Set();
+
+      const explicitGroups = new Set();
       this.parsedPermissionTokens.forEach(p => {
-        if (p.startsWith('staff_competency:group:')) {
-          set.add(p.replace('staff_competency:group:', '').trim());
+        if (p.startsWith('staff_competency:gs:')) {
+          const rest = p.replace('staff_competency:gs:', '');
+          const sepIdx = rest.indexOf(':');
+          if (sepIdx !== -1) {
+            const grp = rest.slice(0, sepIdx).trim();
+            const sh = rest.slice(sepIdx + 1).trim();
+            if (!map.has(grp)) map.set(grp, new Set());
+            map.get(grp).add(sh);
+            explicitGroups.add(grp);
+          }
+        } else if (p.startsWith('staff_competency:group:')) {
+          explicitGroups.add(p.replace('staff_competency:group:', '').trim());
         }
       });
-      if (set.size > 0) return Array.from(set);
-      if (this.isAdmin || this.currentUserRole === 'admin') return ['*'];
-      return [];
+
+      explicitGroups.forEach(grp => {
+        if (!map.has(grp)) {
+          map.set(grp, new Set(['*']));
+        }
+      });
+
+      if (map.size > 0) return map;
+
+      if (this.isAdmin || this.currentUserRole === 'admin') {
+        map.set('*', new Set(['*']));
+      }
+      return map;
     },
-    // 可管理班別（若未勾選任何班別且擁有組別權限，代表 ['*'] 該組全班別皆可編輯）
-    myAllowedShifts() {
-      if (this.myAllowedGroups.includes('*')) return ['*'];
-      const set = new Set();
-      this.parsedPermissionTokens.forEach(p => {
-        if (p.startsWith('staff_competency:shift:')) {
-          set.add(p.replace('staff_competency:shift:', '').trim());
-        }
-      });
-      return set.size > 0 ? Array.from(set) : ['*'];
+    myAllowedGroups() {
+      return Array.from(this.myGroupShiftPermMap.keys());
     },
     isFullAccessAdmin() {
-      return this.myAllowedGroups.includes('*');
+      return this.myGroupShiftPermMap.has('*');
     },
     myEditableScopeLabel() {
       if (this.isFullAccessAdmin) return '全部組別與班別';
-      if (this.myAllowedGroups.length === 0) return '無編輯權限（僅唯讀）';
-      const grpTxt = this.myAllowedGroups.join('、');
-      const shiftTxt = this.myAllowedShifts.includes('*') ? '全班別' : this.myAllowedShifts.join('、');
-      return `${grpTxt}（${shiftTxt}）`;
+      if (this.myGroupShiftPermMap.size === 0) return '無編輯權限（僅唯讀）';
+      const parts = [];
+      this.myGroupShiftPermMap.forEach((shiftSet, grp) => {
+        const shList = shiftSet.has('*') ? '全班別' : Array.from(shiftSet).join('/');
+        parts.push(`${grp}[${shList}]`);
+      });
+      return parts.join('、');
     },
     targetGroupsForBackup() {
       if (this.isFullAccessAdmin) {
@@ -787,9 +807,12 @@ export default {
       return all.filter(g => this.myAllowedGroups.includes(g));
     },
     editableShiftOptionsForForm() {
-      const defaults = ['日班', '早班', '早半', '中班', '夜班', '夜半', '大夜班'];
-      if (this.myAllowedShifts.includes('*')) return defaults;
-      return this.myAllowedShifts;
+      const defaults = ['日班', '早半', '夜班', '夜半', '大夜班'];
+      if (this.isFullAccessAdmin) return defaults;
+      const targetGrp = String(this.empForm.staffGroup || '').trim();
+      const shiftSet = this.myGroupShiftPermMap.get(targetGrp);
+      if (!shiftSet || shiftSet.has('*')) return defaults;
+      return Array.from(shiftSet);
     },
     activeDataSource() {
       return this.viewingSnapshotId && this.snapshotDataCache ? this.snapshotDataCache : this.appData;
@@ -1012,19 +1035,34 @@ export default {
     canEditStaffGroup(staffGrp) {
       if (this.isFullAccessAdmin) return true;
       const g = String(staffGrp || '未分組').trim();
-      return this.myAllowedGroups.includes(g);
+      return this.myGroupShiftPermMap.has(g);
+    },
+    canEditShiftForGroup(staffGrp, shiftName) {
+      if (this.isFullAccessAdmin) return true;
+      const g = String(staffGrp || '未分組').trim();
+      const shiftSet = this.myGroupShiftPermMap.get(g);
+      if (!shiftSet) return false;
+      if (shiftSet.has('*')) return true;
+      const sh = String(shiftName || '').trim();
+      if (!sh) return true;
+      return shiftSet.has(sh);
     },
     canEditShift(shiftName) {
-      if (this.isFullAccessAdmin || this.myAllowedShifts.includes('*')) return true;
+      if (this.isFullAccessAdmin) return true;
       const sh = String(shiftName || '').trim();
-      if (!sh) return true; // 尚未設定班別的新人員允許編輯
-      return this.myAllowedShifts.includes(sh);
+      if (!sh || sh === '未設定班別') return true;
+      if (this.staffGroupFilter !== 'all') {
+        return this.canEditShiftForGroup(this.staffGroupFilter, sh);
+      }
+      for (const shiftSet of this.myGroupShiftPermMap.values()) {
+        if (shiftSet.has('*') || shiftSet.has(sh)) return true;
+      }
+      return false;
     },
-    // 雙重權限檢查：必須同時符合「作業組別」與「班別」
     canEditEmployeeRecord(emp) {
       if (!emp) return false;
       if (this.isFullAccessAdmin) return true;
-      return this.canEditStaffGroup(emp.staffGroup) && this.canEditShift(emp.shiftName);
+      return this.canEditShiftForGroup(emp.staffGroup, emp.shiftName);
     },
     startAutoSyncPoll() {
       this.stopAutoSyncPoll();
@@ -1118,7 +1156,6 @@ export default {
       this.renderTick++;
       this.sortSnapshotVersion++;
 
-      // 若為單一組別或單一班別幹部，首次載入自動幫忙篩選到自己負責的組別/班別
       if (!this.isFullAccessAdmin) {
         if (this.staffGroupFilter === 'all' && this.myAllowedGroups.length === 1) {
           const myGrp = this.myAllowedGroups[0];
@@ -1126,11 +1163,12 @@ export default {
             this.staffGroupFilter = myGrp;
             this.onStaffGroupChange(myGrp);
           }
-        }
-        if (this.shiftFilter === 'all' && !this.myAllowedShifts.includes('*') && this.myAllowedShifts.length === 1) {
-          const myShift = this.myAllowedShifts[0];
-          if (this.shiftCounts[myShift]) {
-            this.shiftFilter = myShift;
+          const shiftSet = this.myGroupShiftPermMap.get(myGrp);
+          if (this.shiftFilter === 'all' && shiftSet && !shiftSet.has('*') && shiftSet.size === 1) {
+            const onlyShift = Array.from(shiftSet)[0];
+            if (this.shiftCounts[onlyShift]) {
+              this.shiftFilter = onlyShift;
+            }
           }
         }
       }
@@ -1609,22 +1647,37 @@ export default {
       }
     },
 
+    onEmpFormGroupChange(newGrp) {
+      if (this.isFullAccessAdmin) return;
+      const shiftSet = this.myGroupShiftPermMap.get(newGrp);
+      if (shiftSet && !shiftSet.has('*')) {
+        const allowed = Array.from(shiftSet);
+        if (!allowed.includes(this.empForm.shiftName)) {
+          this.empForm.shiftName = allowed[0] || '';
+        }
+      }
+    },
+
     openAddEmployeeModal() {
       const allowedOpts = this.editableGroupOptionsForForm;
-      const allowedShifts = this.editableShiftOptionsForForm;
       if (!this.isFullAccessAdmin && allowedOpts.length === 0) {
         return ElMessage.warning('您尚未被指派可管理的作業組別，請聯繫管理員於「帳號權限管理」中設定！');
       }
+      const initialGroup = allowedOpts.includes(this.staffGroupFilter) ? this.staffGroupFilter : (allowedOpts[0] || '');
       this.editingOriginalEmp = null;
       this.empForm = {
         warehouse: this.currentWarehouse,
-        staffGroup: allowedOpts.includes(this.staffGroupFilter) ? this.staffGroupFilter : (allowedOpts[0] || ''),
-        shiftName: allowedShifts.includes(this.shiftFilter) ? this.shiftFilter : (allowedShifts[0] || '日班'),
+        staffGroup: initialGroup,
+        shiftName: '日班',
         id: '',
         name: '',
         markReviewed: true,
         skills: {}
       };
+      this.$nextTick(() => {
+        const allowedShifts = this.editableShiftOptionsForForm;
+        this.empForm.shiftName = allowedShifts.includes(this.shiftFilter) ? this.shiftFilter : (allowedShifts[0] || '日班');
+      });
       this.showEmpModal = true;
     },
     openEditEmployeeModal(emp) {
@@ -1663,7 +1716,7 @@ export default {
       if (!cleanId || !cleanName || !targetGrp) {
         return ElMessage.warning('請完整填寫組別、員工編號與姓名！');
       }
-      if (!this.canEditStaffGroup(targetGrp) || !this.canEditShift(targetShift)) {
+      if (!this.canEditShiftForGroup(targetGrp, targetShift)) {
         return ElMessage.warning(`您無權限新增或編輯【${targetGrp} - ${targetShift || '全班'}】的人員！`);
       }
 
@@ -1896,7 +1949,7 @@ export default {
           return;
         }
 
-        // ===== 模式 B：各組組檔局部合併匯入（同時過濾組別與班別權限） =====
+        // ===== 模式 B：各組組檔局部合併匯入（同時過濾組別與每一組獨立班別權限） =====
         const groupsData = [];
         const deniedSheets = [];
         let skippedOtherShiftCount = 0;
@@ -1963,8 +2016,8 @@ export default {
             const staffGroup = String(row[grpColIdx] ?? '').trim() || groupName;
             const shiftName = shiftColIdx !== -1 ? String(row[shiftColIdx] ?? '').trim() : '';
 
-            // 檢查「組別 ＋ 班別」雙重權限，非自己負責班別的組員自動略過，絕不誤改！
-            if (!this.canEditStaffGroup(staffGroup) || !this.canEditShift(shiftName)) {
+            // 檢查該組別底下的該班別權限，非自己負責班別的組員自動略過，絕不誤改！
+            if (!this.canEditShiftForGroup(staffGroup, shiftName)) {
               skippedOtherShiftCount++;
               continue;
             }

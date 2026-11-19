@@ -100,12 +100,12 @@
       </template>
     </el-dialog>
 
-    <!-- 4. 模組權限設定彈窗（支援全勾選 ＋ 匯入/匯出 ＋ 人員能力表「組別＋班別」雙重權限） -->
+    <!-- 4. 模組權限設定彈窗（支援全勾選 ＋ 匯入/匯出 ＋ 人員能力表「每一組獨立配置班別」矩陣） -->
     <el-dialog 
       title="🔒 模組操作權限設定" 
       :model-value="showEditPerm" 
       @update:model-value="$emit('update:showEditPerm', $event)" 
-      width="650px" 
+      width="680px" 
       top="5vh"
       custom-class="dark-dialog"
     >
@@ -166,32 +166,37 @@
               </div>
             </div>
 
-            <!-- 人員綜合能力管理：專屬「組別 ＋ 班別」雙重權限子區塊 -->
+            <!-- 人員綜合能力管理：每一組獨立配置「日班、早半、夜班、夜半、大夜班」矩陣 -->
             <div v-if="mod.key === 'staff_competency' && isModuleChecked('staff_competency')" class="staff-group-perm-subbox">
-              <div class="sgp-title">🔑 1. 允許編輯與匯入的【作業組別】（未勾選的組別將鎖定為唯讀）：</div>
-              <div class="sgp-checks" style="margin-bottom: 10px;">
-                <el-checkbox
+              <div class="sgp-title">🔑 每一組獨立設定可編輯與匯入的【組別 ＋ 班別】（勾選組別可一鍵全選該組 5 班別）：</div>
+              <div class="gs-matrix-list">
+                <div
                   v-for="grp in staffCompetencyGroups"
                   :key="grp"
-                  :model-value="isStaffGroupChecked(grp)"
-                  @change="val => onToggleStaffGroup(grp, val)"
+                  class="gs-matrix-row"
+                  :class="{ 'gs-row-active': isGroupAnyShiftChecked(grp) }"
                 >
-                  <span class="sgp-label">{{ grp }}</span>
-                </el-checkbox>
-              </div>
+                  <div class="gs-group-col">
+                    <el-checkbox
+                      :model-value="isGroupAllShiftsChecked(grp)"
+                      :indeterminate="isGroupIndeterminate(grp)"
+                      @change="val => onToggleGroupAllShifts(grp, val)"
+                    >
+                      <span class="sgp-label">{{ grp }}</span>
+                    </el-checkbox>
+                  </div>
 
-              <div class="sgp-title" style="border-top: 1px dashed #334155; padding-top: 8px;">
-                🕒 2. 允許編輯與匯入的【班別】（若全不勾選則代表該組全部班別皆可編輯）：
-              </div>
-              <div class="sgp-checks">
-                <el-checkbox
-                  v-for="sh in staffCompetencyShifts"
-                  :key="sh"
-                  :model-value="isStaffShiftChecked(sh)"
-                  @change="val => onToggleStaffShift(sh, val)"
-                >
-                  <span class="sgp-shift-label">{{ sh }}</span>
-                </el-checkbox>
+                  <div class="gs-shifts-col">
+                    <el-checkbox
+                      v-for="sh in staffCompetencyShifts"
+                      :key="`${grp}_${sh}`"
+                      :model-value="isGroupShiftChecked(grp, sh)"
+                      @change="val => onToggleGroupShift(grp, sh, val)"
+                    >
+                      <span class="sgp-shift-label">{{ sh }}</span>
+                    </el-checkbox>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -240,9 +245,7 @@ export default {
       ],
       staffCompetencyShifts: [
         '日班',
-        '早班',
         '早半',
-        '中班',
         '夜班',
         '夜半',
         '大夜班'
@@ -289,15 +292,38 @@ export default {
     isActionChecked(modKey, action) {
       return this.selectedList.includes(`${modKey}:${action}`);
     },
-    isStaffGroupChecked(grp) {
-      return this.selectedList.includes(`staff_competency:group:${grp}`);
+    isGroupShiftChecked(grp, sh) {
+      // 兼容舊版僅勾選 group 未細分班別的權限（視為全選該組班別）
+      if (this.selectedList.includes(`staff_competency:gs:${grp}:${sh}`)) return true;
+      const hasAnyExplicitShift = this.staffCompetencyShifts.some(s =>
+        this.selectedList.includes(`staff_competency:gs:${grp}:${s}`)
+      );
+      if (!hasAnyExplicitShift && this.selectedList.includes(`staff_competency:group:${grp}`)) {
+        return true;
+      }
+      return false;
     },
-    isStaffShiftChecked(sh) {
-      return this.selectedList.includes(`staff_competency:shift:${sh}`);
+    isGroupAnyShiftChecked(grp) {
+      return this.staffCompetencyShifts.some(sh => this.isGroupShiftChecked(grp, sh));
+    },
+    isGroupAllShiftsChecked(grp) {
+      return this.staffCompetencyShifts.every(sh => this.isGroupShiftChecked(grp, sh));
+    },
+    isGroupIndeterminate(grp) {
+      const cnt = this.staffCompetencyShifts.filter(sh => this.isGroupShiftChecked(grp, sh)).length;
+      return cnt > 0 && cnt < this.staffCompetencyShifts.length;
     },
     isAllActionSelected(action) {
       if (!this.availableModules.length) return false;
       return this.availableModules.every(m => this.selectedList.includes(`${m.key}:${action}`));
+    },
+
+    clearAllStaffCompetencySubPerms(set) {
+      Array.from(set).forEach(token => {
+        if (token.startsWith('staff_competency:group:') || token.startsWith('staff_competency:shift:') || token.startsWith('staff_competency:gs:')) {
+          set.delete(token);
+        }
+      });
     },
 
     onToggleModule(modKey, checked) {
@@ -309,8 +335,7 @@ export default {
         set.delete(`${modKey}:import`);
         set.delete(`${modKey}:export`);
         if (modKey === 'staff_competency') {
-          this.staffCompetencyGroups.forEach(g => set.delete(`staff_competency:group:${g}`));
-          this.staffCompetencyShifts.forEach(s => set.delete(`staff_competency:shift:${s}`));
+          this.clearAllStaffCompetencySubPerms(set);
         }
       }
       this.editPermForm.selected_modules = Array.from(set);
@@ -327,24 +352,42 @@ export default {
       this.editPermForm.selected_modules = Array.from(set);
     },
 
-    onToggleStaffGroup(grp, checked) {
+    // 一鍵全選 / 取消該組別的所有 5 個班別
+    onToggleGroupAllShifts(grp, checked) {
       const set = new Set(this.selectedList);
+      set.delete(`staff_competency:group:${grp}`);
+      this.staffCompetencyShifts.forEach(sh => set.delete(`staff_competency:gs:${grp}:${sh}`));
+
       if (checked) {
         set.add('staff_competency');
         set.add(`staff_competency:group:${grp}`);
-      } else {
-        set.delete(`staff_competency:group:${grp}`);
+        this.staffCompetencyShifts.forEach(sh => {
+          set.add(`staff_competency:gs:${grp}:${sh}`);
+        });
       }
       this.editPermForm.selected_modules = Array.from(set);
     },
 
-    onToggleStaffShift(sh, checked) {
+    // 單獨勾選 / 取消某組別底下的單一班別
+    onToggleGroupShift(grp, sh, checked) {
       const set = new Set(this.selectedList);
+      // 若原本是舊格式（僅有 group:${grp} 無細分 gs），先展開為完整 5 班再做單項切換
+      const hadLegacyOnly = set.has(`staff_competency:group:${grp}`) &&
+        !this.staffCompetencyShifts.some(s => set.has(`staff_competency:gs:${grp}:${s}`));
+      if (hadLegacyOnly) {
+        this.staffCompetencyShifts.forEach(s => set.add(`staff_competency:gs:${grp}:${s}`));
+      }
+
       if (checked) {
         set.add('staff_competency');
-        set.add(`staff_competency:shift:${sh}`);
+        set.add(`staff_competency:group:${grp}`);
+        set.add(`staff_competency:gs:${grp}:${sh}`);
       } else {
-        set.delete(`staff_competency:shift:${sh}`);
+        set.delete(`staff_competency:gs:${grp}:${sh}`);
+        const stillHasAny = this.staffCompetencyShifts.some(s => set.has(`staff_competency:gs:${grp}:${s}`));
+        if (!stillHasAny) {
+          set.delete(`staff_competency:group:${grp}`);
+        }
       }
       this.editPermForm.selected_modules = Array.from(set);
     },
@@ -357,8 +400,7 @@ export default {
           set.delete(`${m.key}:import`);
           set.delete(`${m.key}:export`);
         });
-        this.staffCompetencyGroups.forEach(g => set.delete(`staff_competency:group:${g}`));
-        this.staffCompetencyShifts.forEach(s => set.delete(`staff_competency:shift:${s}`));
+        this.clearAllStaffCompetencySubPerms(set);
       } else {
         this.availableModules.forEach(m => set.add(m.key));
       }
@@ -415,7 +457,7 @@ export default {
 .action-cols-title { padding-right: 18px; }
 
 .perm-matrix-list {
-  max-height: 440px;
+  max-height: 450px;
   overflow-y: auto;
   border: 1px solid #334155;
   border-top: none;
@@ -438,9 +480,9 @@ export default {
 }
 
 .staff-group-perm-subbox {
-  margin: 0 12px 9px 28px;
+  margin: 0 12px 10px 24px;
   padding: 8px 10px;
-  background: rgba(15, 23, 42, 0.85);
+  background: rgba(15, 23, 42, 0.9);
   border: 1px dashed #38bdf8;
   border-radius: 6px;
 }
@@ -448,9 +490,33 @@ export default {
   font-size: 11px;
   color: #7dd3fc;
   font-weight: bold;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
-.sgp-checks {
+
+.gs-matrix-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.gs-matrix-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 5px;
+  background: rgba(30, 41, 59, 0.55);
+  border: 1px solid rgba(51, 65, 85, 0.65);
+}
+.gs-row-active {
+  background: rgba(56, 189, 248, 0.1);
+  border-color: rgba(56, 189, 248, 0.45);
+}
+.gs-group-col {
+  min-width: 125px;
+  flex-shrink: 0;
+}
+.gs-shifts-col {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
