@@ -11,7 +11,7 @@
 
     <!-- 1. 頂部控制列 -->
     <div class="control-header-panel">
-      <!-- 第一排：左上倉別頁籤 + 中間 KPI + 右上角「地端已同步」 -->
+      <!-- 第一排：左上倉別頁籤 + 中間 KPI + 備份快照切換 + 右上角地端同步 -->
       <div class="top-row">
         <div class="wh-tabs-group">
           <button
@@ -23,15 +23,16 @@
             @click="switchWarehouse(wh)"
           >
             <span>{{ getWhIcon(wh) }} {{ wh }}</span>
-            <span class="wh-count-badge">{{ (appData[wh]?.employees || []).length }}</span>
+            <span class="wh-count-badge">{{ (activeDataSource[wh]?.employees || []).length }}</span>
             <span
-              v-if="overdueCountByWh[wh] > 0"
+              v-if="!viewingSnapshotId && overdueCountByWh[wh] > 0"
               class="overdue-dot"
               :title="`有 ${overdueCountByWh[wh]} 位逾 30 天未更新`"
             ></span>
           </button>
 
           <button
+            v-if="!viewingSnapshotId"
             type="button"
             class="wh-tab-btn overdue-filter-btn"
             :class="{ 'overdue-active': updateStatusFilter === 'overdue' }"
@@ -55,27 +56,67 @@
             <span class="k-lbl">平均掌握度</span>
             <span class="k-val text-green">{{ avgMasteryPct }}%</span>
           </div>
-          <div class="kpi-chip clickable" @click="toggleFilterOverdueOnly" title="點擊篩選逾30天未更新人員">
+          <div v-if="!viewingSnapshotId" class="kpi-chip clickable" @click="toggleFilterOverdueOnly">
             <span class="k-lbl text-red">逾1月未更</span>
             <span class="k-val text-red">{{ currentOverdueCount }} 人</span>
           </div>
+        </div>
+
+        <!-- 歷史週次備份檢視下拉 -->
+        <div class="snapshot-bar">
+          <span class="text-dim" style="font-size: 12px;">📅 備份紀錄：</span>
+          <el-select
+            v-model="viewingSnapshotId"
+            size="mini"
+            style="width: 215px;"
+            @change="onSnapshotSelectChange"
+          >
+            <el-option label="🟢 目前即時線上資料（可編輯）" :value="null" />
+            <el-option
+              v-for="sn in snapshotsList"
+              :key="sn.id"
+              :label="`📸 ${sn.snapshot_name}`"
+              :value="sn.id"
+            />
+          </el-select>
         </div>
 
         <!-- 右上角：地端已同步狀態標籤 -->
         <span class="sync-badge top-right-sync" :class="`sync-${syncState}`">{{ syncStatusText }}</span>
       </div>
 
-      <!-- 第二排：左側 5 顆功能按鈕（向左移） + 同一排右側「逾 30 天未更新」警告橫幅 -->
-      <div class="second-action-row">
+      <!-- 歷史快照檢視與一鍵還原橫幅 -->
+      <div v-if="viewingSnapshotId" class="snapshot-mode-banner">
+        <span>
+          🕰️ 目前正在檢視歷史備份快照（<strong>唯讀模式</strong>）：<strong>{{ currentSnapshotTitle }}</strong>
+        </span>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <el-button
+            v-if="staffGroupFilter !== 'all' && canEditStaffGroup(staffGroupFilter)"
+            size="mini"
+            type="warning"
+            @click="restoreGroupFromSnapshot(staffGroupFilter)"
+          >
+            ↩️ 還原【{{ staffGroupFilter }}】全組至此備份
+          </el-button>
+          <el-button size="mini" type="primary" @click="viewingSnapshotId = null; onSnapshotSelectChange(null)">
+            返回目前即時資料
+          </el-button>
+        </div>
+      </div>
+
+      <!-- 第二排：左側功能按鈕群（向左移） + 同一排右側「逾 30 天未更新」警告橫幅 -->
+      <div v-else class="second-action-row">
         <div class="action-btns-left">
           <el-button size="mini" type="warning" icon="el-icon-plus" @click="openAddEmployeeModal">新增人員</el-button>
-          <el-button size="mini" type="info" plain icon="el-icon-setting" @click="openManageSkillsModal">管理項目</el-button>
+          <el-button v-if="isSysAdmin || isAdmin" size="mini" type="info" plain icon="el-icon-setting" @click="openManageSkillsModal">管理項目</el-button>
           <el-button
             v-if="canImport"
             size="mini"
             type="success"
             icon="el-icon-upload2"
             @click="triggerExcelPicker"
+            title="最高管理員可匯入「主檔」或「各組檔」；現場幹部可匯入所屬組別的「組檔」"
           >
             匯入 Excel
           </el-button>
@@ -87,6 +128,16 @@
             @click="exportToExcel"
           >
             匯出 Excel
+          </el-button>
+          <el-button size="mini" type="warning" plain @click="createManualSnapshot">📸 立即備份</el-button>
+          <el-button
+            v-if="isSysAdmin || isAdmin"
+            size="mini"
+            type="danger"
+            plain
+            @click="openGroupPermSettingsModal"
+          >
+            🔐 幹部組別權限
           </el-button>
           <el-button size="mini" type="info" icon="el-icon-refresh" @click="resetWarehouseSkillsToLatest">重新整理</el-button>
         </div>
@@ -107,23 +158,22 @@
           v-model="searchTerm"
           size="mini"
           placeholder="🔍 搜尋員編 / 姓名..."
-          style="width: 155px;"
+          style="width: 150px;"
           clearable
           @input="changePage(1)"
         />
 
-        <!-- 選擇人員組別時，自動帶出該組別的能力項目與該組班別人數 -->
         <el-select
           v-model="staffGroupFilter"
           size="mini"
-          style="width: 150px;"
+          style="width: 155px;"
           @change="onStaffGroupChange"
         >
           <el-option :label="`全部人員組別 (${currentEmployees.length}人)`" value="all" />
           <el-option
             v-for="(cnt, grp) in staffGroupCounts"
             :key="grp"
-            :label="`${grp} (${cnt}人)`"
+            :label="`${grp} (${cnt}人)${canEditStaffGroup(grp) ? '' : ' 🔒'}`"
             :value="grp"
           />
         </el-select>
@@ -141,7 +191,7 @@
         <el-select
           v-model="groupFilter"
           size="mini"
-          style="width: 168px;"
+          style="width: 170px;"
           placeholder="選擇能力項目"
           @change="onSkillGroupChange"
         >
@@ -157,7 +207,7 @@
         <el-select
           v-model="skillTypeFilter"
           size="mini"
-          style="width: 120px;"
+          style="width: 118px;"
           @change="resetFocus"
         >
           <el-option label="全部性質" value="all" />
@@ -166,13 +216,13 @@
           <el-option label="幹部能力" value="cadre" />
         </el-select>
 
-        <el-select v-model="updateStatusFilter" size="mini" style="width: 155px;" @change="changePage(1)">
+        <el-select v-model="updateStatusFilter" size="mini" style="width: 150px;" @change="changePage(1)">
           <el-option label="全部更新狀態" value="all" />
           <el-option label="逾 30 天未更新 / 未建檔" value="overdue" />
           <el-option label="30 天內已更新" value="fresh" />
         </el-select>
 
-        <el-select v-model="sortBy" size="mini" style="width: 125px;" @change="changePage(1)">
+        <el-select v-model="sortBy" size="mini" style="width: 122px;" @change="changePage(1)">
           <el-option label="預設順序" value="default" />
           <el-option label="總分高到低" value="rankAsc" />
           <el-option label="總分低到高" value="rankDesc" />
@@ -180,7 +230,7 @@
           <el-option label="員編順序" value="idAsc" />
         </el-select>
 
-        <el-select v-model="pageSize" size="mini" style="width: 105px;" @change="changePage(1)">
+        <el-select v-model="pageSize" size="mini" style="width: 102px;" @change="changePage(1)">
           <el-option label="每頁 50 筆" :value="50" />
           <el-option label="每頁 100 筆" :value="100" />
           <el-option label="每頁 200 筆" :value="200" />
@@ -188,13 +238,16 @@
         </el-select>
 
         <div class="kbd-guide">
-          <span>🖱️ <strong>按住左鍵拖曳</strong>批量勾選 ｜ ⌨️ <kbd>↑↓←→</kbd>+<kbd>Space</kbd></span>
+          <span v-if="!isSysAdmin && !isAdmin" class="perm-scope-pill">
+            🔑 可編輯組別：<strong>{{ myEditableGroupsLabel }}</strong>
+          </span>
+          <span v-else>🖱️ <strong>按住左鍵拖曳</strong>批量勾選 ｜ ⌨️ <kbd>↑↓←→</kbd>+<kbd>Space</kbd></span>
           <span v-if="activeCellText" class="active-cell-lbl">{{ activeCellText }}</span>
         </div>
       </div>
     </div>
 
-    <!-- 2. 主能力矩陣表格區（表頭精簡為 2 層：第一層直接顯示「組別-現場人員」等合併標題） -->
+    <!-- 2. 主能力矩陣表格區 -->
     <div class="matrix-wrapper" v-loading="loading">
       <div
         class="table-scroll-container"
@@ -226,7 +279,7 @@
               <th rowspan="2" class="th-sum-total">總分</th>
               <th rowspan="2" class="th-base">排名</th>
               <th rowspan="2" class="th-base" style="min-width: 88px;">最後更新</th>
-              <th rowspan="2" class="th-base" style="min-width: 105px;">操作</th>
+              <th rowspan="2" class="th-base" style="min-width: 110px;">操作</th>
             </tr>
 
             <tr>
@@ -253,8 +306,11 @@
             </tr>
             <tr
               v-for="(row, rIdx) in pagedRows"
-              :key="`${currentWarehouse}_${currentPage}_${row.emp.id}`"
-              :class="rIdx % 2 === 0 ? 'row-even' : 'row-odd'"
+              :key="`${currentWarehouse}_${viewingSnapshotId || 'live'}_${currentPage}_${row.emp.id}`"
+              :class="[
+                rIdx % 2 === 0 ? 'row-even' : 'row-odd',
+                !row.canEdit ? 'row-locked' : ''
+              ]"
             >
               <td class="sticky-col-1">
                 <span class="staff-grp-badge">{{ row.emp.staffGroup || '未分組' }}</span>
@@ -264,7 +320,10 @@
                 <span v-else class="text-dim" style="font-size: 11px;">-</span>
               </td>
               <td class="sticky-col-3 font-bold text-blue">{{ row.emp.id }}</td>
-              <td class="sticky-col-4 font-bold">{{ row.emp.name }}</td>
+              <td class="sticky-col-4 font-bold">
+                {{ row.emp.name }}
+                <span v-if="!row.canEdit" title="您無此組別編輯權限（唯讀）" style="font-size: 10px;">🔒</span>
+              </td>
               <td class="sticky-col-5">
                 <div class="pct-box">
                   <div class="pct-track">
@@ -293,12 +352,13 @@
               <td
                 v-for="(s, cIdx) in visibleSkills"
                 :key="s.id"
-                v-memo="[row.emp.id, row.emp.skills[s.id] === 1, focusedRowIdx === rIdx && focusedColIdx === cIdx]"
+                v-memo="[row.emp.id, row.emp.skills[s.id] === 1, row.canEdit, focusedRowIdx === rIdx && focusedColIdx === cIdx]"
                 :data-r="rIdx"
                 :data-c="cIdx"
                 class="skill-cell"
                 :class="[
                   row.emp.skills[s.id] === 1 ? `cell-checked-${s.type}` : '',
+                  !row.canEdit ? 'cell-readonly' : '',
                   focusedRowIdx === rIdx && focusedColIdx === cIdx ? 'cell-focused' : ''
                 ]"
               >
@@ -325,17 +385,36 @@
                 </span>
               </td>
               <td class="row-actions-cell">
-                <button
-                  type="button"
-                  class="mini-icon-btn btn-check-all"
-                  :title="isAllVisibleChecked(row.emp) ? '一鍵取消目前篩選能力' : '一鍵全勾選目前篩選能力'"
-                  @mousedown.stop
-                  @click.stop="toggleAllSkillsForEmployee(row.emp)"
-                >
-                  ✓✓
-                </button>
-                <button type="button" class="mini-icon-btn btn-edit" title="編輯人員" @mousedown.stop @click.stop="openEditEmployeeModal(row.emp)">✎</button>
-                <button type="button" class="mini-icon-btn btn-del" title="刪除人員" @mousedown.stop @click.stop="confirmDeleteEmployee(row.emp)">✕</button>
+                <!-- 檢視歷史備份時，顯示「還原此人」按鈕 -->
+                <template v-if="viewingSnapshotId">
+                  <button
+                    v-if="canEditStaffGroup(row.emp.staffGroup)"
+                    type="button"
+                    class="mini-icon-btn btn-restore"
+                    title="將此組員的能力勾選還原至此備份快照狀態"
+                    @mousedown.stop
+                    @click.stop="restoreSingleEmployeeFromSnapshot(row.emp)"
+                  >
+                    ↩️ 還原此人
+                  </button>
+                  <span v-else class="text-dim" style="font-size: 11px;">🔒 唯讀</span>
+                </template>
+
+                <!-- 即時編輯模式 -->
+                <template v-else-if="row.canEdit">
+                  <button
+                    type="button"
+                    class="mini-icon-btn btn-check-all"
+                    :title="isAllVisibleChecked(row.emp) ? '一鍵取消目前篩選能力' : '一鍵全勾選目前篩選能力'"
+                    @mousedown.stop
+                    @click.stop="toggleAllSkillsForEmployee(row.emp)"
+                  >
+                    ✓✓
+                  </button>
+                  <button type="button" class="mini-icon-btn btn-edit" title="編輯人員" @mousedown.stop @click.stop="openEditEmployeeModal(row.emp)">✎</button>
+                  <button type="button" class="mini-icon-btn btn-del" title="刪除人員" @mousedown.stop @click.stop="confirmDeleteEmployee(row.emp)">✕</button>
+                </template>
+                <span v-else class="text-dim" style="font-size: 11px;">🔒 他組唯讀</span>
               </td>
             </tr>
           </tbody>
@@ -389,17 +468,24 @@
           </div>
           <div>
             <label class="f-lbl">所屬組別 *</label>
-            <el-select v-model="empForm.staffGroup" size="mini" filterable allow-create placeholder="選擇或輸入組別" style="width: 100%;">
-              <el-option v-for="g in getWarehouseGroups(empForm.warehouse)" :key="g" :label="g" :value="g" />
+            <el-select
+              v-model="empForm.staffGroup"
+              size="mini"
+              :filterable="isSysAdmin || isAdmin"
+              :allow-create="isSysAdmin || isAdmin"
+              placeholder="選擇組別"
+              style="width: 100%;"
+            >
+              <el-option v-for="g in editableGroupOptionsForForm" :key="g" :label="g" :value="g" />
             </el-select>
           </div>
           <div>
             <label class="f-lbl">班別</label>
             <el-select v-model="empForm.shiftName" size="mini" filterable allow-create clearable placeholder="選擇或輸入班別" style="width: 100%;">
+              <el-option label="日班" value="日班" />
               <el-option label="早班" value="早班" />
               <el-option label="中班" value="中班" />
-              <el-option label="晚班" value="晚班" />
-              <el-option label="常日班" value="常日班" />
+              <el-option label="大夜班" value="大夜班" />
             </el-select>
           </div>
           <div>
@@ -474,7 +560,7 @@
           <el-select v-model="manageWh" size="mini" style="width: 115px;">
             <el-option v-for="w in warehouses" :key="w" :label="w" :value="w" />
           </el-select>
-          <el-select v-model="newSkillGroup" size="mini" filterable allow-create placeholder="選擇或輸入組別" style="width: 140px;">
+          <el-select v-model="newSkillGroup" size="mini" filterable allow-create placeholder="選擇或輸入組別" style="width: 145px;">
             <el-option v-for="g in getWarehouseGroups(manageWh)" :key="g" :label="g" :value="g" />
           </el-select>
           <el-select v-model="newSkillType" size="mini" style="width: 145px;">
@@ -514,6 +600,56 @@
         </div>
       </div>
     </el-dialog>
+
+    <!-- 5. 幹部組別權限與參數設定 Modal（管理員專用，防止進貨幹部誤勾上架組） -->
+    <el-dialog
+      v-model="showGroupPermModal"
+      title="🔐 幹部組別編輯權限設定（防止跨組誤勾與誤匯入）"
+      width="680px"
+      top="6vh"
+      append-to-body
+      custom-class="dark-dialog"
+    >
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <div class="perm-tip-box">
+          💡 <strong>說明：</strong>最高管理員（admin / sys_admin）擁有全倉編輯權限。一般幹部帳號請在此勾選其負責的<strong>人員組別</strong>，未勾選的組別在網頁上會呈現「🔒 唯讀鎖定」，且匯入組檔時也只能匯入自己負責的組別！
+        </div>
+
+        <div style="max-height: 360px; overflow-y: auto;">
+          <table class="perm-set-table">
+            <thead>
+              <tr>
+                <th style="width: 110px;">帳號</th>
+                <th style="width: 100px;">姓名</th>
+                <th>可編輯與匯入的人員組別（勾選）</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="u in nonAdminUsers" :key="u.username">
+                <td class="font-bold text-blue">{{ u.username }}</td>
+                <td>{{ u.name || u.username }}</td>
+                <td style="text-align: left;">
+                  <el-checkbox-group v-model="editableUserPermsDraft[u.username]">
+                    <el-checkbox
+                      v-for="g in allAvailableGroupOptions"
+                      :key="g"
+                      :label="g"
+                      style="margin-right: 12px;"
+                    >
+                      {{ g }}
+                    </el-checkbox>
+                  </el-checkbox-group>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <template #footer>
+        <el-button size="mini" @click="showGroupPermModal = false">取消</el-button>
+        <el-button size="mini" type="primary" @click="saveGroupPermSettings">💾 儲存幹部組別權限</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -534,14 +670,25 @@ export default {
   data() {
     return {
       loading: false,
-      warehouses: ['林口倉', '3PL一組', '3PL二組'],
+      warehouses: ['林口倉', '3PL一組'],
       currentWarehouse: '林口倉',
       appData: {
         '林口倉': { skills: [], employees: [] },
-        '3PL一組': { skills: [], employees: [] },
-        '3PL二組': { skills: [], employees: [] }
+        '3PL一組': { skills: [], employees: [] }
       },
       renderTick: 0,
+
+      // 權限與備份快照
+      currentUsername: '',
+      groupPermsMap: {},
+      snapshotsList: [],
+      viewingSnapshotId: null,
+      snapshotDataCache: null,
+      currentSnapshotTitle: '',
+
+      showGroupPermModal: false,
+      nonAdminUsers: [],
+      editableUserPermsDraft: {},
 
       searchTerm: '',
       staffGroupFilter: 'all',
@@ -588,21 +735,63 @@ export default {
 
     this._isMouseDragging = false;
     this._dragTargetVal = 1;
+
+    try {
+      const sess = JSON.parse(localStorage.getItem('auth_session') || '{}');
+      this.currentUsername = sess.username || '';
+    } catch (e) {}
   },
   computed: {
     canImport() {
       if (this.isSysAdmin || this.isAdmin) return true;
+      if (this.myAllowedGroups.length > 0) return true;
       return typeof this.$canImport === 'function' ? this.$canImport('staff_competency') : false;
     },
     canExport() {
       if (this.isSysAdmin || this.isAdmin) return true;
       return typeof this.$canExport === 'function' ? this.$canExport('staff_competency') : true;
     },
+    myAllowedGroups() {
+      if (this.isSysAdmin || this.isAdmin) return ['*'];
+      const set = new Set(this.groupPermsMap[this.currentUsername] || []);
+      try {
+        const sess = JSON.parse(localStorage.getItem('auth_session') || '{}');
+        const perms = Array.isArray(sess.permissions)
+          ? sess.permissions
+          : String(sess.permissions || '').split(',').map(s => s.trim());
+        perms.forEach(p => {
+          if (p.startsWith('staff_competency:group:')) {
+            set.add(p.replace('staff_competency:group:', ''));
+          }
+        });
+      } catch (e) {}
+      return Array.from(set);
+    },
+    myEditableGroupsLabel() {
+      if (this.isSysAdmin || this.isAdmin) return '全部組別';
+      return this.myAllowedGroups.length > 0 ? this.myAllowedGroups.join('、') : '無編輯權限（僅唯讀）';
+    },
+    allAvailableGroupOptions() {
+      const set = new Set(['進貨驗收組', '儲位上架組', '揀出貨作業組', '庫存作業組', '還貨作業組', '3PL一組']);
+      this.warehouses.forEach(wh => {
+        (this.appData[wh]?.skills || []).forEach(s => { if (s.group) set.add(s.group); });
+        (this.appData[wh]?.employees || []).forEach(e => { if (e.staffGroup) set.add(e.staffGroup); });
+      });
+      return Array.from(set);
+    },
+    editableGroupOptionsForForm() {
+      const all = this.getWarehouseGroups(this.empForm.warehouse);
+      if (this.isSysAdmin || this.isAdmin) return all;
+      return all.filter(g => this.myAllowedGroups.includes(g));
+    },
+    activeDataSource() {
+      return this.viewingSnapshotId && this.snapshotDataCache ? this.snapshotDataCache : this.appData;
+    },
     currentSkills() {
-      return this.appData[this.currentWarehouse]?.skills || [];
+      return this.activeDataSource[this.currentWarehouse]?.skills || [];
     },
     currentEmployees() {
-      return this.appData[this.currentWarehouse]?.employees || [];
+      return this.activeDataSource[this.currentWarehouse]?.employees || [];
     },
     orderedSkillGroups() {
       const list = [];
@@ -626,7 +815,6 @@ export default {
       });
       return map;
     },
-    // 依目前選取的人員組別，同步統計各班別人數
     shiftCounts() {
       const map = {};
       const targetEmps = this.staffGroupFilter === 'all'
@@ -646,7 +834,7 @@ export default {
       void this.renderTick;
       const res = {};
       this.warehouses.forEach(wh => {
-        res[wh] = (this.appData[wh]?.employees || []).filter(e => this.isEmployeeOverdue(e)).length;
+        res[wh] = (this.activeDataSource[wh]?.employees || []).filter(e => this.isEmployeeOverdue(e)).length;
       });
       return res;
     },
@@ -660,7 +848,6 @@ export default {
         return okType && okGrp;
       });
     },
-    // 將原本第一列的「組別」跟第二列的「性質」合併為單一表頭：「組別-現場人員」
     mergedHeaderSegments() {
       const segs = [];
       this.visibleSkills.forEach(s => {
@@ -692,8 +879,9 @@ export default {
         const grpTotal = grpCntMap[emp.staffGroup] || 0;
         const grpDone = emp._grpDone || 0;
         const groupPct = grpTotal > 0 ? Math.round((grpDone / grpTotal) * 100) : 0;
+        const canEdit = !this.viewingSnapshotId && this.canEditStaffGroup(emp.staffGroup);
 
-        return { emp, fieldScore: f, specialScore: sp, cadreScore: ca, totalScore, pct, groupPct, rank: 1 };
+        return { emp, fieldScore: f, specialScore: sp, cadreScore: ca, totalScore, pct, groupPct, rank: 1, canEdit };
       });
 
       const sortedScores = [...rows].map(r => r.totalScore).sort((a, b) => b - a);
@@ -777,6 +965,7 @@ export default {
   },
   mounted() {
     this.fetchAllData(true);
+    this.fetchSnapshotsList();
     window.addEventListener('mouseup', this.handleGlobalMouseUp);
     document.addEventListener('visibilitychange', this.handleVisibilityChange);
     this.startAutoSyncPoll();
@@ -788,6 +977,11 @@ export default {
     this.flushUpdates();
   },
   methods: {
+    canEditStaffGroup(staffGrp) {
+      if (this.isSysAdmin || this.isAdmin) return true;
+      const g = staffGrp || '未分組';
+      return this.myAllowedGroups.includes(g);
+    },
     startAutoSyncPoll() {
       this.stopAutoSyncPoll();
       this._pollTimer = setInterval(() => {
@@ -812,6 +1006,7 @@ export default {
         (this._rawPendingMap && this._rawPendingMap.size > 0) ||
         this.showEmpModal ||
         this.showSkillsModal ||
+        this.showGroupPermModal ||
         this.loading
       );
     },
@@ -825,7 +1020,9 @@ export default {
           if (this.isUserActivelyEditing()) return;
           const allRes = await axios.get('/api/staff-competency/all');
           if (allRes.data?.success && allRes.data.data && !this.isUserActivelyEditing()) {
-            this.hydrateAppData(allRes.data.data);
+            this.appData = this.normalizeWarehouseData(allRes.data.data);
+            this.groupPermsMap = allRes.data.groupPerms || {};
+            this.renderTick++;
             this._localVersion = allRes.data.version || remoteVer;
             this.syncState = 'synced';
             this.syncStatusText = '✅ 地端已同步';
@@ -837,7 +1034,7 @@ export default {
       }
     },
 
-    hydrateAppData(rawData) {
+    normalizeWarehouseData(rawData) {
       const result = {};
       this.warehouses.forEach(wh => {
         const block = rawData?.[wh] || { skills: [], employees: [] };
@@ -871,14 +1068,25 @@ export default {
 
         result[wh] = { skills, employees };
       });
-      this.appData = result;
+      return result;
+    },
+
+    hydrateAppData(rawData) {
+      this.appData = this.normalizeWarehouseData(rawData);
       this.renderTick++;
+
+      // 若為一般幹部且僅綁定單一組別，首次載入自動幫他切到該組別方便直接盤點
+      if (!this.isSysAdmin && !this.isAdmin && this.staffGroupFilter === 'all' && this.myAllowedGroups.length === 1) {
+        const myGrp = this.myAllowedGroups[0];
+        if (this.staffGroupCounts[myGrp]) {
+          this.staffGroupFilter = myGrp;
+          this.onStaffGroupChange(myGrp);
+        }
+      }
     },
 
     getWhIcon(wh) {
-      if (wh === '林口倉') return '🏢';
-      if (wh === '3PL一組') return '📦';
-      return '🚚';
+      return wh === '林口倉' ? '🏢' : '📦';
     },
     formatNow() {
       const d = new Date();
@@ -921,8 +1129,8 @@ export default {
     },
     getWarehouseGroups(wh) {
       const set = new Set();
-      (this.appData[wh]?.skills || []).forEach(s => { if (s.group) set.add(s.group); });
-      (this.appData[wh]?.employees || []).forEach(e => { if (e.staffGroup) set.add(e.staffGroup); });
+      (this.activeDataSource[wh]?.skills || []).forEach(s => { if (s.group) set.add(s.group); });
+      (this.activeDataSource[wh]?.employees || []).forEach(e => { if (e.staffGroup) set.add(e.staffGroup); });
       return Array.from(set);
     },
 
@@ -991,6 +1199,7 @@ export default {
       try {
         const res = await axios.get('/api/staff-competency/all');
         if (res.data?.success && res.data.data) {
+          this.groupPermsMap = res.data.groupPerms || {};
           this.hydrateAppData(res.data.data);
           if (res.data.version) this._localVersion = res.data.version;
         }
@@ -1001,8 +1210,129 @@ export default {
       }
     },
 
+    async fetchSnapshotsList() {
+      try {
+        const res = await axios.get('/api/staff-competency/snapshots');
+        if (res.data?.success) {
+          this.snapshotsList = res.data.snapshots || [];
+        }
+      } catch (e) {}
+    },
+
+    async onSnapshotSelectChange(snapId) {
+      this.resetFocus();
+      if (!snapId) {
+        this.viewingSnapshotId = null;
+        this.snapshotDataCache = null;
+        this.currentSnapshotTitle = '';
+        this.renderTick++;
+        return;
+      }
+      this.loading = true;
+      try {
+        const res = await axios.get(`/api/staff-competency/snapshots/${snapId}`);
+        if (res.data?.success) {
+          this.snapshotDataCache = this.normalizeWarehouseData(res.data.data);
+          this.currentSnapshotTitle = res.data.snapshot?.snapshot_name || '';
+          this.renderTick++;
+        }
+      } catch (e) {
+        ElMessage.error('載入歷史快照失敗：' + e.message);
+        this.viewingSnapshotId = null;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    async createManualSnapshot() {
+      try {
+        const res = await axios.post('/api/staff-competency/snapshots/create', {
+          createdBy: this.currentUsername || 'admin'
+        });
+        if (res.data?.success) {
+          ElMessage.success(res.data.message);
+          await this.fetchSnapshotsList();
+        }
+      } catch (e) {
+        ElMessage.error('建立備份失敗：' + e.message);
+      }
+    },
+
+    restoreSingleEmployeeFromSnapshot(emp) {
+      ElMessageBox.confirm(
+        `確定要將【${emp.name} (${emp.id})】的能力勾選紀錄還原成此歷史備份快照的狀態嗎？`,
+        '還原單一組員能力確認',
+        { confirmButtonText: '確定還原', cancelButtonText: '取消', type: 'warning' }
+      ).then(async () => {
+        const res = await axios.post('/api/staff-competency/snapshots/restore', {
+          snapshotId: this.viewingSnapshotId,
+          warehouse: this.currentWarehouse,
+          empId: emp.id
+        });
+        if (res.data?.success) {
+          ElMessage.success(res.data.message);
+          this.viewingSnapshotId = null;
+          this.snapshotDataCache = null;
+          await this.fetchAllData(true);
+        }
+      }).catch(() => {});
+    },
+
+    restoreGroupFromSnapshot(grpName) {
+      ElMessageBox.confirm(
+        `確定要將【${this.currentWarehouse} - ${grpName}】全組人員的能力勾選紀錄還原至此歷史備份快照狀態嗎？`,
+        '還原整組能力確認',
+        { confirmButtonText: '確定整組還原', cancelButtonText: '取消', type: 'warning' }
+      ).then(async () => {
+        const res = await axios.post('/api/staff-competency/snapshots/restore', {
+          snapshotId: this.viewingSnapshotId,
+          warehouse: this.currentWarehouse,
+          staffGroup: grpName
+        });
+        if (res.data?.success) {
+          ElMessage.success(res.data.message);
+          this.viewingSnapshotId = null;
+          this.snapshotDataCache = null;
+          await this.fetchAllData(true);
+        }
+      }).catch(() => {});
+    },
+
+    async openGroupPermSettingsModal() {
+      try {
+        const res = await axios.get('/api/get-users');
+        const users = res.data?.users || [];
+        this.nonAdminUsers = users.filter(u => u.username !== 'admin' && u.role !== 'sys_admin' && u.role !== 'admin');
+        const draft = {};
+        this.nonAdminUsers.forEach(u => {
+          draft[u.username] = [...(this.groupPermsMap[u.username] || [])];
+        });
+        this.editableUserPermsDraft = draft;
+        this.showGroupPermModal = true;
+      } catch (e) {
+        ElMessage.error('讀取帳號清單失敗：' + e.message);
+      }
+    },
+
+    async saveGroupPermSettings() {
+      try {
+        const res = await axios.post('/api/staff-competency/group-perms/save', {
+          permsMap: this.editableUserPermsDraft
+        });
+        if (res.data?.success) {
+          this.groupPermsMap = JSON.parse(JSON.stringify(this.editableUserPermsDraft));
+          this.showGroupPermModal = false;
+          this.renderTick++;
+          ElMessage.success(res.data.message);
+        }
+      } catch (e) {
+        ElMessage.error('儲存權限失敗：' + e.message);
+      }
+    },
+
     async resetWarehouseSkillsToLatest() {
       await this.fetchAllData(true);
+      await this.fetchSnapshotsList();
       ElMessage.success(`已重新整理【${this.currentWarehouse}】最新資料！`);
     },
 
@@ -1043,7 +1373,7 @@ export default {
     },
 
     onTbodyMouseDown(e) {
-      if (e.button !== 0) return;
+      if (e.button !== 0 || this.viewingSnapshotId) return;
       const td = e.target.closest('td.skill-cell');
       if (!td) return;
       const rIdx = Number(td.dataset.r);
@@ -1053,6 +1383,11 @@ export default {
       const row = this.pagedRows[rIdx];
       const skill = this.visibleSkills[cIdx];
       if (!row || !skill) return;
+
+      if (!row.canEdit) {
+        ElMessage.warning(`🔒 您無權限修改【${row.emp.staffGroup || '他組'}】組員「${row.emp.name}」的能力紀錄`);
+        return;
+      }
 
       const curVal = row.emp.skills?.[skill.id] === 1 ? 1 : 0;
       const targetVal = curVal === 1 ? 0 : 1;
@@ -1069,12 +1404,15 @@ export default {
     },
 
     onTbodyMouseOver(e) {
-      if (!this._isMouseDragging) return;
+      if (!this._isMouseDragging || this.viewingSnapshotId) return;
       const td = e.target.closest('td.skill-cell');
       if (!td) return;
       const rIdx = Number(td.dataset.r);
       const cIdx = Number(td.dataset.c);
       if (isNaN(rIdx) || isNaN(cIdx)) return;
+
+      const row = this.pagedRows[rIdx];
+      if (!row || !row.canEdit) return; // 拖曳經過他組唯讀人員自動跳過，絕不誤改！
 
       this.focusedRowIdx = rIdx;
       this.focusedColIdx = cIdx;
@@ -1101,9 +1439,12 @@ export default {
         if (e.key === 'ArrowRight') this.focusedColIdx = Math.min(this.visibleSkills.length - 1, this.focusedColIdx + 1);
         this.ensureFocusedCellVisible();
       } else if (e.key === ' ' || e.key === 'Enter') {
-        if (this.focusedRowIdx >= 0 && this.focusedColIdx >= 0) {
+        if (this.focusedRowIdx >= 0 && this.focusedColIdx >= 0 && !this.viewingSnapshotId) {
           e.preventDefault();
-          this.toggleCell(this.focusedRowIdx, this.focusedColIdx);
+          const row = this.pagedRows[this.focusedRowIdx];
+          if (row && row.canEdit) {
+            this.toggleCell(this.focusedRowIdx, this.focusedColIdx);
+          }
         }
       }
     },
@@ -1111,7 +1452,7 @@ export default {
     setCellExplicitValue(rIdx, cIdx, targetVal) {
       const row = this.pagedRows[rIdx];
       const skill = this.visibleSkills[cIdx];
-      if (!row || !skill) return;
+      if (!row || !skill || !row.canEdit) return;
 
       const emp = row.emp;
       if (!emp.skills) emp.skills = {};
@@ -1141,12 +1482,13 @@ export default {
     toggleCell(rIdx, cIdx) {
       const row = this.pagedRows[rIdx];
       const skill = this.visibleSkills[cIdx];
-      if (!row || !skill) return;
+      if (!row || !skill || !row.canEdit) return;
       const newVal = row.emp.skills?.[skill.id] === 1 ? 0 : 1;
       this.setCellExplicitValue(rIdx, cIdx, newVal);
     },
 
     toggleAllSkillsForEmployee(emp) {
+      if (!this.canEditStaffGroup(emp.staffGroup)) return;
       if (this.visibleSkills.length === 0) return;
       if (!emp.skills) emp.skills = {};
       const targetVal = this.isAllVisibleChecked(emp) ? 0 : 1;
@@ -1215,12 +1557,15 @@ export default {
     },
 
     openAddEmployeeModal() {
-      const existingGroups = this.getWarehouseGroups(this.currentWarehouse);
+      const allowedOpts = this.editableGroupOptionsForForm;
+      if (!this.isSysAdmin && !this.isAdmin && allowedOpts.length === 0) {
+        return ElMessage.warning('您尚未被指派可管理的作業組別，請聯繫管理員設定！');
+      }
       this.editingOriginalEmp = null;
       this.empForm = {
         warehouse: this.currentWarehouse,
-        staffGroup: this.staffGroupFilter !== 'all' ? this.staffGroupFilter : (existingGroups[0] || ''),
-        shiftName: '',
+        staffGroup: allowedOpts.includes(this.staffGroupFilter) ? this.staffGroupFilter : (allowedOpts[0] || ''),
+        shiftName: '日班',
         id: '',
         name: '',
         markReviewed: true,
@@ -1229,6 +1574,7 @@ export default {
       this.showEmpModal = true;
     },
     openEditEmployeeModal(emp) {
+      if (!this.canEditStaffGroup(emp.staffGroup)) return;
       this.editingOriginalEmp = { warehouse: this.currentWarehouse, id: emp.id, lastUpdated: emp.lastUpdated };
       this.empForm = {
         warehouse: this.currentWarehouse,
@@ -1258,8 +1604,12 @@ export default {
       let cleanId = String(this.empForm.id || '').trim();
       if (/^\d{5}$/.test(cleanId)) cleanId = cleanId.padStart(6, '0');
       const cleanName = String(this.empForm.name || '').trim();
-      if (!cleanId || !cleanName) {
-        return ElMessage.warning('請輸入員工編號與姓名！');
+      const targetGrp = String(this.empForm.staffGroup || '').trim();
+      if (!cleanId || !cleanName || !targetGrp) {
+        return ElMessage.warning('請完整填寫組別、員工編號與姓名！');
+      }
+      if (!this.canEditStaffGroup(targetGrp)) {
+        return ElMessage.warning(`您無權限新增或編輯【${targetGrp}】的人員！`);
       }
 
       const finalLastUpdated = this.empForm.markReviewed
@@ -1269,7 +1619,7 @@ export default {
       const payloadEmp = {
         id: cleanId,
         name: cleanName,
-        staffGroup: String(this.empForm.staffGroup || '未分組').trim(),
+        staffGroup: targetGrp,
         shiftName: String(this.empForm.shiftName || '').trim(),
         lastUpdated: finalLastUpdated,
         skills: { ...this.empForm.skills }
@@ -1291,6 +1641,7 @@ export default {
       }
     },
     confirmDeleteEmployee(emp) {
+      if (!this.canEditStaffGroup(emp.staffGroup)) return;
       ElMessageBox.confirm(`確定要從【${this.currentWarehouse}】移除 ${emp.name} (${emp.id}) 嗎？`, '刪除人員確認', {
         confirmButtonText: '確定刪除',
         cancelButtonText: '取消',
@@ -1355,6 +1706,9 @@ export default {
       }).catch(() => {});
     },
 
+    // 雙模式 Excel 智慧識別匯入：
+    // 1. 分頁名稱為「林口倉 / 3PL一組」-> 主檔匯入（僅管理員可用，更新名冊與欄位結構，100% 保留既有打勾紀錄）
+    // 2. 分頁名稱為「庫存作業組 / 還貨作業組 / 揀出貨作業組 / 進貨驗收組 / 儲位上架組」-> 組檔局部合併匯入（幹部可用，僅更新該組組員本組能力）
     async handleExcelImport(e) {
       const file = e.target.files?.[0];
       if (!file) return;
@@ -1362,138 +1716,152 @@ export default {
       try {
         const buffer = await file.arrayBuffer();
         const wb = XLSX.read(buffer, { type: 'array' });
-        const updatedPayload = {};
-        let importedSheets = 0;
 
         const mapWhName = (raw) => {
           const clean = String(raw || '').replace(/\s+/g, '');
-          const exact = this.warehouses.find(w => clean === w || clean.includes(w));
-          if (exact) return exact;
           if (clean.includes('林口')) return '林口倉';
           if (clean.includes('3PL一') || clean.includes('3PL1')) return '3PL一組';
-          if (clean.includes('3PL二') || clean.includes('3PL2')) return '3PL二組';
           return '';
         };
 
-        const firstSheetRows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
-        let rosterHeaderRow = -1, whCol = -1, grpCol = -1, shiftCol = -1, idCol = -1, nameCol = -1;
-        for (let r = 0; r < Math.min(firstSheetRows.length, 10); r++) {
-          const row = firstSheetRows[r] || [];
-          row.forEach((cell, idx) => {
-            const txt = String(cell || '').replace(/\s+/g, '');
-            if (txt === '倉別' || txt === '倉區') whCol = idx;
-            if (txt === '組別' || txt === '所屬組別' || txt === '單位') grpCol = idx;
-            if (txt === '班別' || txt === '班次') shiftCol = idx;
-            if (txt === '員編' || txt === '員工編號' || txt === '工號') { rosterHeaderRow = r; idCol = idx; }
-            if (txt === '姓名' || txt === '員工姓名') nameCol = idx;
-          });
-          if (whCol !== -1 && idCol !== -1 && nameCol !== -1) break;
-        }
+        const isMasterWorkbook = wb.SheetNames.some(s => Boolean(mapWhName(s)));
 
-        if (whCol !== -1 && idCol !== -1 && nameCol !== -1) {
-          const groupedEmps = { '林口倉': [], '3PL一組': [], '3PL二組': [] };
-          let cnt = 0;
-          for (let r = rosterHeaderRow + 1; r < firstSheetRows.length; r++) {
-            const row = firstSheetRows[r] || [];
-            const whName = mapWhName(row[whCol]);
-            let rawId = String(row[idCol] ?? '').trim();
-            if (rawId.endsWith('.0')) rawId = rawId.slice(0, -2);
-            if (/^\d{5}$/.test(rawId)) rawId = rawId.padStart(6, '0');
-            const empName = String(row[nameCol] ?? '').trim();
-            if (!whName || !rawId || !empName || rawId === '員編') continue;
-
-            const prevEmp = (this.appData[whName]?.employees || []).find(x => x.id === rawId);
-            const rawGrp = grpCol !== -1 ? String(row[grpCol] ?? '').trim() : '';
-            const rawShift = shiftCol !== -1 ? String(row[shiftCol] ?? '').trim() : '';
-            groupedEmps[whName].push({
-              id: rawId,
-              name: empName,
-              staffGroup: rawGrp || prevEmp?.staffGroup || '未分組',
-              shiftName: rawShift || prevEmp?.shiftName || '',
-              lastUpdated: prevEmp?.lastUpdated || '',
-              skills: prevEmp?.skills || {}
-            });
-            cnt++;
-          }
-          if (cnt > 0) {
-            Object.keys(groupedEmps).forEach(wh => {
-              if (groupedEmps[wh].length > 0) updatedPayload[wh] = { employees: groupedEmps[wh] };
-            });
-            const res = await axios.post('/api/staff-competency/sync-all', { data: updatedPayload });
-            if (res.data?.version) this._localVersion = res.data.version;
-            if (res.data?.data) {
-              this.hydrateAppData(res.data.data);
-            } else {
-              const merged = { ...this.appData };
-              Object.keys(updatedPayload).forEach(wh => {
-                if (updatedPayload[wh].employees) merged[wh].employees = updatedPayload[wh].employees;
-              });
-              this.hydrateAppData(merged);
-            }
-            this.syncState = 'synced';
-            this.syncStatusText = '✅ 地端已同步';
-            ElMessage.success(res.data?.message || `🎉 成功匯入純人員名冊共 ${cnt} 筆資料！`);
+        // ===== 模式 A：主檔匯入（分頁為 林口倉 / 3PL一組） =====
+        if (isMasterWorkbook) {
+          if (!this.isSysAdmin && !this.isAdmin) {
+            ElMessage.error('⛔ 只有最高管理員可以匯入「人員能力表-主檔」！現場幹部請匯入所屬組別的「組檔」。');
             return;
           }
+
+          const updatedPayload = {};
+          let importedSheets = 0;
+
+          wb.SheetNames.forEach(sheetName => {
+            const matchedWh = mapWhName(sheetName);
+            if (!matchedWh) return;
+
+            const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '' });
+            if (rows.length < 4) return;
+
+            const row1 = (rows[1] || []).map(x => String(x || '').replace(/\s+/g, ''));
+            const hasShiftCol = row1[1] === '班別';
+            const idColIdx = hasShiftCol ? 2 : 1;
+            const nameColIdx = hasShiftCol ? 3 : 2;
+            const skillStartCol = hasShiftCol ? 4 : 3;
+
+            let fCol = row1.findIndex(x => x === '現場小計' || x === '能力總分' || x === '現場');
+            if (fCol <= skillStartCol) fCol = rows[2].length;
+            const updCol = row1.findIndex(x => x.includes('最後更新'));
+
+            const parsedSkills = [];
+            const seenSkillIds = new Set();
+            const colToSkillId = {};
+
+            let actGrp = '未分組';
+            let actSub = '現場人員所需能力';
+            let actType = 'field';
+
+            for (let c = skillStartCol; c < fCol; c++) {
+              const gTxt = String(rows[0]?.[c] || '').trim();
+              const sTxt = String(rows[1]?.[c] || '').trim();
+              const nTxt = String(rows[2]?.[c] || '').trim();
+              if (gTxt && !gTxt.includes('加總')) actGrp = gTxt;
+              if (sTxt) {
+                actSub = sTxt;
+                if (sTxt.includes('幹部') || sTxt.includes('部門管理')) actType = 'cadre';
+                else if (sTxt.includes('異動')) actType = 'special';
+                else actType = 'field';
+              }
+              if (!nTxt) continue;
+
+              let sid = `${actGrp}::${actSub}::${nTxt}`;
+              let suffix = 2;
+              while (seenSkillIds.has(sid)) {
+                sid = `${actGrp}::${actSub}::${nTxt}(${suffix++})`;
+              }
+              seenSkillIds.add(sid);
+
+              parsedSkills.push({ id: sid, group: actGrp, type: actType, name: nTxt, subHeader: actSub });
+              colToSkillId[c] = sid;
+            }
+
+            const newEmployees = [];
+            for (let r = 3; r < rows.length; r++) {
+              const row = rows[r] || [];
+              let rawId = String(row[idColIdx] ?? '').trim();
+              if (rawId.endsWith('.0')) rawId = rawId.slice(0, -2);
+              if (/^\d{5}$/.test(rawId)) rawId = rawId.padStart(6, '0');
+              const empName = String(row[nameColIdx] ?? '').trim();
+              if (!rawId || !empName || rawId.includes('會做人數')) continue;
+
+              const rawGrp = String(row[0] ?? '').trim();
+              const staffGroup = (rawGrp && rawGrp !== '十二倉') ? rawGrp : '未分組';
+              const shiftName = hasShiftCol ? String(row[1] ?? '').trim() : '';
+              const skills = {};
+              Object.entries(colToSkillId).forEach(([cStr, sid]) => {
+                const v = row[Number(cStr)];
+                if (v === 1 || v === '1' || v === '✓' || v === 'V' || v === true) {
+                  skills[sid] = 1;
+                }
+              });
+              const lastUpdated = updCol !== -1 ? String(row[updCol] ?? '').trim() : '';
+              newEmployees.push({ id: rawId, name: empName, staffGroup, shiftName, lastUpdated, skills });
+            }
+
+            if (parsedSkills.length > 0 || newEmployees.length > 0) {
+              updatedPayload[matchedWh] = { skills: parsedSkills, employees: newEmployees };
+              importedSheets++;
+            }
+          });
+
+          if (importedSheets > 0) {
+            const res = await axios.post('/api/staff-competency/import-master', { data: updatedPayload });
+            if (res.data?.version) this._localVersion = res.data.version;
+            if (res.data?.data) this.hydrateAppData(res.data.data);
+            await this.fetchSnapshotsList();
+            ElMessage.success(res.data?.message || '🎉 主檔匯入成功！');
+          }
+          return;
         }
 
-        wb.SheetNames.forEach(sheetName => {
-          const matchedWh = mapWhName(sheetName);
-          if (!matchedWh) return;
+        // ===== 模式 B：各組組檔局部合併匯入（分頁為 庫存作業組 / 還貨作業組 / 揀出貨作業組 / 進貨驗收組 / 儲位上架組 等） =====
+        const groupsData = [];
+        const deniedSheets = [];
 
+        wb.SheetNames.forEach(sheetName => {
+          const cleanSheetGroup = String(sheetName || '').trim();
           const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '' });
           if (rows.length < 4) return;
 
-          const row1 = (rows[1] || []).map(x => String(x || '').replace(/\s+/g, ''));
-          const hasShiftCol = row1[1] === '班別';
+          const groupName = String(rows[0]?.[4] || cleanSheetGroup).trim();
+          if (!this.canEditStaffGroup(groupName)) {
+            deniedSheets.push(groupName);
+            return;
+          }
+
+          const row2 = (rows[2] || []).map(x => String(x || '').replace(/\s+/g, ''));
+          const hasShiftCol = row2[1] === '班別';
           const idColIdx = hasShiftCol ? 2 : 1;
           const nameColIdx = hasShiftCol ? 3 : 2;
           const skillStartCol = hasShiftCol ? 4 : 3;
 
-          let fCol = row1.findIndex(x => x === '現場小計' || x === '能力總分' || x === '現場');
-          if (fCol <= skillStartCol) fCol = rows[2].length;
-          const updCol = row1.findIndex(x => x.includes('最後更新'));
-
-          const existingEmpMap = new Map((this.appData[matchedWh]?.employees || []).map(emp => [emp.id, emp]));
-          const parsedSkills = [];
-          const seenSkillIds = new Set();
+          const skillIds = [];
           const colToSkillId = {};
-
-          let actGrp = '未分組';
           let actSub = '現場人員所需能力';
-          let actType = 'field';
 
-          for (let c = skillStartCol; c < fCol; c++) {
-            const gTxt = String(rows[0]?.[c] || '').trim();
+          for (let c = skillStartCol; c < row2.length; c++) {
             const sTxt = String(rows[1]?.[c] || '').trim();
             const nTxt = String(rows[2]?.[c] || '').trim();
-            if (gTxt && !gTxt.includes('加總')) actGrp = gTxt;
-            if (sTxt) {
-              actSub = sTxt;
-              if (sTxt.includes('幹部') || sTxt.includes('部門管理')) actType = 'cadre';
-              else if (sTxt.includes('異動')) actType = 'special';
-              else actType = 'field';
-            }
-            if (!nTxt) continue;
+            if (sTxt) actSub = sTxt;
+            if (!nTxt || nTxt.includes('小計') || nTxt.includes('總分') || nTxt.includes('排名') || nTxt.includes('更新')) continue;
 
-            let sid = `${actGrp}::${actSub}::${nTxt}`;
-            let suffix = 2;
-            while (seenSkillIds.has(sid)) {
-              sid = `${actGrp}::${actSub}::${nTxt}(${suffix++})`;
-            }
-            seenSkillIds.add(sid);
-
-            parsedSkills.push({
-              id: sid,
-              group: actGrp,
-              type: actType,
-              name: nTxt,
-              subHeader: actSub
-            });
+            const sid = `${groupName}::${actSub}::${nTxt}`;
+            skillIds.push(sid);
             colToSkillId[c] = sid;
           }
 
-          const newEmployees = [];
+          const emps = [];
+          const nowStr = this.formatNow();
           for (let r = 3; r < rows.length; r++) {
             const row = rows[r] || [];
             let rawId = String(row[idColIdx] ?? '').trim();
@@ -1502,48 +1870,50 @@ export default {
             const empName = String(row[nameColIdx] ?? '').trim();
             if (!rawId || !empName || rawId.includes('會做人數')) continue;
 
-            const prevEmp = existingEmpMap.get(rawId);
-            const rawGrp = String(row[0] ?? '').trim();
-            const staffGroup = (rawGrp && rawGrp !== '十二倉') ? rawGrp : (prevEmp?.staffGroup || '未分組');
-            const shiftName = hasShiftCol ? String(row[1] ?? '').trim() : (prevEmp?.shiftName || '');
+            const staffGroup = String(row[0] ?? '').trim() || groupName;
+            const shiftName = hasShiftCol ? String(row[1] ?? '').trim() : '';
             const skills = {};
+            let hasAnyChecked = false;
             Object.entries(colToSkillId).forEach(([cStr, sid]) => {
               const v = row[Number(cStr)];
               if (v === 1 || v === '1' || v === '✓' || v === 'V' || v === true) {
                 skills[sid] = 1;
+                hasAnyChecked = true;
               }
             });
-            const lastUpdated = updCol !== -1 ? String(row[updCol] ?? '').trim() : (prevEmp?.lastUpdated || '');
-            newEmployees.push({ id: rawId, name: empName, staffGroup, shiftName, lastUpdated, skills });
+
+            emps.push({
+              id: rawId,
+              name: empName,
+              staffGroup,
+              shiftName,
+              lastUpdated: hasAnyChecked ? nowStr : '',
+              skills
+            });
           }
 
-          if (parsedSkills.length > 0 || newEmployees.length > 0) {
-            updatedPayload[matchedWh] = {
-              skills: parsedSkills,
-              employees: newEmployees
-            };
-            importedSheets++;
+          if (emps.length > 0) {
+            groupsData.push({ groupName, skillIds, employees: emps });
           }
         });
 
-        if (importedSheets > 0) {
-          const res = await axios.post('/api/staff-competency/sync-all', { data: updatedPayload });
+        if (deniedSheets.length > 0 && groupsData.length === 0) {
+          ElMessage.error(`⛔ 權限不足：您僅可匯入【${this.myEditableGroupsLabel}】，無法匯入【${deniedSheets.join('、')}】！`);
+          return;
+        }
+
+        if (groupsData.length > 0) {
+          const res = await axios.post('/api/staff-competency/import-group-merge', {
+            warehouse: this.currentWarehouse,
+            groupsData
+          });
           if (res.data?.version) this._localVersion = res.data.version;
-          if (res.data?.data) {
-            this.hydrateAppData(res.data.data);
-          } else {
-            const merged = { ...this.appData };
-            Object.keys(updatedPayload).forEach(wh => {
-              if (updatedPayload[wh].skills) merged[wh].skills = updatedPayload[wh].skills;
-              if (updatedPayload[wh].employees) merged[wh].employees = updatedPayload[wh].employees;
-            });
-            this.hydrateAppData(merged);
-          }
-          this.syncState = 'synced';
-          this.syncStatusText = '✅ 地端已同步';
-          ElMessage.success(res.data?.message || `🎉 成功匯入 ${importedSheets} 個倉別能力矩陣與人員資料！`);
+          if (res.data?.data) this.hydrateAppData(res.data.data);
+          await this.fetchSnapshotsList();
+          const warnSuffix = deniedSheets.length > 0 ? `（已略過無權限分頁：${deniedSheets.join('、')}）` : '';
+          ElMessage.success((res.data?.message || '🎉 各組能力合併匯入成功！') + warnSuffix);
         } else {
-          ElMessage.warning('未識別到有效資料，請確認 Excel 包含「倉別/組別/員編/姓名」或林口倉/3PL一組/3PL二組分頁');
+          ElMessage.warning('未識別到有效資料，請確認 Excel 格式為「人員能力表-主檔」或「人員能力表-各組」');
         }
       } catch (err) {
         ElMessage.error('Excel 匯入失敗：' + err.message);
@@ -1555,8 +1925,9 @@ export default {
 
     exportToExcel() {
       const wb = XLSX.utils.book_new();
+      const sourceObj = this.activeDataSource;
       this.warehouses.forEach(wh => {
-        const whData = this.appData[wh] || { skills: [], employees: [] };
+        const whData = sourceObj[wh] || { skills: [], employees: [] };
         const skills = whData.skills;
         const employees = whData.employees;
 
@@ -1597,8 +1968,8 @@ export default {
         XLSX.utils.book_append_sheet(wb, ws, wh);
       });
 
-      const today = new Date().toISOString().slice(0, 10);
-      XLSX.writeFile(wb, `人員綜合能力表_${today}.xlsx`);
+      const tag = this.viewingSnapshotId ? `備份快照_${this.viewingSnapshotId}` : new Date().toISOString().slice(0, 10);
+      XLSX.writeFile(wb, `人員綜合能力表_${tag}.xlsx`);
       ElMessage.success('🎉 已成功匯出人員綜合能力表！');
     }
   }
@@ -1630,7 +2001,6 @@ export default {
   gap: 7px;
 }
 
-/* 第一排：倉別頁籤 + KPI + 右上角地端已同步 */
 .top-row {
   display: flex;
   flex-wrap: wrap;
@@ -1671,23 +2041,9 @@ export default {
   border-radius: 10px;
   font-size: 11px;
 }
-.overdue-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #f87171;
-}
-.overdue-filter-btn.overdue-active {
-  background: #dc2626;
-  color: #ffffff;
-}
-.overdue-pill {
-  background: #ef4444;
-  color: #ffffff;
-  padding: 1px 6px;
-  border-radius: 10px;
-  font-size: 11px;
-}
+.overdue-dot { width: 7px; height: 7px; border-radius: 50%; background: #f87171; }
+.overdue-filter-btn.overdue-active { background: #dc2626; color: #ffffff; }
+.overdue-pill { background: #ef4444; color: #ffffff; padding: 1px 6px; border-radius: 10px; font-size: 11px; }
 
 .kpi-strip {
   display: flex;
@@ -1711,10 +2067,13 @@ export default {
 .k-lbl { color: #94a3b8; }
 .k-val { font-weight: bold; }
 
-/* 右上角：地端已同步 */
-.top-right-sync {
-  margin-left: auto;
+.snapshot-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
+
+.top-right-sync { margin-left: auto; }
 .sync-badge {
   font-size: 11px;
   padding: 4px 10px;
@@ -1726,7 +2085,18 @@ export default {
 .sync-syncing { background: rgba(250, 204, 21, 0.15); color: #facc15; border: 1px solid rgba(250, 204, 21, 0.3); }
 .sync-error { background: rgba(248, 113, 113, 0.15); color: #f87171; border: 1px solid rgba(248, 113, 113, 0.3); }
 
-/* 第二排：左側 5 顆功能按鈕 + 同一排右側逾 30 天未更新橫幅 */
+.snapshot-mode-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(56, 189, 248, 0.14);
+  border: 1px solid #38bdf8;
+  color: #bae6fd;
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
 .second-action-row {
   display: flex;
   align-items: center;
@@ -1741,12 +2111,10 @@ export default {
   flex-wrap: wrap;
   flex-shrink: 0;
 }
-.action-btns-left .el-button {
-  margin-left: 0 !important;
-}
+.action-btns-left .el-button { margin-left: 0 !important; }
 .overdue-banner-inline {
   flex: 1;
-  min-width: 360px;
+  min-width: 340px;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -1758,11 +2126,7 @@ export default {
   border-radius: 6px;
   font-size: 12px;
 }
-.overdue-txt {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+.overdue-txt { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .filter-row {
   display: flex;
@@ -1782,6 +2146,7 @@ export default {
   align-items: center;
   gap: 8px;
 }
+.perm-scope-pill { color: #fde047; }
 .kbd-guide kbd {
   background: #0f172a;
   border: 1px solid #38bdf8;
@@ -1796,7 +2161,6 @@ export default {
   padding-left: 8px;
 }
 
-/* 黑底矩陣表格區（表頭精簡為 2 層） */
 .matrix-wrapper {
   flex: 1;
   min-height: 0;
@@ -1836,30 +2200,14 @@ thead tr:nth-child(1) th { top: 0; height: 28px; }
 thead tr:nth-child(2) th { top: 28px; height: 48px; }
 
 .th-base { background: #0f172a; color: #cbd5e1; font-weight: bold; padding: 0 6px; }
-.th-merged-group {
-  color: #ffffff;
-  font-weight: bold;
-  padding: 0 8px;
-  font-size: 12px;
-  letter-spacing: 0.3px;
-}
+.th-merged-group { color: #ffffff; font-weight: bold; padding: 0 8px; font-size: 12px; letter-spacing: 0.3px; }
 
 .th-sub-field { background: #075985; color: #e0f2fe; }
 .th-sub-special { background: #b45309; color: #fef3c7; }
 .th-sub-cadre { background: #6b21a8; color: #f3e8ff; }
 
-.skill-col-th, .skill-cell {
-  width: 76px;
-  min-width: 76px;
-  max-width: 76px;
-  contain: content;
-}
-.skill-col-th {
-  padding: 4px 3px;
-  line-height: 1.25;
-  font-size: 11px;
-  word-break: break-word;
-}
+.skill-col-th, .skill-cell { width: 76px; min-width: 76px; max-width: 76px; contain: content; }
+.skill-col-th { padding: 4px 3px; line-height: 1.25; font-size: 11px; word-break: break-word; }
 .th-skill-field { background: #0c4a6e; color: #bae6fd; }
 .th-skill-special { background: #78350f; color: #fde68a; }
 .th-skill-cadre { background: #4c1d95; color: #e9d5ff; }
@@ -1870,7 +2218,6 @@ thead tr:nth-child(2) th { top: 28px; height: 48px; }
 .th-sum-total { background: #064e3b; color: #4ade80; min-width: 46px; }
 .border-left-heavy { border-left: 2px solid #64748b !important; }
 
-/* 左側 6 欄凍結（組別74 + 班別64 + 員編72 + 姓名76 + 該組進度84 + 全能進度84 = 454px） */
 .sticky-col-1 { position: sticky; left: 0; z-index: 15; width: 74px; min-width: 74px; max-width: 74px; }
 .sticky-col-2 { position: sticky; left: 74px; z-index: 15; width: 64px; min-width: 64px; max-width: 64px; }
 .sticky-col-3 { position: sticky; left: 138px; z-index: 15; width: 72px; min-width: 72px; max-width: 72px; }
@@ -1887,6 +2234,7 @@ thead .sticky-col-4, thead .sticky-col-5, thead .sticky-col-6 {
 }
 tbody tr.row-even td { background: #0f172a; }
 tbody tr.row-odd td { background: #131c31; }
+tbody tr.row-locked td { opacity: 0.72; }
 tbody tr:hover td { background: #1e293b !important; }
 
 .staff-grp-badge {
@@ -1918,6 +2266,7 @@ tbody tr:hover td { background: #1e293b !important; }
 .text-cyan { color: #22d3ee !important; }
 
 .skill-cell { cursor: pointer; padding: 5px 2px; }
+.cell-readonly { cursor: not-allowed !important; }
 .cell-checked-field { background: #0f2922 !important; }
 .cell-checked-special { background: #261d0f !important; }
 .cell-checked-cadre { background: #1f1633 !important; }
@@ -1974,6 +2323,8 @@ tbody tr:hover td { background: #1e293b !important; }
 .btn-check-all:hover { border-color: #4ade80; color: #4ade80; }
 .btn-edit:hover { border-color: #38bdf8; color: #38bdf8; }
 .btn-del:hover { border-color: #f87171; color: #f87171; }
+.btn-restore { border-color: #facc15; color: #facc15; font-weight: bold; }
+.btn-restore:hover { background: rgba(250, 204, 21, 0.15); }
 
 tfoot td {
   position: sticky;
@@ -2008,15 +2359,8 @@ tfoot .sticky-col-1 { z-index: 25; border-right: 2px solid #64748b !important; }
   font-weight: bold;
   cursor: pointer;
 }
-.nav-page-btn:hover:not(:disabled) {
-  background: #334155;
-  border-color: #38bdf8;
-  color: #38bdf8;
-}
-.nav-page-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
+.nav-page-btn:hover:not(:disabled) { background: #334155; border-color: #38bdf8; color: #38bdf8; }
+.nav-page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .page-indicator { color: #f8fafc; font-weight: bold; padding: 0 6px; }
 
 .emp-modal-body, .skills-modal-body { display: flex; flex-direction: column; gap: 10px; }
@@ -2076,6 +2420,27 @@ tfoot .sticky-col-1 { z-index: 25; border-right: 2px solid #64748b !important; }
 .pill-cadre { background: rgba(168, 85, 247, 0.18); color: #d8b4fe; border: 1px solid rgba(168, 85, 247, 0.4); }
 .del-x { cursor: pointer; opacity: 0.75; }
 .del-x:hover { opacity: 1; color: #f87171; }
+
+.perm-tip-box {
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  color: #bae6fd;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.perm-set-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.perm-set-table th, .perm-set-table td {
+  border: 1px solid #334155;
+  padding: 8px;
+  text-align: center;
+}
+.perm-set-table th { background: #0f172a; color: #38bdf8; }
 
 .empty-cell { padding: 36px; color: #64748b; font-weight: bold; }
 .text-blue { color: #38bdf8; }
