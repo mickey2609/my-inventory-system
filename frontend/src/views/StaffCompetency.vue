@@ -9,10 +9,10 @@
       @change="handleExcelImport"
     />
 
-    <!-- 1. 頂部控制列（左上角直接配置倉別切換頁籤） -->
+    <!-- 1. 頂部控制列 -->
     <div class="control-header-panel">
+      <!-- 第一排：左上倉別頁籤 + 中間 KPI + 右上角「地端已同步」 -->
       <div class="top-row">
-        <!-- 左上角：倉別切換（林口倉、3PL一組、3PL二組） -->
         <div class="wh-tabs-group">
           <button
             type="button"
@@ -42,7 +42,6 @@
           </button>
         </div>
 
-        <!-- 中間：即時 KPI 指標條 -->
         <div class="kpi-strip">
           <div class="kpi-chip">
             <span class="k-lbl">總人數</span>
@@ -62,9 +61,13 @@
           </div>
         </div>
 
-        <!-- 右上角：操作按鈕群 -->
-        <div class="action-btns-group">
-          <span class="sync-badge" :class="`sync-${syncState}`">{{ syncStatusText }}</span>
+        <!-- 右上角：地端已同步狀態標籤 -->
+        <span class="sync-badge top-right-sync" :class="`sync-${syncState}`">{{ syncStatusText }}</span>
+      </div>
+
+      <!-- 第二排：左側 5 顆功能按鈕（向左移） + 同一排右側「逾 30 天未更新」警告橫幅 -->
+      <div class="second-action-row">
+        <div class="action-btns-left">
           <el-button size="mini" type="warning" icon="el-icon-plus" @click="openAddEmployeeModal">新增人員</el-button>
           <el-button size="mini" type="info" plain icon="el-icon-setting" @click="openManageSkillsModal">管理項目</el-button>
           <el-button
@@ -87,19 +90,18 @@
           </el-button>
           <el-button size="mini" type="info" icon="el-icon-refresh" @click="resetWarehouseSkillsToLatest">重新整理</el-button>
         </div>
+
+        <div v-if="currentOverdueCount > 0" class="overdue-banner-inline">
+          <span class="overdue-txt">
+            ⚠️ <strong>【{{ currentWarehouse }}】</strong>目前共有 <strong>{{ currentOverdueCount }}</strong> 位人員超過 1 個月（30 天）尚未更新能力紀錄！
+          </span>
+          <el-button size="mini" type="danger" plain @click="toggleFilterOverdueOnly">
+            {{ updateStatusFilter === 'overdue' ? '顯示全部人員' : `只顯示逾 30 天未更新 (${currentOverdueCount}人)` }}
+          </el-button>
+        </div>
       </div>
 
-      <!-- 逾 30 天未更新警告橫幅 -->
-      <div v-if="currentOverdueCount > 0" class="overdue-banner">
-        <span>
-          ⚠️ <strong>【{{ currentWarehouse }}】</strong>目前共有 <strong>{{ currentOverdueCount }}</strong> 位人員超過 1 個月（30 天）尚未更新能力紀錄！
-        </span>
-        <el-button size="mini" type="danger" plain @click="toggleFilterOverdueOnly">
-          {{ updateStatusFilter === 'overdue' ? '顯示全部人員' : `只顯示逾 30 天未更新 (${currentOverdueCount}人)` }}
-        </el-button>
-      </div>
-
-      <!-- 第二排：全下拉選單篩選與搜尋列 -->
+      <!-- 第三排：全下拉選單篩選與搜尋列 -->
       <div class="filter-row">
         <el-input
           v-model="searchTerm"
@@ -110,7 +112,6 @@
           @input="changePage(1)"
         />
 
-        <!-- 選擇人員組別時，自動帶出該組別的能力項目 -->
         <el-select
           v-model="staffGroupFilter"
           size="mini"
@@ -136,7 +137,6 @@
           />
         </el-select>
 
-        <!-- 單獨切換能力項目（可切回「全部能力項目」進行跨組能力勾選，不會重置人員組別） -->
         <el-select
           v-model="groupFilter"
           size="mini"
@@ -153,7 +153,6 @@
           />
         </el-select>
 
-        <!-- 技能性質下拉選單 -->
         <el-select
           v-model="skillTypeFilter"
           size="mini"
@@ -261,7 +260,7 @@
           >
             <tr v-if="pagedRows.length === 0">
               <td :colspan="visibleSkills.length + 13" class="empty-cell">
-                {{ currentEmployees.length === 0 ? '尚無人員資料，請點擊右上角「📂 匯入 Excel」上傳人員能力表！' : '找不到符合條件的人員資料' }}
+                {{ currentEmployees.length === 0 ? '尚無人員資料，請點擊「匯入 Excel」上傳人員能力表！' : '找不到符合條件的人員資料' }}
               </td>
             </tr>
             <tr
@@ -938,7 +937,6 @@ export default {
       if (this.visibleSkills.length === 0) return false;
       return this.visibleSkills.every(s => emp.skills && emp.skills[s.id] === 1);
     },
-    // 只回傳該倉實際存在的組別，不再塞入進貨組/上架組/揀出組/庫存組/還貨組
     getWarehouseGroups(wh) {
       const set = new Set();
       (this.appData[wh]?.skills || []).forEach(s => { if (s.group) set.add(s.group); });
@@ -1639,11 +1637,12 @@ export default {
   gap: 7px;
 }
 
+/* 第一排：倉別頁籤 + KPI + 右上角地端已同步 */
 .top-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
 .wh-tabs-group {
@@ -1719,33 +1718,57 @@ export default {
 .k-lbl { color: #94a3b8; }
 .k-val { font-weight: bold; }
 
-.action-btns-group {
+/* 右上角：地端已同步 */
+.top-right-sync {
   margin-left: auto;
+}
+.sync-badge {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 5px;
+  font-weight: bold;
+  white-space: nowrap;
+}
+.sync-synced { background: rgba(74, 222, 128, 0.15); color: #4ade80; border: 1px solid rgba(74, 222, 128, 0.3); }
+.sync-syncing { background: rgba(250, 204, 21, 0.15); color: #facc15; border: 1px solid rgba(250, 204, 21, 0.3); }
+.sync-error { background: rgba(248, 113, 113, 0.15); color: #f87171; border: 1px solid rgba(248, 113, 113, 0.3); }
+
+/* 第二排：左側 5 顆功能按鈕 + 同一排右側逾 30 天未更新橫幅 */
+.second-action-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.action-btns-left {
   display: flex;
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
+  flex-shrink: 0;
 }
-.sync-badge {
-  font-size: 11px;
-  padding: 3px 8px;
-  border-radius: 4px;
-  font-weight: bold;
+.action-btns-left .el-button {
+  margin-left: 0 !important;
 }
-.sync-synced { background: rgba(74, 222, 128, 0.15); color: #4ade80; }
-.sync-syncing { background: rgba(250, 204, 21, 0.15); color: #facc15; }
-.sync-error { background: rgba(248, 113, 113, 0.15); color: #f87171; }
-
-.overdue-banner {
+.overdue-banner-inline {
+  flex: 1;
+  min-width: 360px;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 10px;
   background: rgba(239, 68, 68, 0.12);
   border: 1px solid rgba(248, 113, 113, 0.45);
   color: #fca5a5;
-  padding: 5px 12px;
+  padding: 3px 10px;
   border-radius: 6px;
   font-size: 12px;
+}
+.overdue-txt {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .filter-row {
