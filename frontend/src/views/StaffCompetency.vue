@@ -11,7 +11,7 @@
 
     <!-- 1. 頂部控制列 -->
     <div class="control-header-panel">
-      <!-- 第一排：左上倉別頁籤 + 中間 KPI + 備份快照切換 + 右上角地端同步 -->
+      <!-- 第一排：左上倉別頁籤 + 中間 KPI + 記名備份快照切換 + 右上角地端同步 -->
       <div class="top-row">
         <div class="wh-tabs-group">
           <button
@@ -62,18 +62,18 @@
           </div>
         </div>
 
-        <!-- 歷史週次備份檢視下拉 -->
+        <!-- 記名分組備份快照檢視下拉 -->
         <div class="snapshot-bar">
           <span class="text-dim" style="font-size: 12px;">📅 備份紀錄：</span>
           <el-select
             v-model="viewingSnapshotId"
             size="mini"
-            style="width: 215px;"
+            style="width: 280px;"
             @change="onSnapshotSelectChange"
           >
             <el-option label="🟢 目前即時線上資料（可編輯）" :value="null" />
             <el-option
-              v-for="sn in snapshotsList"
+              v-for="sn in visibleSnapshotsList"
               :key="sn.id"
               :label="`📸 ${sn.snapshot_name}`"
               :value="sn.id"
@@ -85,10 +85,10 @@
         <span class="sync-badge top-right-sync" :class="`sync-${syncState}`">{{ syncStatusText }}</span>
       </div>
 
-      <!-- 歷史快照檢視與一鍵還原橫幅 -->
+      <!-- 歷史快照檢視與分組還原橫幅 -->
       <div v-if="viewingSnapshotId" class="snapshot-mode-banner">
         <span>
-          🕰️ 目前正在檢視歷史備份快照（<strong>唯讀模式</strong>）：<strong>{{ currentSnapshotTitle }}</strong>
+          🕰️ 正在檢視備份快照（<strong>唯讀模式</strong>）：<strong>{{ currentSnapshotTitle }}</strong>
         </span>
         <div style="display: flex; gap: 8px; align-items: center;">
           <el-button
@@ -105,7 +105,7 @@
         </div>
       </div>
 
-      <!-- 第二排：左側功能按鈕群（向左移） + 同一排右側「逾 30 天未更新」警告橫幅 -->
+      <!-- 第二排：左側功能按鈕群 + 同一排右側「逾 30 天未更新」警告橫幅 -->
       <div v-else class="second-action-row">
         <div class="action-btns-left">
           <el-button size="mini" type="warning" icon="el-icon-plus" @click="openAddEmployeeModal">新增人員</el-button>
@@ -129,15 +129,14 @@
           >
             匯出 Excel
           </el-button>
-          <el-button size="mini" type="warning" plain @click="createManualSnapshot">📸 立即備份</el-button>
           <el-button
-            v-if="isSysAdmin || isAdmin"
             size="mini"
-            type="danger"
+            type="warning"
             plain
-            @click="openGroupPermSettingsModal"
+            @click="createManualSnapshot"
+            :title="`將以「${currentOperatorDisplay}」名義獨立備份您負責的組別，不影響他組`"
           >
-            🔐 幹部組別權限
+            📸 立即備份{{ backupButtonScopeSuffix }}
           </el-button>
           <el-button size="mini" type="info" icon="el-icon-refresh" @click="resetWarehouseSkillsToLatest">重新整理</el-button>
         </div>
@@ -385,7 +384,6 @@
                 </span>
               </td>
               <td class="row-actions-cell">
-                <!-- 檢視歷史備份時，顯示「還原此人」按鈕 -->
                 <template v-if="viewingSnapshotId">
                   <button
                     v-if="canEditStaffGroup(row.emp.staffGroup)"
@@ -400,7 +398,6 @@
                   <span v-else class="text-dim" style="font-size: 11px;">🔒 唯讀</span>
                 </template>
 
-                <!-- 即時編輯模式 -->
                 <template v-else-if="row.canEdit">
                   <button
                     type="button"
@@ -600,56 +597,6 @@
         </div>
       </div>
     </el-dialog>
-
-    <!-- 5. 幹部組別權限與參數設定 Modal（管理員專用，防止進貨幹部誤勾上架組） -->
-    <el-dialog
-      v-model="showGroupPermModal"
-      title="🔐 幹部組別編輯權限設定（防止跨組誤勾與誤匯入）"
-      width="680px"
-      top="6vh"
-      append-to-body
-      custom-class="dark-dialog"
-    >
-      <div style="display: flex; flex-direction: column; gap: 10px;">
-        <div class="perm-tip-box">
-          💡 <strong>說明：</strong>最高管理員（admin / sys_admin）擁有全倉編輯權限。一般幹部帳號請在此勾選其負責的<strong>人員組別</strong>，未勾選的組別在網頁上會呈現「🔒 唯讀鎖定」，且匯入組檔時也只能匯入自己負責的組別！
-        </div>
-
-        <div style="max-height: 360px; overflow-y: auto;">
-          <table class="perm-set-table">
-            <thead>
-              <tr>
-                <th style="width: 110px;">帳號</th>
-                <th style="width: 100px;">姓名</th>
-                <th>可編輯與匯入的人員組別（勾選）</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="u in nonAdminUsers" :key="u.username">
-                <td class="font-bold text-blue">{{ u.username }}</td>
-                <td>{{ u.name || u.username }}</td>
-                <td style="text-align: left;">
-                  <el-checkbox-group v-model="editableUserPermsDraft[u.username]">
-                    <el-checkbox
-                      v-for="g in allAvailableGroupOptions"
-                      :key="g"
-                      :label="g"
-                      style="margin-right: 12px;"
-                    >
-                      {{ g }}
-                    </el-checkbox>
-                  </el-checkbox-group>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-      <template #footer>
-        <el-button size="mini" @click="showGroupPermModal = false">取消</el-button>
-        <el-button size="mini" type="primary" @click="saveGroupPermSettings">💾 儲存幹部組別權限</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
@@ -678,17 +625,14 @@ export default {
       },
       renderTick: 0,
 
-      // 權限與備份快照
+      // 目前登入者資訊（用於記名備份與權限）
       currentUsername: '',
-      groupPermsMap: {},
+      currentUserRealName: '',
+
       snapshotsList: [],
       viewingSnapshotId: null,
       snapshotDataCache: null,
       currentSnapshotTitle: '',
-
-      showGroupPermModal: false,
-      nonAdminUsers: [],
-      editableUserPermsDraft: {},
 
       searchTerm: '',
       staffGroupFilter: 'all',
@@ -739,21 +683,20 @@ export default {
     try {
       const sess = JSON.parse(localStorage.getItem('auth_session') || '{}');
       this.currentUsername = sess.username || '';
+      this.currentUserRealName = sess.name || sess.username || '';
     } catch (e) {}
   },
   computed: {
-    canImport() {
-      if (this.isSysAdmin || this.isAdmin) return true;
-      if (this.myAllowedGroups.length > 0) return true;
-      return typeof this.$canImport === 'function' ? this.$canImport('staff_competency') : false;
+    currentOperatorDisplay() {
+      if (this.currentUserRealName && this.currentUsername && this.currentUserRealName !== this.currentUsername) {
+        return `${this.currentUserRealName}(${this.currentUsername})`;
+      }
+      return this.currentUserRealName || this.currentUsername || '管理員';
     },
-    canExport() {
-      if (this.isSysAdmin || this.isAdmin) return true;
-      return typeof this.$canExport === 'function' ? this.$canExport('staff_competency') : true;
-    },
+    // 從系統帳號權限（UserManagementModals 設定的 staff_competency:group:*）讀取可管理組別
     myAllowedGroups() {
       if (this.isSysAdmin || this.isAdmin) return ['*'];
-      const set = new Set(this.groupPermsMap[this.currentUsername] || []);
+      const set = new Set();
       try {
         const sess = JSON.parse(localStorage.getItem('auth_session') || '{}');
         const perms = Array.isArray(sess.permissions)
@@ -771,13 +714,42 @@ export default {
       if (this.isSysAdmin || this.isAdmin) return '全部組別';
       return this.myAllowedGroups.length > 0 ? this.myAllowedGroups.join('、') : '無編輯權限（僅唯讀）';
     },
-    allAvailableGroupOptions() {
-      const set = new Set(['進貨驗收組', '儲位上架組', '揀出貨作業組', '庫存作業組', '還貨作業組', '3PL一組']);
-      this.warehouses.forEach(wh => {
-        (this.appData[wh]?.skills || []).forEach(s => { if (s.group) set.add(s.group); });
-        (this.appData[wh]?.employees || []).forEach(e => { if (e.staffGroup) set.add(e.staffGroup); });
+    // 計算本次點擊「立即備份」只會備份的目標組別（空陣列代表全倉，僅管理員選全部時觸發）
+    targetGroupsForBackup() {
+      if (this.isSysAdmin || this.isAdmin) {
+        return this.staffGroupFilter !== 'all' ? [this.staffGroupFilter] : [];
+      }
+      if (this.staffGroupFilter !== 'all' && this.myAllowedGroups.includes(this.staffGroupFilter)) {
+        return [this.staffGroupFilter];
+      }
+      return this.myAllowedGroups;
+    },
+    backupButtonScopeSuffix() {
+      if (this.targetGroupsForBackup.length === 0) return '（全倉）';
+      if (this.targetGroupsForBackup.length === 1) return `（${this.targetGroupsForBackup[0]}）`;
+      return `（${this.targetGroupsForBackup.length}組）`;
+    },
+    // 下拉選單只顯示自己有權限的組別備份（或全倉自動週備份），不混雜別組私人備份
+    visibleSnapshotsList() {
+      if (this.isSysAdmin || this.isAdmin) return this.snapshotsList;
+      return this.snapshotsList.filter(sn => {
+        if (!sn.target_groups || sn.target_groups === 'ALL') return true;
+        try {
+          const grps = JSON.parse(sn.target_groups);
+          return Array.isArray(grps) && grps.some(g => this.myAllowedGroups.includes(g));
+        } catch (e) {
+          return true;
+        }
       });
-      return Array.from(set);
+    },
+    canImport() {
+      if (this.isSysAdmin || this.isAdmin) return true;
+      if (this.myAllowedGroups.length > 0) return true;
+      return typeof this.$canImport === 'function' ? this.$canImport('staff_competency') : false;
+    },
+    canExport() {
+      if (this.isSysAdmin || this.isAdmin) return true;
+      return typeof this.$canExport === 'function' ? this.$canExport('staff_competency') : true;
     },
     editableGroupOptionsForForm() {
       const all = this.getWarehouseGroups(this.empForm.warehouse);
@@ -1006,7 +978,6 @@ export default {
         (this._rawPendingMap && this._rawPendingMap.size > 0) ||
         this.showEmpModal ||
         this.showSkillsModal ||
-        this.showGroupPermModal ||
         this.loading
       );
     },
@@ -1021,7 +992,6 @@ export default {
           const allRes = await axios.get('/api/staff-competency/all');
           if (allRes.data?.success && allRes.data.data && !this.isUserActivelyEditing()) {
             this.appData = this.normalizeWarehouseData(allRes.data.data);
-            this.groupPermsMap = allRes.data.groupPerms || {};
             this.renderTick++;
             this._localVersion = allRes.data.version || remoteVer;
             this.syncState = 'synced';
@@ -1075,7 +1045,6 @@ export default {
       this.appData = this.normalizeWarehouseData(rawData);
       this.renderTick++;
 
-      // 若為一般幹部且僅綁定單一組別，首次載入自動幫他切到該組別方便直接盤點
       if (!this.isSysAdmin && !this.isAdmin && this.staffGroupFilter === 'all' && this.myAllowedGroups.length === 1) {
         const myGrp = this.myAllowedGroups[0];
         if (this.staffGroupCounts[myGrp]) {
@@ -1199,7 +1168,6 @@ export default {
       try {
         const res = await axios.get('/api/staff-competency/all');
         if (res.data?.success && res.data.data) {
-          this.groupPermsMap = res.data.groupPerms || {};
           this.hydrateAppData(res.data.data);
           if (res.data.version) this._localVersion = res.data.version;
         }
@@ -1244,30 +1212,40 @@ export default {
       }
     },
 
+    // 記名＋分組獨立建立備份（幹部只備份自己負責的組別，不影響他組）
     async createManualSnapshot() {
+      if (!this.isSysAdmin && !this.isAdmin && this.myAllowedGroups.length === 0) {
+        return ElMessage.warning('您尚未被指派可管理的作業組別，無法建立組別備份！');
+      }
       try {
         const res = await axios.post('/api/staff-competency/snapshots/create', {
-          createdBy: this.currentUsername || 'admin'
+          operatorName: this.currentUserRealName,
+          operatorId: this.currentUsername,
+          targetGroups: this.targetGroupsForBackup
         });
         if (res.data?.success) {
           ElMessage.success(res.data.message);
           await this.fetchSnapshotsList();
         }
       } catch (e) {
-        ElMessage.error('建立備份失敗：' + e.message);
+        ElMessage.error('建立備份失敗：' + (e.response?.data?.message || e.message));
       }
     },
 
     restoreSingleEmployeeFromSnapshot(emp) {
+      if (!this.canEditStaffGroup(emp.staffGroup)) {
+        return ElMessage.warning(`您無權限還原【${emp.staffGroup}】的組員資料！`);
+      }
       ElMessageBox.confirm(
-        `確定要將【${emp.name} (${emp.id})】的能力勾選紀錄還原成此歷史備份快照的狀態嗎？`,
+        `確定要將【${emp.name} (${emp.id})】的能力勾選紀錄還原成此備份快照的狀態嗎？`,
         '還原單一組員能力確認',
         { confirmButtonText: '確定還原', cancelButtonText: '取消', type: 'warning' }
       ).then(async () => {
         const res = await axios.post('/api/staff-competency/snapshots/restore', {
           snapshotId: this.viewingSnapshotId,
           warehouse: this.currentWarehouse,
-          empId: emp.id
+          empId: emp.id,
+          allowedGroups: this.myAllowedGroups
         });
         if (res.data?.success) {
           ElMessage.success(res.data.message);
@@ -1279,15 +1257,19 @@ export default {
     },
 
     restoreGroupFromSnapshot(grpName) {
+      if (!this.canEditStaffGroup(grpName)) {
+        return ElMessage.warning(`您無權限還原【${grpName}】的資料！`);
+      }
       ElMessageBox.confirm(
-        `確定要將【${this.currentWarehouse} - ${grpName}】全組人員的能力勾選紀錄還原至此歷史備份快照狀態嗎？`,
+        `確定要將【${this.currentWarehouse} - ${grpName}】全組人員的能力勾選紀錄還原至此備份快照狀態嗎？（不會影響其他組別）`,
         '還原整組能力確認',
         { confirmButtonText: '確定整組還原', cancelButtonText: '取消', type: 'warning' }
       ).then(async () => {
         const res = await axios.post('/api/staff-competency/snapshots/restore', {
           snapshotId: this.viewingSnapshotId,
           warehouse: this.currentWarehouse,
-          staffGroup: grpName
+          staffGroup: grpName,
+          allowedGroups: this.myAllowedGroups
         });
         if (res.data?.success) {
           ElMessage.success(res.data.message);
@@ -1296,38 +1278,6 @@ export default {
           await this.fetchAllData(true);
         }
       }).catch(() => {});
-    },
-
-    async openGroupPermSettingsModal() {
-      try {
-        const res = await axios.get('/api/get-users');
-        const users = res.data?.users || [];
-        this.nonAdminUsers = users.filter(u => u.username !== 'admin' && u.role !== 'sys_admin' && u.role !== 'admin');
-        const draft = {};
-        this.nonAdminUsers.forEach(u => {
-          draft[u.username] = [...(this.groupPermsMap[u.username] || [])];
-        });
-        this.editableUserPermsDraft = draft;
-        this.showGroupPermModal = true;
-      } catch (e) {
-        ElMessage.error('讀取帳號清單失敗：' + e.message);
-      }
-    },
-
-    async saveGroupPermSettings() {
-      try {
-        const res = await axios.post('/api/staff-competency/group-perms/save', {
-          permsMap: this.editableUserPermsDraft
-        });
-        if (res.data?.success) {
-          this.groupPermsMap = JSON.parse(JSON.stringify(this.editableUserPermsDraft));
-          this.showGroupPermModal = false;
-          this.renderTick++;
-          ElMessage.success(res.data.message);
-        }
-      } catch (e) {
-        ElMessage.error('儲存權限失敗：' + e.message);
-      }
     },
 
     async resetWarehouseSkillsToLatest() {
@@ -1412,7 +1362,7 @@ export default {
       if (isNaN(rIdx) || isNaN(cIdx)) return;
 
       const row = this.pagedRows[rIdx];
-      if (!row || !row.canEdit) return; // 拖曳經過他組唯讀人員自動跳過，絕不誤改！
+      if (!row || !row.canEdit) return;
 
       this.focusedRowIdx = rIdx;
       this.focusedColIdx = cIdx;
@@ -1559,7 +1509,7 @@ export default {
     openAddEmployeeModal() {
       const allowedOpts = this.editableGroupOptionsForForm;
       if (!this.isSysAdmin && !this.isAdmin && allowedOpts.length === 0) {
-        return ElMessage.warning('您尚未被指派可管理的作業組別，請聯繫管理員設定！');
+        return ElMessage.warning('您尚未被指派可管理的作業組別，請聯繫管理員於「帳號權限管理」中設定！');
       }
       this.editingOriginalEmp = null;
       this.empForm = {
@@ -1706,9 +1656,6 @@ export default {
       }).catch(() => {});
     },
 
-    // 雙模式 Excel 智慧識別匯入：
-    // 1. 分頁名稱為「林口倉 / 3PL一組」-> 主檔匯入（僅管理員可用，更新名冊與欄位結構，100% 保留既有打勾紀錄）
-    // 2. 分頁名稱為「庫存作業組 / 還貨作業組 / 揀出貨作業組 / 進貨驗收組 / 儲位上架組」-> 組檔局部合併匯入（幹部可用，僅更新該組組員本組能力）
     async handleExcelImport(e) {
       const file = e.target.files?.[0];
       if (!file) return;
@@ -1726,7 +1673,6 @@ export default {
 
         const isMasterWorkbook = wb.SheetNames.some(s => Boolean(mapWhName(s)));
 
-        // ===== 模式 A：主檔匯入（分頁為 林口倉 / 3PL一組） =====
         if (isMasterWorkbook) {
           if (!this.isSysAdmin && !this.isAdmin) {
             ElMessage.error('⛔ 只有最高管理員可以匯入「人員能力表-主檔」！現場幹部請匯入所屬組別的「組檔」。');
@@ -1743,7 +1689,6 @@ export default {
             const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '' });
             if (rows.length < 4) return;
 
-            // 自動偵測「員編」與「姓名」所在列與欄（支援林口倉 4 欄、3PL一組 3 欄）
             let headerRowIdx = 1;
             let grpColIdx = 0;
             let shiftColIdx = -1;
@@ -1846,7 +1791,6 @@ export default {
           return;
         }
 
-        // ===== 模式 B：各組組檔局部合併匯入（分頁為 庫存作業組 / 還貨作業組 / 揀出貨作業組 / 進貨驗收組 / 儲位上架組 等） =====
         const groupsData = [];
         const deniedSheets = [];
 
@@ -1855,7 +1799,6 @@ export default {
           const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '' });
           if (rows.length < 4) return;
 
-          // 自動偵測「員編」與「姓名」所在列與欄
           let headerRowIdx = 2;
           let grpColIdx = 0;
           let shiftColIdx = 1;
@@ -1964,7 +1907,7 @@ export default {
         if (this.$refs.excelInput) this.$refs.excelInput.value = '';
       }
     },
-    
+
     exportToExcel() {
       const wb = XLSX.utils.book_new();
       const sourceObj = this.activeDataSource;
@@ -2462,27 +2405,6 @@ tfoot .sticky-col-1 { z-index: 25; border-right: 2px solid #64748b !important; }
 .pill-cadre { background: rgba(168, 85, 247, 0.18); color: #d8b4fe; border: 1px solid rgba(168, 85, 247, 0.4); }
 .del-x { cursor: pointer; opacity: 0.75; }
 .del-x:hover { opacity: 1; color: #f87171; }
-
-.perm-tip-box {
-  background: rgba(56, 189, 248, 0.12);
-  border: 1px solid rgba(56, 189, 248, 0.35);
-  color: #bae6fd;
-  padding: 8px 12px;
-  border-radius: 6px;
-  font-size: 12px;
-  line-height: 1.5;
-}
-.perm-set-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
-}
-.perm-set-table th, .perm-set-table td {
-  border: 1px solid #334155;
-  padding: 8px;
-  text-align: center;
-}
-.perm-set-table th { background: #0f172a; color: #38bdf8; }
 
 .empty-cell { padding: 36px; color: #64748b; font-weight: bold; }
 .text-blue { color: #38bdf8; }

@@ -55,7 +55,6 @@ module.exports = function(db) {
   function ensureTables() {
     if (tablesReadyPromise) return tablesReadyPromise;
     tablesReadyPromise = (async () => {
-      // 1. 檢查並升級 staff_competency_skills（若為舊表缺少 wh_name 或 skill_id 則重建）
       const skillCols = await dbAll(`PRAGMA table_info(staff_competency_skills)`);
       if (skillCols.length > 0 && (!skillCols.some(c => c.name === 'wh_name') || !skillCols.some(c => c.name === 'skill_id'))) {
         await dbRun(`DROP TABLE IF EXISTS staff_competency_skills`);
@@ -75,7 +74,6 @@ module.exports = function(db) {
         )
       `);
 
-      // 2. 檢查並升級 staff_competency_employees（若為舊表缺少 wh_name 或 emp_id 則重建）
       const empCols = await dbAll(`PRAGMA table_info(staff_competency_employees)`);
       if (empCols.length > 0 && (!empCols.some(c => c.name === 'wh_name') || !empCols.some(c => c.name === 'emp_id'))) {
         await dbRun(`DROP TABLE IF EXISTS staff_competency_employees`);
@@ -101,27 +99,23 @@ module.exports = function(db) {
         await dbRun(`ALTER TABLE staff_competency_employees ADD COLUMN shift_name TEXT DEFAULT ''`);
       }
 
-      // 3. 每週快照資料表
       await dbRun(`
         CREATE TABLE IF NOT EXISTS staff_competency_snapshots (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           week_key TEXT NOT NULL,
           snapshot_name TEXT NOT NULL,
           snapshot_type TEXT DEFAULT 'auto',
+          target_groups TEXT DEFAULT 'ALL',
           created_by TEXT DEFAULT 'system',
           created_at TEXT NOT NULL,
           payload_json TEXT NOT NULL
         )
       `);
 
-      // 4. 幹部組別權限資料表
-      await dbRun(`
-        CREATE TABLE IF NOT EXISTS staff_competency_group_perms (
-          username TEXT PRIMARY KEY,
-          allowed_groups_json TEXT DEFAULT '[]',
-          updated_at TEXT DEFAULT ''
-        )
-      `);
+      const snapCols = await dbAll(`PRAGMA table_info(staff_competency_snapshots)`);
+      if (!snapCols.some(c => c.name === 'target_groups')) {
+        await dbRun(`ALTER TABLE staff_competency_snapshots ADD COLUMN target_groups TEXT DEFAULT 'ALL'`);
+      }
     })().catch(err => {
       tablesReadyPromise = null;
       throw err;
@@ -129,11 +123,15 @@ module.exports = function(db) {
     return tablesReadyPromise;
   }
 
-  async function buildFullDataObject() {
+  async function buildFullDataObject(filterGroups = null) {
     const result = {
       '林口倉': { skills: [], employees: [] },
       '3PL一組': { skills: [], employees: [] }
     };
+
+    const allowedSet = Array.isArray(filterGroups) && filterGroups.length > 0
+      ? new Set(filterGroups)
+      : null;
 
     const skillRows = await dbAll(
       `SELECT wh_name, skill_id, skill_group, skill_type, skill_name, sub_header
@@ -161,13 +159,15 @@ module.exports = function(db) {
     );
 
     empRows.forEach(r => {
+      const grp = r.staff_group || '未分組';
+      if (allowedSet && !allowedSet.has(grp)) return;
       if (!result[r.wh_name]) result[r.wh_name] = { skills: [], employees: [] };
       let parsedSkills = {};
       try { parsedSkills = JSON.parse(r.skills_json || '{}'); } catch (e) {}
       result[r.wh_name].employees.push({
         id: r.emp_id,
         name: r.emp_name,
-        staffGroup: r.staff_group || '未分組',
+        staffGroup: grp,
         shiftName: r.shift_name || '',
         lastUpdated: r.last_updated || '',
         skills: parsedSkills
@@ -192,9 +192,9 @@ module.exports = function(db) {
 
       const nowStr = `${dateStr} ${new Date().toTimeString().slice(0, 5)}`;
       await dbRun(
-        `INSERT INTO staff_competency_snapshots (week_key, snapshot_name, snapshot_type, created_by, created_at, payload_json)
-         VALUES (?, ?, 'auto', 'system', ?, ?)`,
-        [weekKey, `${weekKey} 自動週備份 (${dateStr})`, nowStr, JSON.stringify(fullData)]
+        `INSERT INTO staff_competency_snapshots (week_key, snapshot_name, snapshot_type, target_groups, created_by, created_at, payload_json)
+         VALUES (?, ?, 'auto', 'ALL', '系統自動', ?, ?)`,
+        [weekKey, `${weekKey} 全倉自動週備份 - 系統自動 (${dateStr})`, nowStr, JSON.stringify(fullData)]
       );
     } catch (e) {
       console.error('自動週備份略過:', e.message);
@@ -206,55 +206,18 @@ module.exports = function(db) {
     res.json({ success: true, version: currentVersion });
   });
 
-  // 2. 取得完整倉別資料 + 帳號組別權限設定
+  // 2. 取得完整倉別資料
   router.get('/all', async (req, res) => {
     try {
       await ensureTables();
       const result = await buildFullDataObject();
-      const permRows = await dbAll(`SELECT username, allowed_groups_json FROM staff_competency_group_perms`);
-      const groupPerms = {};
-      permRows.forEach(p => {
-        try { groupPerms[p.username] = JSON.parse(p.allowed_groups_json || '[]'); } catch (e) { groupPerms[p.username] = []; }
-      });
-      res.json({ success: true, version: currentVersion, data: result, groupPerms });
+      res.json({ success: true, version: currentVersion, data: result });
     } catch (err) {
       res.status(500).json({ success: false, message: err.message });
     }
   });
 
-  // 3. 儲存幹部帳號的可管理組別權限
-  router.post('/group-perms/save', async (req, res) => {
-    const { permsMap } = req.body;
-    if (!permsMap || typeof permsMap !== 'object') {
-      return res.status(400).json({ success: false, message: '無效的組別權限設定資料' });
-    }
-    try {
-      await ensureTables();
-      const nowStr = new Date().toISOString().slice(0, 16).replace('T', ' ');
-      await dbRun('BEGIN TRANSACTION');
-      try {
-        for (const [username, groups] of Object.entries(permsMap)) {
-          const cleanGroups = Array.isArray(groups) ? groups : [];
-          await dbRun(
-            `INSERT INTO staff_competency_group_perms (username, allowed_groups_json, updated_at)
-             VALUES (?, ?, ?)
-             ON CONFLICT(username) DO UPDATE SET allowed_groups_json = excluded.allowed_groups_json, updated_at = excluded.updated_at`,
-            [username, JSON.stringify(cleanGroups), nowStr]
-          );
-        }
-        await dbRun('COMMIT');
-      } catch (txErr) {
-        await dbRun('ROLLBACK').catch(() => {});
-        throw txErr;
-      }
-      bumpVersion();
-      res.json({ success: true, version: currentVersion, message: '🎉 幹部組別權限參數已儲存並同步！' });
-    } catch (err) {
-      res.status(500).json({ success: false, message: err.message });
-    }
-  });
-
-  // 4. 批次即時勾選同步
+  // 3. 批次即時勾選同步
   router.post('/batch-toggle', async (req, res) => {
     const updates = req.body.updates;
     if (!Array.isArray(updates) || updates.length === 0) {
@@ -320,7 +283,7 @@ module.exports = function(db) {
     }
   });
 
-  // 5. 新增或編輯單一員工資料
+  // 4. 新增或編輯單一員工資料
   router.post('/employee/save', async (req, res) => {
     const { originalWarehouse, originalEmpId, targetWarehouse, emp } = req.body;
     if (!targetWarehouse || !emp || !emp.id || !emp.name) {
@@ -369,7 +332,7 @@ module.exports = function(db) {
     }
   });
 
-  // 6. 刪除單一員工
+  // 5. 刪除單一員工
   router.post('/employee/delete', async (req, res) => {
     const { warehouse, empId } = req.body;
     try {
@@ -383,7 +346,7 @@ module.exports = function(db) {
     }
   });
 
-  // 7. 新增單一能力項目
+  // 6. 新增單一能力項目
   router.post('/skill/add', async (req, res) => {
     const { warehouse, skill } = req.body;
     if (!warehouse || !skill || !skill.id || !skill.name) {
@@ -408,7 +371,7 @@ module.exports = function(db) {
     }
   });
 
-  // 8. 刪除單一能力項目
+  // 7. 刪除單一能力項目
   router.post('/skill/delete', async (req, res) => {
     const { warehouse, skillId } = req.body;
     try {
@@ -439,7 +402,7 @@ module.exports = function(db) {
     }
   });
 
-  // 9. 模式 A：最高管理員「主檔匯入」（同步名冊與技能結構，100% 保留既有打勾紀錄）
+  // 8. 模式 A：最高管理員「主檔匯入」
   router.post('/import-master', async (req, res) => {
     const payload = req.body.data;
     if (!payload || typeof payload !== 'object') {
@@ -512,12 +475,11 @@ module.exports = function(db) {
         message: '🎉 主檔匯入完成！人員名冊與技能結構已同步，既有打勾紀錄已完整保留。'
       });
     } catch (err) {
-      console.error('import-master 錯誤:', err);
       res.status(500).json({ success: false, message: '主檔寫入資料庫失敗：' + err.message });
     }
   });
 
-  // 10. 模式 B：現場幹部「各組局部合併匯入」
+  // 9. 模式 B：現場幹部「各組局部合併匯入」
   router.post('/import-group-merge', async (req, res) => {
     const { warehouse = '林口倉', groupsData } = req.body;
     if (!Array.isArray(groupsData) || groupsData.length === 0) {
@@ -610,19 +572,18 @@ module.exports = function(db) {
         message: `🎉 各組局部合併成功！共更新 ${mergedEmpCount} 筆組員本組能力（他組人員與跨組能力皆已保留）。`
       });
     } catch (err) {
-      console.error('import-group-merge 錯誤:', err);
       res.status(500).json({ success: false, message: '各組匯入寫入資料庫失敗：' + err.message });
     }
   });
 
-  // 11. 取得所有每週歷史備份快照清單
+  // 10. 取得歷史備份快照清單（可依幹部權限篩選只顯示他有權限的備份或全倉備份）
   router.get('/snapshots', async (req, res) => {
     try {
       await ensureTables();
       const rows = await dbAll(
-        `SELECT id, week_key, snapshot_name, snapshot_type, created_by, created_at
+        `SELECT id, week_key, snapshot_name, snapshot_type, target_groups, created_by, created_at
          FROM staff_competency_snapshots
-         ORDER BY id DESC LIMIT 60`
+         ORDER BY id DESC LIMIT 80`
       );
       res.json({ success: true, snapshots: rows });
     } catch (err) {
@@ -630,7 +591,7 @@ module.exports = function(db) {
     }
   });
 
-  // 12. 取得單一快照的完整資料內容
+  // 11. 取得單一快照的完整資料內容
   router.get('/snapshots/:id', async (req, res) => {
     try {
       await ensureTables();
@@ -644,30 +605,49 @@ module.exports = function(db) {
     }
   });
 
-  // 13. 手動立即建立一筆週次備份快照
+  // 12. 記名＋分組獨立建立備份快照（僅備份指定組別，絕不混入或影響他組）
   router.post('/snapshots/create', async (req, res) => {
-    const { createdBy = 'admin', customNote = '' } = req.body;
+    const {
+      operatorName = '',
+      operatorId = '',
+      targetGroups = [] // 陣列，例如 ['進貨驗收組']；若空陣列且為管理員則備份全倉
+    } = req.body;
+
     try {
       await ensureTables();
-      const fullData = await buildFullDataObject();
+      const cleanGroups = Array.isArray(targetGroups) ? targetGroups.filter(Boolean) : [];
+      const isScoped = cleanGroups.length > 0;
+      const fullData = await buildFullDataObject(isScoped ? cleanGroups : null);
+
       const { weekKey, dateStr } = getIsoWeekLabel(new Date());
-      const nowStr = `${dateStr} ${new Date().toTimeString().slice(0, 5)}`;
-      const title = customNote ? `${weekKey} ${customNote} (${nowStr})` : `${weekKey} 手動備份 (${nowStr})`;
+      const timeStr = new Date().toTimeString().slice(0, 5);
+      const whoLabel = operatorName
+        ? (operatorId && operatorId !== operatorName ? `${operatorName}(${operatorId})` : operatorName)
+        : (operatorId || '管理員');
+      const scopeLabel = isScoped ? `【${cleanGroups.join('、')}】` : '【全倉】';
+      const title = `${weekKey} ${scopeLabel}手動備份 - ${whoLabel} (${dateStr} ${timeStr})`;
 
       const info = await dbRun(
-        `INSERT INTO staff_competency_snapshots (week_key, snapshot_name, snapshot_type, created_by, created_at, payload_json)
-         VALUES (?, ?, 'manual', ?, ?, ?)`,
-        [weekKey, title, createdBy, nowStr, JSON.stringify(fullData)]
+        `INSERT INTO staff_competency_snapshots (week_key, snapshot_name, snapshot_type, target_groups, created_by, created_at, payload_json)
+         VALUES (?, ?, 'manual', ?, ?, ?, ?)`,
+        [
+          weekKey,
+          title,
+          isScoped ? JSON.stringify(cleanGroups) : 'ALL',
+          whoLabel,
+          `${dateStr} ${timeStr}`,
+          JSON.stringify(fullData)
+        ]
       );
-      res.json({ success: true, id: info.lastID, message: `📸 已建立備份快照：${title}` });
+      res.json({ success: true, id: info.lastID, message: `📸 已建立記名備份：${title}` });
     } catch (err) {
       res.status(500).json({ success: false, message: err.message });
     }
   });
 
-  // 14. 從歷史快照還原「單一組員」或「指定組別」
+  // 13. 從歷史快照還原「單一組員」或「指定組別」（僅限快照內存在的該組人員，絕不影響他組）
   router.post('/snapshots/restore', async (req, res) => {
-    const { snapshotId, warehouse, empId = '', staffGroup = '' } = req.body;
+    const { snapshotId, warehouse, empId = '', staffGroup = '', allowedGroups = [] } = req.body;
     if (!snapshotId || !warehouse) {
       return res.status(400).json({ success: false, message: '缺少快照 ID 或倉別參數' });
     }
@@ -681,14 +661,19 @@ module.exports = function(db) {
       try { snapData = JSON.parse(row.payload_json || '{}'); } catch (e) {}
       const snapEmps = snapData[warehouse]?.employees || [];
 
+      const hasRestrict = Array.isArray(allowedGroups) && allowedGroups.length > 0 && !allowedGroups.includes('*');
+      const allowSet = hasRestrict ? new Set(allowedGroups) : null;
+
       const targets = snapEmps.filter(e => {
+        const grp = e.staffGroup || '未分組';
+        if (allowSet && !allowSet.has(grp)) return false;
         if (empId) return e.id === empId;
-        if (staffGroup) return (e.staffGroup || '未分組') === staffGroup;
+        if (staffGroup) return grp === staffGroup;
         return true;
       });
 
       if (targets.length === 0) {
-        return res.status(400).json({ success: false, message: '該快照中找不到符合條件的人員資料' });
+        return res.status(400).json({ success: false, message: '該備份快照中沒有符合您權限的可還原人員資料' });
       }
 
       await dbRun('BEGIN TRANSACTION');
@@ -724,7 +709,7 @@ module.exports = function(db) {
       res.json({
         success: true,
         version: currentVersion,
-        message: `↩️ 已成功從快照「${row.snapshot_name}」還原 ${targets.length} 位人員的能力紀錄！`
+        message: `↩️ 已成功從「${row.snapshot_name}」還原 ${targets.length} 位組員的能力紀錄（他組資料未受影響）！`
       });
     } catch (err) {
       res.status(500).json({ success: false, message: err.message });
