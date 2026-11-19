@@ -1743,14 +1743,34 @@ export default {
             const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '' });
             if (rows.length < 4) return;
 
-            const row1 = (rows[1] || []).map(x => String(x || '').replace(/\s+/g, ''));
-            const hasShiftCol = row1[1] === '班別';
-            const idColIdx = hasShiftCol ? 2 : 1;
-            const nameColIdx = hasShiftCol ? 3 : 2;
-            const skillStartCol = hasShiftCol ? 4 : 3;
+            // 自動偵測「員編」與「姓名」所在列與欄（支援林口倉 4 欄、3PL一組 3 欄）
+            let headerRowIdx = 1;
+            let grpColIdx = 0;
+            let shiftColIdx = -1;
+            let idColIdx = 1;
+            let nameColIdx = 2;
+
+            for (let r = 0; r < Math.min(rows.length, 5); r++) {
+              const rowNorm = (rows[r] || []).map(x => String(x || '').replace(/\s+/g, ''));
+              const foundId = rowNorm.findIndex(x => x === '員編' || x === '員工編號' || x === '工號');
+              const foundName = rowNorm.findIndex(x => x === '姓名' || x === '員工姓名');
+              if (foundId !== -1 && foundName !== -1) {
+                headerRowIdx = r;
+                idColIdx = foundId;
+                nameColIdx = foundName;
+                const foundGrp = rowNorm.findIndex(x => x === '組別' || x === '所屬組別');
+                if (foundGrp !== -1) grpColIdx = foundGrp;
+                shiftColIdx = rowNorm.findIndex(x => x === '班別' || x === '班次');
+                break;
+              }
+            }
+
+            const skillStartCol = nameColIdx + 1;
+            const row1 = (rows[headerRowIdx] || []).map(x => String(x || '').replace(/\s+/g, ''));
+            const skillNameRowIdx = headerRowIdx + 1;
 
             let fCol = row1.findIndex(x => x === '現場小計' || x === '能力總分' || x === '現場');
-            if (fCol <= skillStartCol) fCol = rows[2].length;
+            if (fCol <= skillStartCol) fCol = (rows[skillNameRowIdx] || []).length;
             const updCol = row1.findIndex(x => x.includes('最後更新'));
 
             const parsedSkills = [];
@@ -1763,8 +1783,8 @@ export default {
 
             for (let c = skillStartCol; c < fCol; c++) {
               const gTxt = String(rows[0]?.[c] || '').trim();
-              const sTxt = String(rows[1]?.[c] || '').trim();
-              const nTxt = String(rows[2]?.[c] || '').trim();
+              const sTxt = String(rows[headerRowIdx]?.[c] || '').trim();
+              const nTxt = String(rows[skillNameRowIdx]?.[c] || '').trim();
               if (gTxt && !gTxt.includes('加總')) actGrp = gTxt;
               if (sTxt) {
                 actSub = sTxt;
@@ -1786,17 +1806,17 @@ export default {
             }
 
             const newEmployees = [];
-            for (let r = 3; r < rows.length; r++) {
+            for (let r = skillNameRowIdx + 1; r < rows.length; r++) {
               const row = rows[r] || [];
               let rawId = String(row[idColIdx] ?? '').trim();
               if (rawId.endsWith('.0')) rawId = rawId.slice(0, -2);
               if (/^\d{5}$/.test(rawId)) rawId = rawId.padStart(6, '0');
               const empName = String(row[nameColIdx] ?? '').trim();
-              if (!rawId || !empName || rawId.includes('會做人數')) continue;
+              if (!rawId || !empName || rawId.includes('會做人數') || rawId === '員編') continue;
 
-              const rawGrp = String(row[0] ?? '').trim();
+              const rawGrp = String(row[grpColIdx] ?? '').trim();
               const staffGroup = (rawGrp && rawGrp !== '十二倉') ? rawGrp : '未分組';
-              const shiftName = hasShiftCol ? String(row[1] ?? '').trim() : '';
+              const shiftName = shiftColIdx !== -1 ? String(row[shiftColIdx] ?? '').trim() : '';
               const skills = {};
               Object.entries(colToSkillId).forEach(([cStr, sid]) => {
                 const v = row[Number(cStr)];
@@ -1820,6 +1840,8 @@ export default {
             if (res.data?.data) this.hydrateAppData(res.data.data);
             await this.fetchSnapshotsList();
             ElMessage.success(res.data?.message || '🎉 主檔匯入成功！');
+          } else {
+            ElMessage.warning('主檔分頁未解析到有效人員或能力欄位，請確認格式');
           }
           return;
         }
@@ -1833,25 +1855,43 @@ export default {
           const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '' });
           if (rows.length < 4) return;
 
-          const groupName = String(rows[0]?.[4] || cleanSheetGroup).trim();
+          // 自動偵測「員編」與「姓名」所在列與欄
+          let headerRowIdx = 2;
+          let grpColIdx = 0;
+          let shiftColIdx = 1;
+          let idColIdx = 2;
+          let nameColIdx = 3;
+
+          for (let r = 0; r < Math.min(rows.length, 5); r++) {
+            const rowNorm = (rows[r] || []).map(x => String(x || '').replace(/\s+/g, ''));
+            const foundId = rowNorm.findIndex(x => x === '員編' || x === '員工編號' || x === '工號');
+            const foundName = rowNorm.findIndex(x => x === '姓名' || x === '員工姓名');
+            if (foundId !== -1 && foundName !== -1) {
+              headerRowIdx = r;
+              idColIdx = foundId;
+              nameColIdx = foundName;
+              const foundGrp = rowNorm.findIndex(x => x === '組別' || x === '所屬組別');
+              if (foundGrp !== -1) grpColIdx = foundGrp;
+              shiftColIdx = rowNorm.findIndex(x => x === '班別' || x === '班次');
+              break;
+            }
+          }
+
+          const skillStartCol = nameColIdx + 1;
+          const groupName = String(rows[0]?.[skillStartCol] || cleanSheetGroup).trim();
           if (!this.canEditStaffGroup(groupName)) {
             deniedSheets.push(groupName);
             return;
           }
 
-          const row2 = (rows[2] || []).map(x => String(x || '').replace(/\s+/g, ''));
-          const hasShiftCol = row2[1] === '班別';
-          const idColIdx = hasShiftCol ? 2 : 1;
-          const nameColIdx = hasShiftCol ? 3 : 2;
-          const skillStartCol = hasShiftCol ? 4 : 3;
-
+          const headerRow = (rows[headerRowIdx] || []).map(x => String(x || '').replace(/\s+/g, ''));
           const skillIds = [];
           const colToSkillId = {};
           let actSub = '現場人員所需能力';
 
-          for (let c = skillStartCol; c < row2.length; c++) {
+          for (let c = skillStartCol; c < headerRow.length; c++) {
             const sTxt = String(rows[1]?.[c] || '').trim();
-            const nTxt = String(rows[2]?.[c] || '').trim();
+            const nTxt = String(rows[headerRowIdx]?.[c] || '').trim();
             if (sTxt) actSub = sTxt;
             if (!nTxt || nTxt.includes('小計') || nTxt.includes('總分') || nTxt.includes('排名') || nTxt.includes('更新')) continue;
 
@@ -1862,16 +1902,16 @@ export default {
 
           const emps = [];
           const nowStr = this.formatNow();
-          for (let r = 3; r < rows.length; r++) {
+          for (let r = headerRowIdx + 1; r < rows.length; r++) {
             const row = rows[r] || [];
             let rawId = String(row[idColIdx] ?? '').trim();
             if (rawId.endsWith('.0')) rawId = rawId.slice(0, -2);
             if (/^\d{5}$/.test(rawId)) rawId = rawId.padStart(6, '0');
             const empName = String(row[nameColIdx] ?? '').trim();
-            if (!rawId || !empName || rawId.includes('會做人數')) continue;
+            if (!rawId || !empName || rawId.includes('會做人數') || rawId === '員編') continue;
 
-            const staffGroup = String(row[0] ?? '').trim() || groupName;
-            const shiftName = hasShiftCol ? String(row[1] ?? '').trim() : '';
+            const staffGroup = String(row[grpColIdx] ?? '').trim() || groupName;
+            const shiftName = shiftColIdx !== -1 ? String(row[shiftColIdx] ?? '').trim() : '';
             const skills = {};
             let hasAnyChecked = false;
             Object.entries(colToSkillId).forEach(([cStr, sid]) => {
@@ -1916,13 +1956,15 @@ export default {
           ElMessage.warning('未識別到有效資料，請確認 Excel 格式為「人員能力表-主檔」或「人員能力表-各組」');
         }
       } catch (err) {
-        ElMessage.error('Excel 匯入失敗：' + err.message);
+        const backendMsg = err.response?.data?.message || err.message;
+        const status = err.response?.status ? ` (HTTP ${err.response.status})` : '';
+        ElMessage.error(`Excel 匯入失敗${status}：${backendMsg}`);
       } finally {
         this.loading = false;
         if (this.$refs.excelInput) this.$refs.excelInput.value = '';
       }
     },
-
+    
     exportToExcel() {
       const wb = XLSX.utils.book_new();
       const sourceObj = this.activeDataSource;
