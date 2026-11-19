@@ -605,18 +605,19 @@ module.exports = function(db) {
     }
   });
 
-  // 12. 記名＋分組獨立建立備份快照（僅備份指定組別，絕不混入或影響他組）
+  // 12. 記名＋分組獨立建立備份快照（同日同組同人自動覆蓋防洗版 ＋ 自動清理超過 90 筆的過期舊備份）
   router.post('/snapshots/create', async (req, res) => {
     const {
       operatorName = '',
       operatorId = '',
-      targetGroups = [] // 陣列，例如 ['進貨驗收組']；若空陣列且為管理員則備份全倉
+      targetGroups = []
     } = req.body;
 
     try {
       await ensureTables();
       const cleanGroups = Array.isArray(targetGroups) ? targetGroups.filter(Boolean) : [];
       const isScoped = cleanGroups.length > 0;
+      const targetGroupsStr = isScoped ? JSON.stringify(cleanGroups) : 'ALL';
       const fullData = await buildFullDataObject(isScoped ? cleanGroups : null);
 
       const { weekKey, dateStr } = getIsoWeekLabel(new Date());
@@ -626,21 +627,53 @@ module.exports = function(db) {
         : (operatorId || '管理員');
       const scopeLabel = isScoped ? `【${cleanGroups.join('、')}】` : '【全倉】';
       const title = `${weekKey} ${scopeLabel}手動備份 - ${whoLabel} (${dateStr} ${timeStr})`;
+      const payloadStr = JSON.stringify(fullData);
 
-      const info = await dbRun(
-        `INSERT INTO staff_competency_snapshots (week_key, snapshot_name, snapshot_type, target_groups, created_by, created_at, payload_json)
-         VALUES (?, ?, 'manual', ?, ?, ?, ?)`,
-        [
-          weekKey,
-          title,
-          isScoped ? JSON.stringify(cleanGroups) : 'ALL',
-          whoLabel,
-          `${dateStr} ${timeStr}`,
-          JSON.stringify(fullData)
-        ]
+      // 檢查「同一天 + 同一組別 + 同一操作人」是否已有手動備份 -> 若有則直接覆蓋更新，避免連按洗版
+      const existingSameDay = await dbGet(
+        `SELECT id FROM staff_competency_snapshots
+         WHERE snapshot_type = 'manual'
+           AND target_groups = ?
+           AND created_by = ?
+           AND created_at LIKE ?`,
+        [targetGroupsStr, whoLabel, `${dateStr}%`]
       );
+
+      let savedId;
+      if (existingSameDay) {
+        await dbRun(
+          `UPDATE staff_competency_snapshots
+           SET week_key = ?, snapshot_name = ?, created_at = ?, payload_json = ?
+           WHERE id = ?`,
+          [weekKey, title, `${dateStr} ${timeStr}`, payloadStr, existingSameDay.id]
+        );
+        savedId = existingSameDay.id;
+      } else {
+        const info = await dbRun(
+          `INSERT INTO staff_competency_snapshots (week_key, snapshot_name, snapshot_type, target_groups, created_by, created_at, payload_json)
+           VALUES (?, ?, 'manual', ?, ?, ?, ?)`,
+          [weekKey, title, targetGroupsStr, whoLabel, `${dateStr} ${timeStr}`, payloadStr]
+        );
+        savedId = info.lastID;
+      }
+
+      // 自動清理超過 90 筆的最舊歷史備份，維持資料庫輕量不膨脹
+      await dbRun(
+        `DELETE FROM staff_competency_snapshots
+         WHERE id NOT IN (
+           SELECT id FROM staff_competency_snapshots ORDER BY id DESC LIMIT 90
+         )`
+      );
+
       bumpVersion();
-      res.json({ success: true, id: info.lastID, version: currentVersion, message: `📸 已建立記名備份：${title}` });
+      res.json({
+        success: true,
+        id: savedId,
+        version: currentVersion,
+        message: existingSameDay
+          ? `🔄 已更新今日記名備份：${title}`
+          : `📸 已建立記名備份：${title}`
+      });
     } catch (err) {
       res.status(500).json({ success: false, message: err.message });
     }
