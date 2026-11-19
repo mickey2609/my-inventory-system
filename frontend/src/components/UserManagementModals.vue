@@ -100,12 +100,12 @@
       </template>
     </el-dialog>
 
-    <!-- 4. 模組權限設定彈窗（支援全勾選 ＋ 每個模組獨立勾選「匯入 / 匯出」＋ 人員能力表組別權限） -->
+    <!-- 4. 模組權限設定彈窗（支援全勾選 ＋ 匯入/匯出 ＋ 人員能力表「組別＋班別」雙重權限） -->
     <el-dialog 
       title="🔒 模組操作權限設定" 
       :model-value="showEditPerm" 
       @update:model-value="$emit('update:showEditPerm', $event)" 
-      width="640px" 
+      width="650px" 
       top="5vh"
       custom-class="dark-dialog"
     >
@@ -166,10 +166,10 @@
               </div>
             </div>
 
-            <!-- 人員綜合能力管理：專屬「可管理作業組別」權限子區塊 -->
+            <!-- 人員綜合能力管理：專屬「組別 ＋ 班別」雙重權限子區塊 -->
             <div v-if="mod.key === 'staff_competency' && isModuleChecked('staff_competency')" class="staff-group-perm-subbox">
-              <div class="sgp-title">🔑 允許編輯與匯入的作業組別（未勾選的組別將鎖定為唯讀）：</div>
-              <div class="sgp-checks">
+              <div class="sgp-title">🔑 1. 允許編輯與匯入的【作業組別】（未勾選的組別將鎖定為唯讀）：</div>
+              <div class="sgp-checks" style="margin-bottom: 10px;">
                 <el-checkbox
                   v-for="grp in staffCompetencyGroups"
                   :key="grp"
@@ -177,6 +177,20 @@
                   @change="val => onToggleStaffGroup(grp, val)"
                 >
                   <span class="sgp-label">{{ grp }}</span>
+                </el-checkbox>
+              </div>
+
+              <div class="sgp-title" style="border-top: 1px dashed #334155; padding-top: 8px;">
+                🕒 2. 允許編輯與匯入的【班別】（若全不勾選則代表該組全部班別皆可編輯）：
+              </div>
+              <div class="sgp-checks">
+                <el-checkbox
+                  v-for="sh in staffCompetencyShifts"
+                  :key="sh"
+                  :model-value="isStaffShiftChecked(sh)"
+                  @change="val => onToggleStaffShift(sh, val)"
+                >
+                  <span class="sgp-shift-label">{{ sh }}</span>
                 </el-checkbox>
               </div>
             </div>
@@ -223,6 +237,15 @@ export default {
         '庫存作業組',
         '還貨作業組',
         '3PL一組'
+      ],
+      staffCompetencyShifts: [
+        '日班',
+        '早班',
+        '早半',
+        '中班',
+        '夜班',
+        '夜半',
+        '大夜班'
       ]
     };
   },
@@ -269,6 +292,9 @@ export default {
     isStaffGroupChecked(grp) {
       return this.selectedList.includes(`staff_competency:group:${grp}`);
     },
+    isStaffShiftChecked(sh) {
+      return this.selectedList.includes(`staff_competency:shift:${sh}`);
+    },
     isAllActionSelected(action) {
       if (!this.availableModules.length) return false;
       return this.availableModules.every(m => this.selectedList.includes(`${m.key}:${action}`));
@@ -284,6 +310,7 @@ export default {
         set.delete(`${modKey}:export`);
         if (modKey === 'staff_competency') {
           this.staffCompetencyGroups.forEach(g => set.delete(`staff_competency:group:${g}`));
+          this.staffCompetencyShifts.forEach(s => set.delete(`staff_competency:shift:${s}`));
         }
       }
       this.editPermForm.selected_modules = Array.from(set);
@@ -311,6 +338,17 @@ export default {
       this.editPermForm.selected_modules = Array.from(set);
     },
 
+    onToggleStaffShift(sh, checked) {
+      const set = new Set(this.selectedList);
+      if (checked) {
+        set.add('staff_competency');
+        set.add(`staff_competency:shift:${sh}`);
+      } else {
+        set.delete(`staff_competency:shift:${sh}`);
+      }
+      this.editPermForm.selected_modules = Array.from(set);
+    },
+
     toggleAllModules() {
       const set = new Set(this.selectedList);
       if (this.isAllModulesSelected) {
@@ -320,6 +358,7 @@ export default {
           set.delete(`${m.key}:export`);
         });
         this.staffCompetencyGroups.forEach(g => set.delete(`staff_competency:group:${g}`));
+        this.staffCompetencyShifts.forEach(s => set.delete(`staff_competency:shift:${s}`));
       } else {
         this.availableModules.forEach(m => set.add(m.key));
       }
@@ -376,7 +415,7 @@ export default {
 .action-cols-title { padding-right: 18px; }
 
 .perm-matrix-list {
-  max-height: 430px;
+  max-height: 440px;
   overflow-y: auto;
   border: 1px solid #334155;
   border-top: none;
@@ -419,6 +458,11 @@ export default {
 .sgp-label {
   font-size: 12px;
   color: #fde047;
+  font-weight: bold;
+}
+.sgp-shift-label {
+  font-size: 12px;
+  color: #6ee7b7;
   font-weight: bold;
 }
 

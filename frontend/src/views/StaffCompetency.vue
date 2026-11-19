@@ -97,7 +97,7 @@
             type="warning"
             @click="restoreGroupFromSnapshot(staffGroupFilter)"
           >
-            ↩️ 還原【{{ staffGroupFilter }}】全組至此備份
+            ↩️ 還原【{{ staffGroupFilter }}】可管人員至此備份
           </el-button>
           <el-button size="mini" type="primary" @click="viewingSnapshotId = null; onSnapshotSelectChange(null)">
             返回目前即時資料
@@ -116,7 +116,7 @@
             type="success"
             icon="el-icon-upload2"
             @click="triggerExcelPicker"
-            title="最高管理員可匯入「主檔」或「各組檔」；現場幹部可匯入所屬組別的「組檔」"
+            title="最高管理員可匯入「主檔」或「各組檔」；現場幹部可匯入所屬組別與班別的「組檔」"
           >
             匯入 Excel
           </el-button>
@@ -177,12 +177,12 @@
           />
         </el-select>
 
-        <el-select v-model="shiftFilter" size="mini" style="width: 128px;" @change="changePage(1)">
+        <el-select v-model="shiftFilter" size="mini" style="width: 132px;" @change="changePage(1)">
           <el-option :label="`全部班別 (${totalFilteredInSelectedGroup}人)`" value="all" />
           <el-option
             v-for="(cnt, sh) in shiftCounts"
             :key="sh"
-            :label="`${sh} (${cnt}人)`"
+            :label="`${sh} (${cnt}人)${canEditShift(sh) ? '' : ' 🔒'}`"
             :value="sh"
           />
         </el-select>
@@ -237,8 +237,8 @@
         </el-select>
 
         <div class="kbd-guide">
-          <span v-if="!myAllowedGroups.includes('*')" class="perm-scope-pill">
-            🔑 可編輯組別：<strong>{{ myEditableGroupsLabel }}</strong>
+          <span v-if="!isFullAccessAdmin" class="perm-scope-pill">
+            🔑 可編輯範圍：<strong>{{ myEditableScopeLabel }}</strong>
           </span>
           <span v-else>🖱️ <strong>按住左鍵拖曳</strong>批量勾選 ｜ ⌨️ <kbd>↑↓←→</kbd>+<kbd>Space</kbd></span>
           <span v-if="activeCellText" class="active-cell-lbl">{{ activeCellText }}</span>
@@ -321,7 +321,7 @@
               <td class="sticky-col-3 font-bold text-blue">{{ row.emp.id }}</td>
               <td class="sticky-col-4 font-bold">
                 {{ row.emp.name }}
-                <span v-if="!row.canEdit" title="您無此組別編輯權限（唯讀）" style="font-size: 10px;">🔒</span>
+                <span v-if="!row.canEdit" title="您無此組別/班別編輯權限（唯讀）" style="font-size: 10px;">🔒</span>
               </td>
               <td class="sticky-col-5">
                 <div class="pct-box">
@@ -386,7 +386,7 @@
               <td class="row-actions-cell">
                 <template v-if="viewingSnapshotId">
                   <button
-                    v-if="canEditStaffGroup(row.emp.staffGroup)"
+                    v-if="canEditEmployeeRecord(row.emp)"
                     type="button"
                     class="mini-icon-btn btn-restore"
                     title="將此組員的能力勾選還原至此備份快照狀態"
@@ -411,7 +411,7 @@
                   <button type="button" class="mini-icon-btn btn-edit" title="編輯人員" @mousedown.stop @click.stop="openEditEmployeeModal(row.emp)">✎</button>
                   <button type="button" class="mini-icon-btn btn-del" title="刪除人員" @mousedown.stop @click.stop="confirmDeleteEmployee(row.emp)">✕</button>
                 </template>
-                <span v-else class="text-dim" style="font-size: 11px;">🔒 他組唯讀</span>
+                <span v-else class="text-dim" style="font-size: 11px;">🔒 跨組/班唯讀</span>
               </td>
             </tr>
           </tbody>
@@ -468,8 +468,8 @@
             <el-select
               v-model="empForm.staffGroup"
               size="mini"
-              :filterable="isSysAdmin || isAdmin"
-              :allow-create="isSysAdmin || isAdmin"
+              :filterable="isFullAccessAdmin"
+              :allow-create="isFullAccessAdmin"
               placeholder="選擇組別"
               style="width: 100%;"
             >
@@ -477,12 +477,16 @@
             </el-select>
           </div>
           <div>
-            <label class="f-lbl">班別</label>
-            <el-select v-model="empForm.shiftName" size="mini" filterable allow-create clearable placeholder="選擇或輸入班別" style="width: 100%;">
-              <el-option label="日班" value="日班" />
-              <el-option label="早班" value="早班" />
-              <el-option label="中班" value="中班" />
-              <el-option label="大夜班" value="大夜班" />
+            <label class="f-lbl">班別 *</label>
+            <el-select
+              v-model="empForm.shiftName"
+              size="mini"
+              :filterable="isFullAccessAdmin"
+              :allow-create="isFullAccessAdmin"
+              placeholder="選擇班別"
+              style="width: 100%;"
+            >
+              <el-option v-for="sh in editableShiftOptionsForForm" :key="sh" :label="sh" :value="sh" />
             </el-select>
           </div>
           <div>
@@ -697,41 +701,54 @@ export default {
       }
       return this.currentUserRealName || this.currentUsername || '管理員';
     },
+    parsedPermissionTokens() {
+      try {
+        const sess = JSON.parse(localStorage.getItem('auth_session') || '{}');
+        const rawPerms = this.liveUserPermissions !== null ? this.liveUserPermissions : sess.permissions;
+        return Array.isArray(rawPerms)
+          ? rawPerms.map(s => String(s).trim())
+          : String(rawPerms || '').split(',').map(s => s.trim()).filter(Boolean);
+      } catch (e) {
+        return [];
+      }
+    },
     myAllowedGroups() {
       if (this.isSysAdmin || this.currentUserRole === 'sys_admin' || this.currentUsername === 'admin') {
         return ['*'];
       }
-
       const set = new Set();
-      try {
-        const sess = JSON.parse(localStorage.getItem('auth_session') || '{}');
-        const rawPerms = this.liveUserPermissions !== null ? this.liveUserPermissions : sess.permissions;
-        const perms = Array.isArray(rawPerms)
-          ? rawPerms
-          : String(rawPerms || '').split(',').map(s => s.trim());
-
-        perms.forEach(p => {
-          if (p.startsWith('staff_competency:group:')) {
-            set.add(p.replace('staff_competency:group:', '').trim());
-          }
-        });
-      } catch (e) {}
-
-      if (set.size > 0) {
-        return Array.from(set);
-      }
-
-      if (this.isAdmin || this.currentUserRole === 'admin') {
-        return ['*'];
-      }
+      this.parsedPermissionTokens.forEach(p => {
+        if (p.startsWith('staff_competency:group:')) {
+          set.add(p.replace('staff_competency:group:', '').trim());
+        }
+      });
+      if (set.size > 0) return Array.from(set);
+      if (this.isAdmin || this.currentUserRole === 'admin') return ['*'];
       return [];
     },
-    myEditableGroupsLabel() {
-      if (this.myAllowedGroups.includes('*')) return '全部組別';
-      return this.myAllowedGroups.length > 0 ? this.myAllowedGroups.join('、') : '無編輯權限（僅唯讀）';
+    // 可管理班別（若未勾選任何班別且擁有組別權限，代表 ['*'] 該組全班別皆可編輯）
+    myAllowedShifts() {
+      if (this.myAllowedGroups.includes('*')) return ['*'];
+      const set = new Set();
+      this.parsedPermissionTokens.forEach(p => {
+        if (p.startsWith('staff_competency:shift:')) {
+          set.add(p.replace('staff_competency:shift:', '').trim());
+        }
+      });
+      return set.size > 0 ? Array.from(set) : ['*'];
+    },
+    isFullAccessAdmin() {
+      return this.myAllowedGroups.includes('*');
+    },
+    myEditableScopeLabel() {
+      if (this.isFullAccessAdmin) return '全部組別與班別';
+      if (this.myAllowedGroups.length === 0) return '無編輯權限（僅唯讀）';
+      const grpTxt = this.myAllowedGroups.join('、');
+      const shiftTxt = this.myAllowedShifts.includes('*') ? '全班別' : this.myAllowedShifts.join('、');
+      return `${grpTxt}（${shiftTxt}）`;
     },
     targetGroupsForBackup() {
-      if (this.myAllowedGroups.includes('*')) {
+      if (this.isFullAccessAdmin) {
         return this.staffGroupFilter !== 'all' ? [this.staffGroupFilter] : [];
       }
       if (this.staffGroupFilter !== 'all' && this.myAllowedGroups.includes(this.staffGroupFilter)) {
@@ -745,7 +762,7 @@ export default {
       return `（${this.targetGroupsForBackup.length}組）`;
     },
     visibleSnapshotsList() {
-      if (this.myAllowedGroups.includes('*')) return this.snapshotsList;
+      if (this.isFullAccessAdmin) return this.snapshotsList;
       return this.snapshotsList.filter(sn => {
         if (!sn.target_groups || sn.target_groups === 'ALL') return true;
         try {
@@ -757,17 +774,22 @@ export default {
       });
     },
     canImport() {
-      if (this.myAllowedGroups.includes('*') || this.myAllowedGroups.length > 0) return true;
+      if (this.isFullAccessAdmin || this.myAllowedGroups.length > 0) return true;
       return typeof this.$canImport === 'function' ? this.$canImport('staff_competency') : false;
     },
     canExport() {
-      if (this.myAllowedGroups.includes('*')) return true;
+      if (this.isFullAccessAdmin) return true;
       return typeof this.$canExport === 'function' ? this.$canExport('staff_competency') : true;
     },
     editableGroupOptionsForForm() {
       const all = this.getWarehouseGroups(this.empForm.warehouse);
-      if (this.myAllowedGroups.includes('*')) return all;
+      if (this.isFullAccessAdmin) return all;
       return all.filter(g => this.myAllowedGroups.includes(g));
+    },
+    editableShiftOptionsForForm() {
+      const defaults = ['日班', '早班', '早半', '中班', '夜班', '夜半', '大夜班'];
+      if (this.myAllowedShifts.includes('*')) return defaults;
+      return this.myAllowedShifts;
     },
     activeDataSource() {
       return this.viewingSnapshotId && this.snapshotDataCache ? this.snapshotDataCache : this.appData;
@@ -864,7 +886,7 @@ export default {
         const grpTotal = grpCntMap[emp.staffGroup] || 0;
         const grpDone = emp._grpDone || 0;
         const groupPct = grpTotal > 0 ? Math.round((grpDone / grpTotal) * 100) : 0;
-        const canEdit = !this.viewingSnapshotId && this.canEditStaffGroup(emp.staffGroup);
+        const canEdit = !this.viewingSnapshotId && this.canEditEmployeeRecord(emp);
 
         return { emp, fieldScore: f, specialScore: sp, cadreScore: ca, totalScore, pct, groupPct, rank: 1, canEdit };
       });
@@ -892,7 +914,6 @@ export default {
       }
       return counts;
     },
-    // 凍結排列順序快照：僅在切換排序、切換倉別或按重新整理時重排，勾選時絕不跳動
     lockedOrderedIds() {
       void this.sortSnapshotVersion;
       const wh = this.currentWarehouse;
@@ -989,9 +1010,21 @@ export default {
   },
   methods: {
     canEditStaffGroup(staffGrp) {
-      if (this.myAllowedGroups.includes('*')) return true;
+      if (this.isFullAccessAdmin) return true;
       const g = String(staffGrp || '未分組').trim();
       return this.myAllowedGroups.includes(g);
+    },
+    canEditShift(shiftName) {
+      if (this.isFullAccessAdmin || this.myAllowedShifts.includes('*')) return true;
+      const sh = String(shiftName || '').trim();
+      if (!sh) return true; // 尚未設定班別的新人員允許編輯
+      return this.myAllowedShifts.includes(sh);
+    },
+    // 雙重權限檢查：必須同時符合「作業組別」與「班別」
+    canEditEmployeeRecord(emp) {
+      if (!emp) return false;
+      if (this.isFullAccessAdmin) return true;
+      return this.canEditStaffGroup(emp.staffGroup) && this.canEditShift(emp.shiftName);
     },
     startAutoSyncPoll() {
       this.stopAutoSyncPoll();
@@ -1085,11 +1118,20 @@ export default {
       this.renderTick++;
       this.sortSnapshotVersion++;
 
-      if (!this.myAllowedGroups.includes('*') && this.staffGroupFilter === 'all' && this.myAllowedGroups.length === 1) {
-        const myGrp = this.myAllowedGroups[0];
-        if (this.staffGroupCounts[myGrp]) {
-          this.staffGroupFilter = myGrp;
-          this.onStaffGroupChange(myGrp);
+      // 若為單一組別或單一班別幹部，首次載入自動幫忙篩選到自己負責的組別/班別
+      if (!this.isFullAccessAdmin) {
+        if (this.staffGroupFilter === 'all' && this.myAllowedGroups.length === 1) {
+          const myGrp = this.myAllowedGroups[0];
+          if (this.staffGroupCounts[myGrp]) {
+            this.staffGroupFilter = myGrp;
+            this.onStaffGroupChange(myGrp);
+          }
+        }
+        if (this.shiftFilter === 'all' && !this.myAllowedShifts.includes('*') && this.myAllowedShifts.length === 1) {
+          const myShift = this.myAllowedShifts[0];
+          if (this.shiftCounts[myShift]) {
+            this.shiftFilter = myShift;
+          }
         }
       }
     },
@@ -1274,7 +1316,7 @@ export default {
     },
 
     async createManualSnapshot() {
-      if (!this.myAllowedGroups.includes('*') && this.myAllowedGroups.length === 0) {
+      if (!this.isFullAccessAdmin && this.myAllowedGroups.length === 0) {
         return ElMessage.warning('您尚未被指派可管理的作業組別，無法建立組別備份！');
       }
       try {
@@ -1293,8 +1335,8 @@ export default {
     },
 
     restoreSingleEmployeeFromSnapshot(emp) {
-      if (!this.canEditStaffGroup(emp.staffGroup)) {
-        return ElMessage.warning(`您無權限還原【${emp.staffGroup}】的組員資料！`);
+      if (!this.canEditEmployeeRecord(emp)) {
+        return ElMessage.warning(`您無權限還原【${emp.staffGroup} - ${emp.shiftName || '全班'}】的組員資料！`);
       }
       ElMessageBox.confirm(
         `確定要將【${emp.name} (${emp.id})】的能力勾選紀錄還原成此備份快照的狀態嗎？`,
@@ -1321,9 +1363,9 @@ export default {
         return ElMessage.warning(`您無權限還原【${grpName}】的資料！`);
       }
       ElMessageBox.confirm(
-        `確定要將【${this.currentWarehouse} - ${grpName}】全組人員的能力勾選紀錄還原至此備份快照狀態嗎？（不會影響其他組別）`,
-        '還原整組能力確認',
-        { confirmButtonText: '確定整組還原', cancelButtonText: '取消', type: 'warning' }
+        `確定要將【${this.currentWarehouse} - ${grpName}】中您有權限管理的人員能力勾選紀錄還原至此備份快照狀態嗎？`,
+        '還原組別能力確認',
+        { confirmButtonText: '確定還原', cancelButtonText: '取消', type: 'warning' }
       ).then(async () => {
         const res = await axios.post('/api/staff-competency/snapshots/restore', {
           snapshotId: this.viewingSnapshotId,
@@ -1396,7 +1438,7 @@ export default {
       if (!row || !skill) return;
 
       if (!row.canEdit) {
-        ElMessage.warning(`🔒 您無權限修改【${row.emp.staffGroup || '他組'}】組員「${row.emp.name}」的能力紀錄`);
+        ElMessage.warning(`🔒 您無權限修改【${row.emp.staffGroup || '他組'} - ${row.emp.shiftName || '未設班別'}】組員「${row.emp.name}」的能力紀錄`);
         return;
       }
 
@@ -1499,7 +1541,7 @@ export default {
     },
 
     toggleAllSkillsForEmployee(emp) {
-      if (!this.canEditStaffGroup(emp.staffGroup)) return;
+      if (!this.canEditEmployeeRecord(emp)) return;
       if (this.visibleSkills.length === 0) return;
       if (!emp.skills) emp.skills = {};
       const targetVal = this.isAllVisibleChecked(emp) ? 0 : 1;
@@ -1569,14 +1611,15 @@ export default {
 
     openAddEmployeeModal() {
       const allowedOpts = this.editableGroupOptionsForForm;
-      if (!this.myAllowedGroups.includes('*') && allowedOpts.length === 0) {
+      const allowedShifts = this.editableShiftOptionsForForm;
+      if (!this.isFullAccessAdmin && allowedOpts.length === 0) {
         return ElMessage.warning('您尚未被指派可管理的作業組別，請聯繫管理員於「帳號權限管理」中設定！');
       }
       this.editingOriginalEmp = null;
       this.empForm = {
         warehouse: this.currentWarehouse,
         staffGroup: allowedOpts.includes(this.staffGroupFilter) ? this.staffGroupFilter : (allowedOpts[0] || ''),
-        shiftName: '日班',
+        shiftName: allowedShifts.includes(this.shiftFilter) ? this.shiftFilter : (allowedShifts[0] || '日班'),
         id: '',
         name: '',
         markReviewed: true,
@@ -1585,7 +1628,7 @@ export default {
       this.showEmpModal = true;
     },
     openEditEmployeeModal(emp) {
-      if (!this.canEditStaffGroup(emp.staffGroup)) return;
+      if (!this.canEditEmployeeRecord(emp)) return;
       this.editingOriginalEmp = { warehouse: this.currentWarehouse, id: emp.id, lastUpdated: emp.lastUpdated };
       this.empForm = {
         warehouse: this.currentWarehouse,
@@ -1616,11 +1659,12 @@ export default {
       if (/^\d{5}$/.test(cleanId)) cleanId = cleanId.padStart(6, '0');
       const cleanName = String(this.empForm.name || '').trim();
       const targetGrp = String(this.empForm.staffGroup || '').trim();
+      const targetShift = String(this.empForm.shiftName || '').trim();
       if (!cleanId || !cleanName || !targetGrp) {
         return ElMessage.warning('請完整填寫組別、員工編號與姓名！');
       }
-      if (!this.canEditStaffGroup(targetGrp)) {
-        return ElMessage.warning(`您無權限新增或編輯【${targetGrp}】的人員！`);
+      if (!this.canEditStaffGroup(targetGrp) || !this.canEditShift(targetShift)) {
+        return ElMessage.warning(`您無權限新增或編輯【${targetGrp} - ${targetShift || '全班'}】的人員！`);
       }
 
       const finalLastUpdated = this.empForm.markReviewed
@@ -1631,7 +1675,7 @@ export default {
         id: cleanId,
         name: cleanName,
         staffGroup: targetGrp,
-        shiftName: String(this.empForm.shiftName || '').trim(),
+        shiftName: targetShift,
         lastUpdated: finalLastUpdated,
         skills: { ...this.empForm.skills }
       };
@@ -1652,7 +1696,7 @@ export default {
       }
     },
     confirmDeleteEmployee(emp) {
-      if (!this.canEditStaffGroup(emp.staffGroup)) return;
+      if (!this.canEditEmployeeRecord(emp)) return;
       ElMessageBox.confirm(`確定要從【${this.currentWarehouse}】移除 ${emp.name} (${emp.id}) 嗎？`, '刪除人員確認', {
         confirmButtonText: '確定刪除',
         cancelButtonText: '取消',
@@ -1735,7 +1779,7 @@ export default {
         const isMasterWorkbook = wb.SheetNames.some(s => Boolean(mapWhName(s)));
 
         if (isMasterWorkbook) {
-          if (!this.myAllowedGroups.includes('*')) {
+          if (!this.isFullAccessAdmin) {
             ElMessage.error('⛔ 只有最高管理員可以匯入「人員能力表-主檔」！現場幹部請匯入所屬組別的「組檔」。');
             return;
           }
@@ -1852,8 +1896,10 @@ export default {
           return;
         }
 
+        // ===== 模式 B：各組組檔局部合併匯入（同時過濾組別與班別權限） =====
         const groupsData = [];
         const deniedSheets = [];
+        let skippedOtherShiftCount = 0;
 
         wb.SheetNames.forEach(sheetName => {
           const cleanSheetGroup = String(sheetName || '').trim();
@@ -1916,6 +1962,13 @@ export default {
 
             const staffGroup = String(row[grpColIdx] ?? '').trim() || groupName;
             const shiftName = shiftColIdx !== -1 ? String(row[shiftColIdx] ?? '').trim() : '';
+
+            // 檢查「組別 ＋ 班別」雙重權限，非自己負責班別的組員自動略過，絕不誤改！
+            if (!this.canEditStaffGroup(staffGroup) || !this.canEditShift(shiftName)) {
+              skippedOtherShiftCount++;
+              continue;
+            }
+
             const skills = {};
             let hasAnyChecked = false;
             Object.entries(colToSkillId).forEach(([cStr, sid]) => {
@@ -1942,7 +1995,7 @@ export default {
         });
 
         if (deniedSheets.length > 0 && groupsData.length === 0) {
-          ElMessage.error(`⛔ 權限不足：您僅可匯入【${this.myEditableGroupsLabel}】，無法匯入【${deniedSheets.join('、')}】！`);
+          ElMessage.error(`⛔ 權限不足：您僅可匯入【${this.myEditableScopeLabel}】，無法匯入【${deniedSheets.join('、')}】！`);
           return;
         }
 
@@ -1954,10 +2007,10 @@ export default {
           if (res.data?.version) this._localVersion = res.data.version;
           if (res.data?.data) this.hydrateAppData(res.data.data);
           await this.fetchSnapshotsList();
-          const warnSuffix = deniedSheets.length > 0 ? `（已略過無權限分頁：${deniedSheets.join('、')}）` : '';
-          ElMessage.success((res.data?.message || '🎉 各組能力合併匯入成功！') + warnSuffix);
+          const skipInfo = skippedOtherShiftCount > 0 ? `（已自動保護略過非您負責班別的 ${skippedOtherShiftCount} 位組員）` : '';
+          ElMessage.success((res.data?.message || '🎉 各組能力合併匯入成功！') + skipInfo);
         } else {
-          ElMessage.warning('未識別到有效資料，請確認 Excel 格式為「人員能力表-主檔」或「人員能力表-各組」');
+          ElMessage.warning(`未找到符合您權限範圍【${this.myEditableScopeLabel}】的可匯入資料`);
         }
       } catch (err) {
         const backendMsg = err.response?.data?.message || err.message;
