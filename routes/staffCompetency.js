@@ -3,7 +3,7 @@ const express = require('express');
 
 module.exports = function(db) {
   const router = express.Router();
-  const WAREHOUSES = ['大園倉', '林口倉', '3PL一組', '3PL二組'];
+  const WAREHOUSES = ['林口倉', '3PL一組'];
 
   let currentDataVersion = Date.now();
 

@@ -9,10 +9,10 @@
       @change="handleExcelImport"
     />
 
-    <!-- 1. 頂部控制列（左上角直接配置四大倉別切換頁籤） -->
+    <!-- 1. 頂部控制列（左上角直接配置倉別切換頁籤） -->
     <div class="control-header-panel">
       <div class="top-row">
-        <!-- 左上角：四大倉別切換 -->
+        <!-- 左上角：倉別切換（林口倉、3PL一組、3PL二組） -->
         <div class="wh-tabs-group">
           <button
             type="button"
@@ -402,7 +402,7 @@
           </div>
           <div>
             <label class="f-lbl">所屬組別 *</label>
-            <el-select v-model="empForm.staffGroup" size="mini" filterable allow-create style="width: 100%;">
+            <el-select v-model="empForm.staffGroup" size="mini" filterable allow-create placeholder="選擇或輸入組別" style="width: 100%;">
               <el-option v-for="g in getWarehouseGroups(empForm.warehouse)" :key="g" :label="g" :value="g" />
             </el-select>
           </div>
@@ -487,7 +487,7 @@
           <el-select v-model="manageWh" size="mini" style="width: 115px;">
             <el-option v-for="w in warehouses" :key="w" :label="w" :value="w" />
           </el-select>
-          <el-select v-model="newSkillGroup" size="mini" filterable allow-create style="width: 120px;">
+          <el-select v-model="newSkillGroup" size="mini" filterable allow-create placeholder="選擇或輸入組別" style="width: 140px;">
             <el-option v-for="g in getWarehouseGroups(manageWh)" :key="g" :label="g" :value="g" />
           </el-select>
           <el-select v-model="newSkillType" size="mini" style="width: 145px;">
@@ -547,10 +547,9 @@ export default {
   data() {
     return {
       loading: false,
-      warehouses: ['大園倉', '林口倉', '3PL一組', '3PL二組'],
+      warehouses: ['林口倉', '3PL一組', '3PL二組'],
       currentWarehouse: '林口倉',
       appData: {
-        '大園倉': { skills: [], employees: [] },
         '林口倉': { skills: [], employees: [] },
         '3PL一組': { skills: [], employees: [] },
         '3PL二組': { skills: [], employees: [] }
@@ -577,7 +576,7 @@ export default {
       editingOriginalEmp: null,
       empForm: {
         warehouse: '林口倉',
-        staffGroup: '進貨組',
+        staffGroup: '',
         shiftName: '',
         id: '',
         name: '',
@@ -587,7 +586,7 @@ export default {
 
       showSkillsModal: false,
       manageWh: '林口倉',
-      newSkillGroup: '進貨組',
+      newSkillGroup: '',
       newSkillType: 'field',
       newSkillName: ''
     }
@@ -884,18 +883,17 @@ export default {
     },
 
     getWhIcon(wh) {
-      if (wh === '大園倉') return '🏭';
       if (wh === '林口倉') return '🏢';
       if (wh === '3PL一組') return '📦';
       return '🚚';
     },
     getGroupHeaderClass(grp) {
       const map = {
-        '進貨組': 'grp-blue',
-        '上架組': 'grp-green',
-        '揀出組': 'grp-amber',
-        '庫存組': 'grp-purple',
-        '還貨組': 'grp-rose',
+        '進貨驗收組': 'grp-blue',
+        '儲位上架組': 'grp-green',
+        '揀出貨作業組': 'grp-amber',
+        '庫存作業組': 'grp-purple',
+        '還貨作業組': 'grp-rose',
         '共同科目': 'grp-orange',
         '寵物公園': 'grp-teal'
       };
@@ -940,9 +938,9 @@ export default {
       if (this.visibleSkills.length === 0) return false;
       return this.visibleSkills.every(s => emp.skills && emp.skills[s.id] === 1);
     },
+    // 只回傳該倉實際存在的組別，不再塞入進貨組/上架組/揀出組/庫存組/還貨組
     getWarehouseGroups(wh) {
-      const defaults = ['進貨組', '上架組', '揀出組', '庫存組', '還貨組'];
-      const set = new Set(defaults);
+      const set = new Set();
       (this.appData[wh]?.skills || []).forEach(s => { if (s.group) set.add(s.group); });
       (this.appData[wh]?.employees || []).forEach(e => { if (e.staffGroup) set.add(e.staffGroup); });
       return Array.from(set);
@@ -972,7 +970,6 @@ export default {
       this.shiftFilter = 'all';
       this.changePage(1);
     },
-    // 1. 選「人員組別」時，自動帶出該組別的能力項目；若選全部人員組別，則顯示全部能力項目
     onStaffGroupChange(grp) {
       if (grp === 'all') {
         this.groupFilter = 'all';
@@ -983,7 +980,6 @@ export default {
       }
       this.changePage(1);
     },
-    // 2. 單獨選「能力項目」時（可切回「全部能力項目」幫該組同仁勾選他組能力），保留原本的人員組別不變
     onSkillGroupChange() {
       this.resetFocus();
     },
@@ -1228,10 +1224,11 @@ export default {
     },
 
     openAddEmployeeModal() {
+      const existingGroups = this.getWarehouseGroups(this.currentWarehouse);
       this.editingOriginalEmp = null;
       this.empForm = {
         warehouse: this.currentWarehouse,
-        staffGroup: this.staffGroupFilter !== 'all' ? this.staffGroupFilter : '進貨組',
+        staffGroup: this.staffGroupFilter !== 'all' ? this.staffGroupFilter : (existingGroups[0] || ''),
         shiftName: '',
         id: '',
         name: '',
@@ -1244,7 +1241,7 @@ export default {
       this.editingOriginalEmp = { warehouse: this.currentWarehouse, id: emp.id, lastUpdated: emp.lastUpdated };
       this.empForm = {
         warehouse: this.currentWarehouse,
-        staffGroup: emp.staffGroup || '進貨組',
+        staffGroup: emp.staffGroup || '',
         shiftName: emp.shiftName || '',
         id: emp.id,
         name: emp.name,
@@ -1281,7 +1278,7 @@ export default {
       const payloadEmp = {
         id: cleanId,
         name: cleanName,
-        staffGroup: this.empForm.staffGroup || '一般作業組',
+        staffGroup: String(this.empForm.staffGroup || '未分組').trim(),
         shiftName: String(this.empForm.shiftName || '').trim(),
         lastUpdated: finalLastUpdated,
         skills: { ...this.empForm.skills }
@@ -1318,15 +1315,17 @@ export default {
     },
 
     openManageSkillsModal() {
+      const existingGroups = this.getWarehouseGroups(this.currentWarehouse);
       this.manageWh = this.currentWarehouse;
-      this.newSkillGroup = this.groupFilter !== 'all' ? this.groupFilter : '進貨組';
+      this.newSkillGroup = this.groupFilter !== 'all' ? this.groupFilter : (existingGroups[0] || '');
       this.newSkillName = '';
       this.showSkillsModal = true;
     },
     async addNewSkill() {
       const name = this.newSkillName.trim();
-      const group = this.newSkillGroup.trim() || '進貨組';
+      const group = this.newSkillGroup.trim();
       const type = this.newSkillType;
+      if (!group) return ElMessage.warning('請選擇或輸入作業組別！');
       if (!name) return ElMessage.warning('請輸入能力名稱！');
 
       const subHeader = type === 'cadre' ? '幹部所需能力' : (type === 'special' ? '異動單人員' : '現場人員所需能力');
@@ -1379,7 +1378,6 @@ export default {
           const clean = String(raw || '').replace(/\s+/g, '');
           const exact = this.warehouses.find(w => clean === w || clean.includes(w));
           if (exact) return exact;
-          if (clean.includes('大園')) return '大園倉';
           if (clean.includes('林口')) return '林口倉';
           if (clean.includes('3PL一') || clean.includes('3PL1')) return '3PL一組';
           if (clean.includes('3PL二') || clean.includes('3PL2')) return '3PL二組';
@@ -1402,7 +1400,7 @@ export default {
         }
 
         if (whCol !== -1 && idCol !== -1 && nameCol !== -1) {
-          const groupedEmps = { '大園倉': [], '林口倉': [], '3PL一組': [], '3PL二組': [] };
+          const groupedEmps = { '林口倉': [], '3PL一組': [], '3PL二組': [] };
           let cnt = 0;
           for (let r = rosterHeaderRow + 1; r < firstSheetRows.length; r++) {
             const row = firstSheetRows[r] || [];
@@ -1419,7 +1417,7 @@ export default {
             groupedEmps[whName].push({
               id: rawId,
               name: empName,
-              staffGroup: rawGrp || prevEmp?.staffGroup || '一般作業組',
+              staffGroup: rawGrp || prevEmp?.staffGroup || '未分組',
               shiftName: rawShift || prevEmp?.shiftName || '',
               lastUpdated: prevEmp?.lastUpdated || '',
               skills: prevEmp?.skills || {}
@@ -1470,7 +1468,7 @@ export default {
           const seenSkillIds = new Set();
           const colToSkillId = {};
 
-          let actGrp = '一般作業組';
+          let actGrp = '未分組';
           let actSub = '現場人員所需能力';
           let actType = 'field';
 
@@ -1515,7 +1513,7 @@ export default {
 
             const prevEmp = existingEmpMap.get(rawId);
             const rawGrp = String(row[0] ?? '').trim();
-            const staffGroup = (rawGrp && rawGrp !== '十二倉') ? rawGrp : (prevEmp?.staffGroup || '一般作業組');
+            const staffGroup = (rawGrp && rawGrp !== '十二倉') ? rawGrp : (prevEmp?.staffGroup || '未分組');
             const shiftName = hasShiftCol ? String(row[1] ?? '').trim() : (prevEmp?.shiftName || '');
             const skills = {};
             Object.entries(colToSkillId).forEach(([cStr, sid]) => {
@@ -1554,7 +1552,7 @@ export default {
           this.syncStatusText = '✅ 地端已同步';
           ElMessage.success(res.data?.message || `🎉 成功匯入 ${importedSheets} 個倉別能力矩陣與人員資料！`);
         } else {
-          ElMessage.warning('未識別到有效資料，請確認 Excel 包含「倉別/組別/員編/姓名」或四大倉別分頁');
+          ElMessage.warning('未識別到有效資料，請確認 Excel 包含「倉別/組別/員編/姓名」或林口倉/3PL一組/3PL二組分頁');
         }
       } catch (err) {
         ElMessage.error('Excel 匯入失敗：' + err.message);
@@ -1610,7 +1608,7 @@ export default {
 
       const today = new Date().toISOString().slice(0, 10);
       XLSX.writeFile(wb, `人員綜合能力表_${today}.xlsx`);
-      ElMessage.success('🎉 已成功匯出完整 4 倉別人員綜合能力表！');
+      ElMessage.success('🎉 已成功匯出人員綜合能力表！');
     }
   }
 }
