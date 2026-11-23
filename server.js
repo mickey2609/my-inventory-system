@@ -1,4 +1,4 @@
->// C:\my-inventory-server\server.js
+// C:\my-inventory-server\server.js
 // 業務主程式 API 伺服器（支援多模組獨立 SQLite 並行寫入，零排隊碰撞）
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
