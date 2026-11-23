@@ -66,22 +66,25 @@ app.locals.dbWriteTracker = {
   lastFinishedAt: null
 };
 
-function resolveWriteModuleLabel(reqPath) {
-  if (reqPath.startsWith('/api/upload')) return '庫存80匯入(主庫)';
-  if (reqPath.startsWith('/api/inventory15')) return '庫存15匯入(主庫)';
-  if (reqPath.startsWith('/api/inbound')) return '進貨上架魚群(獨立庫)';
-  if (reqPath.startsWith('/api/replenish')) return '立即補貨單(獨立庫)';
-  if (reqPath.startsWith('/api/transfer8015')) return '跨庫調撥80➔15(獨立庫)';
-  if (reqPath.startsWith('/api/transfer1580')) return '跨庫調撥15➔80(獨立庫)';
-  if (reqPath.startsWith('/api/dispatch')) return '收發魚群(獨立庫)';
-  if (reqPath.startsWith('/api/delivery')) return '宅配流線/成本(獨立庫)';
-  if (reqPath.startsWith('/api/abnormal')) return '不合理進貨(獨立庫)';
-  if (reqPath.startsWith('/api/item-sales-history')) return '歷史銷量履歷(主庫)';
-  if (reqPath.startsWith('/api/staff-competency')) return '人員能力表(獨立庫)';
-  if (reqPath.startsWith('/api/storage-accuracy')) return '80庫儲位準確率(主庫)';
-  if (reqPath.startsWith('/api/wms-fish-screenshot')) return 'WMS截圖辨識(主庫)';
-  if (reqPath.includes('locations-master')) return '儲位定義匯入(主庫)';
-  return '資料寫入';
+// 🌟 判斷寫入請求對應的「模組名稱」與「實體資料庫檔案」
+function resolveWriteTarget(reqPath) {
+  if (reqPath.startsWith('/api/upload')) return { label: '庫存80匯入', dbFile: 'inventory_local.sqlite', dbName: '主庫(80/15/系統)' };
+  if (reqPath.startsWith('/api/inventory15')) return { label: '庫存15匯入', dbFile: 'inventory_local.sqlite', dbName: '主庫(80/15/系統)' };
+  if (reqPath.startsWith('/api/item-sales-history')) return { label: '歷史銷量履歷', dbFile: 'inventory_local.sqlite', dbName: '主庫(80/15/系統)' };
+  if (reqPath.startsWith('/api/storage-accuracy')) return { label: '80庫儲位準確率', dbFile: 'inventory_local.sqlite', dbName: '主庫(80/15/系統)' };
+  if (reqPath.startsWith('/api/wms-fish-screenshot')) return { label: 'WMS截圖辨識', dbFile: 'inventory_local.sqlite', dbName: '主庫(80/15/系統)' };
+  if (reqPath.includes('locations-master')) return { label: '儲位定義匯入', dbFile: 'inventory_local.sqlite', dbName: '主庫(80/15/系統)' };
+
+  if (reqPath.startsWith('/api/inbound')) return { label: '進貨上架魚群', dbFile: 'inbound.sqlite', dbName: '進貨魚群庫' };
+  if (reqPath.startsWith('/api/replenish')) return { label: '立即補貨單', dbFile: 'replenish.sqlite', dbName: '補貨單庫' };
+  if (reqPath.startsWith('/api/transfer8015')) return { label: '跨庫調撥80➔15', dbFile: 'transfer.sqlite', dbName: '跨庫調撥庫' };
+  if (reqPath.startsWith('/api/transfer1580')) return { label: '跨庫調撥15➔80', dbFile: 'transfer.sqlite', dbName: '跨庫調撥庫' };
+  if (reqPath.startsWith('/api/dispatch')) return { label: '收發魚群', dbFile: 'dispatch.sqlite', dbName: '收發魚群庫' };
+  if (reqPath.startsWith('/api/delivery')) return { label: '宅配流線/成本', dbFile: 'delivery.sqlite', dbName: '宅配物流庫' };
+  if (reqPath.startsWith('/api/abnormal')) return { label: '不合理進貨', dbFile: 'abnormal.sqlite', dbName: '不合理進貨庫' };
+  if (reqPath.startsWith('/api/staff-competency')) return { label: '人員能力表', dbFile: 'staff_competency.sqlite', dbName: '人員能力庫' };
+
+  return { label: '系統設定寫入', dbFile: 'inventory_local.sqlite', dbName: '主庫(80/15/系統)' };
 }
 
 app.use((req, res, next) => {
@@ -96,10 +99,10 @@ app.use((req, res, next) => {
     if (!isIgnoredLightweight) {
       const tracker = app.locals.dbWriteTracker;
       const taskId = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-      const label = resolveWriteModuleLabel(p);
+      const target = resolveWriteTarget(p);
 
-      tracker.activeCount++;
-      tracker.tasks.set(taskId, { label, startedAt: Date.now() });
+      tracker.tasks.set(taskId, { ...target, startedAt: Date.now() });
+      tracker.activeCount = tracker.tasks.size;
 
       let cleaned = false;
       const cleanup = () => {

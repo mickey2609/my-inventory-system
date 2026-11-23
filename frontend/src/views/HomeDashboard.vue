@@ -4,7 +4,7 @@
     <div class="dashboard-header">
       <div class="welcome-text">
         <h2>👋 歡迎回來，{{ currentUser }}</h2>
-        <p class="subtitle">庫存儲位管理系統控制台 | 地端高效能資料庫</p>
+        <p class="subtitle">庫存儲位管理系統控制台 | 地端高效能多庫並行資料庫</p>
       </div>
 
       <!-- 跑馬燈公告欄 -->
@@ -25,11 +25,11 @@
         </button>
       </div>
 
-      <!-- 右側區域：頂部狀態膠囊（CPU + RAM + DB 寫入忙碌狀態燈）與身分標籤 -->
+      <!-- 右側區域：頂部狀態膠囊（CPU + RAM + 8庫並行寫入狀態燈）與身分標籤 -->
       <div class="header-right-zone">
         <el-popover
           placement="bottom-end"
-          :width="340"
+          :width="360"
           trigger="hover"
           popper-class="dark-popover"
         >
@@ -43,29 +43,51 @@
               </span>
               <span
                 class="sys-chip"
-                :class="dbStatus.busy ? 'chip-warning chip-pulse' : 'chip-normal'"
+                :class="dbStatus.contending ? 'chip-warning chip-pulse' : 'chip-normal'"
               >
                 <span class="dot">●</span>
-                {{ dbStatus.busy ? `DB: 寫入中(${dbStatus.activeCount})` : 'DB: 閒置' }}
+                <template v-if="dbStatus.contending">
+                  DB: 同庫排隊({{ dbStatus.activeCount }})
+                </template>
+                <template v-else-if="dbStatus.busy">
+                  DB: 並行寫入({{ dbStatus.activeDbCount }}庫)
+                </template>
+                <template v-else>
+                  DB: 8庫閒置
+                </template>
               </span>
             </div>
           </template>
 
           <div class="popover-content">
-            <div class="popover-title">🖥️ 地端伺服器與資料庫即時狀態</div>
+            <div class="popover-title">🖥️ 地端伺服器與多庫並行即時狀態</div>
             
             <div class="popover-row">
-              <span class="label">🗄️ SQLite 資料庫狀態：</span>
-              <span class="val" :class="dbStatus.busy ? 'chip-warning' : 'chip-normal'" style="padding: 1px 6px; border-radius: 4px;">
-                {{ dbStatus.busy ? `寫入忙碌中 (${dbStatus.activeCount} 項任務)` : '閒置可匯入' }}
+              <span class="label">🗄️ 多庫並行架構 (8 庫獨立)：</span>
+              <span
+                class="val"
+                :class="dbStatus.contending ? 'chip-warning' : 'chip-normal'"
+                style="padding: 1px 6px; border-radius: 4px;"
+              >
+                <template v-if="dbStatus.contending">同庫排隊緩衝中</template>
+                <template v-else-if="dbStatus.busy">{{ dbStatus.activeDbCount }} 庫獨立並行寫入</template>
+                <template v-else>全庫閒置可隨時匯入</template>
               </span>
             </div>
             <div class="popover-sub">
-              <template v-if="dbStatus.busy && dbStatus.activeModules.length > 0">
-                進行中模組：<strong>{{ dbStatus.activeModules.join('、') }}</strong>（已啟用 15 秒自動排隊）
+              <template v-if="dbStatus.dbBreakdown && dbStatus.dbBreakdown.length > 0">
+                <div
+                  v-for="item in dbStatus.dbBreakdown"
+                  :key="item.dbFile"
+                  style="margin-top: 3px; color: #e2e8f0;"
+                >
+                  • <strong>{{ item.dbName }}</strong>：{{ item.modules.join('、') }}
+                  <span v-if="item.isQueuing" style="color: #facc15;">（排隊中 {{ item.count }}）</span>
+                  <span v-else style="color: #4ade80;">（獨立寫入不阻塞）</span>
+                </div>
               </template>
               <template v-else>
-                WAL 並發模式 ＋ 15 秒排隊緩衝保護中
+                主庫＋7大模組獨立分庫，跨模組同時匯入零排隊
               </template>
             </div>
 
@@ -317,8 +339,11 @@ export default {
       },
       dbStatus: {
         busy: false,
+        contending: false,
         activeCount: 0,
+        activeDbCount: 0,
         activeModules: [],
+        dbBreakdown: [],
         busyTimeoutMs: 15000,
         journalMode: 'WAL'
       }
@@ -438,7 +463,12 @@ export default {
         const res = await axios.get('/api/system/metrics');
         if (res.data?.success) {
           if (res.data.current) this.sysMetrics = res.data.current;
-          if (res.data.dbStatus) this.dbStatus = res.data.dbStatus;
+          if (res.data.dbStatus) {
+            this.dbStatus = {
+              ...this.dbStatus,
+              ...res.data.dbStatus
+            };
+          }
         }
       } catch (e) {}
     },
@@ -509,7 +539,7 @@ export default {
   overflow: hidden;
   height: 36px;
   box-sizing: border-box;
-  max-width: 44%;
+  max-width: 42%;
 }
 
 .marquee-badge {

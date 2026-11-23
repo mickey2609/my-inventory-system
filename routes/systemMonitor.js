@@ -64,27 +64,59 @@ module.exports = function(app = null) {
     if (!tracker) {
       return {
         busy: false,
+        contending: false,
         activeCount: 0,
+        activeDbCount: 0,
         activeModules: [],
+        dbBreakdown: [],
         busyTimeoutMs: 15000,
         journalMode: 'WAL'
       };
     }
 
     const now = Date.now();
-    // 清理超過 3 分鐘異常未結束的殘留標記
     for (const [tid, info] of tracker.tasks.entries()) {
       if (now - info.startedAt > 180000) {
         tracker.tasks.delete(tid);
       }
     }
     tracker.activeCount = tracker.tasks.size;
-    const activeModules = Array.from(new Set(Array.from(tracker.tasks.values()).map(t => t.label)));
+
+    // 依實體資料庫檔案分組統計
+    const byDb = new Map();
+    for (const info of tracker.tasks.values()) {
+      const key = info.dbFile || 'inventory_local.sqlite';
+      if (!byDb.has(key)) {
+        byDb.set(key, {
+          dbFile: key,
+          dbName: info.dbName || key,
+          count: 0,
+          modules: new Set()
+        });
+      }
+      const entry = byDb.get(key);
+      entry.count += 1;
+      entry.modules.add(info.label);
+    }
+
+    const dbBreakdown = Array.from(byDb.values()).map((item) => ({
+      dbFile: item.dbFile,
+      dbName: item.dbName,
+      count: item.count,
+      isQueuing: item.count > 1, // 只有「同一顆庫」同時有 2 筆以上寫入才需要排隊
+      modules: Array.from(item.modules)
+    }));
+
+    const activeModules = Array.from(new Set(Array.from(tracker.tasks.values()).map((t) => t.label)));
+    const contending = dbBreakdown.some((d) => d.isQueuing);
 
     return {
       busy: tracker.activeCount > 0,
+      contending, // true 代表同庫排隊中，false 代表獨立分庫並行不阻塞
       activeCount: tracker.activeCount,
+      activeDbCount: dbBreakdown.length,
       activeModules,
+      dbBreakdown,
       busyTimeoutMs: 15000,
       journalMode: 'WAL'
     };
