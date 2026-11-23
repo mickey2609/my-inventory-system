@@ -241,7 +241,6 @@ module.exports = function(db) {
           }
         });
 
-        // 若尚未在準確率頁單獨上傳 CSV，直接採用主庫最新的 80 庫資料進行分析！
         if ((!records || records.length === 0) && invRows && invRows.length > 0) {
           const mapped = invRows
             .filter(iv => iv.item_id && iv.location)
@@ -516,7 +515,7 @@ module.exports = function(db) {
             };
           }).sort((a, b) => b._isExactX - a._isExactX || a.id - b.id);
 
-          loadAuditRecordsWithSales( (dErr, records) => {
+          loadAuditRecordsWithSales((dErr, records) => {
             if (dErr) return res.status(500).json({ success: false, message: dErr.message });
 
             const totalCount = (records || []).length;
@@ -632,7 +631,6 @@ module.exports = function(db) {
                 }
               }
 
-              // 統計每一條 X 軸排號
               const parsed = parseBinCode(rec.bin_code);
               if (parsed && rec.floor) {
                 const baseFloor = rec.floor.startsWith('2F') ? '2F' : rec.floor;
@@ -704,7 +702,7 @@ module.exports = function(db) {
     });
   });
 
-  // 7. 🧠 80 庫真實數據「三種擺放模式動線與找貨效益模擬分析」
+  // 7. 🧠 80 庫真實數據「三種擺放模式動線與找貨效益模擬分析」（以 7F A區為出發點；2/4/6/8F 夾層結構校準）
   router.get('/audit/simulate-modes', (req, res) => {
     ensureTables(() => {
       getModeSettings((settings) => {
@@ -714,30 +712,77 @@ module.exports = function(db) {
             return res.json({ success: true, hasData: false });
           }
 
-          // 定義樓層與動線距離權重（越靠近集貨區/低樓層權重越低、步行距離越短）
-          const getFloorDistanceWeight = (floorStr, binCode) => {
-            const f = String(floorStr || '').toUpperCase();
-            let base = 4.5;
-            if (f.startsWith('1F')) base = 1.0;
-            else if (f.startsWith('2F')) base = 1.5;
-            else if (f.startsWith('3F')) base = 2.2;
-            else if (f.startsWith('4F')) base = 2.8;
-            else if (f.startsWith('6F')) base = 3.5; // AGV 層架
-            else if (f.startsWith('7F')) base = 4.0; // AGV 主力層
-            else if (f.startsWith('8F')) base = 5.0; // 最高層距離較遠
-
+          // 🌟 現場真實動線距離權重（出發點：7F A區；2/4/6/8F 為夾層）
+          const getRealWarehouseDistance = (floorStr, areaStr, binCode) => {
+            const f = String(floorStr || '').toUpperCase().trim();
+            const a = String(areaStr || '').toUpperCase().trim();
             const parsed = parseBinCode(binCode);
-            const yOffset = parsed ? (parsed.y / 100) * 0.8 : 0.4;
-            return base + yOffset;
+            const yOffset = parsed ? (parsed.y / 100) * 0.45 : 0.2;
+
+            // 1. 出發核心層：7F (A~D區)
+            if (f.startsWith('7F')) {
+              if (a === 'A' || (parsed && parsed.x.startsWith('M'))) {
+                return 1.0 + yOffset; // 7F A區起點核心
+              }
+              if (a === 'B') return 1.5 + yOffset;
+              if (a === 'C') return 1.7 + yOffset;
+              return 1.9 + yOffset; // 7F D區
+            }
+
+            // 2. 相鄰夾層：6F (B~D區) 在 7F 正下方夾層
+            if (f.startsWith('6F')) {
+              if (a === 'B') return 2.3 + yOffset;
+              if (a === 'C') return 2.5 + yOffset;
+              return 2.7 + yOffset; // 6F D區
+            }
+
+            // 3. 相鄰夾層：8F (A~D區) 在 7F 正上方夾層
+            if (f.startsWith('8F')) {
+              if (a === 'A') return 2.6 + yOffset;
+              if (a === 'B') return 2.8 + yOffset;
+              if (a === 'C') return 3.0 + yOffset;
+              return 3.2 + yOffset; // 8F D區
+            }
+
+            // 4. 4F 夾層貴重區（B區小房間）
+            if (f.startsWith('4F')) {
+              return 3.7 + yOffset;
+            }
+
+            // 5. 3F 重型貨架（3B、3C 位於樓層最中間）
+            if (f.startsWith('3F')) {
+              return 4.1 + yOffset;
+            }
+
+            // 6. 2F 夾層（東側 A/B區、西側 B區 — 距離 7F 出發點最遠）
+            if (f.startsWith('2F')) {
+              if (f.includes('東')) return 4.7 + yOffset;
+              if (f.includes('西')) return 5.0 + yOffset;
+              return 4.9 + yOffset;
+            }
+
+            return 3.5 + yOffset;
           };
 
-          // 1. 計算「現況擺放」的距離指數與各維度結構
+          // 🌟 黃金動線區定義（從 7F A區出發免跨遠樓層的高效區）：
+          // 一級黃金區：7F A區（起點核心）
+          // 二級黃金區：7F B/C/D區（同層免上下樓）＋ 6F B/C區前段（緊鄰下方夾層）
+          const isRealGoldenZone = (floorStr, areaStr, binCode) => {
+            const f = String(floorStr || '').toUpperCase().trim();
+            const a = String(areaStr || '').toUpperCase().trim();
+            const parsed = parseBinCode(binCode);
+
+            if (f.startsWith('7F')) return true;
+            if (f.startsWith('6F') && (a === 'B' || a === 'C') && (!parsed || parsed.y <= 60)) return true;
+            return false;
+          };
+
           let currentWalkIndex = 0;
           let totalPickFrequency = 0;
           let hotItemsCount = 0;
-          let hotItemsInGoldenZone = 0; // 定義黃金動線：2F/3F/4F 或 AGV 黃金前段 (6F/7F Y<=052)
+          let hotItemsInGoldenZone = 0;
 
-          const catFloorSpread = {}; // 計算同大區分散在幾個樓層（衡量找貨直覺度）
+          const catFloorSpread = {};
           const tierDistribution = {
             A: { tier: 'A', label: `A級爆品 (≥${settings.tierA_min})`, skuCount: 0, binCount: 0, totalSales: 0, pickFreq: 0, goldenBins: 0 },
             B: { tier: 'B', label: `B級常銷 (${settings.tierB_min}~${settings.tierA_min - 1})`, skuCount: 0, binCount: 0, totalSales: 0, pickFreq: 0, goldenBins: 0 },
@@ -750,17 +795,12 @@ module.exports = function(db) {
           records.forEach(rec => {
             const tier = classifySalesTier(rec.monthly_sales, settings);
             const pickFreq = Math.max(1, Number(rec.pick_days_m || 0) || Math.ceil(Number(rec.monthly_sales || 0) / 3));
-            const distW = getFloorDistanceWeight(rec.floor, rec.bin_code);
+            const distW = getRealWarehouseDistance(rec.floor, rec.area, rec.bin_code);
 
             currentWalkIndex += pickFreq * distW;
             totalPickFrequency += pickFreq;
 
-            const parsed = parseBinCode(rec.bin_code);
-            const isGolden =
-              rec.floor.startsWith('2F') ||
-              rec.floor.startsWith('3F') ||
-              rec.floor.startsWith('4F') ||
-              ((rec.floor === '6F' || rec.floor === '7F') && parsed && parsed.y <= 52);
+            const isGolden = isRealGoldenZone(rec.floor, rec.area, rec.bin_code);
 
             if (tier === 'A' || tier === 'B') {
               hotItemsCount++;
@@ -785,22 +825,19 @@ module.exports = function(db) {
             }
           });
 
-          // 計算全庫儲位距離分佈（由近到遠排序，模擬將熱銷品依序配置到最近儲位的理想距離）
-          const allSlotWeights = records.map(r => getFloorDistanceWeight(r.floor, r.bin_code)).sort((a, b) => a - b);
+          const allSlotWeights = records.map(r => getRealWarehouseDistance(r.floor, r.area, r.bin_code)).sort((a, b) => a - b);
           const recordsByFreqDesc = [...records].sort((a, b) => {
             const fa = Math.max(1, Number(a.pick_days_m || 0) || Math.ceil(Number(a.monthly_sales || 0) / 3));
             const fb = Math.max(1, Number(b.pick_days_m || 0) || Math.ceil(Number(b.monthly_sales || 0) / 3));
             return fb - fa;
           });
 
-          // 模式 2 (月銷+借採)：純依熱度由近到遠配置，揀貨距離最短
           let pureSalesWalkIndex = 0;
           recordsByFreqDesc.forEach((r, idx) => {
             const freq = Math.max(1, Number(r.pick_days_m || 0) || Math.ceil(Number(r.monthly_sales || 0) / 3));
-            pureSalesWalkIndex += freq * (allSlotWeights[idx] || 3.0);
+            pureSalesWalkIndex += freq * (allSlotWeights[idx] || 2.5);
           });
 
-          // 模式 3 (大區+月銷+借採)：在大區分區內做熱度前移（距離介於純熱度與現況之間，兼具聚合度）
           const hybridWalkIndex = pureSalesWalkIndex * 0.65 + currentWalkIndex * 0.35;
 
           const avgCatFloors = Object.values(catFloorSpread).length > 0
@@ -808,8 +845,6 @@ module.exports = function(db) {
             : 1;
 
           const currentHotRatio = hotItemsCount > 0 ? Math.round((hotItemsInGoldenZone / hotItemsCount) * 100) : 0;
-
-          // 估算各模式搬遷調整成本（需移庫比率）
           const misallocatedHotRatio = Math.max(5, 100 - currentHotRatio);
 
           const modesComparison = [
@@ -821,8 +856,8 @@ module.exports = function(db) {
               goldenHotPct: currentHotRatio,
               findEaseScore: Math.min(98, Math.max(78, Math.round(100 - avgCatFloors * 3.5))),
               moveEffortLevel: '低（維持現有大區骨架）',
-              pros: '同大區商品高度集中，新人看區名就能直覺找貨、盤點最容易',
-              cons: '同大區內的爆品與滯銷品混放，揀貨員需頻繁跨樓層長距離走動',
+              pros: '同大區商品高度集中，人員看區名就能直覺找貨、盤點最容易',
+              cons: '同大區內的爆品與滯銷品混放，需頻繁從 7F A區跨夾層上下至 2F/3F/4F 走動',
               recommended: false
             },
             {
@@ -833,7 +868,7 @@ module.exports = function(db) {
               goldenHotPct: Math.min(98, Math.max(currentHotRatio + 22, 88)),
               findEaseScore: 64,
               moveEffortLevel: `高（約 ${Math.min(65, Math.round(misallocatedHotRatio * 0.85))}% 儲位需大搬風）`,
-              pros: 'A/B 級爆品全數集中於 2F~4F 與 AGV 黃金前段，揀貨行走距離最短',
+              pros: 'A/B 級爆品全數集中於 7F A區起點核心與 7F/6F 黃金層，揀貨行走距離最短',
               cons: '不同大區商品混雜在一起，失去品類邏輯，極度依賴系統儲位導引',
               recommended: false
             },
@@ -844,21 +879,21 @@ module.exports = function(db) {
               walkSavingPct: currentWalkIndex > 0 ? Number((((currentWalkIndex - hybridWalkIndex) / currentWalkIndex) * 100).toFixed(1)) : 0,
               goldenHotPct: Math.min(92, Math.max(currentHotRatio + 15, 78)),
               findEaseScore: Math.min(95, Math.max(82, Math.round(98 - avgCatFloors * 3.0))),
-              moveEffortLevel: `中（僅需將各區內 A/B 爆品前移約 ${Math.min(35, Math.round(misallocatedHotRatio * 0.45))}%）`,
-              pros: '保留「大區＋借採」找貨直覺，同時把各區熱銷品集中到前段黃金排位，兼顧找貨速度與短距離',
+              moveEffortLevel: `中（僅需將遠端 2F~4F 的 A/B 爆品前移約 ${Math.min(35, Math.round(misallocatedHotRatio * 0.45))}%）`,
+              pros: '保留「大區＋借採」找貨直覺，同時將高月銷爆品拉回 7F/6F 近端黃金排位，兼顧找貨速度與短距離',
               cons: '規則設定需同時維護大區與月銷級距',
               recommended: true
             }
           ];
 
-          // 找出當前已放錯位置的「高熱銷品在遠端 (8F / 7F後段)」前 15 筆重點移庫建議
+          // 找出當前放在遠端低樓層（2F 夾層東/西側、3F、4F 貴重區）的 A/B 級高熱銷爆品，建議拉回 7F / 6F 黃金區
           const topMoveCandidates = records
             .map(r => ({
               ...r,
               sales_tier: classifySalesTier(r.monthly_sales, settings),
-              distW: getFloorDistanceWeight(r.floor, r.bin_code)
+              distW: getRealWarehouseDistance(r.floor, r.area, r.bin_code)
             }))
-            .filter(r => (r.sales_tier === 'A' || r.sales_tier === 'B') && r.distW >= 4.2)
+            .filter(r => (r.sales_tier === 'A' || r.sales_tier === 'B') && r.distW >= 3.6)
             .sort((a, b) => Number(b.monthly_sales || 0) - Number(a.monthly_sales || 0))
             .slice(0, 15);
 
