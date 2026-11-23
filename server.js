@@ -38,6 +38,69 @@ const db = new sqlite3.Database('inventory_local.sqlite', (err) => {
   else console.log('✅ SQLite 資料庫檔案已成功連結！');
 });
 
+// 🌟 啟用 SQLite 15 秒自動排隊緩衝與 WAL 並發讀寫模式（防止多模組同時匯入發生 SQLITE_BUSY）
+db.configure('busyTimeout', 15000);
+db.run('PRAGMA journal_mode = WAL');
+db.run('PRAGMA synchronous = NORMAL');
+
+// 🌟 全域資料庫寫入任務追蹤器（供首頁 DB 寫入忙碌狀態燈即時顯示）
+app.locals.dbWriteTracker = {
+  activeCount: 0,
+  tasks: new Map(),
+  lastFinishedAt: null
+};
+
+function resolveWriteModuleLabel(reqPath) {
+  if (reqPath.startsWith('/api/upload')) return '庫存80匯入';
+  if (reqPath.startsWith('/api/inventory15')) return '庫存15匯入';
+  if (reqPath.startsWith('/api/inbound')) return '進貨上架魚群';
+  if (reqPath.startsWith('/api/replenish')) return '立即補貨單';
+  if (reqPath.startsWith('/api/transfer8015')) return '跨庫調撥80➔15';
+  if (reqPath.startsWith('/api/transfer1580')) return '跨庫調撥15➔80';
+  if (reqPath.startsWith('/api/dispatch')) return '收發魚群';
+  if (reqPath.startsWith('/api/delivery')) return '宅配流線/成本';
+  if (reqPath.startsWith('/api/abnormal')) return '不合理進貨';
+  if (reqPath.startsWith('/api/item-sales-history')) return '歷史銷量履歷';
+  if (reqPath.startsWith('/api/staff-competency')) return '人員能力表';
+  if (reqPath.startsWith('/api/storage-accuracy')) return '80庫儲位準確率';
+  if (reqPath.startsWith('/api/wms-fish-screenshot')) return 'WMS截圖辨識';
+  if (reqPath.includes('locations-master')) return '儲位定義匯入';
+  return '資料寫入';
+}
+
+app.use((req, res, next) => {
+  if (req.method === 'POST' || req.method === 'PUT' || req.method === 'DELETE') {
+    const p = req.path || '';
+    const isIgnoredLightweight =
+      p === '/api/heartbeat' ||
+      p === '/api/login' ||
+      p === '/api/logout' ||
+      p === '/api/record-log';
+
+    if (!isIgnoredLightweight) {
+      const tracker = app.locals.dbWriteTracker;
+      const taskId = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      const label = resolveWriteModuleLabel(p);
+
+      tracker.activeCount++;
+      tracker.tasks.set(taskId, { label, startedAt: Date.now() });
+
+      let cleaned = false;
+      const cleanup = () => {
+        if (cleaned) return;
+        cleaned = true;
+        tracker.tasks.delete(taskId);
+        tracker.activeCount = Math.max(0, tracker.tasks.size);
+        tracker.lastFinishedAt = Date.now();
+      };
+
+      res.on('finish', cleanup);
+      res.on('close', cleanup);
+    }
+  }
+  next();
+});
+
 // 中間件設定
 app.use(cors());
 app.use(express.json({ limit: '100mb' }));
@@ -100,8 +163,8 @@ app.use('/api/abnormal', abnormalRouter);
 const itemSalesHistoryRouter = require('./routes/itemSalesHistory')(db);
 app.use('/api/item-sales-history', itemSalesHistoryRouter);
 
-// 9. 🌟 地端伺服器硬體效能監控 API (無第三方套件依賴)
-const systemMonitorRouter = require('./routes/systemMonitor')();
+// 9. 🌟 地端伺服器硬體效能與 DB 寫入狀態監控 API
+const systemMonitorRouter = require('./routes/systemMonitor')(app);
 app.use('/api/system', systemMonitorRouter);
 
 // 10. 首頁 Dashboard 統計數據 API
@@ -799,7 +862,7 @@ app.post('/api/heartbeat', (req, res) => {
 });
 
 app.post('/api/logout', (req, res) => {
-  if (req.body.username) db.run('UPDATE users SET last_active = 0 WHERE username = ?', [req.body.username]);
+  if (req.body.username) db.run('UPDATE users SET last_active = 0 WHERE username = ?', [Math.floor(Date.now() / 1000), req.body.username]);
   res.json({ success: true, message: '已成功登出' });
 });
 
@@ -1069,7 +1132,7 @@ app.get('/api/get-logs', (req, res) => {
   });
 });
 
-// [POST] 極速匯入 API (包含自動備份與更新歷史銷量總表)
+// [POST] 極速匯入 API (包含自動備份與更新歷史銷量總表，維持安全 WAL 並發模式)
 app.post('/api/upload', (req, res) => {
   try {
     const { items, isFirstChunk, fileName } = req.body;
@@ -1085,10 +1148,6 @@ app.post('/api/upload', (req, res) => {
     }
 
     db.serialize(() => {
-      db.run('PRAGMA synchronous = OFF');
-      db.run('PRAGMA journal_mode = MEMORY');
-      db.run('PRAGMA temp_store = MEMORY');
-
       db.run('BEGIN TRANSACTION');
       if (isFirstChunk) {
         db.run('DELETE FROM inventory');
@@ -1168,7 +1227,6 @@ app.post('/api/upload', (req, res) => {
       stmtHistory.finalize();
 
       db.run('COMMIT', (err) => {
-        db.run('PRAGMA synchronous = NORMAL');
         if (err) return res.status(500).json({ success: false, error: err.message });
         res.json({ success: true, count: items.length, message: '48 欄位與歷史銷量總表同步寫入成功！' });
       });

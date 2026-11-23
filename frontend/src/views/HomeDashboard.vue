@@ -25,11 +25,11 @@
         </button>
       </div>
 
-      <!-- 右側區域：頂部狀態膠囊與身分標籤 -->
+      <!-- 右側區域：頂部狀態膠囊（CPU + RAM + DB 寫入忙碌狀態燈）與身分標籤 -->
       <div class="header-right-zone">
         <el-popover
           placement="bottom-end"
-          :width="320"
+          :width="340"
           trigger="hover"
           popper-class="dark-popover"
         >
@@ -41,13 +41,35 @@
               <span class="sys-chip" :class="getChipClass(sysMetrics.mem)">
                 <span class="dot">●</span> RAM: {{ sysMetrics.mem }}%
               </span>
+              <span
+                class="sys-chip"
+                :class="dbStatus.busy ? 'chip-warning chip-pulse' : 'chip-normal'"
+              >
+                <span class="dot">●</span>
+                {{ dbStatus.busy ? `DB: 寫入中(${dbStatus.activeCount})` : 'DB: 閒置' }}
+              </span>
             </div>
           </template>
 
           <div class="popover-content">
-            <div class="popover-title">🖥️ 地端伺服器即時負載</div>
+            <div class="popover-title">🖥️ 地端伺服器與資料庫即時狀態</div>
             
             <div class="popover-row">
+              <span class="label">🗄️ SQLite 資料庫狀態：</span>
+              <span class="val" :class="dbStatus.busy ? 'chip-warning' : 'chip-normal'" style="padding: 1px 6px; border-radius: 4px;">
+                {{ dbStatus.busy ? `寫入忙碌中 (${dbStatus.activeCount} 項任務)` : '閒置可匯入' }}
+              </span>
+            </div>
+            <div class="popover-sub">
+              <template v-if="dbStatus.busy && dbStatus.activeModules.length > 0">
+                進行中模組：<strong>{{ dbStatus.activeModules.join('、') }}</strong>（已啟用 15 秒自動排隊）
+              </template>
+              <template v-else>
+                WAL 並發模式 ＋ 15 秒排隊緩衝保護中
+              </template>
+            </div>
+
+            <div class="popover-row" style="margin-top: 8px;">
               <span class="label">⚡ CPU 使用率：</span>
               <span class="val" :class="getChipClass(sysMetrics.cpu)">{{ sysMetrics.cpu }}%</span>
             </div>
@@ -292,6 +314,13 @@ export default {
         cpuModel: '系統 CPU',
         cpuCores: 4,
         uptimeSeconds: 0
+      },
+      dbStatus: {
+        busy: false,
+        activeCount: 0,
+        activeModules: [],
+        busyTimeoutMs: 15000,
+        journalMode: 'WAL'
       }
     }
   },
@@ -329,7 +358,7 @@ export default {
     this.fetchStats();
     this.fetchAnnouncement();
     this.fetchSystemMetrics();
-    this.sysTimer = setInterval(this.fetchSystemMetrics, 10000);
+    this.sysTimer = setInterval(this.fetchSystemMetrics, 4000);
   },
   beforeUnmount() {
     if (this.uptimeTimer) clearInterval(this.uptimeTimer);
@@ -407,8 +436,9 @@ export default {
     async fetchSystemMetrics() {
       try {
         const res = await axios.get('/api/system/metrics');
-        if (res.data?.success && res.data.current) {
-          this.sysMetrics = res.data.current;
+        if (res.data?.success) {
+          if (res.data.current) this.sysMetrics = res.data.current;
+          if (res.data.dbStatus) this.dbStatus = res.data.dbStatus;
         }
       } catch (e) {}
     },
@@ -479,7 +509,7 @@ export default {
   overflow: hidden;
   height: 36px;
   box-sizing: border-box;
-  max-width: 50%;
+  max-width: 44%;
 }
 
 .marquee-badge {
@@ -542,7 +572,7 @@ export default {
 .header-right-zone {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   flex-shrink: 0;
 }
 
@@ -562,6 +592,7 @@ export default {
   padding: 4px 8px;
   border-radius: 4px;
   transition: all 0.2s ease;
+  white-space: nowrap;
 }
 .sys-chip:hover {
   transform: translateY(-1px);
@@ -583,6 +614,13 @@ export default {
   color: #f87171;
   border: 1px solid rgba(239, 68, 68, 0.5);
   box-shadow: 0 0 8px rgba(239, 68, 68, 0.3);
+}
+.chip-pulse {
+  animation: pulseGlow 1.4s ease-in-out infinite;
+}
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: 0 0 0 rgba(250, 204, 21, 0); }
+  50% { box-shadow: 0 0 10px rgba(250, 204, 21, 0.45); }
 }
 
 .user-status-badge { flex-shrink: 0; }

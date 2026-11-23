@@ -1,9 +1,9 @@
-// routes/systemMonitor.js
+// C:\my-inventory-server\routes\systemMonitor.js
 const express = require('express');
 const os = require('os');
 const { exec } = require('child_process');
 
-module.exports = function() {
+module.exports = function(app = null) {
   const router = express.Router();
 
   const historyQueue = [];
@@ -59,6 +59,37 @@ module.exports = function() {
     });
   }
 
+  function getDbWriteStatus() {
+    const tracker = app?.locals?.dbWriteTracker;
+    if (!tracker) {
+      return {
+        busy: false,
+        activeCount: 0,
+        activeModules: [],
+        busyTimeoutMs: 15000,
+        journalMode: 'WAL'
+      };
+    }
+
+    const now = Date.now();
+    // 清理超過 3 分鐘異常未結束的殘留標記
+    for (const [tid, info] of tracker.tasks.entries()) {
+      if (now - info.startedAt > 180000) {
+        tracker.tasks.delete(tid);
+      }
+    }
+    tracker.activeCount = tracker.tasks.size;
+    const activeModules = Array.from(new Set(Array.from(tracker.tasks.values()).map(t => t.label)));
+
+    return {
+      busy: tracker.activeCount > 0,
+      activeCount: tracker.activeCount,
+      activeModules,
+      busyTimeoutMs: 15000,
+      journalMode: 'WAL'
+    };
+  }
+
   async function collectMetrics() {
     try {
       const [cpuUsage, diskInfo] = await Promise.all([
@@ -108,6 +139,7 @@ module.exports = function() {
     res.json({
       success: true,
       current,
+      dbStatus: getDbWriteStatus(),
       history: historyQueue
     });
   });
