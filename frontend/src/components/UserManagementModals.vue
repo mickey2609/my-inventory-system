@@ -112,13 +112,13 @@
       </template>
     </el-dialog>
 
-    <!-- 4. 模組權限設定彈窗（支援全勾選 ＋ 匯入/匯出 ＋ 人員能力表「每一組獨立配置班別」矩陣） -->
+    <!-- 4. 模組權限設定彈窗（四大業務分組折疊 ＋ 分組一鍵全選 ＋ 匯入/匯出 ＋ 人員能力表班別矩陣） -->
     <el-dialog 
-      title="🔒 模組操作權限設定" 
+      title="🔒 模組操作權限設定（依業務分組）" 
       :model-value="showEditPerm" 
       @update:model-value="$emit('update:showEditPerm', $event)" 
-      width="680px" 
-      top="5vh"
+      width="720px" 
+      top="4vh"
       custom-class="dark-dialog"
     >
       <div class="perm-dialog-body">
@@ -142,71 +142,109 @@
           </div>
         </div>
 
-        <div class="perm-matrix-header">
-          <span>功能模組名稱</span>
-          <span class="action-cols-title">操作權限控制</span>
-        </div>
-
-        <div class="perm-matrix-list">
+        <div class="perm-grouped-scroll">
           <div
-            v-for="mod in availableModules"
-            :key="mod.key"
-            class="perm-matrix-item-wrap"
-            :class="{ 'row-checked': isModuleChecked(mod.key) }"
+            v-for="cat in groupedModules"
+            :key="cat.id"
+            class="perm-category-card"
+            :style="{ borderColor: cat.borderColor }"
           >
-            <div class="perm-matrix-row">
-              <el-checkbox
-                :model-value="isModuleChecked(mod.key)"
-                @change="val => onToggleModule(mod.key, val)"
-              >
-                <span class="mod-label">{{ mod.name }}</span>
-              </el-checkbox>
-
-              <div class="mod-actions-box">
+            <!-- 分類群組標題列 -->
+            <div class="perm-cat-header" :style="{ background: cat.headerBg }">
+              <div class="perm-cat-left">
                 <el-checkbox
-                  :model-value="isActionChecked(mod.key, 'import')"
-                  @change="val => onToggleAction(mod.key, 'import', val)"
+                  :model-value="isCategoryAllChecked(cat)"
+                  :indeterminate="isCategoryIndeterminate(cat)"
+                  @change="val => toggleCategoryModules(cat, val)"
                 >
-                  <span class="act-tag act-import">📥 匯入</span>
+                  <span class="cat-title" :style="{ color: cat.titleColor }">
+                    {{ cat.title }}（{{ getCategoryCheckedCount(cat) }}/{{ cat.modules.length }}）
+                  </span>
                 </el-checkbox>
-                <el-checkbox
-                  :model-value="isActionChecked(mod.key, 'export')"
-                  @change="val => onToggleAction(mod.key, 'export', val)"
+              </div>
+              <div class="perm-cat-actions">
+                <el-button
+                  size="mini"
+                  plain
+                  type="warning"
+                  @click="toggleCategoryAction(cat, 'import')"
                 >
-                  <span class="act-tag act-export">📊 匯出</span>
-                </el-checkbox>
+                  {{ isCategoryAllAction(cat, 'import') ? '取消本組匯入' : '📥 本組全匯入' }}
+                </el-button>
+                <el-button
+                  size="mini"
+                  plain
+                  type="success"
+                  @click="toggleCategoryAction(cat, 'export')"
+                >
+                  {{ isCategoryAllAction(cat, 'export') ? '取消本組匯出' : '📊 本組全匯出' }}
+                </el-button>
               </div>
             </div>
 
-            <!-- 人員綜合能力管理：每一組獨立配置「日班、早半、夜班、夜半、大夜班」矩陣 -->
-            <div v-if="mod.key === 'staff_competency' && isModuleChecked('staff_competency')" class="staff-group-perm-subbox">
-              <div class="sgp-title">🔑 每一組獨立設定可編輯與匯入的【組別 ＋ 班別】（勾選組別可一鍵全選該組 5 班別）：</div>
-              <div class="gs-matrix-list">
-                <div
-                  v-for="grp in staffCompetencyGroups"
-                  :key="grp"
-                  class="gs-matrix-row"
-                  :class="{ 'gs-row-active': isGroupAnyShiftChecked(grp) }"
-                >
-                  <div class="gs-group-col">
+            <!-- 該分類底下的模組清單 -->
+            <div class="perm-cat-body">
+              <div
+                v-for="mod in cat.modules"
+                :key="mod.key"
+                class="perm-matrix-item-wrap"
+                :class="{ 'row-checked': isModuleChecked(mod.key) }"
+              >
+                <div class="perm-matrix-row">
+                  <el-checkbox
+                    :model-value="isModuleChecked(mod.key)"
+                    @change="val => onToggleModule(mod.key, val)"
+                  >
+                    <span class="mod-label">{{ mod.name }}</span>
+                  </el-checkbox>
+
+                  <div class="mod-actions-box">
                     <el-checkbox
-                      :model-value="isGroupAllShiftsChecked(grp)"
-                      :indeterminate="isGroupIndeterminate(grp)"
-                      @change="val => onToggleGroupAllShifts(grp, val)"
+                      :model-value="isActionChecked(mod.key, 'import')"
+                      @change="val => onToggleAction(mod.key, 'import', val)"
                     >
-                      <span class="sgp-label">{{ grp }}</span>
+                      <span class="act-tag act-import">📥 匯入</span>
+                    </el-checkbox>
+                    <el-checkbox
+                      :model-value="isActionChecked(mod.key, 'export')"
+                      @change="val => onToggleAction(mod.key, 'export', val)"
+                    >
+                      <span class="act-tag act-export">📊 匯出</span>
                     </el-checkbox>
                   </div>
+                </div>
 
-                  <div class="gs-shifts-col">
-                    <el-checkbox
-                      v-for="sh in staffCompetencyShifts"
-                      :key="`${grp}_${sh}`"
-                      :model-value="isGroupShiftChecked(grp, sh)"
-                      @change="val => onToggleGroupShift(grp, sh, val)"
+                <!-- 人員綜合能力管理：每一組獨立配置「日班、早半、夜班、夜半、大夜班」矩陣 -->
+                <div v-if="mod.key === 'staff_competency' && isModuleChecked('staff_competency')" class="staff-group-perm-subbox">
+                  <div class="sgp-title">🔑 每一組獨立設定可編輯與匯入的【組別 ＋ 班別】（勾選組別可一鍵全選該組 5 班別）：</div>
+                  <div class="gs-matrix-list">
+                    <div
+                      v-for="grp in staffCompetencyGroups"
+                      :key="grp"
+                      class="gs-matrix-row"
+                      :class="{ 'gs-row-active': isGroupAnyShiftChecked(grp) }"
                     >
-                      <span class="sgp-shift-label">{{ sh }}</span>
-                    </el-checkbox>
+                      <div class="gs-group-col">
+                        <el-checkbox
+                          :model-value="isGroupAllShiftsChecked(grp)"
+                          :indeterminate="isGroupIndeterminate(grp)"
+                          @change="val => onToggleGroupAllShifts(grp, val)"
+                        >
+                          <span class="sgp-label">{{ grp }}</span>
+                        </el-checkbox>
+                      </div>
+
+                      <div class="gs-shifts-col">
+                        <el-checkbox
+                          v-for="sh in staffCompetencyShifts"
+                          :key="`${grp}_${sh}`"
+                          :model-value="isGroupShiftChecked(grp, sh)"
+                          @change="val => onToggleGroupShift(grp, sh, val)"
+                        >
+                          <span class="sgp-shift-label">{{ sh }}</span>
+                        </el-checkbox>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -224,6 +262,41 @@
 </template>
 
 <script>
+const MODULE_CATEGORY_DEFS = [
+  {
+    id: 'inventory',
+    title: '📦 庫存與儲位分析',
+    titleColor: '#38bdf8',
+    headerBg: 'rgba(56, 189, 248, 0.12)',
+    borderColor: 'rgba(56, 189, 248, 0.35)',
+    keys: ['inv80', 'inv15', 'loc_summary', 'storage_accuracy', 'turnover', 'item_sales_history']
+  },
+  {
+    id: 'warehouse_fish',
+    title: '🐟 倉內進貨、補貨與調撥魚群',
+    titleColor: '#4ade80',
+    headerBg: 'rgba(74, 222, 128, 0.12)',
+    borderColor: 'rgba(74, 222, 128, 0.35)',
+    keys: ['inbound_fish', 'replenish_fish', 'transfer_80_15', 'transfer_15_80', 'dispatch_fish', 'abnormal_purchase']
+  },
+  {
+    id: 'delivery',
+    title: '🚚 宅配流線與物流成本分析',
+    titleColor: '#fbbf24',
+    headerBg: 'rgba(251, 191, 36, 0.12)',
+    borderColor: 'rgba(251, 191, 36, 0.35)',
+    keys: ['delivery_flow', 'delivery_cost', 'delivery_undelivered']
+  },
+  {
+    id: 'staff_ai',
+    title: '🧑‍💼 人員能力與 AI 輔助工具',
+    titleColor: '#c084fc',
+    headerBg: 'rgba(192, 132, 252, 0.12)',
+    borderColor: 'rgba(192, 132, 252, 0.35)',
+    keys: ['staff_competency', 'wms_fish_screenshot']
+  }
+];
+
 export default {
   name: 'UserManagementModals',
   props: {
@@ -252,6 +325,7 @@ export default {
         '管理組',
         '進貨驗收組',
         '儲位上架組',
+        '進出貨作業組',
         '揀出貨作業組',
         '庫存作業組',
         '還貨作業組',
@@ -283,6 +357,33 @@ export default {
     isAllModulesSelected() {
       if (!this.availableModules.length) return false;
       return this.availableModules.every(m => this.selectedList.includes(m.key));
+    },
+    groupedModules() {
+      const modMap = new Map(this.availableModules.map(m => [m.key, m]));
+      const assignedKeys = new Set();
+
+      const groups = MODULE_CATEGORY_DEFS.map(def => {
+        const modules = def.keys
+          .map(k => modMap.get(k))
+          .filter(Boolean);
+        modules.forEach(m => assignedKeys.add(m.key));
+        return { ...def, modules };
+      }).filter(g => g.modules.length > 0);
+
+      // 若未來有新增未歸類模組，自動收入「其他功能」分組
+      const unassigned = this.availableModules.filter(m => !assignedKeys.has(m.key));
+      if (unassigned.length > 0) {
+        groups.push({
+          id: 'others',
+          title: '📌 其他功能模組',
+          titleColor: '#94a3b8',
+          headerBg: 'rgba(148, 163, 184, 0.12)',
+          borderColor: 'rgba(148, 163, 184, 0.35)',
+          modules: unassigned
+        });
+      }
+
+      return groups;
     }
   },
   methods: {
@@ -314,6 +415,51 @@ export default {
     isActionChecked(modKey, action) {
       return this.selectedList.includes(`${modKey}:${action}`);
     },
+
+    // 分類群組勾選判斷與批次操作
+    getCategoryCheckedCount(cat) {
+      return cat.modules.filter(m => this.selectedList.includes(m.key)).length;
+    },
+    isCategoryAllChecked(cat) {
+      return cat.modules.length > 0 && cat.modules.every(m => this.selectedList.includes(m.key));
+    },
+    isCategoryIndeterminate(cat) {
+      const cnt = this.getCategoryCheckedCount(cat);
+      return cnt > 0 && cnt < cat.modules.length;
+    },
+    isCategoryAllAction(cat, action) {
+      return cat.modules.length > 0 && cat.modules.every(m => this.selectedList.includes(`${m.key}:${action}`));
+    },
+    toggleCategoryModules(cat, checked) {
+      const set = new Set(this.selectedList);
+      cat.modules.forEach(m => {
+        if (checked) {
+          set.add(m.key);
+        } else {
+          set.delete(m.key);
+          set.delete(`${m.key}:import`);
+          set.delete(`${m.key}:export`);
+          if (m.key === 'staff_competency') {
+            this.clearAllStaffCompetencySubPerms(set);
+          }
+        }
+      });
+      this.editPermForm.selected_modules = Array.from(set);
+    },
+    toggleCategoryAction(cat, action) {
+      const set = new Set(this.selectedList);
+      const allSelected = this.isCategoryAllAction(cat, action);
+      cat.modules.forEach(m => {
+        if (allSelected) {
+          set.delete(`${m.key}:${action}`);
+        } else {
+          set.add(m.key);
+          set.add(`${m.key}:${action}`);
+        }
+      });
+      this.editPermForm.selected_modules = Array.from(set);
+    },
+
     isGroupShiftChecked(grp, sh) {
       if (this.selectedList.includes(`staff_competency:gs:${grp}:${sh}`)) return true;
       const hasAnyExplicitShift = this.staffCompetencyShifts.some(s =>
@@ -460,30 +606,47 @@ export default {
   gap: 6px;
 }
 
-.perm-matrix-header {
+.perm-grouped-scroll {
+  max-height: 520px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-right: 4px;
+}
+
+.perm-category-card {
+  border: 1px solid #334155;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #0f172a;
+}
+
+.perm-cat-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 6px 12px;
-  background: #0f172a;
-  border: 1px solid #334155;
-  border-radius: 6px 6px 0 0;
-  font-size: 12px;
-  font-weight: bold;
-  color: #38bdf8;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(51, 65, 85, 0.8);
 }
-.action-cols-title { padding-right: 18px; }
 
-.perm-matrix-list {
-  max-height: 450px;
-  overflow-y: auto;
-  border: 1px solid #334155;
-  border-top: none;
-  border-radius: 0 0 6px 6px;
-  background: #0f172a;
+.cat-title {
+  font-size: 13px;
+  font-weight: bold;
 }
+
+.perm-cat-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.perm-cat-body {
+  display: flex;
+  flex-direction: column;
+}
+
 .perm-matrix-item-wrap {
-  border-bottom: 1px solid rgba(51, 65, 85, 0.6);
+  border-bottom: 1px solid rgba(51, 65, 85, 0.5);
   transition: background 0.15s;
 }
 .perm-matrix-item-wrap:last-child { border-bottom: none; }
@@ -494,7 +657,7 @@ export default {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 7px 12px;
+  padding: 6px 14px;
 }
 
 .staff-group-perm-subbox {
@@ -553,7 +716,7 @@ export default {
 .mod-label {
   color: #f8fafc;
   font-size: 13px;
-  font-weight: bold;
+  font-weight: 500;
 }
 .mod-actions-box {
   display: flex;
