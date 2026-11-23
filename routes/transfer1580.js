@@ -27,6 +27,7 @@ module.exports = function(db) {
   }
 
   db.serialize(() => {
+    db.run(`CREATE TABLE IF NOT EXISTS import_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, module_type TEXT, file_name TEXT, row_count INTEGER, imported_at TEXT)`);
     db.run(`
       CREATE TABLE IF NOT EXISTS transfer_1580_details (
         warehouse TEXT,
@@ -127,8 +128,6 @@ module.exports = function(db) {
     }
 
     db.serialize(() => {
-      db.run('PRAGMA synchronous = OFF');
-      db.run('PRAGMA journal_mode = MEMORY');
       db.run('BEGIN TRANSACTION');
 
       if (isFirstChunk) {
@@ -229,7 +228,6 @@ module.exports = function(db) {
 
       stmt.finalize();
       db.run('COMMIT', (err) => {
-        db.run('PRAGMA synchronous = NORMAL');
         if (err) return res.status(500).json({ success: false, message: '跨庫調撥單寫入失敗：' + err.message });
         res.json({ success: true, count: processedCount, message: `成功同步 ${processedCount} 筆跨庫調撥單資料！` });
       });

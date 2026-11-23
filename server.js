@@ -1,4 +1,4 @@
-// C:\my-inventory-server\server.js
+>// C:\my-inventory-server\server.js
 // 業務主程式 API 伺服器（支援多模組獨立 SQLite 並行寫入，零排隊碰撞）
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
@@ -54,6 +54,8 @@ const db = createSqliteConnection('inventory_local.sqlite', '主庫存與系統�
 const inboundDb = createSqliteConnection('inbound.sqlite', '進貨上架魚群庫');
 const replenishDb = createSqliteConnection('replenish.sqlite', '立即補貨單庫');
 const transferDb = createSqliteConnection('transfer.sqlite', '跨庫調撥庫');
+// 🌟 掛載 inbound.sqlite 為唯讀別名 inbound_db，讓跨庫調撥 80➔15 可直接關聯進貨備註且不影響並行寫入
+transferDb.run(`ATTACH DATABASE '${path.join(__dirname, 'inbound.sqlite').replace(/'/g, "''")}' AS inbound_db`);
 const dispatchDb = createSqliteConnection('dispatch.sqlite', '收發魚群庫');
 const deliveryDb = createSqliteConnection('delivery.sqlite', '宅配物流分析庫');
 const abnormalDb = createSqliteConnection('abnormal.sqlite', '不合理進貨庫');

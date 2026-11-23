@@ -27,6 +27,7 @@ module.exports = function(db) {
   }
 
   db.serialize(() => {
+    db.run(`CREATE TABLE IF NOT EXISTS import_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, module_type TEXT, file_name TEXT, row_count INTEGER, imported_at TEXT)`);
     db.run(`
       CREATE TABLE IF NOT EXISTS transfer_8015_details (
         warehouse TEXT,
@@ -128,8 +129,6 @@ module.exports = function(db) {
     }
 
     db.serialize(() => {
-      db.run('PRAGMA synchronous = OFF');
-      db.run('PRAGMA journal_mode = MEMORY');
       db.run('BEGIN TRANSACTION');
 
       if (isFirstChunk) {
@@ -229,7 +228,6 @@ module.exports = function(db) {
 
       stmt.finalize();
       db.run('COMMIT', (err) => {
-        db.run('PRAGMA synchronous = NORMAL');
         if (err) return res.status(500).json({ success: false, message: '跨庫調撥單寫入失敗：' + err.message });
         res.json({ success: true, count: processedCount, message: `成功同步 ${processedCount} 筆跨庫調撥單資料！` });
       });
@@ -531,7 +529,7 @@ module.exports = function(db) {
     });
   });
 
-  // 🌟 6. 未完成明細 API：LEFT JOIN inbound_details 關聯抓取進貨端收貨備註
+  // 🌟 6. 未完成明細 API：透過 ATTACH 的 inbound_db.inbound_details 關聯抓取進貨端收貨備註
   router.get('/pending-details', (req, res) => {
     let { targetDate, date, hour, month, year, docTypes, reasons } = req.query;
 
@@ -551,7 +549,7 @@ module.exports = function(db) {
         t.overseas_order_no,
         ib.remark AS inbound_remark
       FROM transfer_8015_details t
-      LEFT JOIN inbound_details ib 
+      LEFT JOIN inbound_db.inbound_details ib 
         ON (
           t.overseas_order_no IS NOT NULL 
           AND t.overseas_order_no != '' 
