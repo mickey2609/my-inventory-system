@@ -44,7 +44,7 @@
             :class="{ active: activeTab === 'rules' }"
             @click="activeTab = 'rules'"
           >
-            ⚙️ 儲位規則與層架公尺設定 ({{ rules.length }} 條)
+            ⚙️ 儲位規則與區域用途設定 ({{ rules.length }} 條)
           </button>
         </div>
       </div>
@@ -100,16 +100,24 @@
 
       <div v-if="!report.hasData" class="empty-guide-card">
         <h4>尚未匯入 80 庫庫存快照資料</h4>
-        <p>您可先切換至 <strong>「⚙️ 儲位規則與層架公尺設定」</strong> 設定每條層架長度、月銷級距與規則，再上傳 80 庫 CSV 即可自動分析！</p>
+        <p>您可先切換至 <strong>「⚙️ 儲位規則與區域用途設定」</strong> 設定各區用途（庫區 / 撿貨區 / 庫區+撿貨區 / 關閉中）與層架公尺，再上傳 80 庫 CSV 即可自動分析！</p>
       </div>
 
       <template v-else>
         <div class="breakdown-grid-4">
           <div class="panel-card">
-            <div class="panel-head">🏷️ 借 / 採 擺放準確率</div>
+            <div class="panel-head">🏷️ 區域用途 / 借採準確率</div>
             <div class="stat-list">
+              <div v-for="zr in report.byZoneRole" :key="zr.role" class="stat-row">
+                <span class="st-name font-bold">{{ zr.label }}</span>
+                <span class="st-cnt">{{ zr.passed.toLocaleString() }} / {{ zr.total.toLocaleString() }}</span>
+                <div class="st-bar-wrap">
+                  <div class="st-bar" :style="{ width: `${zr.accuracyPct}%` }" :class="zr.role === 'CLOSED' && zr.failed > 0 ? 'bg-red' : 'bg-green'"></div>
+                </div>
+                <span class="st-pct">{{ zr.accuracyPct }}%</span>
+              </div>
               <div v-for="t in report.byTrade" :key="t.label" class="stat-row">
-                <span class="st-name font-bold">{{ t.label }}</span>
+                <span class="st-name font-bold text-blue">借/採：{{ t.label }}</span>
                 <span class="st-cnt">{{ t.passed.toLocaleString() }} / {{ t.total.toLocaleString() }}</span>
                 <div class="st-bar-wrap">
                   <div class="st-bar" :style="{ width: `${t.accuracyPct}%` }" :class="t.accuracyPct >= 95 ? 'bg-green' : 'bg-amber'"></div>
@@ -166,20 +174,27 @@
           <div class="panel-head row-between">
             <span>🚨 放錯儲位異常移庫清單（共 {{ filteredExceptions.length }} 筆異常｜當前模式：{{ modeLabelMap[modeSettings.mode] }}）</span>
             <div class="exc-filters">
-              <el-input v-model="excKeyword" size="mini" placeholder="搜尋商品ID/名稱/儲位..." style="width: 170px;" clearable />
-              <el-select v-model="excTradeFilter" size="mini" style="width: 100px;">
+              <el-input v-model="excKeyword" size="mini" placeholder="搜尋商品ID/名稱/儲位..." style="width: 165px;" clearable />
+              <el-select v-model="excRoleFilter" size="mini" style="width: 120px;">
+                <el-option label="全部區域用途" value="ALL" />
+                <el-option label="🚫 關閉中" value="CLOSED" />
+                <el-option label="🛒 撿貨區" value="PICK" />
+                <el-option label="🔄 庫區+撿貨區" value="BOTH" />
+                <el-option label="📦 庫區" value="STORAGE" />
+              </el-select>
+              <el-select v-model="excTradeFilter" size="mini" style="width: 95px;">
                 <el-option label="全部借/採" value="ALL" />
                 <el-option label="僅看「借」" value="借" />
                 <el-option label="僅看「採」" value="採" />
               </el-select>
-              <el-select v-model="excTierFilter" size="mini" style="width: 115px;">
-                <el-option label="全部月銷級距" value="ALL" />
+              <el-select v-model="excTierFilter" size="mini" style="width: 110px;">
+                <el-option label="全部月銷" value="ALL" />
                 <el-option label="A級爆品" value="A" />
                 <el-option label="B級常銷" value="B" />
                 <el-option label="C級慢銷" value="C" />
                 <el-option label="D級滯銷" value="D" />
               </el-select>
-              <el-select v-model="excFloorFilter" size="mini" style="width: 105px;">
+              <el-select v-model="excFloorFilter" size="mini" style="width: 100px;">
                 <el-option label="全部樓層" value="ALL" />
                 <el-option v-for="f in report.byFloor" :key="f.label" :label="f.label" :value="f.label" />
               </el-select>
@@ -201,7 +216,7 @@
                   <th>月銷級距</th>
                   <th>樓層</th>
                   <th>目前儲位</th>
-                  <th>所屬區段</th>
+                  <th>區域用途</th>
                   <th>庫存數</th>
                   <th>異常原因</th>
                   <th>建議移往區段</th>
@@ -226,7 +241,9 @@
                   </td>
                   <td class="font-bold">{{ item.floor }}</td>
                   <td class="text-yellow font-bold">{{ item.bin_code }}</td>
-                  <td>{{ item.zone_name }}</td>
+                  <td>
+                    <span class="role-pill" :class="`role-${item.zone_role}`">{{ item.zone_role_label }}</span>
+                  </td>
                   <td class="font-bold">{{ item.qty }}</td>
                   <td class="text-left text-red">{{ item.reason }}</td>
                   <td class="text-left text-green">{{ item.suggested_zone }}</td>
@@ -242,7 +259,7 @@
     <div v-if="activeTab === 'simulation'" class="tab-content" v-loading="simLoading">
       <div v-if="!simData.hasData" class="empty-guide-card">
         <h4>尚無 80 庫庫存數據可供動線模擬</h4>
-        <p>請先上傳 80 庫 CSV（或從首頁匯入 80 庫），系統即可自動依各層架設定公尺數算出揀貨距離！</p>
+        <p>請先上傳 80 庫 CSV（或從首頁匯入 80 庫），系統即可自動依區域用途與層架公尺數算出揀貨距離！</p>
       </div>
 
       <template v-else>
@@ -263,7 +280,7 @@
 
             <div class="sim-metrics-row">
               <div class="sim-metric">
-                <span class="sm-lbl">🚶 月預估步行總里程</span>
+                <span class="sm-lbl">🚶 撿貨區月步行總里程</span>
                 <span class="sm-val text-blue">{{ m.walkDistanceIndex }} <small style="font-size: 11px;">km</small></span>
                 <span v-if="m.walkSavingPct > 0" class="sm-sub text-green">
                   ▼ 省 {{ m.savedKm }} km ({{ m.walkSavingPct }}% / 約 {{ m.savedHours }} 小時)
@@ -273,7 +290,7 @@
               <div class="sim-metric">
                 <span class="sm-lbl">🔥 黃金區位爆品率</span>
                 <span class="sm-val text-yellow">{{ m.goldenHotPct }}%</span>
-                <span class="sm-sub text-dim">7F/6F近端佔比</span>
+                <span class="sm-sub text-dim">7F/6F撿貨區佔比</span>
               </div>
               <div class="sim-metric">
                 <span class="sm-lbl">🧭 找貨直覺度評分</span>
@@ -336,32 +353,32 @@
           </div>
 
           <div class="panel-card">
-            <div class="panel-head">🚀 優先移庫建議：目前放在遠端夾層(2F~4F)的 A/B 級爆品（Top 15）</div>
+            <div class="panel-head">🚀 優先移庫建議：關閉中殘留庫存 / 庫區爆品 / 遠端爆品（Top 15）</div>
             <div class="table-scroll">
               <table class="dark-table">
                 <thead>
                   <tr>
                     <th>商品ID</th>
                     <th>商品名稱</th>
-                    <th>大區</th>
                     <th>月銷量</th>
                     <th>目前樓層/儲位</th>
-                    <th>單次往返距離</th>
-                    <th>動線建議</th>
+                    <th>目前用途</th>
+                    <th>往返距離</th>
+                    <th>優先處置建議</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr v-if="simData.topMoveCandidates.length === 0">
-                    <td colspan="7" class="empty-td">🎉 所有 A/B 級爆品皆已位於黃金動線區位！</td>
+                    <td colspan="7" class="empty-td">🎉 目前無關閉中殘留庫存或急需前移的爆品！</td>
                   </tr>
                   <tr v-for="(c, i) in simData.topMoveCandidates" :key="i">
                     <td class="text-blue font-bold">{{ c.sku_id }}</td>
                     <td class="text-left">{{ c.sku_name }}</td>
-                    <td>{{ c.cat_name }}</td>
                     <td class="text-yellow font-bold">{{ c.monthly_sales }}</td>
                     <td class="text-red font-bold">{{ c.floor }} / {{ c.bin_code }}</td>
-                    <td class="text-yellow font-bold">{{ c.roundTripM }} 公尺</td>
-                    <td class="text-green">拉回 7F/6F 黃金區可大幅縮短步行</td>
+                    <td><span class="role-pill" :class="`role-${c.zoneRole}`">{{ c.zone_role_label }}</span></td>
+                    <td class="text-yellow font-bold">{{ c.roundTripM }} m</td>
+                    <td class="text-left text-green">{{ c.moveReason }}</td>
                   </tr>
                 </tbody>
               </table>
@@ -391,9 +408,9 @@
           <div class="fp-legend">
             <span class="leg-item"><i class="leg-dot dot-buy"></i> 僅限「採」</span>
             <span class="leg-item"><i class="leg-dot dot-borrow"></i> 僅限「借」</span>
-            <span class="leg-item"><i class="leg-dot dot-cat"></i> 已設大區/月銷規則</span>
-            <span class="leg-item"><i class="leg-dot dot-err"></i> 含異常放錯商品</span>
-            <span class="leg-item"><i class="leg-dot dot-unset"></i> 未設限制</span>
+            <span class="leg-item"><i class="leg-dot dot-cat"></i> 已設大區/月銷</span>
+            <span class="leg-item"><i class="leg-dot dot-closed"></i> 🚫 關閉中</span>
+            <span class="leg-item"><i class="leg-dot dot-err"></i> 含異常庫存</span>
           </div>
 
           <div class="fp-zoom-controls">
@@ -454,7 +471,7 @@
           <div v-if="!selectedMapRack" class="fp-inspector-empty">
             <div style="font-size: 28px; margin-bottom: 8px;">👆</div>
             <div>請在左側平面圖點擊任一排貨架</div>
-            <div class="text-dim" style="font-size: 11px; margin-top: 6px;">可直接設定該排「層架公尺數」、「借/採」、大區與月銷規則！</div>
+            <div class="text-dim" style="font-size: 11px; margin-top: 6px;">可直接設定該排「區域用途(庫區/撿貨區/庫區+撿貨區/關閉中)」、「層架公尺」與規則！</div>
           </div>
           <div v-else class="fp-inspector-body">
             <div class="insp-title-box">
@@ -482,7 +499,15 @@
             </div>
 
             <div class="insp-rule-form">
-              <div class="insp-sub-title">⚙️ 設定【{{ selectedMapRack.xCode }} 排】長度與規則</div>
+              <div class="insp-sub-title">⚙️ 設定【{{ selectedMapRack.xCode }} 排】屬性與規則</div>
+
+              <label class="m-lbl">🏷️ 區域用途屬性：</label>
+              <el-select v-model="mapEditRule.zone_role" size="mini" style="width: 100%; margin-bottom: 8px;">
+                <el-option label="🛒 撿貨區" value="PICK" />
+                <el-option label="📦 庫區" value="STORAGE" />
+                <el-option label="🔄 庫區+撿貨區" value="BOTH" />
+                <el-option label="🚫 關閉中" value="CLOSED" />
+              </el-select>
 
               <label class="m-lbl">📏 該條層架長度（公尺）：</label>
               <el-input-number
@@ -549,7 +574,7 @@
       </div>
     </div>
 
-    <!-- ==================== TAB 4: 儲位規則與層架公尺線上設定 ==================== -->
+    <!-- ==================== TAB 4: 儲位規則與區域用途線上設定 ==================== -->
     <div v-if="activeTab === 'rules'" class="tab-content" v-loading="loading">
       <div class="panel-card sales-tier-config-card">
         <div class="row-between">
@@ -573,11 +598,18 @@
       <div class="panel-card rules-toolbar-card">
         <div class="row-between">
           <div class="rule-filters">
-            <el-select v-model="ruleFloorFilter" size="mini" style="width: 115px;">
+            <el-select v-model="ruleFloorFilter" size="mini" style="width: 110px;">
               <el-option label="全部樓層" value="ALL" />
               <el-option v-for="fl in floorOptions" :key="fl" :label="fl" :value="fl" />
             </el-select>
-            <el-input v-model="ruleKeyword" size="mini" placeholder="搜尋區域名稱或 X 軸(如 M01)..." style="width: 200px;" clearable />
+            <el-select v-model="ruleRoleFilter" size="mini" style="width: 125px;">
+              <el-option label="全部區域用途" value="ALL" />
+              <el-option label="📦 庫區" value="STORAGE" />
+              <el-option label="🛒 撿貨區" value="PICK" />
+              <el-option label="🔄 庫區+撿貨區" value="BOTH" />
+              <el-option label="🚫 關閉中" value="CLOSED" />
+            </el-select>
+            <el-input v-model="ruleKeyword" size="mini" placeholder="搜尋區域名稱或 X 軸(如 M01)..." style="width: 195px;" clearable />
           </div>
 
           <div class="rule-actions">
@@ -599,21 +631,22 @@
           <table class="dark-table rules-edit-table">
             <thead>
               <tr>
-                <th style="width: 48px;">啟用</th>
-                <th style="width: 60px;">樓層</th>
-                <th style="width: 135px;">區域名稱</th>
-                <th style="width: 110px;">X軸 (排號)</th>
-                <th style="width: 90px;">Y軸 / 層</th>
-                <th style="width: 115px;">📏 層架長度(m)</th>
-                <th style="width: 110px;">允許借 / 採</th>
-                <th style="min-width: 185px;">允許月銷量級距（可多選）</th>
-                <th style="min-width: 200px;">允許商品大區（可多選）</th>
-                <th style="width: 120px;">允許材積</th>
-                <th style="width: 125px;">操作</th>
+                <th style="width: 46px;">啟用</th>
+                <th style="width: 58px;">樓層</th>
+                <th style="width: 130px;">區域名稱</th>
+                <th style="width: 105px;">X軸 (排號)</th>
+                <th style="width: 85px;">Y軸 / 層</th>
+                <th style="width: 135px;">🏷️ 區域用途</th>
+                <th style="width: 108px;">📏 層架(m)</th>
+                <th style="width: 105px;">允許借 / 採</th>
+                <th style="min-width: 175px;">允許月銷量級距（可多選）</th>
+                <th style="min-width: 190px;">允許商品大區（可多選）</th>
+                <th style="width: 115px;">允許材積</th>
+                <th style="width: 120px;">操作</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="r in filteredRules" :key="r.id">
+              <tr v-for="r in filteredRules" :key="r.id" :class="{ 'closed-rule-row': r.zone_role === 'CLOSED' }">
                 <td>
                   <el-switch v-model="r.enabled" @change="saveSingleRule(r)" />
                 </td>
@@ -625,6 +658,19 @@
                 </td>
                 <td style="font-size: 11px;">{{ r.y_start }}~{{ r.y_end }} ({{ r.layer_start }}~{{ r.layer_end }})</td>
                 <td>
+                  <el-select
+                    v-model="r.zone_role"
+                    size="mini"
+                    style="width: 125px;"
+                    @change="saveSingleRule(r)"
+                  >
+                    <el-option label="📦 庫區" value="STORAGE" />
+                    <el-option label="🛒 撿貨區" value="PICK" />
+                    <el-option label="🔄 庫區+撿貨區" value="BOTH" />
+                    <el-option label="🚫 關閉中" value="CLOSED" />
+                  </el-select>
+                </td>
+                <td>
                   <el-input-number
                     v-model="r.rack_length_m"
                     :min="0.5"
@@ -632,7 +678,7 @@
                     :step="0.5"
                     size="mini"
                     controls-position="right"
-                    style="width: 98px;"
+                    style="width: 92px;"
                     @change="saveSingleRule(r)"
                   />
                 </td>
@@ -640,7 +686,7 @@
                   <el-select
                     v-model="r.allowed_trade"
                     size="mini"
-                    style="width: 100px;"
+                    style="width: 96px;"
                     @change="saveSingleRule(r)"
                   >
                     <el-option label="借採皆可" value="ALL" />
@@ -749,6 +795,15 @@
           <el-input v-model="newRule.layer_end" size="mini" placeholder="Z" />
         </div>
         <div>
+          <label class="m-lbl">🏷️ 區域用途屬性</label>
+          <el-select v-model="newRule.zone_role" size="mini" style="width: 100%;">
+            <el-option label="📦 庫區" value="STORAGE" />
+            <el-option label="🛒 撿貨區" value="PICK" />
+            <el-option label="🔄 庫區+撿貨區" value="BOTH" />
+            <el-option label="🚫 關閉中" value="CLOSED" />
+          </el-select>
+        </div>
+        <div>
           <label class="m-lbl">📏 層架總長度 (公尺)</label>
           <el-input-number v-model="newRule.rack_length_m" :min="0.5" :max="200" :step="0.5" size="mini" style="width: 100%;" />
         </div>
@@ -760,7 +815,7 @@
             <el-option label="僅限「採」" value="採" />
           </el-select>
         </div>
-        <div style="grid-column: span 2;">
+        <div>
           <label class="m-lbl">允許月銷量級距（可多選）</label>
           <el-select v-model="newRule.allowed_sales_tiers" multiple size="mini" style="width: 100%;">
             <el-option :label="`A級爆品 (≥${modeSettings.tierA_min})`" value="A" />
@@ -811,6 +866,12 @@ export default {
         SALES_TRADE: '模式2：月銷 + 借採',
         CAT_SALES_TRADE: '模式3：大區 + 月銷 + 借採'
       },
+      zoneRoleLabelMap: {
+        STORAGE: '庫區',
+        PICK: '撿貨區',
+        BOTH: '庫區+撿貨區',
+        CLOSED: '關閉中'
+      },
 
       floorOptions: ['1F', '2F東', '2F西', '3F', '4F', '6F', '7F', '8F'],
       categoryOptions: [
@@ -821,6 +882,7 @@ export default {
 
       rules: [],
       ruleFloorFilter: 'ALL',
+      ruleRoleFilter: 'ALL',
       ruleKeyword: '',
 
       selectedMapFloor: '7F',
@@ -832,6 +894,7 @@ export default {
         floor: '7F',
         x_start: '',
         x_end: '',
+        zone_role: 'PICK',
         rack_length_m: 20,
         allowed_trade: 'ALL',
         allowed_categories: [],
@@ -846,6 +909,7 @@ export default {
         byFloor: [],
         byCategory: [],
         bySalesTier: [],
+        byZoneRole: [],
         byXRow: {},
         exceptions: []
       },
@@ -858,6 +922,7 @@ export default {
       },
 
       excKeyword: '',
+      excRoleFilter: 'ALL',
       excTradeFilter: 'ALL',
       excTierFilter: 'ALL',
       excFloorFilter: 'ALL',
@@ -874,6 +939,7 @@ export default {
         y_end: '099',
         layer_start: 'A',
         layer_end: 'Z',
+        zone_role: 'PICK',
         rack_length_m: 20,
         allowed_trade: 'ALL',
         allowed_categories: [],
@@ -888,16 +954,18 @@ export default {
       const kw = this.ruleKeyword.trim().toLowerCase();
       return this.rules.filter(r => {
         const okFloor = this.ruleFloorFilter === 'ALL' || r.floor === this.ruleFloorFilter;
+        const okRole = this.ruleRoleFilter === 'ALL' || (r.zone_role || 'PICK') === this.ruleRoleFilter;
         const okKw = !kw ||
           r.zone_name.toLowerCase().includes(kw) ||
           r.x_start.toLowerCase().includes(kw) ||
           r.x_end.toLowerCase().includes(kw);
-        return okFloor && okKw;
+        return okFloor && okRole && okKw;
       });
     },
     filteredExceptions() {
       const kw = this.excKeyword.trim().toLowerCase();
       return (this.report.exceptions || []).filter(item => {
+        const okRole = this.excRoleFilter === 'ALL' || item.zone_role === this.excRoleFilter;
         const okTrade = this.excTradeFilter === 'ALL' || item.trade_type === this.excTradeFilter;
         const okTier = this.excTierFilter === 'ALL' || item.sales_tier === this.excTierFilter;
         const okFloor = this.excFloorFilter === 'ALL' || item.floor === this.excFloorFilter;
@@ -905,7 +973,7 @@ export default {
           item.sku_id.toLowerCase().includes(kw) ||
           item.sku_name.toLowerCase().includes(kw) ||
           item.bin_code.toLowerCase().includes(kw);
-        return okTrade && okTier && okFloor && okKw;
+        return okRole && okTrade && okTier && okFloor && okKw;
       });
     },
     currentFloorCanvas() {
@@ -946,6 +1014,8 @@ export default {
 
           if (xStat && xStat.failed > 0) {
             statusClass = 'fp-status-err';
+          } else if (rule && rule.zone_role === 'CLOSED') {
+            statusClass = 'fp-status-closed';
           } else if (rule && rule.allowed_trade === '借') {
             statusClass = 'fp-status-borrow';
           } else if (rule && rule.allowed_trade === '採') {
@@ -956,8 +1026,9 @@ export default {
             statusClass = 'fp-status-unset';
           }
 
+          const roleLabel = rule ? (this.zoneRoleLabelMap[rule.zone_role] || '撿貨區') : '撿貨區';
           const ruleText = rule
-            ? `長度：${rule.rack_length_m || 20}m｜規則：${rule.allowed_trade === 'ALL' ? '借採皆可' : '僅限' + rule.allowed_trade}${rule.allowed_sales_tiers?.length ? '｜月銷：' + rule.allowed_sales_tiers.join('/') + '級' : ''}${rule.allowed_categories?.length ? '｜大區：' + rule.allowed_categories.join('、') : ''}`
+            ? `用途：【${roleLabel}】｜長度：${rule.rack_length_m || 20}m｜借採：${rule.allowed_trade === 'ALL' ? '皆可' : '僅限' + rule.allowed_trade}${rule.allowed_sales_tiers?.length ? '｜月銷：' + rule.allowed_sales_tiers.join('/') + '級' : ''}${rule.allowed_categories?.length ? '｜大區：' + rule.allowed_categories.join('、') : ''}`
             : '尚未設定規則';
           const statText = xStat ? `\n現況：共 ${xStat.total} 筆（合格 ${xStat.passed} / 異常 ${xStat.failed}）` : '';
           tooltip = `${label}（排號 ${xCode}）\n${ruleText}${statText}`;
@@ -1072,6 +1143,7 @@ export default {
       if (exactRule) {
         this.mapEditRule = {
           ...exactRule,
+          zone_role: exactRule.zone_role || 'PICK',
           rack_length_m: Number(exactRule.rack_length_m || 20),
           allowed_categories: [...(exactRule.allowed_categories || [])],
           allowed_volumes: [...(exactRule.allowed_volumes || [])],
@@ -1097,6 +1169,7 @@ export default {
           y_end: rangeRule ? rangeRule.y_end : '999',
           layer_start: rangeRule ? rangeRule.layer_start : 'A',
           layer_end: rangeRule ? rangeRule.layer_end : 'Z',
+          zone_role: rangeRule ? (rangeRule.zone_role || 'PICK') : 'PICK',
           rack_length_m: rangeRule ? Number(rangeRule.rack_length_m || 20) : 20,
           allowed_trade: rangeRule ? rangeRule.allowed_trade : 'ALL',
           allowed_categories: rangeRule ? [...(rangeRule.allowed_categories || [])] : [],
@@ -1110,7 +1183,7 @@ export default {
     async saveMapRackRule() {
       try {
         await axios.post('/api/storage-accuracy/rules/save', { rule: this.mapEditRule });
-        ElMessage.success(`🎉 已儲存【${this.mapEditRule.floor} - ${this.mapEditRule.x_start} 排 (${this.mapEditRule.rack_length_m}m)】設定！`);
+        ElMessage.success(`🎉 已儲存【${this.mapEditRule.floor} - ${this.mapEditRule.x_start} 排】設定！`);
         await this.refreshAll();
         if (this.selectedMapRack) this.selectRackOnMap(this.selectedMapRack);
       } catch (e) {
@@ -1121,7 +1194,7 @@ export default {
     async saveSingleRule(rule) {
       try {
         await axios.post('/api/storage-accuracy/rules/save', { rule });
-        ElMessage.success(`已儲存規則：${rule.floor} ${rule.x_start}${rule.x_start !== rule.x_end ? '~' + rule.x_end : ''} (${rule.rack_length_m}m)`);
+        ElMessage.success(`已儲存：${rule.floor} ${rule.x_start}${rule.x_start !== rule.x_end ? '~' + rule.x_end : ''}【${this.zoneRoleLabelMap[rule.zone_role] || '撿貨區'}】`);
         const repRes = await axios.get(`/api/storage-accuracy/audit/report?mode=${this.modeSettings.mode}`);
         if (repRes.data?.success) this.report = repRes.data;
       } catch (e) {
@@ -1167,6 +1240,7 @@ export default {
         y_end: '099',
         layer_start: 'A',
         layer_end: 'Z',
+        zone_role: 'PICK',
         rack_length_m: 20,
         allowed_trade: 'ALL',
         allowed_categories: [],
@@ -1323,7 +1397,7 @@ export default {
 
     exportExceptionsExcel() {
       const rows = [
-        ['商品ID', '商品名稱', '借/採', '商品大區', '月銷量', '月銷級距', '樓層', '目前儲位', '所屬區段', '庫存數', '異常原因', '建議移往區段']
+        ['商品ID', '商品名稱', '借/採', '商品大區', '月銷量', '月銷級距', '樓層', '目前儲位', '區域用途', '庫存數', '異常原因', '建議移往區段']
       ];
       this.filteredExceptions.forEach(item => {
         rows.push([
@@ -1335,7 +1409,7 @@ export default {
           item.sales_tier_label,
           item.floor,
           item.bin_code,
-          item.zone_name,
+          item.zone_role_label,
           item.qty,
           item.reason,
           item.suggested_zone
@@ -1425,12 +1499,12 @@ export default {
   color: #cbd5e1;
 }
 
-.breakdown-grid-4 { display: grid; grid-template-columns: 0.9fr 1.1fr 1.1fr 1.4fr; gap: 10px; height: 205px; flex-shrink: 0; }
+.breakdown-grid-4 { display: grid; grid-template-columns: 1.15fr 1fr 1fr 1.3fr; gap: 10px; height: 215px; flex-shrink: 0; }
 .panel-card { background: #1e293b; border: 1px solid #334155; border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; }
 .panel-head { background: #0f172a; padding: 7px 12px; font-size: 13px; font-weight: bold; border-bottom: 1px solid #334155; flex-shrink: 0; }
 .row-between { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
 .stat-list { flex: 1; overflow-y: auto; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
-.stat-row { display: grid; grid-template-columns: 78px 88px 1fr 48px; align-items: center; gap: 6px; font-size: 12px; }
+.stat-row { display: grid; grid-template-columns: 95px 84px 1fr 46px; align-items: center; gap: 6px; font-size: 12px; }
 .st-cnt { color: #94a3b8; font-size: 11px; text-align: right; }
 .st-bar-wrap { height: 7px; background: #334155; border-radius: 4px; overflow: hidden; }
 .st-bar { height: 100%; }
@@ -1536,6 +1610,24 @@ export default {
   color: #f8fafc;
 }
 
+/* 區域用途小標籤 */
+.role-pill {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: bold;
+  white-space: nowrap;
+}
+.role-PICK { background: rgba(74, 222, 128, 0.16); color: #4ade80; border: 1px solid rgba(74, 222, 128, 0.35); }
+.role-STORAGE { background: rgba(56, 189, 248, 0.16); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); }
+.role-BOTH { background: rgba(250, 204, 21, 0.16); color: #facc15; border: 1px solid rgba(250, 204, 21, 0.35); }
+.role-CLOSED { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.45); }
+
+.closed-rule-row td {
+  background: rgba(239, 68, 68, 0.06) !important;
+}
+
 .tier-pill {
   display: inline-block;
   padding: 2px 7px;
@@ -1567,8 +1659,8 @@ export default {
 .dot-buy { background: #2563eb; border: 1px solid #60a5fa; }
 .dot-borrow { background: #d97706; border: 1px solid #fbbf24; }
 .dot-cat { background: #059669; border: 1px solid #34d399; }
+.dot-closed { background: #334155; border: 1px dashed #94a3b8; }
 .dot-err { background: #dc2626; border: 1px solid #f87171; }
-.dot-unset { background: #1e293b; border: 1px solid #64748b; }
 .fp-zoom-controls { display: flex; align-items: center; gap: 6px; }
 
 .fp-workspace {
@@ -1626,6 +1718,11 @@ export default {
 .fp-status-buy { background: #1d4ed8; border: 1px solid #60a5fa; }
 .fp-status-borrow { background: #b45309; border: 1px solid #fbbf24; }
 .fp-status-cat { background: #047857; border: 1px solid #34d399; }
+.fp-status-closed {
+  background: repeating-linear-gradient(45deg, #1e293b, #1e293b 4px, #334155 4px, #334155 8px);
+  border: 1px dashed #94a3b8;
+  color: #94a3b8;
+}
 .fp-status-err { background: #b91c1c; border: 1px solid #f87171; }
 
 .fp-node-txt { white-space: nowrap; text-overflow: ellipsis; overflow: hidden; padding: 0 2px; }

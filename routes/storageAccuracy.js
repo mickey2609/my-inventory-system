@@ -5,40 +5,40 @@ module.exports = function(db) {
   const router = express.Router();
 
   const DEFAULT_ZONE_ZONES = [
-    { zone_name: '80D-B區', floor: '2F西', storage_type: '重型層架-低', wh: '80', area: 'B', x_start: 'A01', x_end: 'A06', y_start: '043', y_end: '072', layer_start: 'A', layer_end: 'B', rack_length_m: 18 },
-    { zone_name: '80D-B區', floor: '2F西', storage_type: '落地儲位', wh: '80', area: 'B', x_start: 'A06', x_end: 'A08', y_start: '043', y_end: '072', layer_start: 'A', layer_end: 'A', rack_length_m: 18 },
-    { zone_name: '80D-C區', floor: '2F西', storage_type: '重型層架-低', wh: '80', area: 'C', x_start: 'A01', x_end: 'A06', y_start: '005', y_end: '034', layer_start: 'A', layer_end: 'B', rack_length_m: 18 },
-    { zone_name: '80D-C區', floor: '2F西', storage_type: '落地儲位', wh: '80', area: 'C', x_start: 'A07', x_end: 'A08', y_start: '005', y_end: '034', layer_start: 'A', layer_end: 'A', rack_length_m: 18 },
-    { zone_name: '80C2A', floor: '2F東', storage_type: '落地儲位', wh: '80', area: 'A', x_start: 'C2A', x_end: 'C2A', y_start: '002', y_end: '056', layer_start: 'A', layer_end: 'I', rack_length_m: 26 },
-    { zone_name: '80C2B', floor: '2F東', storage_type: '落地儲位', wh: '80', area: 'B', x_start: 'C2B', x_end: 'C2B', y_start: '002', y_end: '056', layer_start: 'A', layer_end: 'I', rack_length_m: 26 },
-    { zone_name: '80C2C', floor: '2F東', storage_type: '落地儲位', wh: '80', area: 'C', x_start: 'C2C', x_end: 'C2C', y_start: '002', y_end: '056', layer_start: 'A', layer_end: 'I', rack_length_m: 26 },
-    { zone_name: '80E-B區', floor: '3F', storage_type: '重型層架', wh: '80', area: 'B', x_start: 'E05', x_end: 'E08', y_start: '001', y_end: '039', layer_start: 'C', layer_end: 'E', rack_length_m: 24 },
-    { zone_name: '80E-B區', floor: '3F', storage_type: '重型層架-低', wh: '80', area: 'B', x_start: 'E05', x_end: 'E08', y_start: '001', y_end: '039', layer_start: 'A', layer_end: 'B', rack_length_m: 24 },
-    { zone_name: '80E-C區', floor: '3F', storage_type: '重型層架', wh: '80', area: 'C', x_start: 'E01', x_end: 'E04', y_start: '001', y_end: '039', layer_start: 'C', layer_end: 'E', rack_length_m: 24 },
-    { zone_name: '80E-C區', floor: '3F', storage_type: '重型層架-低', wh: '80', area: 'C', x_start: 'E01', x_end: 'E04', y_start: '001', y_end: '039', layer_start: 'A', layer_end: 'B', rack_length_m: 24 },
-    { zone_name: '80H(貴重區)', floor: '4F', storage_type: '中型層架(格)', wh: '80', area: 'B', x_start: 'H01', x_end: 'H17', y_start: '001', y_end: '005', layer_start: 'A', layer_end: 'E', rack_length_m: 6 },
-    { zone_name: '80H(貴重區)', floor: '4F', storage_type: '小藍格', wh: '80', area: 'B', x_start: 'H18', x_end: 'H18', y_start: '001', y_end: '028', layer_start: 'A', layer_end: 'G', rack_length_m: 12 },
-    { zone_name: '80K、L-B區', floor: '6F', storage_type: '重型層架', wh: '80', area: 'B', x_start: 'K01', x_end: 'K05', y_start: '061', y_end: '092', layer_start: 'A', layer_end: 'C', rack_length_m: 20 },
-    { zone_name: '80K、L-B區', floor: '6F', storage_type: 'AGV層架', wh: '80', area: 'B', x_start: 'L61', x_end: 'L84', y_start: '001', y_end: '005', layer_start: 'A', layer_end: 'F', rack_length_m: 6 },
-    { zone_name: '80K、L-C區', floor: '6F', storage_type: '重型層架', wh: '80', area: 'C', x_start: 'K01', x_end: 'K05', y_start: '027', y_end: '058', layer_start: 'A', layer_end: 'C', rack_length_m: 20 },
-    { zone_name: '80K、L-C區', floor: '6F', storage_type: 'AGV層架', wh: '80', area: 'C', x_start: 'L31', x_end: 'L60', y_start: '001', y_end: '005', layer_start: 'A', layer_end: 'E', rack_length_m: 6 },
-    { zone_name: '80L-D區', floor: '6F', storage_type: 'AGV層架', wh: '80', area: 'D', x_start: 'L01', x_end: 'L26', y_start: '001', y_end: '060', layer_start: 'A', layer_end: 'E', rack_length_m: 28 },
-    { zone_name: '80L-D區', floor: '6F', storage_type: 'AGV層架', wh: '80', area: 'D', x_start: 'L27', x_end: 'L30', y_start: '001', y_end: '060', layer_start: 'A', layer_end: 'G', rack_length_m: 28 },
-    { zone_name: '80M01-53(第一段)', floor: '7F', storage_type: 'AGV層架', wh: '80', area: 'A', x_start: 'M01', x_end: 'M53', y_start: '001', y_end: '052', layer_start: 'A', layer_end: 'E', rack_length_m: 24 },
-    { zone_name: '80M01-53(第二段)', floor: '7F', storage_type: 'AGV層架', wh: '80', area: 'A', x_start: 'M03', x_end: 'M53', y_start: '056', y_end: '067', layer_start: 'A', layer_end: 'F', rack_length_m: 8 },
-    { zone_name: '80M01-53(第三段)', floor: '7F', storage_type: 'AGV層架', wh: '80', area: 'A', x_start: 'M01', x_end: 'M53', y_start: '068', y_end: '079', layer_start: 'A', layer_end: 'E', rack_length_m: 8 },
-    { zone_name: '80M01-53(第四段)', floor: '7F', storage_type: 'AGV層架', wh: '80', area: 'A', x_start: 'M43', x_end: 'M53', y_start: '080', y_end: '094', layer_start: 'A', layer_end: 'E', rack_length_m: 9 },
-    { zone_name: '80O(貴重區)', floor: '7F', storage_type: '鐵櫃', wh: '80', area: 'A', x_start: 'O01', x_end: 'O01', y_start: '001', y_end: '027', layer_start: 'A', layer_end: 'L', rack_length_m: 12 },
-    { zone_name: '80N55-69(重型架)', floor: '7F', storage_type: '重型層架', wh: '80', area: 'A', x_start: 'N55', x_end: 'N69', y_start: '052', y_end: '075', layer_start: 'A', layer_end: 'E', rack_length_m: 16 },
-    { zone_name: '80N35-53(重型架)', floor: '7F', storage_type: '重型層架', wh: '80', area: 'B', x_start: 'N35', x_end: 'N53', y_start: '027', y_end: '075', layer_start: 'A', layer_end: 'E', rack_length_m: 30 },
-    { zone_name: '80N015-33(重型架)', floor: '7F', storage_type: '重型層架', wh: '80', area: 'C', x_start: 'N15', x_end: 'N33', y_start: '001', y_end: '075', layer_start: 'A', layer_end: 'E', rack_length_m: 42 },
-    { zone_name: '80N34', floor: '7F', storage_type: '落地儲位', wh: '80', area: 'C', x_start: 'N34', x_end: 'N34', y_start: '001', y_end: '044', layer_start: 'A', layer_end: 'A', rack_length_m: 25 },
-    { zone_name: '80S01-05(重型架)', floor: '7F', storage_type: '重型層架', wh: '80', area: 'D', x_start: 'S01', x_end: 'S05', y_start: '001', y_end: '049', layer_start: 'A', layer_end: 'E', rack_length_m: 28 },
-    { zone_name: '80N01-14(重型架)', floor: '7F', storage_type: '重型層架', wh: '80', area: 'D', x_start: 'N01', x_end: 'N14', y_start: '001', y_end: '068', layer_start: 'A', layer_end: 'E', rack_length_m: 38 },
-    { zone_name: '80R-A區', floor: '8F', storage_type: 'AGV層架', wh: '80', area: 'A', x_start: 'R11', x_end: 'R42', y_start: '001', y_end: '056', layer_start: 'A', layer_end: 'F', rack_length_m: 26 },
-    { zone_name: '80R、Q-B區', floor: '8F', storage_type: '重型層架', wh: '80', area: 'B', x_start: 'R01', x_end: 'R05', y_start: '063', y_end: '098', layer_start: 'A', layer_end: 'C', rack_length_m: 22 },
-    { zone_name: '80R、Q-C區', floor: '8F', storage_type: '重型層架', wh: '80', area: 'C', x_start: 'R01', x_end: 'R05', y_start: '027', y_end: '062', layer_start: 'A', layer_end: 'C', rack_length_m: 22 },
-    { zone_name: '80R、Q-D區', floor: '8F', storage_type: '重型層架', wh: '80', area: 'D', x_start: 'R01', x_end: 'R05', y_start: '001', y_end: '026', layer_start: 'A', layer_end: 'C', rack_length_m: 16 }
+    { zone_name: '80D-B區', floor: '2F西', storage_type: '重型層架-低', wh: '80', area: 'B', x_start: 'A01', x_end: 'A06', y_start: '043', y_end: '072', layer_start: 'A', layer_end: 'B', rack_length_m: 18, zone_role: 'BOTH' },
+    { zone_name: '80D-B區', floor: '2F西', storage_type: '落地儲位', wh: '80', area: 'B', x_start: 'A06', x_end: 'A08', y_start: '043', y_end: '072', layer_start: 'A', layer_end: 'A', rack_length_m: 18, zone_role: 'STORAGE' },
+    { zone_name: '80D-C區', floor: '2F西', storage_type: '重型層架-低', wh: '80', area: 'C', x_start: 'A01', x_end: 'A06', y_start: '005', y_end: '034', layer_start: 'A', layer_end: 'B', rack_length_m: 18, zone_role: 'CLOSED' },
+    { zone_name: '80D-C區', floor: '2F西', storage_type: '落地儲位', wh: '80', area: 'C', x_start: 'A07', x_end: 'A08', y_start: '005', y_end: '034', layer_start: 'A', layer_end: 'A', rack_length_m: 18, zone_role: 'CLOSED' },
+    { zone_name: '80C2A', floor: '2F東', storage_type: '落地儲位', wh: '80', area: 'A', x_start: 'C2A', x_end: 'C2A', y_start: '002', y_end: '056', layer_start: 'A', layer_end: 'I', rack_length_m: 26, zone_role: 'BOTH' },
+    { zone_name: '80C2B', floor: '2F東', storage_type: '落地儲位', wh: '80', area: 'B', x_start: 'C2B', x_end: 'C2B', y_start: '002', y_end: '056', layer_start: 'A', layer_end: 'I', rack_length_m: 26, zone_role: 'BOTH' },
+    { zone_name: '80C2C', floor: '2F東', storage_type: '落地儲位', wh: '80', area: 'C', x_start: 'C2C', x_end: 'C2C', y_start: '002', y_end: '056', layer_start: 'A', layer_end: 'I', rack_length_m: 26, zone_role: 'CLOSED' },
+    { zone_name: '80E-B區', floor: '3F', storage_type: '重型層架', wh: '80', area: 'B', x_start: 'E05', x_end: 'E08', y_start: '001', y_end: '039', layer_start: 'C', layer_end: 'E', rack_length_m: 24, zone_role: 'STORAGE' },
+    { zone_name: '80E-B區', floor: '3F', storage_type: '重型層架-低', wh: '80', area: 'B', x_start: 'E05', x_end: 'E08', y_start: '001', y_end: '039', layer_start: 'A', layer_end: 'B', rack_length_m: 24, zone_role: 'PICK' },
+    { zone_name: '80E-C區', floor: '3F', storage_type: '重型層架', wh: '80', area: 'C', x_start: 'E01', x_end: 'E04', y_start: '001', y_end: '039', layer_start: 'C', layer_end: 'E', rack_length_m: 24, zone_role: 'STORAGE' },
+    { zone_name: '80E-C區', floor: '3F', storage_type: '重型層架-低', wh: '80', area: 'C', x_start: 'E01', x_end: 'E04', y_start: '001', y_end: '039', layer_start: 'A', layer_end: 'B', rack_length_m: 24, zone_role: 'PICK' },
+    { zone_name: '80H(貴重區)', floor: '4F', storage_type: '中型層架(格)', wh: '80', area: 'B', x_start: 'H01', x_end: 'H17', y_start: '001', y_end: '005', layer_start: 'A', layer_end: 'E', rack_length_m: 6, zone_role: 'PICK' },
+    { zone_name: '80H(貴重區)', floor: '4F', storage_type: '小藍格', wh: '80', area: 'B', x_start: 'H18', x_end: 'H18', y_start: '001', y_end: '028', layer_start: 'A', layer_end: 'G', rack_length_m: 12, zone_role: 'PICK' },
+    { zone_name: '80K、L-B區', floor: '6F', storage_type: '重型層架', wh: '80', area: 'B', x_start: 'K01', x_end: 'K05', y_start: '061', y_end: '092', layer_start: 'A', layer_end: 'C', rack_length_m: 20, zone_role: 'BOTH' },
+    { zone_name: '80K、L-B區', floor: '6F', storage_type: 'AGV層架', wh: '80', area: 'B', x_start: 'L61', x_end: 'L84', y_start: '001', y_end: '005', layer_start: 'A', layer_end: 'F', rack_length_m: 6, zone_role: 'PICK' },
+    { zone_name: '80K、L-C區', floor: '6F', storage_type: '重型層架', wh: '80', area: 'C', x_start: 'K01', x_end: 'K05', y_start: '027', y_end: '058', layer_start: 'A', layer_end: 'C', rack_length_m: 20, zone_role: 'BOTH' },
+    { zone_name: '80K、L-C區', floor: '6F', storage_type: 'AGV層架', wh: '80', area: 'C', x_start: 'L31', x_end: 'L60', y_start: '001', y_end: '005', layer_start: 'A', layer_end: 'E', rack_length_m: 6, zone_role: 'PICK' },
+    { zone_name: '80L-D區', floor: '6F', storage_type: 'AGV層架', wh: '80', area: 'D', x_start: 'L01', x_end: 'L26', y_start: '001', y_end: '060', layer_start: 'A', layer_end: 'E', rack_length_m: 28, zone_role: 'PICK' },
+    { zone_name: '80L-D區', floor: '6F', storage_type: 'AGV層架', wh: '80', area: 'D', x_start: 'L27', x_end: 'L30', y_start: '001', y_end: '060', layer_start: 'A', layer_end: 'G', rack_length_m: 28, zone_role: 'PICK' },
+    { zone_name: '80M01-53(第一段)', floor: '7F', storage_type: 'AGV層架', wh: '80', area: 'A', x_start: 'M01', x_end: 'M53', y_start: '001', y_end: '052', layer_start: 'A', layer_end: 'E', rack_length_m: 24, zone_role: 'PICK' },
+    { zone_name: '80M01-53(第二段)', floor: '7F', storage_type: 'AGV層架', wh: '80', area: 'A', x_start: 'M03', x_end: 'M53', y_start: '056', y_end: '067', layer_start: 'A', layer_end: 'F', rack_length_m: 8, zone_role: 'PICK' },
+    { zone_name: '80M01-53(第三段)', floor: '7F', storage_type: 'AGV層架', wh: '80', area: 'A', x_start: 'M01', x_end: 'M53', y_start: '068', y_end: '079', layer_start: 'A', layer_end: 'E', rack_length_m: 8, zone_role: 'PICK' },
+    { zone_name: '80M01-53(第四段)', floor: '7F', storage_type: 'AGV層架', wh: '80', area: 'A', x_start: 'M43', x_end: 'M53', y_start: '080', y_end: '094', layer_start: 'A', layer_end: 'E', rack_length_m: 9, zone_role: 'PICK' },
+    { zone_name: '80O(貴重區)', floor: '7F', storage_type: '鐵櫃', wh: '80', area: 'A', x_start: 'O01', x_end: 'O01', y_start: '001', y_end: '027', layer_start: 'A', layer_end: 'L', rack_length_m: 12, zone_role: 'PICK' },
+    { zone_name: '80N55-69(重型架)', floor: '7F', storage_type: '重型層架', wh: '80', area: 'A', x_start: 'N55', x_end: 'N69', y_start: '052', y_end: '075', layer_start: 'A', layer_end: 'E', rack_length_m: 16, zone_role: 'BOTH' },
+    { zone_name: '80N35-53(重型架)', floor: '7F', storage_type: '重型層架', wh: '80', area: 'B', x_start: 'N35', x_end: 'N53', y_start: '027', y_end: '075', layer_start: 'A', layer_end: 'E', rack_length_m: 30, zone_role: 'BOTH' },
+    { zone_name: '80N015-33(重型架)', floor: '7F', storage_type: '重型層架', wh: '80', area: 'C', x_start: 'N15', x_end: 'N33', y_start: '001', y_end: '075', layer_start: 'A', layer_end: 'E', rack_length_m: 42, zone_role: 'BOTH' },
+    { zone_name: '80N34', floor: '7F', storage_type: '落地儲位', wh: '80', area: 'C', x_start: 'N34', x_end: 'N34', y_start: '001', y_end: '044', layer_start: 'A', layer_end: 'A', rack_length_m: 25, zone_role: 'STORAGE' },
+    { zone_name: '80S01-05(重型架)', floor: '7F', storage_type: '重型層架', wh: '80', area: 'D', x_start: 'S01', x_end: 'S05', y_start: '001', y_end: '049', layer_start: 'A', layer_end: 'E', rack_length_m: 28, zone_role: 'BOTH' },
+    { zone_name: '80N01-14(重型架)', floor: '7F', storage_type: '重型層架', wh: '80', area: 'D', x_start: 'N01', x_end: 'N14', y_start: '001', y_end: '068', layer_start: 'A', layer_end: 'E', rack_length_m: 38, zone_role: 'BOTH' },
+    { zone_name: '80R-A區', floor: '8F', storage_type: 'AGV層架', wh: '80', area: 'A', x_start: 'R11', x_end: 'R42', y_start: '001', y_end: '056', layer_start: 'A', layer_end: 'F', rack_length_m: 26, zone_role: 'PICK' },
+    { zone_name: '80R、Q-B區', floor: '8F', storage_type: '重型層架', wh: '80', area: 'B', x_start: 'R01', x_end: 'R05', y_start: '063', y_end: '098', layer_start: 'A', layer_end: 'C', rack_length_m: 22, zone_role: 'BOTH' },
+    { zone_name: '80R、Q-C區', floor: '8F', storage_type: '重型層架', wh: '80', area: 'C', x_start: 'R01', x_end: 'R05', y_start: '027', y_end: '062', layer_start: 'A', layer_end: 'C', rack_length_m: 22, zone_role: 'BOTH' },
+    { zone_name: '80R、Q-D區', floor: '8F', storage_type: '重型層架', wh: '80', area: 'D', x_start: 'R01', x_end: 'R05', y_start: '001', y_end: '026', layer_start: 'A', layer_end: 'C', rack_length_m: 16, zone_role: 'BOTH' }
   ];
 
   const DEFAULT_MODE_SETTINGS = {
@@ -47,6 +47,19 @@ module.exports = function(db) {
     tierB_min: 10,
     tierC_min: 1
   };
+
+  // 區域用途屬性：'STORAGE' (庫區) | 'PICK' (撿貨區) | 'BOTH' (庫區+撿貨區) | 'CLOSED' (關閉中)
+  const VALID_ZONE_ROLES = ['STORAGE', 'PICK', 'BOTH', 'CLOSED'];
+
+  function formatZoneRoleLabel(role) {
+    const map = {
+      STORAGE: '庫區',
+      PICK: '撿貨區',
+      BOTH: '庫區+撿貨區',
+      CLOSED: '關閉中'
+    };
+    return map[role] || '撿貨區';
+  }
 
   function expandXRange(xStart, xEnd) {
     const s = String(xStart || '').trim().toUpperCase();
@@ -90,6 +103,7 @@ module.exports = function(db) {
           allowed_volumes TEXT DEFAULT '[]',
           allowed_sales_tiers TEXT DEFAULT '[]',
           rack_length_m REAL DEFAULT 20,
+          zone_role TEXT DEFAULT 'PICK',
           enabled INTEGER DEFAULT 1,
           remark TEXT DEFAULT '',
           sort_order INTEGER DEFAULT 0
@@ -98,6 +112,7 @@ module.exports = function(db) {
 
       db.run(`ALTER TABLE storage_placement_rules ADD COLUMN allowed_sales_tiers TEXT DEFAULT '[]'`, () => {});
       db.run(`ALTER TABLE storage_placement_rules ADD COLUMN rack_length_m REAL DEFAULT 20`, () => {});
+      db.run(`ALTER TABLE storage_placement_rules ADD COLUMN zone_role TEXT DEFAULT 'PICK'`, () => {});
 
       db.run(`
         CREATE TABLE IF NOT EXISTS storage_audit_records (
@@ -129,11 +144,11 @@ module.exports = function(db) {
         if (!err && row && row.cnt === 0) {
           const stmt = db.prepare(`
             INSERT INTO storage_placement_rules
-            (zone_name, floor, storage_type, area, x_start, x_end, y_start, y_end, layer_start, layer_end, allowed_trade, allowed_categories, allowed_volumes, allowed_sales_tiers, rack_length_m, enabled, sort_order)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ALL', '[]', '[]', '[]', ?, 1, ?)
+            (zone_name, floor, storage_type, area, x_start, x_end, y_start, y_end, layer_start, layer_end, allowed_trade, allowed_categories, allowed_volumes, allowed_sales_tiers, rack_length_m, zone_role, enabled, sort_order)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ALL', '[]', '[]', '[]', ?, ?, 1, ?)
           `);
           DEFAULT_ZONE_ZONES.forEach((z, idx) => {
-            stmt.run(z.zone_name, z.floor, z.storage_type, z.area, z.x_start, z.x_end, z.y_start, z.y_end, z.layer_start, z.layer_end, z.rack_length_m || 20, idx * 100);
+            stmt.run(z.zone_name, z.floor, z.storage_type, z.area, z.x_start, z.x_end, z.y_start, z.y_end, z.layer_start, z.layer_end, z.rack_length_m || 20, z.zone_role || 'PICK', idx * 100);
           });
           stmt.finalize(() => {
             if (typeof callback === 'function') callback();
@@ -326,12 +341,14 @@ module.exports = function(db) {
           try { cats = JSON.parse(r.allowed_categories || '[]'); } catch (e) {}
           try { vols = JSON.parse(r.allowed_volumes || '[]'); } catch (e) {}
           try { tiers = JSON.parse(r.allowed_sales_tiers || '[]'); } catch (e) {}
+          const zoneRole = VALID_ZONE_ROLES.includes(r.zone_role) ? r.zone_role : 'PICK';
           return {
             ...r,
             allowed_categories: cats,
             allowed_volumes: vols,
             allowed_sales_tiers: tiers,
             rack_length_m: Number(r.rack_length_m || 20),
+            zone_role: zoneRole,
             enabled: r.enabled === 1
           };
         });
@@ -340,7 +357,7 @@ module.exports = function(db) {
     });
   });
 
-  // 2. 儲存 / 更新單條規則（含層架實際長度 rack_length_m）
+  // 2. 儲存 / 更新單條規則（含層架長度 rack_length_m 與區域屬性 zone_role）
   router.post('/rules/save', (req, res) => {
     const rule = req.body.rule;
     if (!rule || !rule.zone_name || !rule.floor || !rule.x_start) {
@@ -352,6 +369,7 @@ module.exports = function(db) {
     const volsJson = JSON.stringify(rule.allowed_volumes || []);
     const tiersJson = JSON.stringify(rule.allowed_sales_tiers || []);
     const rackLen = Math.max(0.5, Number(rule.rack_length_m || 20));
+    const zoneRole = VALID_ZONE_ROLES.includes(rule.zone_role) ? rule.zone_role : 'PICK';
     const enabledInt = rule.enabled !== false ? 1 : 0;
 
     if (rule.id) {
@@ -361,7 +379,7 @@ module.exports = function(db) {
           x_start = ?, x_end = ?, y_start = ?, y_end = ?,
           layer_start = ?, layer_end = ?,
           allowed_trade = ?, allowed_categories = ?, allowed_volumes = ?, allowed_sales_tiers = ?,
-          rack_length_m = ?, enabled = ?, remark = ?
+          rack_length_m = ?, zone_role = ?, enabled = ?, remark = ?
         WHERE id = ?
       `, [
         rule.zone_name, rule.floor, rule.storage_type || '', rule.area || '',
@@ -369,7 +387,7 @@ module.exports = function(db) {
         String(rule.y_start || '001').padStart(3, '0'), String(rule.y_end || '999').padStart(3, '0'),
         String(rule.layer_start || 'A').toUpperCase(), String(rule.layer_end || 'Z').toUpperCase(),
         rule.allowed_trade || 'ALL', catsJson, volsJson, tiersJson,
-        rackLen, enabledInt, rule.remark || '', rule.id
+        rackLen, zoneRole, enabledInt, rule.remark || '', rule.id
       ], (err) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
         res.json({ success: true });
@@ -377,15 +395,15 @@ module.exports = function(db) {
     } else {
       db.run(`
         INSERT INTO storage_placement_rules
-        (zone_name, floor, storage_type, area, x_start, x_end, y_start, y_end, layer_start, layer_end, allowed_trade, allowed_categories, allowed_volumes, allowed_sales_tiers, rack_length_m, enabled, remark, sort_order)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 999)
+        (zone_name, floor, storage_type, area, x_start, x_end, y_start, y_end, layer_start, layer_end, allowed_trade, allowed_categories, allowed_volumes, allowed_sales_tiers, rack_length_m, zone_role, enabled, remark, sort_order)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 999)
       `, [
         rule.zone_name, rule.floor, rule.storage_type || '', rule.area || '',
         xStart, xEnd,
         String(rule.y_start || '001').padStart(3, '0'), String(rule.y_end || '999').padStart(3, '0'),
         String(rule.layer_start || 'A').toUpperCase(), String(rule.layer_end || 'Z').toUpperCase(),
         rule.allowed_trade || 'ALL', catsJson, volsJson, tiersJson,
-        rackLen, enabledInt, rule.remark || ''
+        rackLen, zoneRole, enabledInt, rule.remark || ''
       ], (err) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
         res.json({ success: true });
@@ -393,7 +411,7 @@ module.exports = function(db) {
     }
   });
 
-  // 3. 把「區間規則」展開成單條 X 軸（繼承原本設定的層架長度 rack_length_m）
+  // 3. 把「區間規則」展開成單條 X 軸
   router.post('/rules/expand', (req, res) => {
     const { ruleId } = req.body;
     const query = ruleId
@@ -418,13 +436,13 @@ module.exports = function(db) {
           xList.forEach((xCode, idx) => {
             db.run(`
               INSERT INTO storage_placement_rules
-              (zone_name, floor, storage_type, area, x_start, x_end, y_start, y_end, layer_start, layer_end, allowed_trade, allowed_categories, allowed_volumes, allowed_sales_tiers, rack_length_m, enabled, remark, sort_order)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              (zone_name, floor, storage_type, area, x_start, x_end, y_start, y_end, layer_start, layer_end, allowed_trade, allowed_categories, allowed_volumes, allowed_sales_tiers, rack_length_m, zone_role, enabled, remark, sort_order)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `, [
               `${r.zone_name}-${xCode}`, r.floor, r.storage_type, r.area,
               xCode, xCode, r.y_start, r.y_end, r.layer_start, r.layer_end,
               r.allowed_trade, r.allowed_categories, r.allowed_volumes, r.allowed_sales_tiers || '[]',
-              Number(r.rack_length_m || 20), r.enabled, r.remark,
+              Number(r.rack_length_m || 20), r.zone_role || 'PICK', r.enabled, r.remark,
               (r.sort_order || 0) + idx
             ]);
             expandedCount++;
@@ -494,7 +512,7 @@ module.exports = function(db) {
     });
   });
 
-  // 6. 依據目前「擺放模式」與規則，計算準確率與異常清單
+  // 6. 依據目前「擺放模式」、「區域用途(庫區/撿貨區/庫區+撿貨區/關閉中)」與規則，計算準確率與異常清單
   router.get('/audit/report', (req, res) => {
     ensureTables(() => {
       getModeSettings((settings) => {
@@ -516,6 +534,7 @@ module.exports = function(db) {
               allowed_volumes: vols,
               allowed_sales_tiers: tiers,
               rack_length_m: Number(r.rack_length_m || 20),
+              zone_role: VALID_ZONE_ROLES.includes(r.zone_role) ? r.zone_role : 'PICK',
               _isExactX: r.x_start === r.x_end ? 1 : 0
             };
           }).sort((a, b) => b._isExactX - a._isExactX || a.id - b.id);
@@ -535,6 +554,7 @@ module.exports = function(db) {
                 byFloor: [],
                 byCategory: [],
                 bySalesTier: [],
+                byZoneRole: [],
                 byXRow: {},
                 exceptions: []
               });
@@ -544,6 +564,12 @@ module.exports = function(db) {
             const tradeStats = {};
             const floorStats = {};
             const catStats = {};
+            const roleStats = {
+              PICK: { role: 'PICK', label: '🛒 撿貨區', total: 0, passed: 0, failed: 0 },
+              BOTH: { role: 'BOTH', label: '🔄 庫區+撿貨區', total: 0, passed: 0, failed: 0 },
+              STORAGE: { role: 'STORAGE', label: '📦 庫區', total: 0, passed: 0, failed: 0 },
+              CLOSED: { role: 'CLOSED', label: '🚫 關閉中', total: 0, passed: 0, failed: 0 }
+            };
             const tierStats = {
               A: { label: 'A級爆品', total: 0, passed: 0, failed: 0 },
               B: { label: 'B級常銷', total: 0, passed: 0, failed: 0 },
@@ -553,11 +579,13 @@ module.exports = function(db) {
             const byXRow = {};
             const exceptions = [];
 
+            // 建議移庫目標池（自動排除「關閉中」的區域）
             const catTargetMap = {};
             const tierTargetMap = {};
-            rules.forEach(r => {
+            rules.filter(r => r.zone_role !== 'CLOSED').forEach(r => {
               const xLabel = r.x_start === r.x_end ? r.x_start : `${r.x_start}~${r.x_end}`;
-              const label = `${r.floor} ${xLabel}${r.allowed_trade !== 'ALL' ? '(' + r.allowed_trade + ')' : ''}`;
+              const roleTag = `[${formatZoneRoleLabel(r.zone_role)}]`;
+              const label = `${r.floor} ${xLabel}${roleTag}${r.allowed_trade !== 'ALL' ? '(' + r.allowed_trade + ')' : ''}`;
               if (r.allowed_categories.length > 0) {
                 r.allowed_categories.forEach(c => {
                   if (!catTargetMap[c]) catTargetMap[c] = [];
@@ -575,8 +603,11 @@ module.exports = function(db) {
             records.forEach(rec => {
               const salesTier = classifySalesTier(rec.monthly_sales, settings);
               const matchedRule = matchRuleForRecord(rec, rules);
+              const zoneRole = matchedRule ? matchedRule.zone_role : 'PICK';
 
+              const isClosedZone = zoneRole === 'CLOSED';
               const hasActiveConstraint = matchedRule && (
+                isClosedZone ||
                 (matchedRule.allowed_trade && matchedRule.allowed_trade !== 'ALL') ||
                 (checkCat && matchedRule.allowed_categories && matchedRule.allowed_categories.length > 0) ||
                 (checkSales && matchedRule.allowed_sales_tiers && matchedRule.allowed_sales_tiers.length > 0) ||
@@ -588,22 +619,28 @@ module.exports = function(db) {
 
               if (hasActiveConstraint) {
                 audited++;
-                if (matchedRule.allowed_trade !== 'ALL' && rec.trade_type && matchedRule.allowed_trade !== rec.trade_type) {
+
+                if (isClosedZone) {
                   isOk = false;
-                  reasons.push(`借/採不符：限放「${matchedRule.allowed_trade}」，實際「${rec.trade_type}」`);
-                }
-                if (checkCat && matchedRule.allowed_categories.length > 0 && rec.cat_name && !matchedRule.allowed_categories.includes(rec.cat_name)) {
-                  isOk = false;
-                  reasons.push(`大區不符：限放[${matchedRule.allowed_categories.join('、')}]，實際「${rec.cat_name}」`);
-                }
-                if (checkSales && matchedRule.allowed_sales_tiers.length > 0 && !matchedRule.allowed_sales_tiers.includes(salesTier)) {
-                  const allowedLabels = matchedRule.allowed_sales_tiers.map(formatTierLabel).join('、');
-                  isOk = false;
-                  reasons.push(`月銷不符：限放[${allowedLabels}]，實際「${formatTierLabel(salesTier)}(月銷${rec.monthly_sales})」`);
-                }
-                if (matchedRule.allowed_volumes.length > 0 && rec.volume_type && !matchedRule.allowed_volumes.includes(rec.volume_type)) {
-                  isOk = false;
-                  reasons.push(`材積不符：限放[${matchedRule.allowed_volumes.join('、')}]，實際「${rec.volume_type}」`);
+                  reasons.push(`🚫 區域「關閉中」：該儲位已停用關閉，禁止存放庫存（現有 ${rec.qty} 件需立即移出）`);
+                } else {
+                  if (matchedRule.allowed_trade !== 'ALL' && rec.trade_type && matchedRule.allowed_trade !== rec.trade_type) {
+                    isOk = false;
+                    reasons.push(`借/採不符：限放「${matchedRule.allowed_trade}」，實際「${rec.trade_type}」`);
+                  }
+                  if (checkCat && matchedRule.allowed_categories.length > 0 && rec.cat_name && !matchedRule.allowed_categories.includes(rec.cat_name)) {
+                    isOk = false;
+                    reasons.push(`大區不符：限放[${matchedRule.allowed_categories.join('、')}]，實際「${rec.cat_name}」`);
+                  }
+                  if (checkSales && matchedRule.allowed_sales_tiers.length > 0 && !matchedRule.allowed_sales_tiers.includes(salesTier)) {
+                    const allowedLabels = matchedRule.allowed_sales_tiers.map(formatTierLabel).join('、');
+                    isOk = false;
+                    reasons.push(`月銷不符：限放[${allowedLabels}]，實際「${formatTierLabel(salesTier)}(月銷${rec.monthly_sales})」`);
+                  }
+                  if (matchedRule.allowed_volumes.length > 0 && rec.volume_type && !matchedRule.allowed_volumes.includes(rec.volume_type)) {
+                    isOk = false;
+                    reasons.push(`材積不符：限放[${matchedRule.allowed_volumes.join('、')}]，實際「${rec.volume_type}」`);
+                  }
                 }
               }
 
@@ -614,7 +651,7 @@ module.exports = function(db) {
                   let suggestedList = [];
                   if (checkSales && tierTargetMap[salesTier]) suggestedList = suggestedList.concat(tierTargetMap[salesTier]);
                   if (checkCat && catTargetMap[rec.cat_name]) suggestedList = suggestedList.concat(catTargetMap[rec.cat_name]);
-                  const suggested = Array.from(new Set(suggestedList)).slice(0, 2).join(' 或 ') || '請依設定規則調整儲位';
+                  const suggested = Array.from(new Set(suggestedList)).slice(0, 2).join(' 或 ') || '請移往開放中的撿貨區/庫區';
 
                   exceptions.push({
                     sku_id: rec.sku_id,
@@ -630,6 +667,8 @@ module.exports = function(db) {
                     bin_code: rec.bin_code,
                     qty: rec.qty,
                     zone_name: matchedRule ? matchedRule.zone_name : '未定義區段',
+                    zone_role: zoneRole,
+                    zone_role_label: formatZoneRoleLabel(zoneRole),
                     reason: reasons.join('；'),
                     suggested_zone: suggested
                   });
@@ -669,6 +708,11 @@ module.exports = function(db) {
 
               tierStats[salesTier].total++;
               if (isOk) tierStats[salesTier].passed++; else tierStats[salesTier].failed++;
+
+              if (roleStats[zoneRole]) {
+                roleStats[zoneRole].total++;
+                if (isOk) roleStats[zoneRole].passed++; else roleStats[zoneRole].failed++;
+              }
             });
 
             const toArr = (obj) => Object.values(obj).map(x => ({
@@ -680,6 +724,11 @@ module.exports = function(db) {
               tier: k,
               ...tierStats[k],
               accuracyPct: tierStats[k].total > 0 ? Number(((tierStats[k].passed / tierStats[k].total) * 100).toFixed(2)) : 0
+            }));
+
+            const byZoneRole = ['PICK', 'BOTH', 'STORAGE', 'CLOSED'].map(k => ({
+              ...roleStats[k],
+              accuracyPct: roleStats[k].total > 0 ? Number(((roleStats[k].passed / roleStats[k].total) * 100).toFixed(2)) : 0
             }));
 
             res.json({
@@ -698,6 +747,7 @@ module.exports = function(db) {
               byFloor: toArr(floorStats),
               byCategory: toArr(catStats),
               bySalesTier,
+              byZoneRole,
               byXRow,
               exceptions
             });
@@ -707,7 +757,7 @@ module.exports = function(db) {
     });
   });
 
-  // 7. 🧠 80 庫真實數據「三種擺放模式實際步行公尺(m)與找貨效益精算分析」（起點：7F A區；依各排層架實際公尺數計算）
+  // 7. 🧠 80 庫真實數據「三種擺放模式實際步行公尺(m)與找貨效益精算分析」（納入庫區/撿貨區/庫區+撿貨區/關閉中屬性）
   router.get('/audit/simulate-modes', (req, res) => {
     ensureTables(() => {
       getModeSettings((settings) => {
@@ -715,6 +765,7 @@ module.exports = function(db) {
           const rules = (ruleRows || []).map(r => ({
             ...r,
             rack_length_m: Number(r.rack_length_m || 20),
+            zone_role: VALID_ZONE_ROLES.includes(r.zone_role) ? r.zone_role : 'PICK',
             _isExactX: r.x_start === r.x_end ? 1 : 0
           })).sort((a, b) => b._isExactX - a._isExactX || a.id - b.id);
 
@@ -724,17 +775,13 @@ module.exports = function(db) {
               return res.json({ success: true, hasData: false });
             }
 
-            // 🌟 依據「7F A區起點」＋「各區跨排走道距離(m)」＋「該條層架實際公尺數(rack_length_m) × 格位深度比例」計算真實往返公尺數
-            const calcRealRoundTripMeters = (rec) => {
+            const calcRealRoundTripMeters = (rec, matchedRule) => {
               const f = String(rec.floor || '').toUpperCase().trim();
               const a = String(rec.area || '').toUpperCase().trim();
               const parsed = parseBinCode(rec.bin_code);
-              const matchedRule = matchRuleForRecord(rec, rules);
 
-              // 1. 該條層架實際總長度（公尺）
               const rackLenM = matchedRule && matchedRule.rack_length_m > 0 ? matchedRule.rack_length_m : 20;
 
-              // 2. 計算走進該排層架內部的深度公尺數（依 Y 格號在該排起訖範圍的比例）
               let aisleDepthM = rackLenM * 0.4;
               if (parsed) {
                 const yStart = matchedRule ? Math.max(1, parseInt(matchedRule.y_start || '1', 10)) : 1;
@@ -743,7 +790,6 @@ module.exports = function(db) {
                 aisleDepthM = ratio * rackLenM;
               }
 
-              // 3. 計算排號橫向間距（排號數字越大，離起點側邊越遠，每排間距約 2.2 公尺）
               let rowIndexOffsetM = 0;
               if (parsed) {
                 const mNum = parsed.x.match(/(\d+)$/);
@@ -753,41 +799,35 @@ module.exports = function(db) {
                 }
               }
 
-              // 4. 從「7F A區起點」到達該樓層區域入口的單趟基礎公尺數（含夾層樓梯/貨梯等效步行距離）
               let zoneEntryM = 45;
               if (f.startsWith('7F')) {
-                if (a === 'A' || (parsed && parsed.x.startsWith('M'))) zoneEntryM = 6;   // 7F A區起點核心
-                else if (a === 'B') zoneEntryM = 24;                                   // 7F B區
-                else if (a === 'C') zoneEntryM = 34;                                   // 7F C區
-                else zoneEntryM = 42;                                                  // 7F D區
+                if (a === 'A' || (parsed && parsed.x.startsWith('M'))) zoneEntryM = 6;
+                else if (a === 'B') zoneEntryM = 24;
+                else if (a === 'C') zoneEntryM = 34;
+                else zoneEntryM = 42;
               } else if (f.startsWith('6F')) {
-                // 6F 夾層（B~D區）在 7F 正下方夾層
                 if (a === 'B') zoneEntryM = 48;
                 else if (a === 'C') zoneEntryM = 56;
                 else zoneEntryM = 64;
               } else if (f.startsWith('8F')) {
-                // 8F 夾層（A~D區）在 7F 正上方夾層
                 if (a === 'A') zoneEntryM = 54;
                 else if (a === 'B') zoneEntryM = 62;
                 else if (a === 'C') zoneEntryM = 68;
                 else zoneEntryM = 74;
               } else if (f.startsWith('4F')) {
-                // 4F 夾層貴重區（B區小房間）
                 zoneEntryM = 88;
               } else if (f.startsWith('3F')) {
-                // 3F 樓層正中間重型貨架（3B/3C）
                 zoneEntryM = 96;
               } else if (f.startsWith('2F')) {
-                // 2F 夾層（東側 A/B區、西側 B區 — 距離最遠）
                 zoneEntryM = f.includes('東') ? 115 : 128;
               }
 
-              // 單趟總公尺 = 區域入口距離 + 排間橫移 + 層架深度；往返 = × 2
               const oneWayM = zoneEntryM + rowIndexOffsetM + aisleDepthM;
               return Number((oneWayM * 2).toFixed(1));
             };
 
-            const isRealGoldenZone = (floorStr, areaStr, binCode) => {
+            const isRealGoldenZone = (floorStr, areaStr, binCode, zoneRole) => {
+              if (zoneRole === 'CLOSED' || zoneRole === 'STORAGE') return false;
               const f = String(floorStr || '').toUpperCase().trim();
               const a = String(areaStr || '').toUpperCase().trim();
               const parsed = parseBinCode(binCode);
@@ -800,6 +840,8 @@ module.exports = function(db) {
             let totalPickFrequency = 0;
             let hotItemsCount = 0;
             let hotItemsInGoldenZone = 0;
+            let closedZoneStockCount = 0;
+            let hotInStorageOnlyCount = 0;
 
             const catFloorSpread = {};
             const tierDistribution = {
@@ -810,18 +852,30 @@ module.exports = function(db) {
             };
 
             const seenSkuTier = new Set();
-            const enrichedWithMeters = records.map(rec => {
-              const roundTripM = calcRealRoundTripMeters(rec);
+            const enrichedRecords = records.map(rec => {
+              const matchedRule = matchRuleForRecord(rec, rules);
+              const zoneRole = matchedRule ? matchedRule.zone_role : 'PICK';
+              const roundTripM = calcRealRoundTripMeters(rec, matchedRule);
               const pickFreq = Math.max(1, Number(rec.pick_days_m || 0) || Math.ceil(Number(rec.monthly_sales || 0) / 3));
-              return { ...rec, roundTripM, pickFreq };
+              return { ...rec, zoneRole, roundTripM, pickFreq };
             });
 
-            enrichedWithMeters.forEach(rec => {
+            enrichedRecords.forEach(rec => {
               const tier = classifySalesTier(rec.monthly_sales, settings);
-              currentTotalMeters += rec.pickFreq * rec.roundTripM;
-              totalPickFrequency += rec.pickFreq;
 
-              const isGolden = isRealGoldenZone(rec.floor, rec.area, rec.bin_code);
+              if (rec.zoneRole === 'CLOSED') {
+                closedZoneStockCount++;
+              }
+
+              // 只有「撿貨區 (PICK)」與「庫區+撿貨區 (BOTH)」計入日常散單揀貨步行公里數；「純庫區 (STORAGE)」不計入散單步行
+              if (rec.zoneRole === 'PICK' || rec.zoneRole === 'BOTH') {
+                currentTotalMeters += rec.pickFreq * rec.roundTripM;
+                totalPickFrequency += rec.pickFreq;
+              } else if (rec.zoneRole === 'STORAGE' && (tier === 'A' || tier === 'B')) {
+                hotInStorageOnlyCount++;
+              }
+
+              const isGolden = isRealGoldenZone(rec.floor, rec.area, rec.bin_code, rec.zoneRole);
               if (tier === 'A' || tier === 'B') {
                 hotItemsCount++;
                 if (isGolden) hotItemsInGoldenZone++;
@@ -839,14 +893,16 @@ module.exports = function(db) {
                 td.skuCount++;
               }
 
-              if (rec.cat_name) {
+              if (rec.cat_name && rec.zoneRole !== 'CLOSED') {
                 if (!catFloorSpread[rec.cat_name]) catFloorSpread[rec.cat_name] = new Set();
                 catFloorSpread[rec.cat_name].add(rec.floor || '未知');
               }
             });
 
-            const allSlotMeters = enrichedWithMeters.map(r => r.roundTripM).sort((a, b) => a - b);
-            const recordsByFreqDesc = [...enrichedWithMeters].sort((a, b) => b.pickFreq - a.pickFreq);
+            // 只在「撿貨區 / 庫區+撿貨區」的有效儲位池中進行熱度重排模擬（排除關閉中與純庫區）
+            const activePickRecords = enrichedRecords.filter(r => r.zoneRole === 'PICK' || r.zoneRole === 'BOTH');
+            const allSlotMeters = activePickRecords.map(r => r.roundTripM).sort((a, b) => a - b);
+            const recordsByFreqDesc = [...activePickRecords].sort((a, b) => b.pickFreq - a.pickFreq);
 
             let pureSalesMeters = 0;
             recordsByFreqDesc.forEach((r, idx) => {
@@ -859,7 +915,6 @@ module.exports = function(db) {
             const pureSalesKm = Number((pureSalesMeters / 1000).toFixed(1));
             const hybridKm = Number((hybridMeters / 1000).toFixed(1));
 
-            // 倉庫人員平均步行速度約 4 km/h（66.7 公尺/分鐘）
             const calcSavedHours = (baseM, newM) => Number((Math.max(0, baseM - newM) / 4000).toFixed(1));
 
             const avgCatFloors = Object.values(catFloorSpread).length > 0
@@ -895,8 +950,8 @@ module.exports = function(db) {
                 savedHours: calcSavedHours(currentTotalMeters, pureSalesMeters),
                 goldenHotPct: Math.min(98, Math.max(currentHotRatio + 22, 88)),
                 findEaseScore: 64,
-                moveEffortLevel: `高（約 ${Math.min(65, Math.round(misallocatedHotRatio * 0.85))}% 儲位需大搬風）`,
-                pros: 'A/B 級爆品全數集中於 7F A區起點核心與 7F/6F 黃金層，每月行走公里數最短',
+                moveEffortLevel: `高（約 ${Math.min(65, Math.round(misallocatedHotRatio * 0.85))}% 撿貨區儲位需大搬風）`,
+                pros: 'A/B 級爆品全數集中於 7F/6F 撿貨黃金區，每月行走公里數最短',
                 cons: '不同大區商品混雜在一起，失去品類邏輯，極度依賴系統儲位導引',
                 recommended: false
               },
@@ -911,19 +966,24 @@ module.exports = function(db) {
                 goldenHotPct: Math.min(92, Math.max(currentHotRatio + 15, 78)),
                 findEaseScore: Math.min(95, Math.max(82, Math.round(98 - avgCatFloors * 3.0))),
                 moveEffortLevel: `中（僅需將遠端 2F~4F 的 A/B 爆品前移約 ${Math.min(35, Math.round(misallocatedHotRatio * 0.45))}%）`,
-                pros: '保留「大區＋借採」找貨直覺，同時將高月銷爆品拉回 7F/6F 近端黃金排位，兼顧找貨速度與短距離',
-                cons: '規則設定需同時維護大區與月銷級距',
+                pros: '保留「大區＋借採」找貨直覺，將 D級滯銷品移入「庫區」、爆品集中「撿貨區」前段',
+                cons: '規則設定需同時維護大區、月銷級距與區域用途',
                 recommended: true
               }
             ];
 
-            const topMoveCandidates = enrichedWithMeters
-              .map(r => ({
-                ...r,
-                sales_tier: classifySalesTier(r.monthly_sales, settings)
-              }))
-              .filter(r => (r.sales_tier === 'A' || r.sales_tier === 'B') && r.roundTripM >= 165)
-              .sort((a, b) => Number(b.monthly_sales || 0) - Number(a.monthly_sales || 0))
+            // 優先移庫建議：1) 放在「關閉中」區域的庫存  2) 放在純「庫區」的 A/B 級爆品  3) 放在遠端夾層(2F~4F)的 A/B 級爆品
+            const topMoveCandidates = enrichedRecords
+              .map(r => {
+                const tier = classifySalesTier(r.monthly_sales, settings);
+                let moveReason = '';
+                if (r.zoneRole === 'CLOSED') moveReason = '🚫 位於「關閉中」區域，需立即清空移出';
+                else if (r.zoneRole === 'STORAGE' && (tier === 'A' || tier === 'B')) moveReason = '📦 爆品誤放純「庫區」，建議移入撿貨區減少補貨';
+                else if ((tier === 'A' || tier === 'B') && r.roundTripM >= 165) moveReason = '🚶 爆品位於遠端低樓層，拉回 7F/6F 可大幅縮短步行';
+                return { ...r, sales_tier: tier, zone_role_label: formatZoneRoleLabel(r.zoneRole), moveReason };
+              })
+              .filter(r => r.moveReason !== '')
+              .sort((a, b) => (a.zoneRole === 'CLOSED' ? -1 : 1) - (b.zoneRole === 'CLOSED' ? -1 : 1) || Number(b.monthly_sales || 0) - Number(a.monthly_sales || 0))
               .slice(0, 15);
 
             res.json({
@@ -931,6 +991,8 @@ module.exports = function(db) {
               hasData: true,
               settings,
               totalRecords: records.length,
+              closedZoneStockCount,
+              hotInStorageOnlyCount,
               totalPickFrequency,
               tierDistribution: Object.values(tierDistribution),
               modesComparison,
@@ -946,7 +1008,7 @@ module.exports = function(db) {
   router.post('/rules/auto-suggest', (req, res) => {
     ensureTables(() => {
       getModeSettings((settings) => {
-        db.all(`SELECT * FROM storage_placement_rules`, [], (rErr, rules) => {
+        db.all(`SELECT * FROM storage_placement_rules WHERE zone_role != 'CLOSED'`, [], (rErr, rules) => {
           loadAuditRecordsWithSales((dErr, records) => {
             if (!records || records.length === 0) {
               return res.status(400).json({ success: false, message: '請先匯入一份 80 庫 CSV 資料，系統才能自動分析各區分布！' });
@@ -992,7 +1054,7 @@ module.exports = function(db) {
               });
               db.run('COMMIT', (cErr) => {
                 if (cErr) return res.status(500).json({ success: false, message: cErr.message });
-                res.json({ success: true, message: '🎉 已根據目前 80 庫實際分布自動填入各區段主要大區與月銷級距！' });
+                res.json({ success: true, message: '🎉 已根據目前 80 庫實際分布自動填入各開放區段主要大區與月銷級距！' });
               });
             });
           });
