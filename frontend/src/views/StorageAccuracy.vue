@@ -44,13 +44,12 @@
             :class="{ active: activeTab === 'rules' }"
             @click="activeTab = 'rules'"
           >
-            ⚙️ 儲位規則與月銷設定 ({{ rules.length }} 條)
+            ⚙️ 儲位規則與層架公尺設定 ({{ rules.length }} 條)
           </button>
         </div>
       </div>
 
       <div class="header-right">
-        <!-- 擺放模式快速切換 -->
         <el-select
           v-model="modeSettings.mode"
           size="mini"
@@ -101,11 +100,10 @@
 
       <div v-if="!report.hasData" class="empty-guide-card">
         <h4>尚未匯入 80 庫庫存快照資料</h4>
-        <p>您可先切換至 <strong>「⚙️ 儲位規則與月銷設定」</strong> 設定月銷量級距與規則，再上傳 80 庫 CSV（或直接從首頁匯入 80 庫）即可自動分析！</p>
+        <p>您可先切換至 <strong>「⚙️ 儲位規則與層架公尺設定」</strong> 設定每條層架長度、月銷級距與規則，再上傳 80 庫 CSV 即可自動分析！</p>
       </div>
 
       <template v-else>
-        <!-- 四大維度分析卡片（借採 / 月銷級距 / 樓層 / 大區） -->
         <div class="breakdown-grid-4">
           <div class="panel-card">
             <div class="panel-head">🏷️ 借 / 採 擺放準確率</div>
@@ -164,7 +162,6 @@
           </div>
         </div>
 
-        <!-- 異常清單 -->
         <div class="panel-card exception-table-card">
           <div class="panel-head row-between">
             <span>🚨 放錯儲位異常移庫清單（共 {{ filteredExceptions.length }} 筆異常｜當前模式：{{ modeLabelMap[modeSettings.mode] }}）</span>
@@ -245,11 +242,10 @@
     <div v-if="activeTab === 'simulation'" class="tab-content" v-loading="simLoading">
       <div v-if="!simData.hasData" class="empty-guide-card">
         <h4>尚無 80 庫庫存數據可供動線模擬</h4>
-        <p>請先上傳 80 庫 CSV（或從首頁匯入 80 庫），系統即可自動分析三種擺放模式的揀貨距離與找貨效益！</p>
+        <p>請先上傳 80 庫 CSV（或從首頁匯入 80 庫），系統即可自動依各層架設定公尺數算出揀貨距離！</p>
       </div>
 
       <template v-else>
-        <!-- 三種擺放模式對比卡片 -->
         <div class="sim-modes-grid">
           <div
             v-for="m in simData.modesComparison"
@@ -267,15 +263,17 @@
 
             <div class="sim-metrics-row">
               <div class="sim-metric">
-                <span class="sm-lbl">🚶 揀貨距離指數</span>
-                <span class="sm-val text-blue">{{ m.walkDistanceIndex.toLocaleString() }}</span>
-                <span v-if="m.walkSavingPct > 0" class="sm-sub text-green">▼ 縮短 {{ m.walkSavingPct }}% 步行距離</span>
-                <span v-else class="sm-sub text-dim">基準距離</span>
+                <span class="sm-lbl">🚶 月預估步行總里程</span>
+                <span class="sm-val text-blue">{{ m.walkDistanceIndex }} <small style="font-size: 11px;">km</small></span>
+                <span v-if="m.walkSavingPct > 0" class="sm-sub text-green">
+                  ▼ 省 {{ m.savedKm }} km ({{ m.walkSavingPct }}% / 約 {{ m.savedHours }} 小時)
+                </span>
+                <span v-else class="sm-sub text-dim">7F A區出發往返基準</span>
               </div>
               <div class="sim-metric">
                 <span class="sm-lbl">🔥 黃金區位爆品率</span>
                 <span class="sm-val text-yellow">{{ m.goldenHotPct }}%</span>
-                <span class="sm-sub text-dim">近出貨口/前段佔比</span>
+                <span class="sm-sub text-dim">7F/6F近端佔比</span>
               </div>
               <div class="sim-metric">
                 <span class="sm-lbl">🧭 找貨直覺度評分</span>
@@ -304,7 +302,6 @@
           </div>
         </div>
 
-        <!-- 下半部：左邊「現況月銷分級分佈」、右邊「急需前移的遠端高熱銷爆品」 -->
         <div class="sim-bottom-grid">
           <div class="panel-card">
             <div class="panel-head">📊 現況 80 庫月銷量級距與黃金區位佔比分析</div>
@@ -339,7 +336,7 @@
           </div>
 
           <div class="panel-card">
-            <div class="panel-head">🚀 優先移庫建議：目前放在遠端高樓層的 A/B 級爆品（Top 15）</div>
+            <div class="panel-head">🚀 優先移庫建議：目前放在遠端夾層(2F~4F)的 A/B 級爆品（Top 15）</div>
             <div class="table-scroll">
               <table class="dark-table">
                 <thead>
@@ -347,9 +344,9 @@
                     <th>商品ID</th>
                     <th>商品名稱</th>
                     <th>大區</th>
-                    <th>借/採</th>
                     <th>月銷量</th>
                     <th>目前樓層/儲位</th>
+                    <th>單次往返距離</th>
                     <th>動線建議</th>
                   </tr>
                 </thead>
@@ -361,10 +358,10 @@
                     <td class="text-blue font-bold">{{ c.sku_id }}</td>
                     <td class="text-left">{{ c.sku_name }}</td>
                     <td>{{ c.cat_name }}</td>
-                    <td>{{ c.trade_type }}</td>
                     <td class="text-yellow font-bold">{{ c.monthly_sales }}</td>
                     <td class="text-red font-bold">{{ c.floor }} / {{ c.bin_code }}</td>
-                    <td class="text-green">建議前移至同大區前段或 2F~4F/6F 黃金區</td>
+                    <td class="text-yellow font-bold">{{ c.roundTripM }} 公尺</td>
+                    <td class="text-green">拉回 7F/6F 黃金區可大幅縮短步行</td>
                   </tr>
                 </tbody>
               </table>
@@ -452,13 +449,12 @@
           </div>
         </div>
 
-        <!-- 右側點擊儲位排號即時設定面板 -->
         <div class="panel-card fp-inspector">
           <div class="panel-head">🔎 點選平面圖儲位查看與設定</div>
           <div v-if="!selectedMapRack" class="fp-inspector-empty">
             <div style="font-size: 28px; margin-bottom: 8px;">👆</div>
             <div>請在左側平面圖點擊任一排貨架</div>
-            <div class="text-dim" style="font-size: 11px; margin-top: 6px;">可直接查看該排目前的「借/採」、大區與月銷分佈，並立即修改規則！</div>
+            <div class="text-dim" style="font-size: 11px; margin-top: 6px;">可直接設定該排「層架公尺數」、「借/採」、大區與月銷規則！</div>
           </div>
           <div v-else class="fp-inspector-body">
             <div class="insp-title-box">
@@ -486,7 +482,17 @@
             </div>
 
             <div class="insp-rule-form">
-              <div class="insp-sub-title">⚙️ 設定【{{ selectedMapRack.xCode }} 排】擺放規則</div>
+              <div class="insp-sub-title">⚙️ 設定【{{ selectedMapRack.xCode }} 排】長度與規則</div>
+
+              <label class="m-lbl">📏 該條層架長度（公尺）：</label>
+              <el-input-number
+                v-model="mapEditRule.rack_length_m"
+                :min="0.5"
+                :max="200"
+                :step="0.5"
+                size="mini"
+                style="width: 100%; margin-bottom: 8px;"
+              />
 
               <label class="m-lbl">允許借 / 採：</label>
               <el-select v-model="mapEditRule.allowed_trade" size="mini" style="width: 100%; margin-bottom: 8px;">
@@ -535,7 +541,7 @@
               </el-select>
 
               <el-button type="primary" size="mini" style="width: 100%;" @click="saveMapRackRule">
-                💾 儲存【{{ selectedMapRack.xCode }}】規則並重算
+                💾 儲存【{{ selectedMapRack.xCode }}】設定並重算
               </el-button>
             </div>
           </div>
@@ -543,9 +549,8 @@
       </div>
     </div>
 
-    <!-- ==================== TAB 4: 儲位規則與月銷級距線上設定 ==================== -->
+    <!-- ==================== TAB 4: 儲位規則與層架公尺線上設定 ==================== -->
     <div v-if="activeTab === 'rules'" class="tab-content" v-loading="loading">
-      <!-- 月銷量級距門檻設定卡片 -->
       <div class="panel-card sales-tier-config-card">
         <div class="row-between">
           <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
@@ -594,16 +599,17 @@
           <table class="dark-table rules-edit-table">
             <thead>
               <tr>
-                <th style="width: 50px;">啟用</th>
-                <th style="width: 65px;">樓層</th>
-                <th style="width: 140px;">區域名稱</th>
-                <th style="width: 120px;">X軸 (排號)</th>
-                <th style="width: 95px;">Y軸 / 層</th>
-                <th style="width: 115px;">允許借 / 採</th>
-                <th style="min-width: 190px;">允許月銷量級距（可多選）</th>
-                <th style="min-width: 210px;">允許商品大區（可多選）</th>
-                <th style="width: 125px;">允許材積</th>
-                <th style="width: 130px;">操作</th>
+                <th style="width: 48px;">啟用</th>
+                <th style="width: 60px;">樓層</th>
+                <th style="width: 135px;">區域名稱</th>
+                <th style="width: 110px;">X軸 (排號)</th>
+                <th style="width: 90px;">Y軸 / 層</th>
+                <th style="width: 115px;">📏 層架長度(m)</th>
+                <th style="width: 110px;">允許借 / 採</th>
+                <th style="min-width: 185px;">允許月銷量級距（可多選）</th>
+                <th style="min-width: 200px;">允許商品大區（可多選）</th>
+                <th style="width: 120px;">允許材積</th>
+                <th style="width: 125px;">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -619,10 +625,22 @@
                 </td>
                 <td style="font-size: 11px;">{{ r.y_start }}~{{ r.y_end }} ({{ r.layer_start }}~{{ r.layer_end }})</td>
                 <td>
+                  <el-input-number
+                    v-model="r.rack_length_m"
+                    :min="0.5"
+                    :max="200"
+                    :step="0.5"
+                    size="mini"
+                    controls-position="right"
+                    style="width: 98px;"
+                    @change="saveSingleRule(r)"
+                  />
+                </td>
+                <td>
                   <el-select
                     v-model="r.allowed_trade"
                     size="mini"
-                    style="width: 105px;"
+                    style="width: 100px;"
                     @change="saveSingleRule(r)"
                   >
                     <el-option label="借採皆可" value="ALL" />
@@ -731,6 +749,10 @@
           <el-input v-model="newRule.layer_end" size="mini" placeholder="Z" />
         </div>
         <div>
+          <label class="m-lbl">📏 層架總長度 (公尺)</label>
+          <el-input-number v-model="newRule.rack_length_m" :min="0.5" :max="200" :step="0.5" size="mini" style="width: 100%;" />
+        </div>
+        <div>
           <label class="m-lbl">允許借 / 採</label>
           <el-select v-model="newRule.allowed_trade" size="mini" style="width: 100%;">
             <el-option label="借採皆可" value="ALL" />
@@ -738,7 +760,7 @@
             <el-option label="僅限「採」" value="採" />
           </el-select>
         </div>
-        <div>
+        <div style="grid-column: span 2;">
           <label class="m-lbl">允許月銷量級距（可多選）</label>
           <el-select v-model="newRule.allowed_sales_tiers" multiple size="mini" style="width: 100%;">
             <el-option :label="`A級爆品 (≥${modeSettings.tierA_min})`" value="A" />
@@ -810,6 +832,7 @@ export default {
         floor: '7F',
         x_start: '',
         x_end: '',
+        rack_length_m: 20,
         allowed_trade: 'ALL',
         allowed_categories: [],
         allowed_volumes: [],
@@ -851,6 +874,7 @@ export default {
         y_end: '099',
         layer_start: 'A',
         layer_end: 'Z',
+        rack_length_m: 20,
         allowed_trade: 'ALL',
         allowed_categories: [],
         allowed_volumes: [],
@@ -933,7 +957,7 @@ export default {
           }
 
           const ruleText = rule
-            ? `規則：${rule.allowed_trade === 'ALL' ? '借採皆可' : '僅限' + rule.allowed_trade}${rule.allowed_sales_tiers?.length ? '｜月銷：' + rule.allowed_sales_tiers.join('/') + '級' : ''}${rule.allowed_categories?.length ? '｜大區：' + rule.allowed_categories.join('、') : ''}`
+            ? `長度：${rule.rack_length_m || 20}m｜規則：${rule.allowed_trade === 'ALL' ? '借採皆可' : '僅限' + rule.allowed_trade}${rule.allowed_sales_tiers?.length ? '｜月銷：' + rule.allowed_sales_tiers.join('/') + '級' : ''}${rule.allowed_categories?.length ? '｜大區：' + rule.allowed_categories.join('、') : ''}`
             : '尚未設定規則';
           const statText = xStat ? `\n現況：共 ${xStat.total} 筆（合格 ${xStat.passed} / 異常 ${xStat.failed}）` : '';
           tooltip = `${label}（排號 ${xCode}）\n${ruleText}${statText}`;
@@ -1048,11 +1072,16 @@ export default {
       if (exactRule) {
         this.mapEditRule = {
           ...exactRule,
+          rack_length_m: Number(exactRule.rack_length_m || 20),
           allowed_categories: [...(exactRule.allowed_categories || [])],
           allowed_volumes: [...(exactRule.allowed_volumes || [])],
           allowed_sales_tiers: [...(exactRule.allowed_sales_tiers || [])]
         };
       } else {
+        const rangeRule = this.rules.find(
+          r => (r.floor === this.selectedMapFloor || r.floor.startsWith(this.selectedMapFloor)) &&
+            node.xCode >= r.x_start && node.xCode <= r.x_end
+        );
         const defaultFloor = this.selectedMapFloor === '2F'
           ? (node.xCode.startsWith('C2') ? '2F東' : '2F西')
           : this.selectedMapFloor;
@@ -1060,18 +1089,19 @@ export default {
           id: null,
           zone_name: `${node.xCode} 排`,
           floor: defaultFloor,
-          storage_type: '',
-          area: '',
+          storage_type: rangeRule ? rangeRule.storage_type : '',
+          area: rangeRule ? rangeRule.area : '',
           x_start: node.xCode,
           x_end: node.xCode,
-          y_start: '001',
-          y_end: '999',
-          layer_start: 'A',
-          layer_end: 'Z',
-          allowed_trade: 'ALL',
-          allowed_categories: [],
-          allowed_volumes: [],
-          allowed_sales_tiers: [],
+          y_start: rangeRule ? rangeRule.y_start : '001',
+          y_end: rangeRule ? rangeRule.y_end : '999',
+          layer_start: rangeRule ? rangeRule.layer_start : 'A',
+          layer_end: rangeRule ? rangeRule.layer_end : 'Z',
+          rack_length_m: rangeRule ? Number(rangeRule.rack_length_m || 20) : 20,
+          allowed_trade: rangeRule ? rangeRule.allowed_trade : 'ALL',
+          allowed_categories: rangeRule ? [...(rangeRule.allowed_categories || [])] : [],
+          allowed_volumes: rangeRule ? [...(rangeRule.allowed_volumes || [])] : [],
+          allowed_sales_tiers: rangeRule ? [...(rangeRule.allowed_sales_tiers || [])] : [],
           enabled: true
         };
       }
@@ -1080,7 +1110,7 @@ export default {
     async saveMapRackRule() {
       try {
         await axios.post('/api/storage-accuracy/rules/save', { rule: this.mapEditRule });
-        ElMessage.success(`🎉 已儲存【${this.mapEditRule.floor} - ${this.mapEditRule.x_start} 排】規則！`);
+        ElMessage.success(`🎉 已儲存【${this.mapEditRule.floor} - ${this.mapEditRule.x_start} 排 (${this.mapEditRule.rack_length_m}m)】設定！`);
         await this.refreshAll();
         if (this.selectedMapRack) this.selectRackOnMap(this.selectedMapRack);
       } catch (e) {
@@ -1091,7 +1121,7 @@ export default {
     async saveSingleRule(rule) {
       try {
         await axios.post('/api/storage-accuracy/rules/save', { rule });
-        ElMessage.success(`已儲存規則：${rule.floor} ${rule.x_start}${rule.x_start !== rule.x_end ? '~' + rule.x_end : ''}`);
+        ElMessage.success(`已儲存規則：${rule.floor} ${rule.x_start}${rule.x_start !== rule.x_end ? '~' + rule.x_end : ''} (${rule.rack_length_m}m)`);
         const repRes = await axios.get(`/api/storage-accuracy/audit/report?mode=${this.modeSettings.mode}`);
         if (repRes.data?.success) this.report = repRes.data;
       } catch (e) {
@@ -1137,6 +1167,7 @@ export default {
         y_end: '099',
         layer_start: 'A',
         layer_end: 'Z',
+        rack_length_m: 20,
         allowed_trade: 'ALL',
         allowed_categories: [],
         allowed_volumes: [],
@@ -1405,7 +1436,6 @@ export default {
 .st-bar { height: 100%; }
 .st-pct { font-weight: bold; text-align: right; }
 
-/* 三模式動線模擬卡片 */
 .sim-modes-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -1465,7 +1495,7 @@ export default {
 }
 .sim-metrics-row {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: 1.25fr 0.9fr 0.85fr;
   gap: 8px;
   background: #0f172a;
   padding: 8px;
@@ -1493,7 +1523,6 @@ export default {
   gap: 10px;
 }
 
-/* 月銷門檻設定列 */
 .sales-tier-config-card {
   padding: 8px 14px;
   flex-shrink: 0;
@@ -1507,7 +1536,6 @@ export default {
   color: #f8fafc;
 }
 
-/* 月銷級距小標籤 */
 .tier-pill {
   display: inline-block;
   padding: 2px 7px;
@@ -1520,7 +1548,6 @@ export default {
 .tier-C { background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); }
 .tier-D { background: rgba(148, 163, 184, 0.2); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.4); }
 
-/* 平面圖視覺化樣式 */
 .fp-toolbar { padding: 8px 12px; flex-shrink: 0; }
 .fp-floor-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
 .fp-fl-btn {

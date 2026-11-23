@@ -5,47 +5,47 @@ module.exports = function(db) {
   const router = express.Router();
 
   const DEFAULT_ZONE_ZONES = [
-    { zone_name: '80D-B區', floor: '2F西', storage_type: '重型層架-低', wh: '80', area: 'B', x_start: 'A01', x_end: 'A06', y_start: '043', y_end: '072', layer_start: 'A', layer_end: 'B' },
-    { zone_name: '80D-B區', floor: '2F西', storage_type: '落地儲位', wh: '80', area: 'B', x_start: 'A06', x_end: 'A08', y_start: '043', y_end: '072', layer_start: 'A', layer_end: 'A' },
-    { zone_name: '80D-C區', floor: '2F西', storage_type: '重型層架-低', wh: '80', area: 'C', x_start: 'A01', x_end: 'A06', y_start: '005', y_end: '034', layer_start: 'A', layer_end: 'B' },
-    { zone_name: '80D-C區', floor: '2F西', storage_type: '落地儲位', wh: '80', area: 'C', x_start: 'A07', x_end: 'A08', y_start: '005', y_end: '034', layer_start: 'A', layer_end: 'A' },
-    { zone_name: '80C2A', floor: '2F東', storage_type: '落地儲位', wh: '80', area: 'A', x_start: 'C2A', x_end: 'C2A', y_start: '002', y_end: '056', layer_start: 'A', layer_end: 'I' },
-    { zone_name: '80C2B', floor: '2F東', storage_type: '落地儲位', wh: '80', area: 'B', x_start: 'C2B', x_end: 'C2B', y_start: '002', y_end: '056', layer_start: 'A', layer_end: 'I' },
-    { zone_name: '80C2C', floor: '2F東', storage_type: '落地儲位', wh: '80', area: 'C', x_start: 'C2C', x_end: 'C2C', y_start: '002', y_end: '056', layer_start: 'A', layer_end: 'I' },
-    { zone_name: '80E-B區', floor: '3F', storage_type: '重型層架', wh: '80', area: 'B', x_start: 'E05', x_end: 'E08', y_start: '001', y_end: '039', layer_start: 'C', layer_end: 'E' },
-    { zone_name: '80E-B區', floor: '3F', storage_type: '重型層架-低', wh: '80', area: 'B', x_start: 'E05', x_end: 'E08', y_start: '001', y_end: '039', layer_start: 'A', layer_end: 'B' },
-    { zone_name: '80E-C區', floor: '3F', storage_type: '重型層架', wh: '80', area: 'C', x_start: 'E01', x_end: 'E04', y_start: '001', y_end: '039', layer_start: 'C', layer_end: 'E' },
-    { zone_name: '80E-C區', floor: '3F', storage_type: '重型層架-低', wh: '80', area: 'C', x_start: 'E01', x_end: 'E04', y_start: '001', y_end: '039', layer_start: 'A', layer_end: 'B' },
-    { zone_name: '80H(貴重區)', floor: '4F', storage_type: '中型層架(格)', wh: '80', area: 'B', x_start: 'H01', x_end: 'H17', y_start: '001', y_end: '005', layer_start: 'A', layer_end: 'E' },
-    { zone_name: '80H(貴重區)', floor: '4F', storage_type: '小藍格', wh: '80', area: 'B', x_start: 'H18', x_end: 'H18', y_start: '001', y_end: '028', layer_start: 'A', layer_end: 'G' },
-    { zone_name: '80K、L-B區', floor: '6F', storage_type: '重型層架', wh: '80', area: 'B', x_start: 'K01', x_end: 'K05', y_start: '061', y_end: '092', layer_start: 'A', layer_end: 'C' },
-    { zone_name: '80K、L-B區', floor: '6F', storage_type: 'AGV層架', wh: '80', area: 'B', x_start: 'L61', x_end: 'L84', y_start: '001', y_end: '005', layer_start: 'A', layer_end: 'F' },
-    { zone_name: '80K、L-C區', floor: '6F', storage_type: '重型層架', wh: '80', area: 'C', x_start: 'K01', x_end: 'K05', y_start: '027', y_end: '058', layer_start: 'A', layer_end: 'C' },
-    { zone_name: '80K、L-C區', floor: '6F', storage_type: 'AGV層架', wh: '80', area: 'C', x_start: 'L31', x_end: 'L60', y_start: '001', y_end: '005', layer_start: 'A', layer_end: 'E' },
-    { zone_name: '80L-D區', floor: '6F', storage_type: 'AGV層架', wh: '80', area: 'D', x_start: 'L01', x_end: 'L26', y_start: '001', y_end: '060', layer_start: 'A', layer_end: 'E' },
-    { zone_name: '80L-D區', floor: '6F', storage_type: 'AGV層架', wh: '80', area: 'D', x_start: 'L27', x_end: 'L30', y_start: '001', y_end: '060', layer_start: 'A', layer_end: 'G' },
-    { zone_name: '80M01-53(第一段)', floor: '7F', storage_type: 'AGV層架', wh: '80', area: 'A', x_start: 'M01', x_end: 'M53', y_start: '001', y_end: '052', layer_start: 'A', layer_end: 'E' },
-    { zone_name: '80M01-53(第二段)', floor: '7F', storage_type: 'AGV層架', wh: '80', area: 'A', x_start: 'M03', x_end: 'M53', y_start: '056', y_end: '067', layer_start: 'A', layer_end: 'F' },
-    { zone_name: '80M01-53(第三段)', floor: '7F', storage_type: 'AGV層架', wh: '80', area: 'A', x_start: 'M01', x_end: 'M53', y_start: '068', y_end: '079', layer_start: 'A', layer_end: 'E' },
-    { zone_name: '80M01-53(第四段)', floor: '7F', storage_type: 'AGV層架', wh: '80', area: 'A', x_start: 'M43', x_end: 'M53', y_start: '080', y_end: '094', layer_start: 'A', layer_end: 'E' },
-    { zone_name: '80O(貴重區)', floor: '7F', storage_type: '鐵櫃', wh: '80', area: 'A', x_start: 'O01', x_end: 'O01', y_start: '001', y_end: '027', layer_start: 'A', layer_end: 'L' },
-    { zone_name: '80N55-69(重型架)', floor: '7F', storage_type: '重型層架', wh: '80', area: 'A', x_start: 'N55', x_end: 'N69', y_start: '052', y_end: '075', layer_start: 'A', layer_end: 'E' },
-    { zone_name: '80N35-53(重型架)', floor: '7F', storage_type: '重型層架', wh: '80', area: 'B', x_start: 'N35', x_end: 'N53', y_start: '027', y_end: '075', layer_start: 'A', layer_end: 'E' },
-    { zone_name: '80N015-33(重型架)', floor: '7F', storage_type: '重型層架', wh: '80', area: 'C', x_start: 'N15', x_end: 'N33', y_start: '001', y_end: '075', layer_start: 'A', layer_end: 'E' },
-    { zone_name: '80N34', floor: '7F', storage_type: '落地儲位', wh: '80', area: 'C', x_start: 'N34', x_end: 'N34', y_start: '001', y_end: '044', layer_start: 'A', layer_end: 'A' },
-    { zone_name: '80S01-05(重型架)', floor: '7F', storage_type: '重型層架', wh: '80', area: 'D', x_start: 'S01', x_end: 'S05', y_start: '001', y_end: '049', layer_start: 'A', layer_end: 'E' },
-    { zone_name: '80N01-14(重型架)', floor: '7F', storage_type: '重型層架', wh: '80', area: 'D', x_start: 'N01', x_end: 'N14', y_start: '001', y_end: '068', layer_start: 'A', layer_end: 'E' },
-    { zone_name: '80R-A區', floor: '8F', storage_type: 'AGV層架', wh: '80', area: 'A', x_start: 'R11', x_end: 'R42', y_start: '001', y_end: '056', layer_start: 'A', layer_end: 'F' },
-    { zone_name: '80R、Q-B區', floor: '8F', storage_type: '重型層架', wh: '80', area: 'B', x_start: 'R01', x_end: 'R05', y_start: '063', y_end: '098', layer_start: 'A', layer_end: 'C' },
-    { zone_name: '80R、Q-C區', floor: '8F', storage_type: '重型層架', wh: '80', area: 'C', x_start: 'R01', x_end: 'R05', y_start: '027', y_end: '062', layer_start: 'A', layer_end: 'C' },
-    { zone_name: '80R、Q-D區', floor: '8F', storage_type: '重型層架', wh: '80', area: 'D', x_start: 'R01', x_end: 'R05', y_start: '001', y_end: '026', layer_start: 'A', layer_end: 'C' }
+    { zone_name: '80D-B區', floor: '2F西', storage_type: '重型層架-低', wh: '80', area: 'B', x_start: 'A01', x_end: 'A06', y_start: '043', y_end: '072', layer_start: 'A', layer_end: 'B', rack_length_m: 18 },
+    { zone_name: '80D-B區', floor: '2F西', storage_type: '落地儲位', wh: '80', area: 'B', x_start: 'A06', x_end: 'A08', y_start: '043', y_end: '072', layer_start: 'A', layer_end: 'A', rack_length_m: 18 },
+    { zone_name: '80D-C區', floor: '2F西', storage_type: '重型層架-低', wh: '80', area: 'C', x_start: 'A01', x_end: 'A06', y_start: '005', y_end: '034', layer_start: 'A', layer_end: 'B', rack_length_m: 18 },
+    { zone_name: '80D-C區', floor: '2F西', storage_type: '落地儲位', wh: '80', area: 'C', x_start: 'A07', x_end: 'A08', y_start: '005', y_end: '034', layer_start: 'A', layer_end: 'A', rack_length_m: 18 },
+    { zone_name: '80C2A', floor: '2F東', storage_type: '落地儲位', wh: '80', area: 'A', x_start: 'C2A', x_end: 'C2A', y_start: '002', y_end: '056', layer_start: 'A', layer_end: 'I', rack_length_m: 26 },
+    { zone_name: '80C2B', floor: '2F東', storage_type: '落地儲位', wh: '80', area: 'B', x_start: 'C2B', x_end: 'C2B', y_start: '002', y_end: '056', layer_start: 'A', layer_end: 'I', rack_length_m: 26 },
+    { zone_name: '80C2C', floor: '2F東', storage_type: '落地儲位', wh: '80', area: 'C', x_start: 'C2C', x_end: 'C2C', y_start: '002', y_end: '056', layer_start: 'A', layer_end: 'I', rack_length_m: 26 },
+    { zone_name: '80E-B區', floor: '3F', storage_type: '重型層架', wh: '80', area: 'B', x_start: 'E05', x_end: 'E08', y_start: '001', y_end: '039', layer_start: 'C', layer_end: 'E', rack_length_m: 24 },
+    { zone_name: '80E-B區', floor: '3F', storage_type: '重型層架-低', wh: '80', area: 'B', x_start: 'E05', x_end: 'E08', y_start: '001', y_end: '039', layer_start: 'A', layer_end: 'B', rack_length_m: 24 },
+    { zone_name: '80E-C區', floor: '3F', storage_type: '重型層架', wh: '80', area: 'C', x_start: 'E01', x_end: 'E04', y_start: '001', y_end: '039', layer_start: 'C', layer_end: 'E', rack_length_m: 24 },
+    { zone_name: '80E-C區', floor: '3F', storage_type: '重型層架-低', wh: '80', area: 'C', x_start: 'E01', x_end: 'E04', y_start: '001', y_end: '039', layer_start: 'A', layer_end: 'B', rack_length_m: 24 },
+    { zone_name: '80H(貴重區)', floor: '4F', storage_type: '中型層架(格)', wh: '80', area: 'B', x_start: 'H01', x_end: 'H17', y_start: '001', y_end: '005', layer_start: 'A', layer_end: 'E', rack_length_m: 6 },
+    { zone_name: '80H(貴重區)', floor: '4F', storage_type: '小藍格', wh: '80', area: 'B', x_start: 'H18', x_end: 'H18', y_start: '001', y_end: '028', layer_start: 'A', layer_end: 'G', rack_length_m: 12 },
+    { zone_name: '80K、L-B區', floor: '6F', storage_type: '重型層架', wh: '80', area: 'B', x_start: 'K01', x_end: 'K05', y_start: '061', y_end: '092', layer_start: 'A', layer_end: 'C', rack_length_m: 20 },
+    { zone_name: '80K、L-B區', floor: '6F', storage_type: 'AGV層架', wh: '80', area: 'B', x_start: 'L61', x_end: 'L84', y_start: '001', y_end: '005', layer_start: 'A', layer_end: 'F', rack_length_m: 6 },
+    { zone_name: '80K、L-C區', floor: '6F', storage_type: '重型層架', wh: '80', area: 'C', x_start: 'K01', x_end: 'K05', y_start: '027', y_end: '058', layer_start: 'A', layer_end: 'C', rack_length_m: 20 },
+    { zone_name: '80K、L-C區', floor: '6F', storage_type: 'AGV層架', wh: '80', area: 'C', x_start: 'L31', x_end: 'L60', y_start: '001', y_end: '005', layer_start: 'A', layer_end: 'E', rack_length_m: 6 },
+    { zone_name: '80L-D區', floor: '6F', storage_type: 'AGV層架', wh: '80', area: 'D', x_start: 'L01', x_end: 'L26', y_start: '001', y_end: '060', layer_start: 'A', layer_end: 'E', rack_length_m: 28 },
+    { zone_name: '80L-D區', floor: '6F', storage_type: 'AGV層架', wh: '80', area: 'D', x_start: 'L27', x_end: 'L30', y_start: '001', y_end: '060', layer_start: 'A', layer_end: 'G', rack_length_m: 28 },
+    { zone_name: '80M01-53(第一段)', floor: '7F', storage_type: 'AGV層架', wh: '80', area: 'A', x_start: 'M01', x_end: 'M53', y_start: '001', y_end: '052', layer_start: 'A', layer_end: 'E', rack_length_m: 24 },
+    { zone_name: '80M01-53(第二段)', floor: '7F', storage_type: 'AGV層架', wh: '80', area: 'A', x_start: 'M03', x_end: 'M53', y_start: '056', y_end: '067', layer_start: 'A', layer_end: 'F', rack_length_m: 8 },
+    { zone_name: '80M01-53(第三段)', floor: '7F', storage_type: 'AGV層架', wh: '80', area: 'A', x_start: 'M01', x_end: 'M53', y_start: '068', y_end: '079', layer_start: 'A', layer_end: 'E', rack_length_m: 8 },
+    { zone_name: '80M01-53(第四段)', floor: '7F', storage_type: 'AGV層架', wh: '80', area: 'A', x_start: 'M43', x_end: 'M53', y_start: '080', y_end: '094', layer_start: 'A', layer_end: 'E', rack_length_m: 9 },
+    { zone_name: '80O(貴重區)', floor: '7F', storage_type: '鐵櫃', wh: '80', area: 'A', x_start: 'O01', x_end: 'O01', y_start: '001', y_end: '027', layer_start: 'A', layer_end: 'L', rack_length_m: 12 },
+    { zone_name: '80N55-69(重型架)', floor: '7F', storage_type: '重型層架', wh: '80', area: 'A', x_start: 'N55', x_end: 'N69', y_start: '052', y_end: '075', layer_start: 'A', layer_end: 'E', rack_length_m: 16 },
+    { zone_name: '80N35-53(重型架)', floor: '7F', storage_type: '重型層架', wh: '80', area: 'B', x_start: 'N35', x_end: 'N53', y_start: '027', y_end: '075', layer_start: 'A', layer_end: 'E', rack_length_m: 30 },
+    { zone_name: '80N015-33(重型架)', floor: '7F', storage_type: '重型層架', wh: '80', area: 'C', x_start: 'N15', x_end: 'N33', y_start: '001', y_end: '075', layer_start: 'A', layer_end: 'E', rack_length_m: 42 },
+    { zone_name: '80N34', floor: '7F', storage_type: '落地儲位', wh: '80', area: 'C', x_start: 'N34', x_end: 'N34', y_start: '001', y_end: '044', layer_start: 'A', layer_end: 'A', rack_length_m: 25 },
+    { zone_name: '80S01-05(重型架)', floor: '7F', storage_type: '重型層架', wh: '80', area: 'D', x_start: 'S01', x_end: 'S05', y_start: '001', y_end: '049', layer_start: 'A', layer_end: 'E', rack_length_m: 28 },
+    { zone_name: '80N01-14(重型架)', floor: '7F', storage_type: '重型層架', wh: '80', area: 'D', x_start: 'N01', x_end: 'N14', y_start: '001', y_end: '068', layer_start: 'A', layer_end: 'E', rack_length_m: 38 },
+    { zone_name: '80R-A區', floor: '8F', storage_type: 'AGV層架', wh: '80', area: 'A', x_start: 'R11', x_end: 'R42', y_start: '001', y_end: '056', layer_start: 'A', layer_end: 'F', rack_length_m: 26 },
+    { zone_name: '80R、Q-B區', floor: '8F', storage_type: '重型層架', wh: '80', area: 'B', x_start: 'R01', x_end: 'R05', y_start: '063', y_end: '098', layer_start: 'A', layer_end: 'C', rack_length_m: 22 },
+    { zone_name: '80R、Q-C區', floor: '8F', storage_type: '重型層架', wh: '80', area: 'C', x_start: 'R01', x_end: 'R05', y_start: '027', y_end: '062', layer_start: 'A', layer_end: 'C', rack_length_m: 22 },
+    { zone_name: '80R、Q-D區', floor: '8F', storage_type: '重型層架', wh: '80', area: 'D', x_start: 'R01', x_end: 'R05', y_start: '001', y_end: '026', layer_start: 'A', layer_end: 'C', rack_length_m: 16 }
   ];
 
   const DEFAULT_MODE_SETTINGS = {
-    mode: 'CAT_TRADE', // 'CAT_TRADE' (大區+借採) | 'SALES_TRADE' (月銷+借採) | 'CAT_SALES_TRADE' (大區+月銷+借採)
-    tierA_min: 50,     // A級爆品 >= 50
-    tierB_min: 10,     // B級常銷 10 ~ 49
-    tierC_min: 1       // C級慢銷 1 ~ 9；0 為 D級滯銷
+    mode: 'CAT_TRADE',
+    tierA_min: 50,
+    tierB_min: 10,
+    tierC_min: 1
   };
 
   function expandXRange(xStart, xEnd) {
@@ -89,6 +89,7 @@ module.exports = function(db) {
           allowed_categories TEXT DEFAULT '[]',
           allowed_volumes TEXT DEFAULT '[]',
           allowed_sales_tiers TEXT DEFAULT '[]',
+          rack_length_m REAL DEFAULT 20,
           enabled INTEGER DEFAULT 1,
           remark TEXT DEFAULT '',
           sort_order INTEGER DEFAULT 0
@@ -96,6 +97,7 @@ module.exports = function(db) {
       `);
 
       db.run(`ALTER TABLE storage_placement_rules ADD COLUMN allowed_sales_tiers TEXT DEFAULT '[]'`, () => {});
+      db.run(`ALTER TABLE storage_placement_rules ADD COLUMN rack_length_m REAL DEFAULT 20`, () => {});
 
       db.run(`
         CREATE TABLE IF NOT EXISTS storage_audit_records (
@@ -127,11 +129,11 @@ module.exports = function(db) {
         if (!err && row && row.cnt === 0) {
           const stmt = db.prepare(`
             INSERT INTO storage_placement_rules
-            (zone_name, floor, storage_type, area, x_start, x_end, y_start, y_end, layer_start, layer_end, allowed_trade, allowed_categories, allowed_volumes, allowed_sales_tiers, enabled, sort_order)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ALL', '[]', '[]', '[]', 1, ?)
+            (zone_name, floor, storage_type, area, x_start, x_end, y_start, y_end, layer_start, layer_end, allowed_trade, allowed_categories, allowed_volumes, allowed_sales_tiers, rack_length_m, enabled, sort_order)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ALL', '[]', '[]', '[]', ?, 1, ?)
           `);
           DEFAULT_ZONE_ZONES.forEach((z, idx) => {
-            stmt.run(z.zone_name, z.floor, z.storage_type, z.area, z.x_start, z.x_end, z.y_start, z.y_end, z.layer_start, z.layer_end, idx * 100);
+            stmt.run(z.zone_name, z.floor, z.storage_type, z.area, z.x_start, z.x_end, z.y_start, z.y_end, z.layer_start, z.layer_end, z.rack_length_m || 20, idx * 100);
           });
           stmt.finalize(() => {
             if (typeof callback === 'function') callback();
@@ -222,7 +224,6 @@ module.exports = function(db) {
     return null;
   }
 
-  // 取得整合後的 80 庫紀錄（若 storage_audit_records 為空或缺少月銷量，自動從主庫 inventory 補齊）
   function loadAuditRecordsWithSales(cb) {
     db.all(`SELECT * FROM storage_audit_records`, [], (dErr, records) => {
       if (dErr) return cb(dErr, []);
@@ -330,6 +331,7 @@ module.exports = function(db) {
             allowed_categories: cats,
             allowed_volumes: vols,
             allowed_sales_tiers: tiers,
+            rack_length_m: Number(r.rack_length_m || 20),
             enabled: r.enabled === 1
           };
         });
@@ -338,7 +340,7 @@ module.exports = function(db) {
     });
   });
 
-  // 2. 儲存 / 更新單條規則
+  // 2. 儲存 / 更新單條規則（含層架實際長度 rack_length_m）
   router.post('/rules/save', (req, res) => {
     const rule = req.body.rule;
     if (!rule || !rule.zone_name || !rule.floor || !rule.x_start) {
@@ -349,6 +351,7 @@ module.exports = function(db) {
     const catsJson = JSON.stringify(rule.allowed_categories || []);
     const volsJson = JSON.stringify(rule.allowed_volumes || []);
     const tiersJson = JSON.stringify(rule.allowed_sales_tiers || []);
+    const rackLen = Math.max(0.5, Number(rule.rack_length_m || 20));
     const enabledInt = rule.enabled !== false ? 1 : 0;
 
     if (rule.id) {
@@ -358,7 +361,7 @@ module.exports = function(db) {
           x_start = ?, x_end = ?, y_start = ?, y_end = ?,
           layer_start = ?, layer_end = ?,
           allowed_trade = ?, allowed_categories = ?, allowed_volumes = ?, allowed_sales_tiers = ?,
-          enabled = ?, remark = ?
+          rack_length_m = ?, enabled = ?, remark = ?
         WHERE id = ?
       `, [
         rule.zone_name, rule.floor, rule.storage_type || '', rule.area || '',
@@ -366,7 +369,7 @@ module.exports = function(db) {
         String(rule.y_start || '001').padStart(3, '0'), String(rule.y_end || '999').padStart(3, '0'),
         String(rule.layer_start || 'A').toUpperCase(), String(rule.layer_end || 'Z').toUpperCase(),
         rule.allowed_trade || 'ALL', catsJson, volsJson, tiersJson,
-        enabledInt, rule.remark || '', rule.id
+        rackLen, enabledInt, rule.remark || '', rule.id
       ], (err) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
         res.json({ success: true });
@@ -374,15 +377,15 @@ module.exports = function(db) {
     } else {
       db.run(`
         INSERT INTO storage_placement_rules
-        (zone_name, floor, storage_type, area, x_start, x_end, y_start, y_end, layer_start, layer_end, allowed_trade, allowed_categories, allowed_volumes, allowed_sales_tiers, enabled, remark, sort_order)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 999)
+        (zone_name, floor, storage_type, area, x_start, x_end, y_start, y_end, layer_start, layer_end, allowed_trade, allowed_categories, allowed_volumes, allowed_sales_tiers, rack_length_m, enabled, remark, sort_order)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 999)
       `, [
         rule.zone_name, rule.floor, rule.storage_type || '', rule.area || '',
         xStart, xEnd,
         String(rule.y_start || '001').padStart(3, '0'), String(rule.y_end || '999').padStart(3, '0'),
         String(rule.layer_start || 'A').toUpperCase(), String(rule.layer_end || 'Z').toUpperCase(),
         rule.allowed_trade || 'ALL', catsJson, volsJson, tiersJson,
-        enabledInt, rule.remark || ''
+        rackLen, enabledInt, rule.remark || ''
       ], (err) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
         res.json({ success: true });
@@ -390,7 +393,7 @@ module.exports = function(db) {
     }
   });
 
-  // 3. 把「區間規則」展開成單條 X 軸
+  // 3. 把「區間規則」展開成單條 X 軸（繼承原本設定的層架長度 rack_length_m）
   router.post('/rules/expand', (req, res) => {
     const { ruleId } = req.body;
     const query = ruleId
@@ -415,12 +418,13 @@ module.exports = function(db) {
           xList.forEach((xCode, idx) => {
             db.run(`
               INSERT INTO storage_placement_rules
-              (zone_name, floor, storage_type, area, x_start, x_end, y_start, y_end, layer_start, layer_end, allowed_trade, allowed_categories, allowed_volumes, allowed_sales_tiers, enabled, remark, sort_order)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              (zone_name, floor, storage_type, area, x_start, x_end, y_start, y_end, layer_start, layer_end, allowed_trade, allowed_categories, allowed_volumes, allowed_sales_tiers, rack_length_m, enabled, remark, sort_order)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `, [
               `${r.zone_name}-${xCode}`, r.floor, r.storage_type, r.area,
               xCode, xCode, r.y_start, r.y_end, r.layer_start, r.layer_end,
-              r.allowed_trade, r.allowed_categories, r.allowed_volumes, r.allowed_sales_tiers || '[]', r.enabled, r.remark,
+              r.allowed_trade, r.allowed_categories, r.allowed_volumes, r.allowed_sales_tiers || '[]',
+              Number(r.rack_length_m || 20), r.enabled, r.remark,
               (r.sort_order || 0) + idx
             ]);
             expandedCount++;
@@ -490,7 +494,7 @@ module.exports = function(db) {
     });
   });
 
-  // 6. 依據目前「擺放模式」與規則，計算準確率、異常清單與各維度報表
+  // 6. 依據目前「擺放模式」與規則，計算準確率與異常清單
   router.get('/audit/report', (req, res) => {
     ensureTables(() => {
       getModeSettings((settings) => {
@@ -511,6 +515,7 @@ module.exports = function(db) {
               allowed_categories: cats,
               allowed_volumes: vols,
               allowed_sales_tiers: tiers,
+              rack_length_m: Number(r.rack_length_m || 20),
               _isExactX: r.x_start === r.x_end ? 1 : 0
             };
           }).sort((a, b) => b._isExactX - a._isExactX || a.id - b.id);
@@ -702,217 +707,242 @@ module.exports = function(db) {
     });
   });
 
-  // 7. 🧠 80 庫真實數據「三種擺放模式動線與找貨效益模擬分析」（以 7F A區為出發點；2/4/6/8F 夾層結構校準）
+  // 7. 🧠 80 庫真實數據「三種擺放模式實際步行公尺(m)與找貨效益精算分析」（起點：7F A區；依各排層架實際公尺數計算）
   router.get('/audit/simulate-modes', (req, res) => {
     ensureTables(() => {
       getModeSettings((settings) => {
-        loadAuditRecordsWithSales((err, records) => {
-          if (err) return res.status(500).json({ success: false, message: err.message });
-          if (!records || records.length === 0) {
-            return res.json({ success: true, hasData: false });
-          }
+        db.all(`SELECT * FROM storage_placement_rules WHERE enabled = 1`, [], (rErr, ruleRows) => {
+          const rules = (ruleRows || []).map(r => ({
+            ...r,
+            rack_length_m: Number(r.rack_length_m || 20),
+            _isExactX: r.x_start === r.x_end ? 1 : 0
+          })).sort((a, b) => b._isExactX - a._isExactX || a.id - b.id);
 
-          // 🌟 現場真實動線距離權重（出發點：7F A區；2/4/6/8F 為夾層）
-          const getRealWarehouseDistance = (floorStr, areaStr, binCode) => {
-            const f = String(floorStr || '').toUpperCase().trim();
-            const a = String(areaStr || '').toUpperCase().trim();
-            const parsed = parseBinCode(binCode);
-            const yOffset = parsed ? (parsed.y / 100) * 0.45 : 0.2;
+          loadAuditRecordsWithSales((err, records) => {
+            if (err) return res.status(500).json({ success: false, message: err.message });
+            if (!records || records.length === 0) {
+              return res.json({ success: true, hasData: false });
+            }
 
-            // 1. 出發核心層：7F (A~D區)
-            if (f.startsWith('7F')) {
-              if (a === 'A' || (parsed && parsed.x.startsWith('M'))) {
-                return 1.0 + yOffset; // 7F A區起點核心
+            // 🌟 依據「7F A區起點」＋「各區跨排走道距離(m)」＋「該條層架實際公尺數(rack_length_m) × 格位深度比例」計算真實往返公尺數
+            const calcRealRoundTripMeters = (rec) => {
+              const f = String(rec.floor || '').toUpperCase().trim();
+              const a = String(rec.area || '').toUpperCase().trim();
+              const parsed = parseBinCode(rec.bin_code);
+              const matchedRule = matchRuleForRecord(rec, rules);
+
+              // 1. 該條層架實際總長度（公尺）
+              const rackLenM = matchedRule && matchedRule.rack_length_m > 0 ? matchedRule.rack_length_m : 20;
+
+              // 2. 計算走進該排層架內部的深度公尺數（依 Y 格號在該排起訖範圍的比例）
+              let aisleDepthM = rackLenM * 0.4;
+              if (parsed) {
+                const yStart = matchedRule ? Math.max(1, parseInt(matchedRule.y_start || '1', 10)) : 1;
+                const yEnd = matchedRule ? Math.max(yStart + 1, parseInt(matchedRule.y_end || '60', 10)) : 60;
+                const ratio = Math.min(1, Math.max(0, (parsed.y - yStart) / Math.max(1, yEnd - yStart)));
+                aisleDepthM = ratio * rackLenM;
               }
-              if (a === 'B') return 1.5 + yOffset;
-              if (a === 'C') return 1.7 + yOffset;
-              return 1.9 + yOffset; // 7F D區
-            }
 
-            // 2. 相鄰夾層：6F (B~D區) 在 7F 正下方夾層
-            if (f.startsWith('6F')) {
-              if (a === 'B') return 2.3 + yOffset;
-              if (a === 'C') return 2.5 + yOffset;
-              return 2.7 + yOffset; // 6F D區
-            }
+              // 3. 計算排號橫向間距（排號數字越大，離起點側邊越遠，每排間距約 2.2 公尺）
+              let rowIndexOffsetM = 0;
+              if (parsed) {
+                const mNum = parsed.x.match(/(\d+)$/);
+                if (mNum) {
+                  const rowNo = parseInt(mNum[1], 10);
+                  rowIndexOffsetM = (rowNo % 30) * 1.4;
+                }
+              }
 
-            // 3. 相鄰夾層：8F (A~D區) 在 7F 正上方夾層
-            if (f.startsWith('8F')) {
-              if (a === 'A') return 2.6 + yOffset;
-              if (a === 'B') return 2.8 + yOffset;
-              if (a === 'C') return 3.0 + yOffset;
-              return 3.2 + yOffset; // 8F D區
-            }
+              // 4. 從「7F A區起點」到達該樓層區域入口的單趟基礎公尺數（含夾層樓梯/貨梯等效步行距離）
+              let zoneEntryM = 45;
+              if (f.startsWith('7F')) {
+                if (a === 'A' || (parsed && parsed.x.startsWith('M'))) zoneEntryM = 6;   // 7F A區起點核心
+                else if (a === 'B') zoneEntryM = 24;                                   // 7F B區
+                else if (a === 'C') zoneEntryM = 34;                                   // 7F C區
+                else zoneEntryM = 42;                                                  // 7F D區
+              } else if (f.startsWith('6F')) {
+                // 6F 夾層（B~D區）在 7F 正下方夾層
+                if (a === 'B') zoneEntryM = 48;
+                else if (a === 'C') zoneEntryM = 56;
+                else zoneEntryM = 64;
+              } else if (f.startsWith('8F')) {
+                // 8F 夾層（A~D區）在 7F 正上方夾層
+                if (a === 'A') zoneEntryM = 54;
+                else if (a === 'B') zoneEntryM = 62;
+                else if (a === 'C') zoneEntryM = 68;
+                else zoneEntryM = 74;
+              } else if (f.startsWith('4F')) {
+                // 4F 夾層貴重區（B區小房間）
+                zoneEntryM = 88;
+              } else if (f.startsWith('3F')) {
+                // 3F 樓層正中間重型貨架（3B/3C）
+                zoneEntryM = 96;
+              } else if (f.startsWith('2F')) {
+                // 2F 夾層（東側 A/B區、西側 B區 — 距離最遠）
+                zoneEntryM = f.includes('東') ? 115 : 128;
+              }
 
-            // 4. 4F 夾層貴重區（B區小房間）
-            if (f.startsWith('4F')) {
-              return 3.7 + yOffset;
-            }
+              // 單趟總公尺 = 區域入口距離 + 排間橫移 + 層架深度；往返 = × 2
+              const oneWayM = zoneEntryM + rowIndexOffsetM + aisleDepthM;
+              return Number((oneWayM * 2).toFixed(1));
+            };
 
-            // 5. 3F 重型貨架（3B、3C 位於樓層最中間）
-            if (f.startsWith('3F')) {
-              return 4.1 + yOffset;
-            }
+            const isRealGoldenZone = (floorStr, areaStr, binCode) => {
+              const f = String(floorStr || '').toUpperCase().trim();
+              const a = String(areaStr || '').toUpperCase().trim();
+              const parsed = parseBinCode(binCode);
+              if (f.startsWith('7F')) return true;
+              if (f.startsWith('6F') && (a === 'B' || a === 'C') && (!parsed || parsed.y <= 60)) return true;
+              return false;
+            };
 
-            // 6. 2F 夾層（東側 A/B區、西側 B區 — 距離 7F 出發點最遠）
-            if (f.startsWith('2F')) {
-              if (f.includes('東')) return 4.7 + yOffset;
-              if (f.includes('西')) return 5.0 + yOffset;
-              return 4.9 + yOffset;
-            }
+            let currentTotalMeters = 0;
+            let totalPickFrequency = 0;
+            let hotItemsCount = 0;
+            let hotItemsInGoldenZone = 0;
 
-            return 3.5 + yOffset;
-          };
+            const catFloorSpread = {};
+            const tierDistribution = {
+              A: { tier: 'A', label: `A級爆品 (≥${settings.tierA_min})`, skuCount: 0, binCount: 0, totalSales: 0, pickFreq: 0, goldenBins: 0 },
+              B: { tier: 'B', label: `B級常銷 (${settings.tierB_min}~${settings.tierA_min - 1})`, skuCount: 0, binCount: 0, totalSales: 0, pickFreq: 0, goldenBins: 0 },
+              C: { tier: 'C', label: `C級慢銷 (${settings.tierC_min}~${settings.tierB_min - 1})`, skuCount: 0, binCount: 0, totalSales: 0, pickFreq: 0, goldenBins: 0 },
+              D: { tier: 'D', label: `D級滯銷 (0)`, skuCount: 0, binCount: 0, totalSales: 0, pickFreq: 0, goldenBins: 0 }
+            };
 
-          // 🌟 黃金動線區定義（從 7F A區出發免跨遠樓層的高效區）：
-          // 一級黃金區：7F A區（起點核心）
-          // 二級黃金區：7F B/C/D區（同層免上下樓）＋ 6F B/C區前段（緊鄰下方夾層）
-          const isRealGoldenZone = (floorStr, areaStr, binCode) => {
-            const f = String(floorStr || '').toUpperCase().trim();
-            const a = String(areaStr || '').toUpperCase().trim();
-            const parsed = parseBinCode(binCode);
+            const seenSkuTier = new Set();
+            const enrichedWithMeters = records.map(rec => {
+              const roundTripM = calcRealRoundTripMeters(rec);
+              const pickFreq = Math.max(1, Number(rec.pick_days_m || 0) || Math.ceil(Number(rec.monthly_sales || 0) / 3));
+              return { ...rec, roundTripM, pickFreq };
+            });
 
-            if (f.startsWith('7F')) return true;
-            if (f.startsWith('6F') && (a === 'B' || a === 'C') && (!parsed || parsed.y <= 60)) return true;
-            return false;
-          };
+            enrichedWithMeters.forEach(rec => {
+              const tier = classifySalesTier(rec.monthly_sales, settings);
+              currentTotalMeters += rec.pickFreq * rec.roundTripM;
+              totalPickFrequency += rec.pickFreq;
 
-          let currentWalkIndex = 0;
-          let totalPickFrequency = 0;
-          let hotItemsCount = 0;
-          let hotItemsInGoldenZone = 0;
+              const isGolden = isRealGoldenZone(rec.floor, rec.area, rec.bin_code);
+              if (tier === 'A' || tier === 'B') {
+                hotItemsCount++;
+                if (isGolden) hotItemsInGoldenZone++;
+              }
 
-          const catFloorSpread = {};
-          const tierDistribution = {
-            A: { tier: 'A', label: `A級爆品 (≥${settings.tierA_min})`, skuCount: 0, binCount: 0, totalSales: 0, pickFreq: 0, goldenBins: 0 },
-            B: { tier: 'B', label: `B級常銷 (${settings.tierB_min}~${settings.tierA_min - 1})`, skuCount: 0, binCount: 0, totalSales: 0, pickFreq: 0, goldenBins: 0 },
-            C: { tier: 'C', label: `C級慢銷 (${settings.tierC_min}~${settings.tierB_min - 1})`, skuCount: 0, binCount: 0, totalSales: 0, pickFreq: 0, goldenBins: 0 },
-            D: { tier: 'D', label: `D級滯銷 (0)`, skuCount: 0, binCount: 0, totalSales: 0, pickFreq: 0, goldenBins: 0 }
-          };
+              const td = tierDistribution[tier];
+              td.binCount++;
+              td.totalSales += Number(rec.monthly_sales || 0);
+              td.pickFreq += rec.pickFreq;
+              if (isGolden) td.goldenBins++;
 
-          const seenSkuTier = new Set();
+              const skuKey = `${tier}|${rec.sku_id}`;
+              if (!seenSkuTier.has(skuKey)) {
+                seenSkuTier.add(skuKey);
+                td.skuCount++;
+              }
 
-          records.forEach(rec => {
-            const tier = classifySalesTier(rec.monthly_sales, settings);
-            const pickFreq = Math.max(1, Number(rec.pick_days_m || 0) || Math.ceil(Number(rec.monthly_sales || 0) / 3));
-            const distW = getRealWarehouseDistance(rec.floor, rec.area, rec.bin_code);
+              if (rec.cat_name) {
+                if (!catFloorSpread[rec.cat_name]) catFloorSpread[rec.cat_name] = new Set();
+                catFloorSpread[rec.cat_name].add(rec.floor || '未知');
+              }
+            });
 
-            currentWalkIndex += pickFreq * distW;
-            totalPickFrequency += pickFreq;
+            const allSlotMeters = enrichedWithMeters.map(r => r.roundTripM).sort((a, b) => a - b);
+            const recordsByFreqDesc = [...enrichedWithMeters].sort((a, b) => b.pickFreq - a.pickFreq);
 
-            const isGolden = isRealGoldenZone(rec.floor, rec.area, rec.bin_code);
+            let pureSalesMeters = 0;
+            recordsByFreqDesc.forEach((r, idx) => {
+              pureSalesMeters += r.pickFreq * (allSlotMeters[idx] || 60);
+            });
 
-            if (tier === 'A' || tier === 'B') {
-              hotItemsCount++;
-              if (isGolden) hotItemsInGoldenZone++;
-            }
+            const hybridMeters = pureSalesMeters * 0.65 + currentTotalMeters * 0.35;
 
-            const td = tierDistribution[tier];
-            td.binCount++;
-            td.totalSales += Number(rec.monthly_sales || 0);
-            td.pickFreq += pickFreq;
-            if (isGolden) td.goldenBins++;
+            const currentKm = Number((currentTotalMeters / 1000).toFixed(1));
+            const pureSalesKm = Number((pureSalesMeters / 1000).toFixed(1));
+            const hybridKm = Number((hybridMeters / 1000).toFixed(1));
 
-            const skuKey = `${tier}|${rec.sku_id}`;
-            if (!seenSkuTier.has(skuKey)) {
-              seenSkuTier.add(skuKey);
-              td.skuCount++;
-            }
+            // 倉庫人員平均步行速度約 4 km/h（66.7 公尺/分鐘）
+            const calcSavedHours = (baseM, newM) => Number((Math.max(0, baseM - newM) / 4000).toFixed(1));
 
-            if (rec.cat_name) {
-              if (!catFloorSpread[rec.cat_name]) catFloorSpread[rec.cat_name] = new Set();
-              catFloorSpread[rec.cat_name].add(rec.floor || '未知');
-            }
-          });
+            const avgCatFloors = Object.values(catFloorSpread).length > 0
+              ? Object.values(catFloorSpread).reduce((acc, s) => acc + s.size, 0) / Object.values(catFloorSpread).length
+              : 1;
 
-          const allSlotWeights = records.map(r => getRealWarehouseDistance(r.floor, r.area, r.bin_code)).sort((a, b) => a - b);
-          const recordsByFreqDesc = [...records].sort((a, b) => {
-            const fa = Math.max(1, Number(a.pick_days_m || 0) || Math.ceil(Number(a.monthly_sales || 0) / 3));
-            const fb = Math.max(1, Number(b.pick_days_m || 0) || Math.ceil(Number(b.monthly_sales || 0) / 3));
-            return fb - fa;
-          });
+            const currentHotRatio = hotItemsCount > 0 ? Math.round((hotItemsInGoldenZone / hotItemsCount) * 100) : 0;
+            const misallocatedHotRatio = Math.max(5, 100 - currentHotRatio);
 
-          let pureSalesWalkIndex = 0;
-          recordsByFreqDesc.forEach((r, idx) => {
-            const freq = Math.max(1, Number(r.pick_days_m || 0) || Math.ceil(Number(r.monthly_sales || 0) / 3));
-            pureSalesWalkIndex += freq * (allSlotWeights[idx] || 2.5);
-          });
+            const modesComparison = [
+              {
+                mode: 'CAT_TRADE',
+                name: '模式 1：大區 + 借採（屬性分區導向）',
+                walkDistanceIndex: currentKm,
+                walkUnit: 'km / 月',
+                walkSavingPct: 0,
+                savedKm: 0,
+                savedHours: 0,
+                goldenHotPct: currentHotRatio,
+                findEaseScore: Math.min(98, Math.max(78, Math.round(100 - avgCatFloors * 3.5))),
+                moveEffortLevel: '低（維持現有大區骨架）',
+                pros: '同大區商品高度集中，人員看區名就能直覺找貨、盤點最容易',
+                cons: '同大區內的爆品與滯銷品混放，需頻繁從 7F A區跨夾層上下至 2F/3F/4F 走動',
+                recommended: false
+              },
+              {
+                mode: 'SALES_TRADE',
+                name: '模式 2：月銷 + 借採（純熱度動線導向）',
+                walkDistanceIndex: pureSalesKm,
+                walkUnit: 'km / 月',
+                walkSavingPct: currentTotalMeters > 0 ? Number((((currentTotalMeters - pureSalesMeters) / currentTotalMeters) * 100).toFixed(1)) : 0,
+                savedKm: Number((currentKm - pureSalesKm).toFixed(1)),
+                savedHours: calcSavedHours(currentTotalMeters, pureSalesMeters),
+                goldenHotPct: Math.min(98, Math.max(currentHotRatio + 22, 88)),
+                findEaseScore: 64,
+                moveEffortLevel: `高（約 ${Math.min(65, Math.round(misallocatedHotRatio * 0.85))}% 儲位需大搬風）`,
+                pros: 'A/B 級爆品全數集中於 7F A區起點核心與 7F/6F 黃金層，每月行走公里數最短',
+                cons: '不同大區商品混雜在一起，失去品類邏輯，極度依賴系統儲位導引',
+                recommended: false
+              },
+              {
+                mode: 'CAT_SALES_TRADE',
+                name: '模式 3：大區 + 月銷 + 借採（黃金平衡模式）',
+                walkDistanceIndex: hybridKm,
+                walkUnit: 'km / 月',
+                walkSavingPct: currentTotalMeters > 0 ? Number((((currentTotalMeters - hybridMeters) / currentTotalMeters) * 100).toFixed(1)) : 0,
+                savedKm: Number((currentKm - hybridKm).toFixed(1)),
+                savedHours: calcSavedHours(currentTotalMeters, hybridMeters),
+                goldenHotPct: Math.min(92, Math.max(currentHotRatio + 15, 78)),
+                findEaseScore: Math.min(95, Math.max(82, Math.round(98 - avgCatFloors * 3.0))),
+                moveEffortLevel: `中（僅需將遠端 2F~4F 的 A/B 爆品前移約 ${Math.min(35, Math.round(misallocatedHotRatio * 0.45))}%）`,
+                pros: '保留「大區＋借採」找貨直覺，同時將高月銷爆品拉回 7F/6F 近端黃金排位，兼顧找貨速度與短距離',
+                cons: '規則設定需同時維護大區與月銷級距',
+                recommended: true
+              }
+            ];
 
-          const hybridWalkIndex = pureSalesWalkIndex * 0.65 + currentWalkIndex * 0.35;
+            const topMoveCandidates = enrichedWithMeters
+              .map(r => ({
+                ...r,
+                sales_tier: classifySalesTier(r.monthly_sales, settings)
+              }))
+              .filter(r => (r.sales_tier === 'A' || r.sales_tier === 'B') && r.roundTripM >= 165)
+              .sort((a, b) => Number(b.monthly_sales || 0) - Number(a.monthly_sales || 0))
+              .slice(0, 15);
 
-          const avgCatFloors = Object.values(catFloorSpread).length > 0
-            ? Object.values(catFloorSpread).reduce((acc, s) => acc + s.size, 0) / Object.values(catFloorSpread).length
-            : 1;
-
-          const currentHotRatio = hotItemsCount > 0 ? Math.round((hotItemsInGoldenZone / hotItemsCount) * 100) : 0;
-          const misallocatedHotRatio = Math.max(5, 100 - currentHotRatio);
-
-          const modesComparison = [
-            {
-              mode: 'CAT_TRADE',
-              name: '模式 1：大區 + 借採（屬性分區導向）',
-              walkDistanceIndex: Math.round(currentWalkIndex),
-              walkSavingPct: 0,
-              goldenHotPct: currentHotRatio,
-              findEaseScore: Math.min(98, Math.max(78, Math.round(100 - avgCatFloors * 3.5))),
-              moveEffortLevel: '低（維持現有大區骨架）',
-              pros: '同大區商品高度集中，人員看區名就能直覺找貨、盤點最容易',
-              cons: '同大區內的爆品與滯銷品混放，需頻繁從 7F A區跨夾層上下至 2F/3F/4F 走動',
-              recommended: false
-            },
-            {
-              mode: 'SALES_TRADE',
-              name: '模式 2：月銷 + 借採（純熱度動線導向）',
-              walkDistanceIndex: Math.round(pureSalesWalkIndex),
-              walkSavingPct: currentWalkIndex > 0 ? Number((((currentWalkIndex - pureSalesWalkIndex) / currentWalkIndex) * 100).toFixed(1)) : 0,
-              goldenHotPct: Math.min(98, Math.max(currentHotRatio + 22, 88)),
-              findEaseScore: 64,
-              moveEffortLevel: `高（約 ${Math.min(65, Math.round(misallocatedHotRatio * 0.85))}% 儲位需大搬風）`,
-              pros: 'A/B 級爆品全數集中於 7F A區起點核心與 7F/6F 黃金層，揀貨行走距離最短',
-              cons: '不同大區商品混雜在一起，失去品類邏輯，極度依賴系統儲位導引',
-              recommended: false
-            },
-            {
-              mode: 'CAT_SALES_TRADE',
-              name: '模式 3：大區 + 月銷 + 借採（黃金平衡模式）',
-              walkDistanceIndex: Math.round(hybridWalkIndex),
-              walkSavingPct: currentWalkIndex > 0 ? Number((((currentWalkIndex - hybridWalkIndex) / currentWalkIndex) * 100).toFixed(1)) : 0,
-              goldenHotPct: Math.min(92, Math.max(currentHotRatio + 15, 78)),
-              findEaseScore: Math.min(95, Math.max(82, Math.round(98 - avgCatFloors * 3.0))),
-              moveEffortLevel: `中（僅需將遠端 2F~4F 的 A/B 爆品前移約 ${Math.min(35, Math.round(misallocatedHotRatio * 0.45))}%）`,
-              pros: '保留「大區＋借採」找貨直覺，同時將高月銷爆品拉回 7F/6F 近端黃金排位，兼顧找貨速度與短距離',
-              cons: '規則設定需同時維護大區與月銷級距',
-              recommended: true
-            }
-          ];
-
-          // 找出當前放在遠端低樓層（2F 夾層東/西側、3F、4F 貴重區）的 A/B 級高熱銷爆品，建議拉回 7F / 6F 黃金區
-          const topMoveCandidates = records
-            .map(r => ({
-              ...r,
-              sales_tier: classifySalesTier(r.monthly_sales, settings),
-              distW: getRealWarehouseDistance(r.floor, r.area, r.bin_code)
-            }))
-            .filter(r => (r.sales_tier === 'A' || r.sales_tier === 'B') && r.distW >= 3.6)
-            .sort((a, b) => Number(b.monthly_sales || 0) - Number(a.monthly_sales || 0))
-            .slice(0, 15);
-
-          res.json({
-            success: true,
-            hasData: true,
-            settings,
-            totalRecords: records.length,
-            totalPickFrequency,
-            tierDistribution: Object.values(tierDistribution),
-            modesComparison,
-            topMoveCandidates
+            res.json({
+              success: true,
+              hasData: true,
+              settings,
+              totalRecords: records.length,
+              totalPickFrequency,
+              tierDistribution: Object.values(tierDistribution),
+              modesComparison,
+              topMoveCandidates
+            });
           });
         });
       });
     });
   });
 
-  // 8. 一鍵自動學習（依據現有 80 庫實際分布填入主要大區與主要月銷級距）
+  // 8. 一鍵自動學習
   router.post('/rules/auto-suggest', (req, res) => {
     ensureTables(() => {
       getModeSettings((settings) => {
