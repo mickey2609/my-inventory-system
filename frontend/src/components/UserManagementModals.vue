@@ -43,7 +43,7 @@
       </template>
     </el-dialog>
 
-    <!-- 2. 新增使用者彈窗 (強制 6 碼數字員編驗證 ＋ 所屬組別選單) -->
+    <!-- 2. 新增使用者彈窗 -->
     <el-dialog 
       title="➕ 新增使用者帳號" 
       :model-value="showAddUser" 
@@ -112,37 +112,39 @@
       </template>
     </el-dialog>
 
-    <!-- 4. 模組權限設定彈窗（四大業務分組折疊 ＋ 分組一鍵全選 ＋ 匯入/匯出 ＋ 人員能力表班別矩陣） -->
+    <!-- 4. 模組權限設定彈窗（全寬雙欄大視窗版） -->
     <el-dialog 
       title="🔒 模組操作權限設定（依業務分組）" 
       :model-value="showEditPerm" 
       @update:model-value="$emit('update:showEditPerm', $event)" 
-      width="720px" 
-      top="4vh"
-      custom-class="dark-dialog"
+      width="94%"
+      top="2vh"
+      custom-class="dark-dialog perm-wide-dialog"
     >
       <div class="perm-dialog-body">
+        <!-- 頂部操作工具列 -->
         <div class="perm-header-bar">
           <div class="perm-tip">
-            設定帳號 <b>[{{ targetUser }}]</b> 可存取的功能模組與操作權限：
+            設定帳號 <b style="color: #38bdf8; font-size: 15px;">[{{ targetUser }}]</b> 可存取的功能模組與匯入/匯出操作權限：
           </div>
           <div class="quick-check-btns">
-            <el-button size="mini" type="primary" plain @click="toggleAllModules">
+            <el-button size="small" type="primary" plain @click="toggleAllModules">
               {{ isAllModulesSelected ? '取消全選模組' : '☑️ 全勾選模組' }}
             </el-button>
-            <el-button size="mini" type="warning" plain @click="toggleAllAction('import')">
+            <el-button size="small" type="warning" plain @click="toggleAllAction('import')">
               {{ isAllActionSelected('import') ? '取消全選匯入' : '📥 全勾選匯入' }}
             </el-button>
-            <el-button size="mini" type="success" plain @click="toggleAllAction('export')">
+            <el-button size="small" type="success" plain @click="toggleAllAction('export')">
               {{ isAllActionSelected('export') ? '取消全選匯出' : '📊 全勾選匯出' }}
             </el-button>
-            <el-button size="mini" type="danger" plain @click="clearAllPerms">
+            <el-button size="small" type="danger" plain @click="clearAllPerms">
               🧹 全部清空
             </el-button>
           </div>
         </div>
 
-        <div class="perm-grouped-scroll">
+        <!-- 雙欄網格分組區塊 -->
+        <div class="perm-grouped-grid">
           <div
             v-for="cat in groupedModules"
             :key="cat.id"
@@ -255,7 +257,7 @@
 
       <template #footer>
         <el-button @click="$emit('update:showEditPerm', false)">取消</el-button>
-        <el-button type="primary" @click="$emit('save-perm')">儲存權限</el-button>
+        <el-button type="primary" @click="$emit('save-perm')">💾 儲存權限設定</el-button>
       </template>
     </el-dialog>
   </div>
@@ -267,32 +269,32 @@ const MODULE_CATEGORY_DEFS = [
     id: 'inventory',
     title: '📦 庫存與儲位分析',
     titleColor: '#38bdf8',
-    headerBg: 'rgba(56, 189, 248, 0.12)',
-    borderColor: 'rgba(56, 189, 248, 0.35)',
+    headerBg: 'rgba(56, 189, 248, 0.14)',
+    borderColor: 'rgba(56, 189, 248, 0.4)',
     keys: ['inv80', 'inv15', 'loc_summary', 'storage_accuracy', 'turnover', 'item_sales_history']
   },
   {
     id: 'warehouse_fish',
     title: '🐟 倉內進貨、補貨與調撥魚群',
     titleColor: '#4ade80',
-    headerBg: 'rgba(74, 222, 128, 0.12)',
-    borderColor: 'rgba(74, 222, 128, 0.35)',
+    headerBg: 'rgba(74, 222, 128, 0.14)',
+    borderColor: 'rgba(74, 222, 128, 0.4)',
     keys: ['inbound_fish', 'replenish_fish', 'transfer_80_15', 'transfer_15_80', 'dispatch_fish', 'abnormal_purchase']
   },
   {
     id: 'delivery',
     title: '🚚 宅配流線與物流成本分析',
     titleColor: '#fbbf24',
-    headerBg: 'rgba(251, 191, 36, 0.12)',
-    borderColor: 'rgba(251, 191, 36, 0.35)',
+    headerBg: 'rgba(251, 191, 36, 0.14)',
+    borderColor: 'rgba(251, 191, 36, 0.4)',
     keys: ['delivery_flow', 'delivery_cost', 'delivery_undelivered']
   },
   {
     id: 'staff_ai',
     title: '🧑‍💼 人員能力與 AI 輔助工具',
     titleColor: '#c084fc',
-    headerBg: 'rgba(192, 132, 252, 0.12)',
-    borderColor: 'rgba(192, 132, 252, 0.35)',
+    headerBg: 'rgba(192, 132, 252, 0.14)',
+    borderColor: 'rgba(192, 132, 252, 0.4)',
     keys: ['staff_competency', 'wms_fish_screenshot']
   }
 ];
@@ -370,7 +372,6 @@ export default {
         return { ...def, modules };
       }).filter(g => g.modules.length > 0);
 
-      // 若未來有新增未歸類模組，自動收入「其他功能」分組
       const unassigned = this.availableModules.filter(m => !assignedKeys.has(m.key));
       if (unassigned.length > 0) {
         groups.push({
@@ -416,7 +417,6 @@ export default {
       return this.selectedList.includes(`${modKey}:${action}`);
     },
 
-    // 分類群組勾選判斷與批次操作
     getCategoryCheckedCount(cat) {
       return cat.modules.filter(m => this.selectedList.includes(m.key)).length;
     },
@@ -592,27 +592,41 @@ export default {
 </script>
 
 <style scoped>
-.perm-dialog-body { padding: 4px 0; }
+.perm-dialog-body { padding: 0; }
 .perm-header-bar {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-bottom: 12px;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 8px;
 }
 .perm-tip { font-size: 14px; color: #cbd5e1; }
 .quick-check-btns {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
 }
 
-.perm-grouped-scroll {
-  max-height: 520px;
+/* 雙欄並排 Grid：大螢幕一次看清全部四個分類 */
+.perm-grouped-grid {
+  max-height: 74vh;
   overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
   padding-right: 4px;
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .perm-grouped-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .perm-category-card {
@@ -626,12 +640,12 @@ export default {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 12px;
+  padding: 9px 14px;
   border-bottom: 1px solid rgba(51, 65, 85, 0.8);
 }
 
 .cat-title {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: bold;
 }
 
@@ -657,18 +671,18 @@ export default {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 6px 14px;
+  padding: 7px 14px;
 }
 
 .staff-group-perm-subbox {
-  margin: 0 12px 10px 24px;
-  padding: 8px 10px;
-  background: rgba(15, 23, 42, 0.9);
+  margin: 0 12px 12px 16px;
+  padding: 10px 12px;
+  background: rgba(15, 23, 42, 0.95);
   border: 1px dashed #38bdf8;
   border-radius: 6px;
 }
 .sgp-title {
-  font-size: 11px;
+  font-size: 12px;
   color: #7dd3fc;
   font-weight: bold;
   margin-bottom: 8px;
@@ -677,14 +691,14 @@ export default {
 .gs-matrix-list {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 6px;
 }
 .gs-matrix-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 5px 8px;
+  padding: 6px 10px;
   border-radius: 5px;
   background: rgba(30, 41, 59, 0.55);
   border: 1px solid rgba(51, 65, 85, 0.65);
@@ -694,7 +708,7 @@ export default {
   border-color: rgba(56, 189, 248, 0.45);
 }
 .gs-group-col {
-  min-width: 125px;
+  min-width: 120px;
   flex-shrink: 0;
 }
 .gs-shifts-col {
