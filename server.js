@@ -1,5 +1,5 @@
 // C:\my-inventory-server\server.js
-// 業務主程式 API 伺服器
+// 業務主程式 API 伺服器（支援多模組獨立 SQLite 並行寫入，零排隊碰撞）
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const cors = require('cors');
@@ -33,15 +33,31 @@ const COLUMN_MAP = {
   'ID指定樓層': 'assigned_floor', '備註': 'remark'
 };
 
-const db = new sqlite3.Database('inventory_local.sqlite', (err) => {
-  if (err) console.error('❌ 資料庫連線失敗:', err.message);
-  else console.log('✅ SQLite 資料庫檔案已成功連結！');
-});
+// -----------------------------------------------------------------------------
+// 建立獨立 SQLite 連線工廠（每個實體檔案各自擁有獨立鎖定，互不干擾）
+// -----------------------------------------------------------------------------
+function createSqliteConnection(fileName, label) {
+  const dbInstance = new sqlite3.Database(path.join(__dirname, fileName), (err) => {
+    if (err) console.error(`❌ [${label}] (${fileName}) 連線失敗:`, err.message);
+    else console.log(`✅ [${label}] (${fileName}) 已獨立連結！`);
+  });
+  dbInstance.configure('busyTimeout', 15000);
+  dbInstance.run('PRAGMA journal_mode = WAL');
+  dbInstance.run('PRAGMA synchronous = NORMAL');
+  return dbInstance;
+}
 
-// 🌟 啟用 SQLite 15 秒自動排隊緩衝與 WAL 並發讀寫模式（防止多模組同時匯入發生 SQLITE_BUSY）
-db.configure('busyTimeout', 15000);
-db.run('PRAGMA journal_mode = WAL');
-db.run('PRAGMA synchronous = NORMAL');
+// 1. 主庫（庫存80 / 庫存15 / 儲位統整 / 歷史銷量 / 帳號系統 / 儲位準確率 / 截圖辨識）
+const db = createSqliteConnection('inventory_local.sqlite', '主庫存與系統庫');
+
+// 2. 7 個獨立模組資料庫（與主庫完全並行寫入，零排隊）
+const inboundDb = createSqliteConnection('inbound.sqlite', '進貨上架魚群庫');
+const replenishDb = createSqliteConnection('replenish.sqlite', '立即補貨單庫');
+const transferDb = createSqliteConnection('transfer.sqlite', '跨庫調撥庫');
+const dispatchDb = createSqliteConnection('dispatch.sqlite', '收發魚群庫');
+const deliveryDb = createSqliteConnection('delivery.sqlite', '宅配物流分析庫');
+const abnormalDb = createSqliteConnection('abnormal.sqlite', '不合理進貨庫');
+const staffCompetencyDb = createSqliteConnection('staff_competency.sqlite', '人員綜合能力庫');
 
 // 🌟 全域資料庫寫入任務追蹤器（供首頁 DB 寫入忙碌狀態燈即時顯示）
 app.locals.dbWriteTracker = {
@@ -51,20 +67,20 @@ app.locals.dbWriteTracker = {
 };
 
 function resolveWriteModuleLabel(reqPath) {
-  if (reqPath.startsWith('/api/upload')) return '庫存80匯入';
-  if (reqPath.startsWith('/api/inventory15')) return '庫存15匯入';
-  if (reqPath.startsWith('/api/inbound')) return '進貨上架魚群';
-  if (reqPath.startsWith('/api/replenish')) return '立即補貨單';
-  if (reqPath.startsWith('/api/transfer8015')) return '跨庫調撥80➔15';
-  if (reqPath.startsWith('/api/transfer1580')) return '跨庫調撥15➔80';
-  if (reqPath.startsWith('/api/dispatch')) return '收發魚群';
-  if (reqPath.startsWith('/api/delivery')) return '宅配流線/成本';
-  if (reqPath.startsWith('/api/abnormal')) return '不合理進貨';
-  if (reqPath.startsWith('/api/item-sales-history')) return '歷史銷量履歷';
-  if (reqPath.startsWith('/api/staff-competency')) return '人員能力表';
-  if (reqPath.startsWith('/api/storage-accuracy')) return '80庫儲位準確率';
-  if (reqPath.startsWith('/api/wms-fish-screenshot')) return 'WMS截圖辨識';
-  if (reqPath.includes('locations-master')) return '儲位定義匯入';
+  if (reqPath.startsWith('/api/upload')) return '庫存80匯入(主庫)';
+  if (reqPath.startsWith('/api/inventory15')) return '庫存15匯入(主庫)';
+  if (reqPath.startsWith('/api/inbound')) return '進貨上架魚群(獨立庫)';
+  if (reqPath.startsWith('/api/replenish')) return '立即補貨單(獨立庫)';
+  if (reqPath.startsWith('/api/transfer8015')) return '跨庫調撥80➔15(獨立庫)';
+  if (reqPath.startsWith('/api/transfer1580')) return '跨庫調撥15➔80(獨立庫)';
+  if (reqPath.startsWith('/api/dispatch')) return '收發魚群(獨立庫)';
+  if (reqPath.startsWith('/api/delivery')) return '宅配流線/成本(獨立庫)';
+  if (reqPath.startsWith('/api/abnormal')) return '不合理進貨(獨立庫)';
+  if (reqPath.startsWith('/api/item-sales-history')) return '歷史銷量履歷(主庫)';
+  if (reqPath.startsWith('/api/staff-competency')) return '人員能力表(獨立庫)';
+  if (reqPath.startsWith('/api/storage-accuracy')) return '80庫儲位準確率(主庫)';
+  if (reqPath.startsWith('/api/wms-fish-screenshot')) return 'WMS截圖辨識(主庫)';
+  if (reqPath.includes('locations-master')) return '儲位定義匯入(主庫)';
   return '資料寫入';
 }
 
@@ -107,44 +123,46 @@ app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
 // -----------------------------------------------------------------------------
-// 載入各模組路由 (API Routes)
+// 載入各模組路由 (已分派至各自獨立的 SQLite 連線)
 // -----------------------------------------------------------------------------
 
-// 1. 進貨與新品上架魚群分析 API
-const inboundRouter = require('./routes/inbound')(db);
+// 1. 進貨與新品上架魚群分析 API -> inbound.sqlite
+const inboundRouter = require('./routes/inbound')(inboundDb);
 app.use('/api/inbound', inboundRouter);
 
-// 2. 立即補貨單魚群分析 API
-const replenishRouter = require('./routes/replenish')(db);
+// 2. 立即補貨單魚群分析 API -> replenish.sqlite
+const replenishRouter = require('./routes/replenish')(replenishDb);
 app.use('/api/replenish', replenishRouter);
 
-// 3. 跨庫調撥 (80 ➔ 15) 魚群分析 API
-const transfer8015Router = require('./routes/transfer8015')(db);
+// 3. 跨庫調撥 (80 ➔ 15) 魚群分析 API -> transfer.sqlite
+const transfer8015Router = require('./routes/transfer8015')(transferDb);
 app.use('/api/transfer8015', transfer8015Router);
 
-// 4. 跨庫調撥 (15 ➔ 80) 魚群分析 API
-const transfer1580Router = require('./routes/transfer1580')(db);
+// 4. 跨庫調撥 (15 ➔ 80) 魚群分析 API -> transfer.sqlite
+const transfer1580Router = require('./routes/transfer1580')(transferDb);
 app.use('/api/transfer1580', transfer1580Router);
 
-// 5. 🌟 收發魚群分析 API (BR 借貨 / BY 採購)
-const dispatchFishRouter = require('./routes/dispatchFish')(db);
+// 5. 🌟 收發魚群分析 API -> dispatch.sqlite
+const dispatchFishRouter = require('./routes/dispatchFish')(dispatchDb);
 app.use('/api/dispatch', dispatchFishRouter);
 
+// 5.1 🌟 宅配出貨流線 / 物流費包材 / 未配達追蹤 API -> delivery.sqlite
 const deliveryFlowRouter = require('./routes/deliveryFlow');
-app.use('/api/delivery', deliveryFlowRouter(db));
+app.use('/api/delivery', deliveryFlowRouter(deliveryDb));
 
+// 5.2 🌟 人員綜合能力管理系統 API -> staff_competency.sqlite
+const staffCompetencyRouter = require('./routes/staffCompetency')(staffCompetencyDb);
+app.use('/api/staff-competency', staffCompetencyRouter);
+
+// 5.3 🌟 80庫儲位準確率 -> 主庫
 const storageAccuracyRouter = require('./routes/storageAccuracy')(db);
 app.use('/api/storage-accuracy', storageAccuracyRouter);
 
-// 5.2 🌟 人員綜合能力管理系統 API
-const staffCompetencyRouter = require('./routes/staffCompetency')(db);
-app.use('/api/staff-competency', staffCompetencyRouter);
-
-// 5.5 🌟 WMS 魚群出沒時間截圖 AI 辨識 API
+// 5.5 🌟 WMS 魚群出沒時間截圖 AI 辨識 API -> 主庫
 const wmsFishScreenshotRouter = require('./routes/wmsFishScreenshot')(db);
 app.use('/api/wms-fish-screenshot', wmsFishScreenshotRouter);
 
-// 6. 庫存與儲位分析模組 API
+// 6. 庫存與儲位分析模組 API -> 主庫
 const inventory15Module = require('./routes/inventory15');
 const locationStatsModule = require('./routes/locationStats');
 const turnover15Module = require('./routes/turnover15');
@@ -155,11 +173,11 @@ app.use('/api/location-stats', locationStatsModule(db));
 app.use('/api/turnover15', turnover15Module(db));
 app.use('/api/turnover80', turnover80Module(db));
 
-// 7. 不合理進貨分析 API
-const abnormalRouter = require('./routes/abnormal')(db);
+// 7. 不合理進貨分析 API -> abnormal.sqlite
+const abnormalRouter = require('./routes/abnormal')(abnormalDb);
 app.use('/api/abnormal', abnormalRouter);
 
-// 8. 全商品歷史銷量與驗收總表 API
+// 8. 全商品歷史銷量與驗收總表 API -> 主庫
 const itemSalesHistoryRouter = require('./routes/itemSalesHistory')(db);
 app.use('/api/item-sales-history', itemSalesHistoryRouter);
 
@@ -1132,7 +1150,7 @@ app.get('/api/get-logs', (req, res) => {
   });
 });
 
-// [POST] 極速匯入 API (包含自動備份與更新歷史銷量總表，維持安全 WAL 並發模式)
+// [POST] 極速匯入 API (寫入主庫，與其餘 7 個獨立模組庫並行互不阻塞)
 app.post('/api/upload', (req, res) => {
   try {
     const { items, isFirstChunk, fileName } = req.body;
@@ -1237,7 +1255,7 @@ app.post('/api/upload', (req, res) => {
   }
 });
 
-// 初始化資料庫 Schema
+// 初始化主資料庫 Schema
 db.serialize(() => {
   db.all("PRAGMA table_info(inventory)", [], (err, columns) => {
     const hasLocCode3 = columns && columns.some(c => c.name === 'loc_code_3');
@@ -1271,9 +1289,21 @@ db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS system_config (config_key TEXT PRIMARY KEY, config_value TEXT);`);
   db.run(`CREATE TABLE IF NOT EXISTS locations_master (id INTEGER PRIMARY KEY AUTOINCREMENT, floor TEXT, zone TEXT, loc_type TEXT, cubic_feet REAL, grid_count INTEGER, single_cubic_feet REAL);`);
   db.run(`CREATE TABLE IF NOT EXISTS import_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, module_type TEXT, file_name TEXT, row_count INTEGER, imported_at TEXT);`);
-  
-  // 1. 每日不合理進貨快照歷史表
-  db.run(`
+
+  // 基礎系統帳號
+  db.run(`INSERT OR IGNORE INTO users (username, name, staff_group, role, password, permissions) VALUES ('admin', '系統管理員', '管理組', 'sys_admin', 'admin', 'all');`);
+  db.run(`INSERT OR IGNORE INTO users (username, name, staff_group, role, password, permissions) VALUES ('801854', '黃勝鴻', '管理組', 'sys_admin', '801854', 'all');`);
+  db.run(`INSERT OR IGNORE INTO users (username, name, staff_group, role, password, permissions, last_active) VALUES ('guest', '訪客 (免登直達)', '', 'guest', 'guest_direct_no_pwd', 'replenish_fish,transfer_80_15,transfer_15_80,dispatch_fish', 0);`);
+});
+
+// 初始化獨立庫的資料表與索引（確保首次啟動時不缺表）
+inboundDb.serialize(() => {
+  inboundDb.run(`CREATE INDEX IF NOT EXISTS idx_inbound_rec_date ON inbound_details(rec_date)`, () => {});
+  inboundDb.run(`CREATE INDEX IF NOT EXISTS idx_inbound_item_id ON inbound_details(item_id)`, () => {});
+});
+
+abnormalDb.serialize(() => {
+  abnormalDb.run(`
     CREATE TABLE IF NOT EXISTS abnormal_purchase_history (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       snapshot_date TEXT,
@@ -1302,9 +1332,7 @@ db.serialize(() => {
       UNIQUE(warehouse, po_no, batch_no, item_id, rec_date)
     );
   `);
-
-  // 2. 商品自訂屬性與贈品備註表
-  db.run(`
+  abnormalDb.run(`
     CREATE TABLE IF NOT EXISTS item_custom_notes (
       item_id TEXT PRIMARY KEY,
       is_gift INTEGER DEFAULT 0,
@@ -1313,19 +1341,10 @@ db.serialize(() => {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
   `);
-
-  // 基礎系統帳號 (已確保收發魚群權限健全)
-  db.run(`INSERT OR IGNORE INTO users (username, name, staff_group, role, password, permissions) VALUES ('admin', '系統管理員', '管理組', 'sys_admin', 'admin', 'all');`);
-  db.run(`INSERT OR IGNORE INTO users (username, name, staff_group, role, password, permissions) VALUES ('801854', '黃勝鴻', '管理組', 'sys_admin', '801854', 'all');`);
-  db.run(`INSERT OR IGNORE INTO users (username, name, staff_group, role, password, permissions, last_active) VALUES ('guest', '訪客 (免登直達)', '', 'guest', 'guest_direct_no_pwd', 'replenish_fish,transfer_80_15,transfer_15_80,dispatch_fish', 0);`);
+  abnormalDb.run(`CREATE INDEX IF NOT EXISTS idx_abnormal_rec_date ON abnormal_purchase_history(rec_date)`);
+  abnormalDb.run(`CREATE INDEX IF NOT EXISTS idx_abnormal_snapshot_date ON abnormal_purchase_history(snapshot_date)`);
 });
 
-// 為高頻查詢欄位建立索引
-db.run(`CREATE INDEX IF NOT EXISTS idx_inbound_rec_date ON inbound_details(rec_date)`);
-db.run(`CREATE INDEX IF NOT EXISTS idx_inbound_item_id ON inbound_details(item_id)`);
-db.run(`CREATE INDEX IF NOT EXISTS idx_abnormal_rec_date ON abnormal_purchase_history(rec_date)`);
-db.run(`CREATE INDEX IF NOT EXISTS idx_abnormal_snapshot_date ON abnormal_purchase_history(snapshot_date)`);
-
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 業務 API 伺服器已成功啟動！(Port: ${PORT})`);
+  console.log(`🚀 業務 API 伺服器已成功啟動（多模組獨立 SQLite 並行架構）！(Port: ${PORT})`);
 });
