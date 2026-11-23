@@ -25,10 +25,18 @@
           <button
             type="button"
             class="sub-tab-btn"
+            :class="{ active: activeTab === 'simulation' }"
+            @click="activeTab = 'simulation'; fetchSimulation()"
+          >
+            🧠 三模式揀貨動線與找貨分析
+          </button>
+          <button
+            type="button"
+            class="sub-tab-btn"
             :class="{ active: activeTab === 'floorplan' }"
             @click="activeTab = 'floorplan'"
           >
-            🗺️ 樓層儲位平面配置圖 (2F~8F)
+            🗺️ 樓層儲位平面配置圖
           </button>
           <button
             type="button"
@@ -36,18 +44,30 @@
             :class="{ active: activeTab === 'rules' }"
             @click="activeTab = 'rules'"
           >
-            ⚙️ 儲位規則線上設定 ({{ rules.length }} 條)
+            ⚙️ 儲位規則與月銷設定 ({{ rules.length }} 條)
           </button>
         </div>
       </div>
 
       <div class="header-right">
+        <!-- 擺放模式快速切換 -->
+        <el-select
+          v-model="modeSettings.mode"
+          size="mini"
+          style="width: 185px;"
+          @change="saveModeSettings"
+        >
+          <el-option label="模式1：大區 + 借採" value="CAT_TRADE" />
+          <el-option label="模式2：月銷 + 借採" value="SALES_TRADE" />
+          <el-option label="模式3：大區 + 月銷 + 借採" value="CAT_SALES_TRADE" />
+        </el-select>
+
         <span v-if="uploadProgressText" class="upload-status-pill">{{ uploadProgressText }}</span>
         <el-button size="mini" type="success" icon="el-icon-upload2" :loading="uploading" @click="triggerCsvInput">
-          上傳 80庫 CSV 快照
+          上傳 80庫 CSV
         </el-button>
         <el-button size="mini" type="primary" icon="el-icon-refresh" @click="refreshAll">
-          重新計算準確率
+          重新計算
         </el-button>
       </div>
     </div>
@@ -72,7 +92,7 @@
           <div class="kpi-num text-red">{{ report.summary.failed.toLocaleString() }}</div>
         </div>
         <div class="kpi-box highlight-kpi">
-          <div class="kpi-lbl">🎯 全庫擺放準確率</div>
+          <div class="kpi-lbl">🎯 當前模式擺放準確率</div>
           <div class="kpi-num" :class="report.summary.accuracyPct >= 95 ? 'text-green' : 'text-yellow'">
             {{ report.summary.accuracyPct }}%
           </div>
@@ -81,11 +101,12 @@
 
       <div v-if="!report.hasData" class="empty-guide-card">
         <h4>尚未匯入 80 庫庫存快照資料</h4>
-        <p>您可先切換至 <strong>「🗺️ 樓層儲位平面配置圖」</strong> 或 <strong>「⚙️ 儲位規則線上設定」</strong> 針對每一條排號設定 <strong>借/採</strong> 與 <strong>允許大區</strong>，再上傳 80 庫 CSV 即可秒算準確率！</p>
+        <p>您可先切換至 <strong>「⚙️ 儲位規則與月銷設定」</strong> 設定月銷量級距與規則，再上傳 80 庫 CSV（或直接從首頁匯入 80 庫）即可自動分析！</p>
       </div>
 
       <template v-else>
-        <div class="breakdown-grid">
+        <!-- 四大維度分析卡片（借採 / 月銷級距 / 樓層 / 大區） -->
+        <div class="breakdown-grid-4">
           <div class="panel-card">
             <div class="panel-head">🏷️ 借 / 採 擺放準確率</div>
             <div class="stat-list">
@@ -96,6 +117,20 @@
                   <div class="st-bar" :style="{ width: `${t.accuracyPct}%` }" :class="t.accuracyPct >= 95 ? 'bg-green' : 'bg-amber'"></div>
                 </div>
                 <span class="st-pct">{{ t.accuracyPct }}%</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel-card">
+            <div class="panel-head">🔥 月銷量級距準確率</div>
+            <div class="stat-list">
+              <div v-for="s in report.bySalesTier" :key="s.tier" class="stat-row">
+                <span class="st-name font-bold">{{ s.label }}</span>
+                <span class="st-cnt">{{ s.passed.toLocaleString() }} / {{ s.total.toLocaleString() }}</span>
+                <div class="st-bar-wrap">
+                  <div class="st-bar" :style="{ width: `${s.accuracyPct}%` }" :class="s.accuracyPct >= 95 ? 'bg-green' : 'bg-purple'"></div>
+                </div>
+                <span class="st-pct">{{ s.accuracyPct }}%</span>
               </div>
             </div>
           </div>
@@ -129,22 +164,30 @@
           </div>
         </div>
 
+        <!-- 異常清單 -->
         <div class="panel-card exception-table-card">
           <div class="panel-head row-between">
-            <span>🚨 放錯儲位異常移庫清單（共 {{ filteredExceptions.length }} 筆異常）</span>
+            <span>🚨 放錯儲位異常移庫清單（共 {{ filteredExceptions.length }} 筆異常｜當前模式：{{ modeLabelMap[modeSettings.mode] }}）</span>
             <div class="exc-filters">
-              <el-input v-model="excKeyword" size="mini" placeholder="搜尋商品ID/名稱/儲位..." style="width: 180px;" clearable />
-              <el-select v-model="excTradeFilter" size="mini" style="width: 105px;">
+              <el-input v-model="excKeyword" size="mini" placeholder="搜尋商品ID/名稱/儲位..." style="width: 170px;" clearable />
+              <el-select v-model="excTradeFilter" size="mini" style="width: 100px;">
                 <el-option label="全部借/採" value="ALL" />
                 <el-option label="僅看「借」" value="借" />
                 <el-option label="僅看「採」" value="採" />
               </el-select>
-              <el-select v-model="excFloorFilter" size="mini" style="width: 110px;">
+              <el-select v-model="excTierFilter" size="mini" style="width: 115px;">
+                <el-option label="全部月銷級距" value="ALL" />
+                <el-option label="A級爆品" value="A" />
+                <el-option label="B級常銷" value="B" />
+                <el-option label="C級慢銷" value="C" />
+                <el-option label="D級滯銷" value="D" />
+              </el-select>
+              <el-select v-model="excFloorFilter" size="mini" style="width: 105px;">
                 <el-option label="全部樓層" value="ALL" />
                 <el-option v-for="f in report.byFloor" :key="f.label" :label="f.label" :value="f.label" />
               </el-select>
               <el-button size="mini" type="warning" icon="el-icon-download" @click="exportExceptionsExcel">
-                匯出移庫單 Excel
+                匯出移庫單
               </el-button>
             </div>
           </div>
@@ -157,7 +200,8 @@
                   <th>商品名稱</th>
                   <th>借/採</th>
                   <th>商品大區</th>
-                  <th>材積</th>
+                  <th>月銷量</th>
+                  <th>月銷級距</th>
                   <th>樓層</th>
                   <th>目前儲位</th>
                   <th>所屬區段</th>
@@ -168,7 +212,7 @@
               </thead>
               <tbody>
                 <tr v-if="filteredExceptions.length === 0">
-                  <td colspan="11" class="empty-td">🎉 目前篩選條件下無放錯儲位的異常商品！</td>
+                  <td colspan="12" class="empty-td">🎉 目前篩選條件下無放錯儲位的異常商品！</td>
                 </tr>
                 <tr v-for="(item, idx) in filteredExceptions.slice(0, 300)" :key="idx">
                   <td class="text-blue font-bold">{{ item.sku_id }}</td>
@@ -179,7 +223,10 @@
                     </span>
                   </td>
                   <td>{{ item.cat_name }}</td>
-                  <td>{{ item.volume_type }}</td>
+                  <td class="font-bold text-yellow">{{ item.monthly_sales }}</td>
+                  <td>
+                    <span class="tier-pill" :class="`tier-${item.sales_tier}`">{{ item.sales_tier_label }}</span>
+                  </td>
                   <td class="font-bold">{{ item.floor }}</td>
                   <td class="text-yellow font-bold">{{ item.bin_code }}</td>
                   <td>{{ item.zone_name }}</td>
@@ -194,7 +241,140 @@
       </template>
     </div>
 
-    <!-- ==================== TAB 2: 樓層儲位平面配置圖 (2F ~ 8F) ==================== -->
+    <!-- ==================== TAB 2: 三模式揀貨動線與找貨效益模擬分析 ==================== -->
+    <div v-if="activeTab === 'simulation'" class="tab-content" v-loading="simLoading">
+      <div v-if="!simData.hasData" class="empty-guide-card">
+        <h4>尚無 80 庫庫存數據可供動線模擬</h4>
+        <p>請先上傳 80 庫 CSV（或從首頁匯入 80 庫），系統即可自動分析三種擺放模式的揀貨距離與找貨效益！</p>
+      </div>
+
+      <template v-else>
+        <!-- 三種擺放模式對比卡片 -->
+        <div class="sim-modes-grid">
+          <div
+            v-for="m in simData.modesComparison"
+            :key="m.mode"
+            class="sim-mode-card"
+            :class="{ 'sim-recommended': m.recommended, 'sim-active': modeSettings.mode === m.mode }"
+          >
+            <div class="sim-card-top">
+              <div class="sim-mode-title">{{ m.name }}</div>
+              <div class="sim-badges">
+                <span v-if="m.recommended" class="rec-badge">🏆 系統推薦最佳平衡</span>
+                <span v-if="modeSettings.mode === m.mode" class="cur-badge">目前啟用中</span>
+              </div>
+            </div>
+
+            <div class="sim-metrics-row">
+              <div class="sim-metric">
+                <span class="sm-lbl">🚶 揀貨距離指數</span>
+                <span class="sm-val text-blue">{{ m.walkDistanceIndex.toLocaleString() }}</span>
+                <span v-if="m.walkSavingPct > 0" class="sm-sub text-green">▼ 縮短 {{ m.walkSavingPct }}% 步行距離</span>
+                <span v-else class="sm-sub text-dim">基準距離</span>
+              </div>
+              <div class="sim-metric">
+                <span class="sm-lbl">🔥 黃金區位爆品率</span>
+                <span class="sm-val text-yellow">{{ m.goldenHotPct }}%</span>
+                <span class="sm-sub text-dim">近出貨口/前段佔比</span>
+              </div>
+              <div class="sim-metric">
+                <span class="sm-lbl">🧭 找貨直覺度評分</span>
+                <span class="sm-val text-purple">{{ m.findEaseScore }} 分</span>
+                <span class="sm-sub text-dim">品類聚合度指標</span>
+              </div>
+            </div>
+
+            <div class="sim-desc-box">
+              <div><strong>📦 搬遷調整成本：</strong><span class="text-yellow">{{ m.moveEffortLevel }}</span></div>
+              <div style="margin-top: 4px;"><strong class="text-green">✅ 優勢：</strong>{{ m.pros }}</div>
+              <div style="margin-top: 2px;"><strong class="text-red">⚠️ 限制：</strong>{{ m.cons }}</div>
+            </div>
+
+            <div style="margin-top: auto; padding-top: 8px;">
+              <el-button
+                size="mini"
+                :type="m.recommended ? 'success' : 'primary'"
+                :plain="modeSettings.mode === m.mode"
+                style="width: 100%;"
+                @click="applyModeFromSim(m.mode)"
+              >
+                {{ modeSettings.mode === m.mode ? '✓ 已套用此擺放模式' : '⚡ 一鍵切換套用此模式' }}
+              </el-button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 下半部：左邊「現況月銷分級分佈」、右邊「急需前移的遠端高熱銷爆品」 -->
+        <div class="sim-bottom-grid">
+          <div class="panel-card">
+            <div class="panel-head">📊 現況 80 庫月銷量級距與黃金區位佔比分析</div>
+            <div class="table-scroll">
+              <table class="dark-table">
+                <thead>
+                  <tr>
+                    <th>月銷級距</th>
+                    <th>品項數</th>
+                    <th>儲位筆數</th>
+                    <th>月總銷量</th>
+                    <th>月揀貨單天數</th>
+                    <th>已放黃金區位</th>
+                    <th>黃金區位佔比</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="t in simData.tierDistribution" :key="t.tier">
+                    <td><span class="tier-pill" :class="`tier-${t.tier}`">{{ t.label }}</span></td>
+                    <td class="font-bold">{{ t.skuCount.toLocaleString() }}</td>
+                    <td>{{ t.binCount.toLocaleString() }}</td>
+                    <td class="text-yellow font-bold">{{ Math.round(t.totalSales).toLocaleString() }}</td>
+                    <td class="text-blue font-bold">{{ Math.round(t.pickFreq).toLocaleString() }}</td>
+                    <td class="text-green font-bold">{{ t.goldenBins.toLocaleString() }}</td>
+                    <td class="font-bold">
+                      {{ t.binCount > 0 ? ((t.goldenBins / t.binCount) * 100).toFixed(1) : 0 }}%
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="panel-card">
+            <div class="panel-head">🚀 優先移庫建議：目前放在遠端高樓層的 A/B 級爆品（Top 15）</div>
+            <div class="table-scroll">
+              <table class="dark-table">
+                <thead>
+                  <tr>
+                    <th>商品ID</th>
+                    <th>商品名稱</th>
+                    <th>大區</th>
+                    <th>借/採</th>
+                    <th>月銷量</th>
+                    <th>目前樓層/儲位</th>
+                    <th>動線建議</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-if="simData.topMoveCandidates.length === 0">
+                    <td colspan="7" class="empty-td">🎉 所有 A/B 級爆品皆已位於黃金動線區位！</td>
+                  </tr>
+                  <tr v-for="(c, i) in simData.topMoveCandidates" :key="i">
+                    <td class="text-blue font-bold">{{ c.sku_id }}</td>
+                    <td class="text-left">{{ c.sku_name }}</td>
+                    <td>{{ c.cat_name }}</td>
+                    <td>{{ c.trade_type }}</td>
+                    <td class="text-yellow font-bold">{{ c.monthly_sales }}</td>
+                    <td class="text-red font-bold">{{ c.floor }} / {{ c.bin_code }}</td>
+                    <td class="text-green">建議前移至同大區前段或 2F~4F/6F 黃金區</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <!-- ==================== TAB 3: 樓層儲位平面配置圖 ==================== -->
     <div v-if="activeTab === 'floorplan'" class="tab-content" v-loading="loading">
       <div class="panel-card fp-toolbar">
         <div class="row-between">
@@ -214,7 +394,7 @@
           <div class="fp-legend">
             <span class="leg-item"><i class="leg-dot dot-buy"></i> 僅限「採」</span>
             <span class="leg-item"><i class="leg-dot dot-borrow"></i> 僅限「借」</span>
-            <span class="leg-item"><i class="leg-dot dot-cat"></i> 已設大區規則</span>
+            <span class="leg-item"><i class="leg-dot dot-cat"></i> 已設大區/月銷規則</span>
             <span class="leg-item"><i class="leg-dot dot-err"></i> 含異常放錯商品</span>
             <span class="leg-item"><i class="leg-dot dot-unset"></i> 未設限制</span>
           </div>
@@ -229,7 +409,6 @@
       </div>
 
       <div class="fp-workspace">
-        <!-- 左側可滾動/縮放平面圖畫布 -->
         <div class="fp-canvas-scroll">
           <div
             class="fp-canvas"
@@ -279,7 +458,7 @@
           <div v-if="!selectedMapRack" class="fp-inspector-empty">
             <div style="font-size: 28px; margin-bottom: 8px;">👆</div>
             <div>請在左側平面圖點擊任一排貨架</div>
-            <div class="text-dim" style="font-size: 11px; margin-top: 6px;">可直接查看該排目前的「借/採」與大區分布，並立即修改該條規則！</div>
+            <div class="text-dim" style="font-size: 11px; margin-top: 6px;">可直接查看該排目前的「借/採」、大區與月銷分佈，並立即修改規則！</div>
           </div>
           <div v-else class="fp-inspector-body">
             <div class="insp-title-box">
@@ -287,11 +466,10 @@
               <div class="text-dim" style="font-size: 11px;">完整標示：{{ selectedMapRack.label }}</div>
             </div>
 
-            <!-- 該排現有庫存統計 -->
             <div class="insp-stat-card">
               <div class="insp-sub-title">📦 目前該排庫存統計</div>
               <div v-if="selectedRackStats.total === 0" class="text-dim" style="font-size: 12px;">
-                尚無庫存資料（或尚未上傳 CSV）
+                尚無庫存資料
               </div>
               <div v-else class="insp-stat-grid">
                 <div>總儲位數：<strong>{{ selectedRackStats.total }}</strong></div>
@@ -301,18 +479,34 @@
                 <div style="grid-column: span 2; font-size: 11px; color: #cbd5e1;">
                   主要大區：{{ selectedRackStats.topCatsText }}
                 </div>
+                <div style="grid-column: span 2; font-size: 11px; color: #fde047;">
+                  月銷分佈：A級({{ selectedRackStats.tiers?.A || 0 }}) / B級({{ selectedRackStats.tiers?.B || 0 }}) / C級({{ selectedRackStats.tiers?.C || 0 }}) / D級({{ selectedRackStats.tiers?.D || 0 }})
+                </div>
               </div>
             </div>
 
-            <!-- 直接線上設定該條規則 -->
             <div class="insp-rule-form">
               <div class="insp-sub-title">⚙️ 設定【{{ selectedMapRack.xCode }} 排】擺放規則</div>
 
               <label class="m-lbl">允許借 / 採：</label>
-              <el-select v-model="mapEditRule.allowed_trade" size="mini" style="width: 100%; margin-bottom: 10px;">
+              <el-select v-model="mapEditRule.allowed_trade" size="mini" style="width: 100%; margin-bottom: 8px;">
                 <el-option label="借採皆可" value="ALL" />
                 <el-option label="僅限「借」" value="借" />
                 <el-option label="僅限「採」" value="採" />
+              </el-select>
+
+              <label class="m-lbl">允許月銷量級距（可多選）：</label>
+              <el-select
+                v-model="mapEditRule.allowed_sales_tiers"
+                multiple
+                size="mini"
+                placeholder="不限月銷級距"
+                style="width: 100%; margin-bottom: 8px;"
+              >
+                <el-option :label="`A級爆品 (≥${modeSettings.tierA_min})`" value="A" />
+                <el-option :label="`B級常銷 (${modeSettings.tierB_min}~${modeSettings.tierA_min - 1})`" value="B" />
+                <el-option :label="`C級慢銷 (${modeSettings.tierC_min}~${modeSettings.tierB_min - 1})`" value="C" />
+                <el-option label="D級滯銷 (0)" value="D" />
               </el-select>
 
               <label class="m-lbl">允許商品大區（可多選）：</label>
@@ -322,7 +516,7 @@
                 filterable
                 size="mini"
                 placeholder="不限大區"
-                style="width: 100%; margin-bottom: 10px;"
+                style="width: 100%; margin-bottom: 8px;"
               >
                 <el-option v-for="cat in categoryOptions" :key="cat" :label="cat" :value="cat" />
               </el-select>
@@ -333,7 +527,7 @@
                 multiple
                 size="mini"
                 placeholder="不限材積"
-                style="width: 100%; margin-bottom: 12px;"
+                style="width: 100%; margin-bottom: 10px;"
               >
                 <el-option label="小材積" value="小材積" />
                 <el-option label="大材積" value="大材積" />
@@ -349,32 +543,49 @@
       </div>
     </div>
 
-    <!-- ==================== TAB 3: 儲位規則線上設定（支援每條 X 軸獨立設定） ==================== -->
+    <!-- ==================== TAB 4: 儲位規則與月銷級距線上設定 ==================== -->
     <div v-if="activeTab === 'rules'" class="tab-content" v-loading="loading">
+      <!-- 月銷量級距門檻設定卡片 -->
+      <div class="panel-card sales-tier-config-card">
+        <div class="row-between">
+          <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <span class="font-bold text-yellow" style="font-size: 13px;">🔥 月銷量級距門檻設定：</span>
+            <span class="tier-cfg-item">
+              A級爆品 ≥ <el-input-number v-model="modeSettings.tierA_min" :min="2" size="mini" style="width: 95px;" />
+            </span>
+            <span class="tier-cfg-item">
+              B級常銷 ≥ <el-input-number v-model="modeSettings.tierB_min" :min="1" size="mini" style="width: 95px;" />
+            </span>
+            <span class="tier-cfg-item">
+              C級慢銷 ≥ <el-input-number v-model="modeSettings.tierC_min" :min="1" size="mini" style="width: 95px;" />
+            </span>
+            <span class="text-dim" style="font-size: 12px;">（月銷 = 0 自動歸類為 D級滯銷）</span>
+          </div>
+          <el-button size="mini" type="success" @click="saveModeSettings">💾 儲存月銷門檻與模式</el-button>
+        </div>
+      </div>
+
       <div class="panel-card rules-toolbar-card">
         <div class="row-between">
           <div class="rule-filters">
-            <el-select v-model="ruleFloorFilter" size="mini" style="width: 120px;">
+            <el-select v-model="ruleFloorFilter" size="mini" style="width: 115px;">
               <el-option label="全部樓層" value="ALL" />
               <el-option v-for="fl in floorOptions" :key="fl" :label="fl" :value="fl" />
             </el-select>
-            <el-input v-model="ruleKeyword" size="mini" placeholder="搜尋區域名稱或 X 軸(如 M01)..." style="width: 210px;" clearable />
+            <el-input v-model="ruleKeyword" size="mini" placeholder="搜尋區域名稱或 X 軸(如 M01)..." style="width: 200px;" clearable />
           </div>
 
           <div class="rule-actions">
             <el-button size="mini" type="info" plain @click="expandAllRangeRules">
-              ⚡ 全部展開為逐條 X 軸設定
+              ⚡ 全部展開為逐條 X 軸
             </el-button>
             <el-button size="mini" type="warning" plain @click="autoSuggestRules">
-              ✨ 依現有庫存自動分析大區
+              ✨ 依現有庫存自動學習大區與月銷
             </el-button>
             <el-button size="mini" type="primary" icon="el-icon-plus" @click="openNewRuleModal">
               新增單條 X 軸規則
             </el-button>
           </div>
-        </div>
-        <div class="rule-hint">
-          💡 提示：若某一列目前是區間（例如 <code>L01 ~ L26</code>），點擊該列右側的 <strong>「⚡ 展開成單條」</strong>，系統會立刻拆成 <code>L01</code>、<code>L02</code> ... <code>L26</code> 共 26 列，讓您每一條單獨設定「借 / 採」與「大區」！
         </div>
       </div>
 
@@ -383,17 +594,16 @@
           <table class="dark-table rules-edit-table">
             <thead>
               <tr>
-                <th style="width: 55px;">啟用</th>
-                <th style="width: 70px;">樓層</th>
-                <th style="width: 150px;">區域名稱</th>
-                <th style="width: 105px;">儲位型態</th>
-                <th style="width: 135px;">X軸 (排號)</th>
-                <th style="width: 105px;">Y軸 (格)</th>
-                <th style="width: 75px;">層別</th>
-                <th style="width: 125px;">允許借 / 採</th>
-                <th style="min-width: 240px;">允許商品大區（可多選）</th>
-                <th style="width: 135px;">允許材積</th>
-                <th style="width: 135px;">操作</th>
+                <th style="width: 50px;">啟用</th>
+                <th style="width: 65px;">樓層</th>
+                <th style="width: 140px;">區域名稱</th>
+                <th style="width: 120px;">X軸 (排號)</th>
+                <th style="width: 95px;">Y軸 / 層</th>
+                <th style="width: 115px;">允許借 / 採</th>
+                <th style="min-width: 190px;">允許月銷量級距（可多選）</th>
+                <th style="min-width: 210px;">允許商品大區（可多選）</th>
+                <th style="width: 125px;">允許材積</th>
+                <th style="width: 130px;">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -403,18 +613,16 @@
                 </td>
                 <td class="font-bold text-blue">{{ r.floor }}</td>
                 <td class="font-bold text-left">{{ r.zone_name }}</td>
-                <td>{{ r.storage_type }}</td>
                 <td class="font-bold text-yellow">
-                  <span v-if="r.x_start === r.x_end">{{ r.x_start }}（單條）</span>
+                  <span v-if="r.x_start === r.x_end">{{ r.x_start }}</span>
                   <span v-else>{{ r.x_start }} ~ {{ r.x_end }}</span>
                 </td>
-                <td>{{ r.y_start }} ~ {{ r.y_end }}</td>
-                <td>{{ r.layer_start }} ~ {{ r.layer_end }}</td>
+                <td style="font-size: 11px;">{{ r.y_start }}~{{ r.y_end }} ({{ r.layer_start }}~{{ r.layer_end }})</td>
                 <td>
                   <el-select
                     v-model="r.allowed_trade"
                     size="mini"
-                    style="width: 112px;"
+                    style="width: 105px;"
                     @change="saveSingleRule(r)"
                   >
                     <el-option label="借採皆可" value="ALL" />
@@ -424,12 +632,28 @@
                 </td>
                 <td>
                   <el-select
+                    v-model="r.allowed_sales_tiers"
+                    multiple
+                    collapse-tags
+                    size="mini"
+                    placeholder="不限月銷級距"
+                    style="width: 100%;"
+                    @change="saveSingleRule(r)"
+                  >
+                    <el-option :label="`A級爆品 (≥${modeSettings.tierA_min})`" value="A" />
+                    <el-option :label="`B級常銷 (${modeSettings.tierB_min}~${modeSettings.tierA_min - 1})`" value="B" />
+                    <el-option :label="`C級慢銷 (${modeSettings.tierC_min}~${modeSettings.tierB_min - 1})`" value="C" />
+                    <el-option label="D級滯銷 (0)" value="D" />
+                  </el-select>
+                </td>
+                <td>
+                  <el-select
                     v-model="r.allowed_categories"
                     multiple
                     collapse-tags
                     filterable
                     size="mini"
-                    placeholder="不限大區（點擊多選）"
+                    placeholder="不限大區"
                     style="width: 100%;"
                     @change="saveSingleRule(r)"
                   >
@@ -456,10 +680,9 @@
                     v-if="r.x_start !== r.x_end"
                     type="button"
                     class="expand-rule-btn"
-                    title="將此區間拆分為每一條 X 軸獨立設定列"
                     @click="expandSingleRangeRule(r)"
                   >
-                    ⚡ 展開成單條
+                    ⚡ 展開
                   </button>
                   <button type="button" class="del-rule-btn" @click="deleteRule(r)">刪除</button>
                 </td>
@@ -471,7 +694,7 @@
     </div>
 
     <!-- 新增單條 X 軸規則 Modal -->
-    <el-dialog v-model="showRuleModal" title="➕ 新增儲位擺放規則（支援單條 X 軸）" width="620px" append-to-body custom-class="dark-dialog">
+    <el-dialog v-model="showRuleModal" title="➕ 新增儲位擺放規則" width="640px" append-to-body custom-class="dark-dialog">
       <div class="modal-grid-2">
         <div>
           <label class="m-lbl">區域名稱 *</label>
@@ -516,8 +739,13 @@
           </el-select>
         </div>
         <div>
-          <label class="m-lbl">儲位型態</label>
-          <el-input v-model="newRule.storage_type" size="mini" placeholder="例如: AGV層架 / 重型層架" />
+          <label class="m-lbl">允許月銷量級距（可多選）</label>
+          <el-select v-model="newRule.allowed_sales_tiers" multiple size="mini" style="width: 100%;">
+            <el-option :label="`A級爆品 (≥${modeSettings.tierA_min})`" value="A" />
+            <el-option :label="`B級常銷 (${modeSettings.tierB_min}~${modeSettings.tierA_min - 1})`" value="B" />
+            <el-option :label="`C級慢銷 (${modeSettings.tierC_min}~${modeSettings.tierB_min - 1})`" value="C" />
+            <el-option label="D級滯銷 (0)" value="D" />
+          </el-select>
         </div>
         <div style="grid-column: span 2;">
           <label class="m-lbl">允許商品大區（可多選）</label>
@@ -546,8 +774,21 @@ export default {
     return {
       activeTab: 'dashboard',
       loading: false,
+      simLoading: false,
       uploading: false,
       uploadProgressText: '',
+
+      modeSettings: {
+        mode: 'CAT_TRADE',
+        tierA_min: 50,
+        tierB_min: 10,
+        tierC_min: 1
+      },
+      modeLabelMap: {
+        CAT_TRADE: '模式1：大區 + 借採',
+        SALES_TRADE: '模式2：月銷 + 借採',
+        CAT_SALES_TRADE: '模式3：大區 + 月銷 + 借採'
+      },
 
       floorOptions: ['1F', '2F東', '2F西', '3F', '4F', '6F', '7F', '8F'],
       categoryOptions: [
@@ -560,7 +801,6 @@ export default {
       ruleFloorFilter: 'ALL',
       ruleKeyword: '',
 
-      // 平面圖互動狀態
       selectedMapFloor: '7F',
       mapZoom: 0.9,
       selectedMapRack: null,
@@ -572,7 +812,8 @@ export default {
         x_end: '',
         allowed_trade: 'ALL',
         allowed_categories: [],
-        allowed_volumes: []
+        allowed_volumes: [],
+        allowed_sales_tiers: []
       },
 
       report: {
@@ -581,12 +822,21 @@ export default {
         byTrade: [],
         byFloor: [],
         byCategory: [],
+        bySalesTier: [],
         byXRow: {},
         exceptions: []
       },
 
+      simData: {
+        hasData: false,
+        tierDistribution: [],
+        modesComparison: [],
+        topMoveCandidates: []
+      },
+
       excKeyword: '',
       excTradeFilter: 'ALL',
+      excTierFilter: 'ALL',
       excFloorFilter: 'ALL',
 
       showRuleModal: false,
@@ -604,6 +854,7 @@ export default {
         allowed_trade: 'ALL',
         allowed_categories: [],
         allowed_volumes: [],
+        allowed_sales_tiers: [],
         enabled: true
       }
     }
@@ -624,15 +875,15 @@ export default {
       const kw = this.excKeyword.trim().toLowerCase();
       return (this.report.exceptions || []).filter(item => {
         const okTrade = this.excTradeFilter === 'ALL' || item.trade_type === this.excTradeFilter;
+        const okTier = this.excTierFilter === 'ALL' || item.sales_tier === this.excTierFilter;
         const okFloor = this.excFloorFilter === 'ALL' || item.floor === this.excFloorFilter;
         const okKw = !kw ||
           item.sku_id.toLowerCase().includes(kw) ||
           item.sku_name.toLowerCase().includes(kw) ||
           item.bin_code.toLowerCase().includes(kw);
-        return okTrade && okFloor && okKw;
+        return okTrade && okTier && okFloor && okKw;
       });
     },
-    // 依據選取樓層與規則/稽核結果，即時計算平面圖座標節點與顏色
     currentFloorCanvas() {
       const floorData = FLOOR_LAYOUT_DATA[this.selectedMapFloor];
       if (!floorData) return { width: 1000, height: 600, nodes: [] };
@@ -642,7 +893,6 @@ export default {
       const cellH = 12;
       const pad = 20;
 
-      // 建立該樓層每個 X 軸排號的規則查找表（單條規則優先）
       const floorRules = this.rules
         .filter(r => r.enabled && (r.floor === this.selectedMapFloor || r.floor.startsWith(this.selectedMapFloor)))
         .sort((a, b) => (a.x_start === a.x_end ? -1 : 1));
@@ -676,20 +926,19 @@ export default {
             statusClass = 'fp-status-borrow';
           } else if (rule && rule.allowed_trade === '採') {
             statusClass = 'fp-status-buy';
-          } else if (rule && rule.allowed_categories && rule.allowed_categories.length > 0) {
+          } else if (rule && ((rule.allowed_categories && rule.allowed_categories.length > 0) || (rule.allowed_sales_tiers && rule.allowed_sales_tiers.length > 0))) {
             statusClass = 'fp-status-cat';
           } else {
             statusClass = 'fp-status-unset';
           }
 
           const ruleText = rule
-            ? `規則：${rule.allowed_trade === 'ALL' ? '借採皆可' : '僅限' + rule.allowed_trade}${rule.allowed_categories?.length ? '｜大區：' + rule.allowed_categories.join('、') : ''}`
+            ? `規則：${rule.allowed_trade === 'ALL' ? '借採皆可' : '僅限' + rule.allowed_trade}${rule.allowed_sales_tiers?.length ? '｜月銷：' + rule.allowed_sales_tiers.join('/') + '級' : ''}${rule.allowed_categories?.length ? '｜大區：' + rule.allowed_categories.join('、') : ''}`
             : '尚未設定規則';
           const statText = xStat ? `\n現況：共 ${xStat.total} 筆（合格 ${xStat.passed} / 異常 ${xStat.failed}）` : '';
           tooltip = `${label}（排號 ${xCode}）\n${ruleText}${statText}`;
         }
 
-        // 簡化顯示標籤（例如 "80M22001A~049E" -> "M22"）
         const shortLabel = isRack ? xCode : label;
 
         return {
@@ -714,9 +963,9 @@ export default {
       };
     },
     selectedRackStats() {
-      if (!this.selectedMapRack) return { total: 0, passed: 0, failed: 0, borrowCnt: 0, buyCnt: 0, accuracyPct: 100, topCatsText: '-' };
+      if (!this.selectedMapRack) return { total: 0, passed: 0, failed: 0, borrowCnt: 0, buyCnt: 0, accuracyPct: 100, topCatsText: '-', tiers: {} };
       const st = this.report.byXRow?.[`${this.selectedMapFloor}|${this.selectedMapRack.xCode}`];
-      if (!st) return { total: 0, passed: 0, failed: 0, borrowCnt: 0, buyCnt: 0, accuracyPct: 100, topCatsText: '-' };
+      if (!st) return { total: 0, passed: 0, failed: 0, borrowCnt: 0, buyCnt: 0, accuracyPct: 100, topCatsText: '-', tiers: {} };
       const topCats = Object.entries(st.cats || {})
         .sort((a, b) => b[1] - a[1])
         .slice(0, 3)
@@ -736,12 +985,21 @@ export default {
     async refreshAll() {
       this.loading = true;
       try {
-        const [ruleRes, repRes] = await Promise.all([
-          axios.get('/api/storage-accuracy/rules'),
-          axios.get('/api/storage-accuracy/audit/report')
+        const [modeRes, ruleRes] = await Promise.all([
+          axios.get('/api/storage-accuracy/mode-settings'),
+          axios.get('/api/storage-accuracy/rules')
         ]);
+        if (modeRes.data?.success && modeRes.data?.settings) {
+          this.modeSettings = modeRes.data.settings;
+        }
         if (ruleRes.data?.success) this.rules = ruleRes.data.rules || [];
+
+        const repRes = await axios.get(`/api/storage-accuracy/audit/report?mode=${this.modeSettings.mode}`);
         if (repRes.data?.success) this.report = repRes.data;
+
+        if (this.activeTab === 'simulation') {
+          await this.fetchSimulation();
+        }
       } catch (e) {
         ElMessage.error('載入儲位準確率資料失敗：' + e.message);
       } finally {
@@ -749,7 +1007,38 @@ export default {
       }
     },
 
-    // 在平面圖上點選某一排貨架時，載入該單條規則（若無單條則自動建立單條草稿）
+    async saveModeSettings() {
+      try {
+        const res = await axios.post('/api/storage-accuracy/mode-settings/save', { settings: this.modeSettings });
+        if (res.data?.success) {
+          this.modeSettings = res.data.settings;
+          ElMessage.success(res.data.message);
+          await this.refreshAll();
+        }
+      } catch (e) {
+        ElMessage.error('儲存擺放模式失敗：' + e.message);
+      }
+    },
+
+    async applyModeFromSim(mode) {
+      this.modeSettings.mode = mode;
+      await this.saveModeSettings();
+    },
+
+    async fetchSimulation() {
+      this.simLoading = true;
+      try {
+        const res = await axios.get('/api/storage-accuracy/audit/simulate-modes');
+        if (res.data?.success) {
+          this.simData = res.data;
+        }
+      } catch (e) {
+        ElMessage.error('載入動線模擬分析失敗：' + e.message);
+      } finally {
+        this.simLoading = false;
+      }
+    },
+
     selectRackOnMap(node) {
       this.selectedMapRack = node;
       const exactRule = this.rules.find(
@@ -760,7 +1049,8 @@ export default {
         this.mapEditRule = {
           ...exactRule,
           allowed_categories: [...(exactRule.allowed_categories || [])],
-          allowed_volumes: [...(exactRule.allowed_volumes || [])]
+          allowed_volumes: [...(exactRule.allowed_volumes || [])],
+          allowed_sales_tiers: [...(exactRule.allowed_sales_tiers || [])]
         };
       } else {
         const defaultFloor = this.selectedMapFloor === '2F'
@@ -781,6 +1071,7 @@ export default {
           allowed_trade: 'ALL',
           allowed_categories: [],
           allowed_volumes: [],
+          allowed_sales_tiers: [],
           enabled: true
         };
       }
@@ -801,7 +1092,7 @@ export default {
       try {
         await axios.post('/api/storage-accuracy/rules/save', { rule });
         ElMessage.success(`已儲存規則：${rule.floor} ${rule.x_start}${rule.x_start !== rule.x_end ? '~' + rule.x_end : ''}`);
-        const repRes = await axios.get('/api/storage-accuracy/audit/report');
+        const repRes = await axios.get(`/api/storage-accuracy/audit/report?mode=${this.modeSettings.mode}`);
         if (repRes.data?.success) this.report = repRes.data;
       } catch (e) {
         ElMessage.error('儲存規則失敗：' + e.message);
@@ -849,6 +1140,7 @@ export default {
         allowed_trade: 'ALL',
         allowed_categories: [],
         allowed_volumes: [],
+        allowed_sales_tiers: [],
         enabled: true
       };
       this.showRuleModal = true;
@@ -942,6 +1234,8 @@ export default {
         const idxCatCode = headers.indexOf('大區編');
         const idxCatName = headers.indexOf('大區名');
         const idxVol = headers.indexOf('材積判斷');
+        const idxMonthlySales = headers.indexOf('(近)月銷量');
+        const idxPickDaysM = headers.indexOf('(近)月-有揀貨單天數');
         const idxNote = headers.indexOf('備註');
 
         if (idxSku === -1 || idxBin === -1) {
@@ -967,6 +1261,8 @@ export default {
             cat_code: idxCatCode !== -1 ? cols[idxCatCode] : '',
             cat_name: idxCatName !== -1 ? cols[idxCatName] : '',
             volume_type: idxVol !== -1 ? cols[idxVol] : '',
+            monthly_sales: idxMonthlySales !== -1 ? Number(String(cols[idxMonthlySales] || 0).replace(/,/g, '')) : 0,
+            pick_days_m: idxPickDaysM !== -1 ? Number(String(cols[idxPickDaysM] || 0).replace(/,/g, '')) : 0,
             note: idxNote !== -1 ? cols[idxNote] : ''
           });
         }
@@ -983,7 +1279,7 @@ export default {
           });
         }
 
-        this.uploadProgressText = '計算擺放準確率中...';
+        this.uploadProgressText = '計算擺放準確率與動線分析中...';
         await this.refreshAll();
         ElMessage.success(`🎉 成功匯入 ${parsedRows.length.toLocaleString()} 筆 80 庫儲位明細並完成準確率稽核！`);
       } catch (err) {
@@ -996,7 +1292,7 @@ export default {
 
     exportExceptionsExcel() {
       const rows = [
-        ['商品ID', '商品名稱', '借/採', '商品大區', '材積', '樓層', '目前儲位', '所屬區段', '庫存數', '異常原因', '建議移往區段']
+        ['商品ID', '商品名稱', '借/採', '商品大區', '月銷量', '月銷級距', '樓層', '目前儲位', '所屬區段', '庫存數', '異常原因', '建議移往區段']
       ];
       this.filteredExceptions.forEach(item => {
         rows.push([
@@ -1004,7 +1300,8 @@ export default {
           item.sku_name,
           item.trade_type,
           item.cat_name,
-          item.volume_type,
+          item.monthly_sales,
+          item.sales_tier_label,
           item.floor,
           item.bin_code,
           item.zone_name,
@@ -1049,7 +1346,7 @@ export default {
   gap: 10px;
   flex-shrink: 0;
 }
-.header-left { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.header-left { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .page-title { margin: 0; font-size: 16px; font-weight: bold; color: #38bdf8; }
 .sub-tabs {
   display: inline-flex;
@@ -1065,7 +1362,7 @@ export default {
   color: #cbd5e1;
   font-size: 12px;
   font-weight: bold;
-  padding: 5px 12px;
+  padding: 5px 11px;
   border-radius: 5px;
   cursor: pointer;
 }
@@ -1097,16 +1394,131 @@ export default {
   color: #cbd5e1;
 }
 
-.breakdown-grid { display: grid; grid-template-columns: 1fr 1.2fr 1.5fr; gap: 10px; height: 210px; flex-shrink: 0; }
+.breakdown-grid-4 { display: grid; grid-template-columns: 0.9fr 1.1fr 1.1fr 1.4fr; gap: 10px; height: 205px; flex-shrink: 0; }
 .panel-card { background: #1e293b; border: 1px solid #334155; border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; }
 .panel-head { background: #0f172a; padding: 7px 12px; font-size: 13px; font-weight: bold; border-bottom: 1px solid #334155; flex-shrink: 0; }
 .row-between { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
-.stat-list { flex: 1; overflow-y: auto; padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; }
-.stat-row { display: grid; grid-template-columns: 80px 95px 1fr 52px; align-items: center; gap: 8px; font-size: 12px; }
+.stat-list { flex: 1; overflow-y: auto; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+.stat-row { display: grid; grid-template-columns: 78px 88px 1fr 48px; align-items: center; gap: 6px; font-size: 12px; }
 .st-cnt { color: #94a3b8; font-size: 11px; text-align: right; }
 .st-bar-wrap { height: 7px; background: #334155; border-radius: 4px; overflow: hidden; }
 .st-bar { height: 100%; }
 .st-pct { font-weight: bold; text-align: right; }
+
+/* 三模式動線模擬卡片 */
+.sim-modes-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  flex-shrink: 0;
+}
+.sim-mode-card {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.sim-recommended {
+  border-color: #4ade80;
+  background: linear-gradient(180deg, rgba(74, 222, 128, 0.08) 0%, #1e293b 45%);
+}
+.sim-active {
+  box-shadow: 0 0 0 1px #38bdf8;
+}
+.sim-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 6px;
+}
+.sim-mode-title {
+  font-size: 14px;
+  font-weight: bold;
+  color: #f8fafc;
+}
+.sim-badges {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.rec-badge {
+  background: rgba(74, 222, 128, 0.2);
+  color: #4ade80;
+  border: 1px solid rgba(74, 222, 128, 0.45);
+  font-size: 11px;
+  font-weight: bold;
+  padding: 2px 7px;
+  border-radius: 10px;
+}
+.cur-badge {
+  background: rgba(56, 189, 248, 0.2);
+  color: #38bdf8;
+  font-size: 11px;
+  font-weight: bold;
+  padding: 2px 7px;
+  border-radius: 10px;
+}
+.sim-metrics-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  background: #0f172a;
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid #334155;
+}
+.sim-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sm-lbl { font-size: 11px; color: #94a3b8; }
+.sm-val { font-size: 16px; font-weight: 800; }
+.sm-sub { font-size: 10px; }
+.sim-desc-box {
+  font-size: 12px;
+  color: #cbd5e1;
+  line-height: 1.5;
+}
+.sim-bottom-grid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1.35fr;
+  gap: 10px;
+}
+
+/* 月銷門檻設定列 */
+.sales-tier-config-card {
+  padding: 8px 14px;
+  flex-shrink: 0;
+  border-color: rgba(250, 204, 21, 0.35);
+}
+.tier-cfg-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #f8fafc;
+}
+
+/* 月銷級距小標籤 */
+.tier-pill {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: bold;
+}
+.tier-A { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); }
+.tier-B { background: rgba(250, 204, 21, 0.2); color: #facc15; border: 1px solid rgba(250, 204, 21, 0.4); }
+.tier-C { background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); }
+.tier-D { background: rgba(148, 163, 184, 0.2); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.4); }
 
 /* 平面圖視覺化樣式 */
 .fp-toolbar { padding: 8px 12px; flex-shrink: 0; }
@@ -1194,22 +1606,20 @@ export default {
 
 .fp-inspector { overflow-y: auto; }
 .fp-inspector-empty { padding: 40px 16px; text-align: center; color: #cbd5e1; font-size: 13px; }
-.fp-inspector-body { padding: 12px; display: flex; flex-direction: column; gap: 12px; }
-.insp-title-box { border-bottom: 1px solid #334155; padding-bottom: 8px; }
+.fp-inspector-body { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.insp-title-box { border-bottom: 1px solid #334155; padding-bottom: 6px; }
 .insp-stat-card, .insp-rule-form {
   background: #0f172a;
   border: 1px solid #334155;
   border-radius: 6px;
   padding: 10px;
 }
-.insp-sub-title { font-size: 12px; font-weight: bold; color: #38bdf8; margin-bottom: 8px; }
-.insp-stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 12px; }
+.insp-sub-title { font-size: 12px; font-weight: bold; color: #38bdf8; margin-bottom: 6px; }
+.insp-stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; font-size: 12px; }
 
 .exception-table-card, .rules-table-card { flex: 1; min-height: 0; }
 .exc-filters, .rule-filters, .rule-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.rules-toolbar-card { padding: 8px 12px; gap: 6px; flex-shrink: 0; }
-.rule-hint { font-size: 12px; color: #7dd3fc; }
-.rule-hint code { background: #0f172a; padding: 1px 5px; border-radius: 3px; color: #facc15; }
+.rules-toolbar-card { padding: 8px 12px; flex-shrink: 0; }
 
 .table-scroll { flex: 1; overflow: auto; }
 .dark-table { width: 100%; border-collapse: collapse; font-size: 12px; }
@@ -1260,6 +1670,7 @@ export default {
 
 .bg-green { background: #4ade80; }
 .bg-amber { background: #facc15; }
+.bg-purple { background: #c084fc; }
 .bg-red { background: #f87171; }
 .text-blue { color: #38bdf8; }
 .text-purple { color: #c084fc; }
