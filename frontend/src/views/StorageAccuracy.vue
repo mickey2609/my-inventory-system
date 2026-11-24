@@ -388,9 +388,10 @@
       </template>
     </div>
 
-    <!-- ==================== TAB 3: 樓層儲位平面配置圖 ==================== -->
+    <!-- ==================== TAB 3: 樓層儲位平面配置圖（分區獨立畫面＋方位羅盤） ==================== -->
     <div v-if="activeTab === 'floorplan'" class="tab-content" v-loading="loading">
       <div class="panel-card fp-toolbar">
+        <!-- 第一排：樓層切換 ＋ 圖例 ＋ 縮放 -->
         <div class="row-between">
           <div class="fp-floor-tabs">
             <button
@@ -399,9 +400,9 @@
               :key="fl"
               class="fp-fl-btn"
               :class="{ active: selectedMapFloor === fl }"
-              @click="selectedMapFloor = fl; selectedMapRack = null"
+              @click="selectMapFloor(fl)"
             >
-              🏢 {{ fl }} 平面圖
+              🏢 {{ fl }}
             </button>
           </div>
 
@@ -417,50 +418,101 @@
             <span class="text-dim" style="font-size: 12px;">縮放：</span>
             <el-button size="mini" @click="mapZoom = Math.max(0.5, Number((mapZoom - 0.15).toFixed(2)))">－</el-button>
             <span class="font-bold" style="font-size: 12px; min-width: 42px; text-align: center;">{{ Math.round(mapZoom * 100) }}%</span>
-            <el-button size="mini" @click="mapZoom = Math.min(1.8, Number((mapZoom + 0.15).toFixed(2)))">＋</el-button>
+            <el-button size="mini" @click="mapZoom = Math.min(2.2, Number((mapZoom + 0.15).toFixed(2)))">＋</el-button>
+          </div>
+        </div>
+
+        <!-- 第二排：該樓層獨立分區按鈕（每區獨立成頁） -->
+        <div class="fp-zone-bar">
+          <span class="zone-bar-title">📍 {{ currentFloorModule?.title || selectedMapFloor }}：</span>
+          <div class="fp-zone-tabs">
+            <button
+              type="button"
+              v-for="z in currentFloorZones"
+              :key="z.id"
+              class="fp-zone-btn"
+              :class="{ active: selectedZoneId === z.id }"
+              @click="selectMapZone(z.id)"
+            >
+              {{ selectedMapFloor }} {{ z.label }}
+            </button>
           </div>
         </div>
       </div>
 
       <div class="fp-workspace">
-        <div class="fp-canvas-scroll">
-          <div
-            class="fp-canvas"
-            :style="{
-              width: `${currentFloorCanvas.width * mapZoom}px`,
-              height: `${currentFloorCanvas.height * mapZoom}px`
-            }"
-          >
+        <div class="fp-canvas-wrapper">
+          <!-- 方位羅盤圖標（隨東朝上 / 東朝右自動切換） -->
+          <div class="compass-widget" :title="isEastRightOrientation ? '目前視角：東側碼頭朝右、北側(A區)朝上' : '目前視角：東側碼頭朝上、北側(A區)朝左'">
+            <div class="compass-ring">
+              <span class="cmp-dir cmp-top" :class="{ 'cmp-east': !isEastRightOrientation }">
+                {{ isEastRightOrientation ? '北 (A)' : '東 (碼頭)' }}
+              </span>
+              <span class="cmp-dir cmp-bottom">
+                {{ isEastRightOrientation ? '南 (D)' : '西' }}
+              </span>
+              <span class="cmp-dir cmp-left">
+                {{ isEastRightOrientation ? '西' : '北 (A)' }}
+              </span>
+              <span class="cmp-dir cmp-right" :class="{ 'cmp-east': isEastRightOrientation }">
+                {{ isEastRightOrientation ? '東 (碼頭)' : '南 (D)' }}
+              </span>
+              <div class="compass-needle" :class="isEastRightOrientation ? 'needle-right' : 'needle-up'">
+                ▲
+              </div>
+            </div>
+            <div class="compass-caption">
+              {{ isEastRightOrientation ? '東側朝右（橫向）' : '東側朝上（夾層）' }}
+            </div>
+          </div>
+
+          <div class="fp-canvas-scroll">
             <div
-              class="fp-scale-inner"
+              class="fp-canvas"
               :style="{
-                width: `${currentFloorCanvas.width}px`,
-                height: `${currentFloorCanvas.height}px`,
-                transform: `scale(${mapZoom})`,
-                transformOrigin: 'top left'
+                width: `${currentFloorCanvas.width * mapZoom}px`,
+                height: `${currentFloorCanvas.height * mapZoom}px`
               }"
             >
               <div
-                v-for="(node, idx) in currentFloorCanvas.nodes"
-                :key="idx"
-                class="fp-node"
-                :class="[
-                  node.isRack ? 'fp-rack-node' : 'fp-landmark-node',
-                  node.statusClass,
-                  selectedMapRack && selectedMapRack.xCode === node.xCode && node.isRack ? 'fp-selected' : ''
-                ]"
+                class="fp-scale-inner"
                 :style="{
-                  left: `${node.left}px`,
-                  top: `${node.top}px`,
-                  width: `${node.width}px`,
-                  height: `${node.height}px`
+                  width: `${currentFloorCanvas.width}px`,
+                  height: `${currentFloorCanvas.height}px`,
+                  transform: `scale(${mapZoom})`,
+                  transformOrigin: 'top left'
                 }"
-                :title="node.tooltip"
-                @click="node.isRack && selectRackOnMap(node)"
               >
-                <span class="fp-node-txt" :class="{ 'fp-vertical-txt': node.isVertical }">
-                  {{ node.shortLabel }}
-                </span>
+                <!-- 畫布邊緣方位提示條 -->
+                <div
+                  class="edge-east-banner"
+                  :class="isEastRightOrientation ? 'edge-right' : 'edge-top'"
+                >
+                  ▶ 東側碼頭方向（{{ currentZoneObj?.label || '' }}）
+                </div>
+
+                <div
+                  v-for="(node, idx) in currentFloorCanvas.nodes"
+                  :key="idx"
+                  class="fp-node"
+                  :class="[
+                    node.isRack ? 'fp-rack-node' : 'fp-landmark-node',
+                    node.statusClass,
+                    selectedMapRack && selectedMapRack.xCode === node.xCode && selectedMapRack.label === node.label && node.isRack ? 'fp-selected' : ''
+                  ]"
+                  :style="{
+                    left: `${node.left}px`,
+                    top: `${node.top}px`,
+                    width: `${node.width}px`,
+                    height: `${node.height}px`
+                  }"
+                  :title="node.tooltip"
+                  @click="node.isRack && selectRackOnMap(node)"
+                >
+                  <span class="fp-node-txt" :class="{ 'fp-vertical-txt': node.isVertical }">
+                    {{ node.shortLabel }}
+                  </span>
+                </div>
               </div>
             </div>
           </div>
@@ -470,12 +522,12 @@
           <div class="panel-head">🔎 點選平面圖儲位查看與設定</div>
           <div v-if="!selectedMapRack" class="fp-inspector-empty">
             <div style="font-size: 28px; margin-bottom: 8px;">👆</div>
-            <div>請在左側平面圖點擊任一排貨架</div>
-            <div class="text-dim" style="font-size: 11px; margin-top: 6px;">可直接設定該排「區域用途(庫區/撿貨區/庫區+撿貨區/關閉中)」、「層架公尺」與規則！</div>
+            <div>目前檢視：<strong>{{ selectedMapFloor }} {{ currentZoneObj?.label }}</strong></div>
+            <div class="text-dim" style="font-size: 11px; margin-top: 6px;">請在左側平面圖點擊任一排貨架，即可設定「區域用途」、「層架公尺」與規則！</div>
           </div>
           <div v-else class="fp-inspector-body">
             <div class="insp-title-box">
-              <div class="text-blue font-bold" style="font-size: 15px;">{{ selectedMapFloor }} - {{ selectedMapRack.xCode }} 排</div>
+              <div class="text-blue font-bold" style="font-size: 15px;">{{ currentRuleFloorKey }} - {{ selectedMapRack.xCode }} 排</div>
               <div class="text-dim" style="font-size: 11px;">完整標示：{{ selectedMapRack.label }}</div>
             </div>
 
@@ -843,7 +895,7 @@
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as XLSX from 'xlsx'
-import { FLOOR_LAYOUT_DATA } from '../utils/floorLayoutData.js'
+import { FLOOR_MODULES } from '../utils/floorLayoutData.js'
 
 export default {
   name: 'StorageAccuracy',
@@ -885,13 +937,14 @@ export default {
       ruleRoleFilter: 'ALL',
       ruleKeyword: '',
 
-      selectedMapFloor: '7F',
-      mapZoom: 0.9,
+      selectedMapFloor: '2F',
+      selectedZoneId: '2F-E-A',
+      mapZoom: 1.15,
       selectedMapRack: null,
       mapEditRule: {
         id: null,
         zone_name: '',
-        floor: '7F',
+        floor: '2F東',
         x_start: '',
         x_end: '',
         zone_role: 'PICK',
@@ -976,17 +1029,35 @@ export default {
         return okRole && okTrade && okTier && okFloor && okKw;
       });
     },
+    currentFloorModule() {
+      return FLOOR_MODULES[this.selectedMapFloor] || null;
+    },
+    currentFloorZones() {
+      return this.currentFloorModule?.zones || [];
+    },
+    currentZoneObj() {
+      return this.currentFloorZones.find(z => z.id === this.selectedZoneId) || this.currentFloorZones[0] || null;
+    },
+    currentRuleFloorKey() {
+      return this.currentZoneObj?.ruleFloor || this.selectedMapFloor;
+    },
+    isEastRightOrientation() {
+      return this.currentFloorModule?.orientation === 'east-right';
+    },
     currentFloorCanvas() {
-      const floorData = FLOOR_LAYOUT_DATA[this.selectedMapFloor];
-      if (!floorData) return { width: 1000, height: 600, nodes: [] };
+      const floorData = this.currentFloorModule;
+      const zoneObj = this.currentZoneObj;
+      if (!floorData || !zoneObj) return { width: 900, height: 550, nodes: [] };
 
-      const [minR, maxR, minC, maxC] = floorData.b;
-      const cellW = 11;
-      const cellH = 12;
-      const pad = 20;
+      const [rMin, rMax, cMin, cMax] = zoneObj.crop;
+      const isEastRight = floorData.orientation === 'east-right';
+      const cellW = isEastRight ? 9 : 13;
+      const cellH = isEastRight ? 11 : 13;
+      const pad = 34;
 
+      const ruleFl = zoneObj.ruleFloor || this.selectedMapFloor;
       const floorRules = this.rules
-        .filter(r => r.enabled && (r.floor === this.selectedMapFloor || r.floor.startsWith(this.selectedMapFloor)))
+        .filter(r => r.enabled && (r.floor === ruleFl || r.floor === this.selectedMapFloor))
         .sort((a, b) => (a.x_start === a.x_end ? -1 : 1));
 
       const findRuleForX = (xCode) => {
@@ -997,20 +1068,38 @@ export default {
         }) || null;
       };
 
-      const nodes = floorData.i.map(([r, c, sr, sc, label, xCode]) => {
+      // 篩選出屬於目前所選分區裁剪框內的圖元
+      const croppedItems = floorData.i.filter(([r, c, sr, sc]) => {
+        const rEnd = r + sr;
+        const cEnd = c + sc;
+        return rEnd >= rMin && r <= rMax && cEnd >= cMin && c <= cMax;
+      });
+
+      const nodes = croppedItems.map(([r, c, sr, sc, label, xCode]) => {
         const isRack = Boolean(xCode);
-        const w = Math.max(isRack ? 26 : 32, sc * cellW);
-        const h = Math.max(isRack ? 24 : 20, sr * cellH);
-        const left = (c - minC) * cellW + pad;
-        const top = (r - minR) * cellH + pad;
-        const isVertical = h > w * 1.4 && isRack;
+
+        // 依據 orientation 計算座標：east-up 維持東朝上；east-right 順時針轉 90 度使東朝右
+        let left, top, w, h;
+        if (isEastRight) {
+          left = (rMax - (r + sr)) * cellW + pad;
+          top = (c - cMin) * cellH + pad;
+          w = Math.max(isRack ? 24 : 28, sr * cellW);
+          h = Math.max(isRack ? 22 : 20, sc * cellH);
+        } else {
+          left = (c - cMin) * cellW + pad;
+          top = (r - rMin) * cellH + pad;
+          w = Math.max(isRack ? 28 : 34, sc * cellW);
+          h = Math.max(isRack ? 26 : 22, sr * cellH);
+        }
+
+        const isVertical = h > w * 1.45 && isRack;
 
         let statusClass = '';
         let tooltip = label;
 
         if (isRack) {
           const rule = findRuleForX(xCode);
-          const xStat = this.report.byXRow?.[`${this.selectedMapFloor}|${xCode}`];
+          const xStat = this.report.byXRow?.[`${this.selectedMapFloor}|${xCode}`] || this.report.byXRow?.[`${ruleFl}|${xCode}`];
 
           if (xStat && xStat.failed > 0) {
             statusClass = 'fp-status-err';
@@ -1051,15 +1140,23 @@ export default {
         };
       });
 
+      const canvasWidth = isEastRight
+        ? (rMax - rMin + 4) * cellW + pad * 2
+        : (cMax - cMin + 4) * cellW + pad * 2;
+      const canvasHeight = isEastRight
+        ? (cMax - cMin + 4) * cellH + pad * 2
+        : (rMax - rMin + 4) * cellH + pad * 2;
+
       return {
-        width: (maxC - minC + 3) * cellW + pad * 2,
-        height: (maxR - minR + 3) * cellH + pad * 2,
+        width: Math.max(640, canvasWidth),
+        height: Math.max(460, canvasHeight),
         nodes
       };
     },
     selectedRackStats() {
       if (!this.selectedMapRack) return { total: 0, passed: 0, failed: 0, borrowCnt: 0, buyCnt: 0, accuracyPct: 100, topCatsText: '-', tiers: {} };
-      const st = this.report.byXRow?.[`${this.selectedMapFloor}|${this.selectedMapRack.xCode}`];
+      const st = this.report.byXRow?.[`${this.selectedMapFloor}|${this.selectedMapRack.xCode}`] ||
+        this.report.byXRow?.[`${this.currentRuleFloorKey}|${this.selectedMapRack.xCode}`];
       if (!st) return { total: 0, passed: 0, failed: 0, borrowCnt: 0, buyCnt: 0, accuracyPct: 100, topCatsText: '-', tiers: {} };
       const topCats = Object.entries(st.cats || {})
         .sort((a, b) => b[1] - a[1])
@@ -1077,6 +1174,17 @@ export default {
     this.refreshAll();
   },
   methods: {
+    selectMapFloor(fl) {
+      this.selectedMapFloor = fl;
+      this.selectedMapRack = null;
+      const zones = FLOOR_MODULES[fl]?.zones || [];
+      this.selectedZoneId = zones[0]?.id || '';
+      this.mapZoom = FLOOR_MODULES[fl]?.orientation === 'east-right' ? 0.95 : 1.15;
+    },
+    selectMapZone(zoneId) {
+      this.selectedZoneId = zoneId;
+      this.selectedMapRack = null;
+    },
     async refreshAll() {
       this.loading = true;
       try {
@@ -1136,8 +1244,9 @@ export default {
 
     selectRackOnMap(node) {
       this.selectedMapRack = node;
+      const ruleFl = this.currentRuleFloorKey;
       const exactRule = this.rules.find(
-        r => (r.floor === this.selectedMapFloor || r.floor.startsWith(this.selectedMapFloor)) &&
+        r => (r.floor === ruleFl || r.floor === this.selectedMapFloor) &&
           r.x_start === node.xCode && r.x_end === node.xCode
       );
       if (exactRule) {
@@ -1151,16 +1260,13 @@ export default {
         };
       } else {
         const rangeRule = this.rules.find(
-          r => (r.floor === this.selectedMapFloor || r.floor.startsWith(this.selectedMapFloor)) &&
+          r => (r.floor === ruleFl || r.floor === this.selectedMapFloor) &&
             node.xCode >= r.x_start && node.xCode <= r.x_end
         );
-        const defaultFloor = this.selectedMapFloor === '2F'
-          ? (node.xCode.startsWith('C2') ? '2F東' : '2F西')
-          : this.selectedMapFloor;
         this.mapEditRule = {
           id: null,
           zone_name: `${node.xCode} 排`,
-          floor: defaultFloor,
+          floor: ruleFl,
           storage_type: rangeRule ? rangeRule.storage_type : '',
           area: rangeRule ? rangeRule.area : '',
           x_start: node.xCode,
@@ -1610,7 +1716,6 @@ export default {
   color: #f8fafc;
 }
 
-/* 區域用途小標籤 */
 .role-pill {
   display: inline-block;
   padding: 2px 7px;
@@ -1640,7 +1745,8 @@ export default {
 .tier-C { background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); }
 .tier-D { background: rgba(148, 163, 184, 0.2); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.4); }
 
-.fp-toolbar { padding: 8px 12px; flex-shrink: 0; }
+/* ==================== 平面圖工具列與獨立分區列 ==================== */
+.fp-toolbar { padding: 8px 12px; flex-shrink: 0; gap: 8px; }
 .fp-floor-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
 .fp-fl-btn {
   background: #0f172a;
@@ -1652,7 +1758,49 @@ export default {
   font-weight: bold;
   cursor: pointer;
 }
-.fp-fl-btn.active { background: #0284c7; border-color: #38bdf8; color: #ffffff; }
+.fp-fl-btn.active { background: #2563eb; border-color: #60a5fa; color: #ffffff; }
+
+.fp-zone-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  background: #0f172a;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid #334155;
+}
+.zone-bar-title {
+  font-size: 12px;
+  font-weight: bold;
+  color: #38bdf8;
+  white-space: nowrap;
+}
+.fp-zone-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.fp-zone-btn {
+  background: #1e293b;
+  border: 1px solid #475569;
+  color: #e2e8f0;
+  padding: 4px 11px;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.fp-zone-btn:hover { border-color: #38bdf8; color: #ffffff; }
+.fp-zone-btn.active {
+  background: linear-gradient(90deg, #0284c7, #0d9488);
+  border-color: #38bdf8;
+  color: #ffffff;
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.35);
+}
+
 .fp-legend { display: flex; align-items: center; gap: 12px; font-size: 12px; color: #cbd5e1; flex-wrap: wrap; }
 .leg-item { display: inline-flex; align-items: center; gap: 5px; }
 .leg-dot { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
@@ -1670,7 +1818,15 @@ export default {
   grid-template-columns: 1fr 310px;
   gap: 10px;
 }
+.fp-canvas-wrapper {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
 .fp-canvas-scroll {
+  flex: 1;
   background: #090e1a;
   border: 1px solid #334155;
   border-radius: 8px;
@@ -1679,6 +1835,90 @@ export default {
 }
 .fp-canvas { position: relative; }
 .fp-scale-inner { position: relative; }
+
+/* 方位羅盤圖標 */
+.compass-widget {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  z-index: 40;
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid #38bdf8;
+  border-radius: 10px;
+  padding: 6px 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.55);
+  pointer-events: auto;
+}
+.compass-ring {
+  position: relative;
+  width: 82px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cmp-dir {
+  position: absolute;
+  font-size: 10px;
+  font-weight: bold;
+  color: #94a3b8;
+  white-space: nowrap;
+}
+.cmp-east {
+  color: #facc15;
+  text-shadow: 0 0 6px rgba(250, 204, 21, 0.45);
+}
+.cmp-top { top: 0; left: 50%; transform: translateX(-50%); }
+.cmp-bottom { bottom: 0; left: 50%; transform: translateX(-50%); }
+.cmp-left { left: 0; top: 50%; transform: translateY(-50%); }
+.cmp-right { right: 0; top: 50%; transform: translateY(-50%); }
+
+.compass-needle {
+  font-size: 16px;
+  color: #facc15;
+  font-weight: bold;
+  line-height: 1;
+  transition: transform 0.25s ease;
+}
+.needle-up { transform: rotate(0deg); }
+.needle-right { transform: rotate(90deg); }
+.compass-caption {
+  font-size: 10px;
+  color: #38bdf8;
+  font-weight: bold;
+}
+
+/* 畫布東側碼頭方向提示條 */
+.edge-east-banner {
+  position: absolute;
+  background: rgba(250, 204, 21, 0.14);
+  border: 1px dashed rgba(250, 204, 21, 0.6);
+  color: #fde047;
+  font-size: 11px;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  pointer-events: none;
+}
+.edge-top {
+  top: 4px;
+  left: 34px;
+  right: 34px;
+  height: 22px;
+}
+.edge-right {
+  top: 34px;
+  bottom: 34px;
+  right: 4px;
+  width: 24px;
+  writing-mode: vertical-rl;
+}
 
 .fp-node {
   position: absolute;
