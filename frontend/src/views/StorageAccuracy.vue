@@ -795,10 +795,10 @@
             </el-select>
             <el-select v-model="ruleAreaFilter" size="mini" style="width: 105px;" @change="rulePage = 1">
               <el-option label="全部區" value="ALL" />
-              <el-option label="A區 (北)" value="A" />
-              <el-option label="B區 (中北)" value="B" />
-              <el-option label="C區 (中南)" value="C" />
-              <el-option label="D區 (南)" value="D" />
+              <el-option label="A區" value="A" />
+              <el-option label="B區" value="B" />
+              <el-option label="C區" value="C" />
+              <el-option label="D區" value="D" />
             </el-select>
             <el-select v-model="ruleRoleFilter" size="mini" style="width: 125px;" @change="rulePage = 1">
               <el-option label="全部區域用途" value="ALL" />
