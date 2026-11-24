@@ -2341,6 +2341,18 @@ export default {
   z-index: 1;
 }
 
+/* 12m 標準結構柱位黑方塊 */
+.fp-struct-col {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  background: #020617;
+  border: 1.5px solid #94a3b8;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.85);
+  z-index: 6;
+  pointer-events: none;
+}
+
 .fp-node {
   position: absolute;
   box-sizing: border-box;
