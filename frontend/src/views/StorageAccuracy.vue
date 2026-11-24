@@ -529,9 +529,10 @@
                   class="edge-east-banner"
                   :class="isEastRightOrientation ? 'edge-right' : 'edge-top'"
                 >
-                  ▶ 東側碼頭方向（{{ currentZoneObj?.label || '' }}）
+                  ▶ 東側碼頭方向（{{ currentZoneObj?.label || '' }}｜柱心距 12m）
                 </div>
 
+                <!-- 建築結構外圍框 -->
                 <div
                   v-if="currentFloorCanvas.outerFrame"
                   class="fp-zone-outline"
@@ -541,6 +542,18 @@
                     width: `${currentFloorCanvas.outerFrame.width}px`,
                     height: `${currentFloorCanvas.outerFrame.height}px`
                   }"
+                ></div>
+
+                <!-- 12m 標準建築柱位黑方塊 -->
+                <div
+                  v-for="(col, cIdx) in currentFloorCanvas.columns"
+                  :key="`col-${cIdx}`"
+                  class="fp-struct-col"
+                  :style="{
+                    left: `${col.left}px`,
+                    top: `${col.top}px`
+                  }"
+                  :title="col.title"
                 ></div>
 
                 <div
@@ -1321,14 +1334,9 @@ export default {
     currentFloorCanvas() {
       const floorData = this.currentFloorModule;
       const zoneObj = this.currentZoneObj;
-      if (!floorData || !zoneObj) return { width: 900, height: 550, nodes: [], outerFrame: null };
+      if (!floorData || !zoneObj) return { width: 900, height: 550, nodes: [], outerFrame: null, columns: [] };
 
-      const [rMin, rMax, cMin, cMax] = zoneObj.crop;
       const isEastRight = floorData.orientation === 'east-right';
-      const cellW = zoneObj.cellW || (isEastRight ? 9 : 14);
-      const cellH = zoneObj.cellH || (isEastRight ? 11 : 14);
-      const pad = 36;
-
       const ruleFl = zoneObj.ruleFloor || this.selectedMapFloor;
       const floorRules = this.rules
         .filter(r => r.enabled && (r.floor === ruleFl || r.floor === this.selectedMapFloor))
@@ -1344,17 +1352,124 @@ export default {
         }) || null;
       };
 
+      const decorateRack = (xCode, label) => {
+        const rule = findRuleForX(xCode);
+        const xStat = this.report.byXRow?.[`${this.selectedMapFloor}|${xCode}`] || this.report.byXRow?.[`${ruleFl}|${xCode}`];
+        const zRole = rule?.zone_role || 'PICK';
+
+        let statusClass = 'fp-status-unset';
+        if (this.mapColorMode === 'ZONE_ROLE') {
+          if (zRole === 'CLOSED') statusClass = 'fp-status-closed';
+          else if (zRole === 'STORAGE') statusClass = 'fp-status-buy';
+          else if (zRole === 'BOTH') statusClass = 'fp-status-borrow';
+          else statusClass = 'fp-status-cat';
+        } else if (this.mapColorMode === 'CATEGORY') {
+          if (zRole === 'CLOSED') statusClass = 'fp-status-closed';
+          else if (rule?.allowed_categories?.length > 0) statusClass = 'fp-status-cat';
+        } else if (this.mapColorMode === 'SALES_TIER') {
+          const tiers = rule?.allowed_sales_tiers || [];
+          if (tiers.includes('A')) statusClass = 'fp-status-err';
+          else if (tiers.includes('B')) statusClass = 'fp-status-borrow';
+          else if (tiers.includes('C')) statusClass = 'fp-status-buy';
+        } else {
+          if (xStat && xStat.failed > 0) statusClass = 'fp-status-err';
+          else if (zRole === 'CLOSED') statusClass = 'fp-status-closed';
+          else if (rule && rule.allowed_trade === '借') statusClass = 'fp-status-borrow';
+          else if (rule && rule.allowed_trade === '採') statusClass = 'fp-status-buy';
+          else if (rule && ((rule.allowed_categories?.length > 0) || (rule.allowed_sales_tiers?.length > 0))) statusClass = 'fp-status-cat';
+        }
+
+        const roleLabel = this.zoneRoleLabelMap[zRole] || '撿貨區';
+        const ruleText = rule
+          ? `用途：【${roleLabel}】｜長度：${rule.rack_length_m || 20}m｜借採：${rule.allowed_trade === 'ALL' ? '皆可' : '僅限' + rule.allowed_trade}${rule.allowed_sales_tiers?.length ? '｜月銷：' + rule.allowed_sales_tiers.join('/') + '級' : ''}${rule.allowed_categories?.length ? '｜大區：' + rule.allowed_categories.join('、') : ''}`
+          : '尚未設定獨立規則（沿用預設撿貨區）';
+        const statText = xStat ? `\n現況：共 ${xStat.total} 筆（合格 ${xStat.passed} / 異常 ${xStat.failed}）` : '';
+        const m = String(label).match(/80([A-Z0-9]{2,4}\d{2,3})/);
+        return {
+          statusClass,
+          tooltip: `${label}（排號 ${xCode}）\n${ruleText}${statText}`,
+          shortLabel: m ? m[1] : xCode
+        };
+      };
+
+      // ==================== 模式 A：12m 標準建築公尺底圖模式 ====================
+      if (zoneObj.meterMode && zoneObj.shell) {
+        const px = zoneObj.pxPerM || 20;
+        const padLeft = 36;
+        const padTop = 36;
+        const { widthM, depthM, rooms = [], columns = [] } = zoneObj.shell;
+        const racks = floorData.zoneRacks?.[zoneObj.id] || [];
+
+        const nodes = [];
+        rooms.forEach(rm => {
+          nodes.push({
+            left: padLeft + rm.x * px,
+            top: padTop + rm.y * px,
+            width: rm.w * px,
+            height: rm.h * px,
+            label: rm.label,
+            shortLabel: rm.label,
+            xCode: '',
+            isRack: false,
+            isVertical: false,
+            statusClass: '',
+            tooltip: `${rm.label} (${rm.w}m × ${rm.h}m)`
+          });
+        });
+
+        racks.forEach(rk => {
+          const w = rk.w * px - 1;
+          const h = rk.h * px - 1;
+          const dec = decorateRack(rk.xCode, rk.label);
+          nodes.push({
+            left: padLeft + rk.x * px,
+            top: padTop + rk.y * px,
+            width: w,
+            height: h,
+            label: rk.label,
+            shortLabel: dec.shortLabel,
+            xCode: rk.xCode,
+            isRack: true,
+            isVertical: h > w * 1.4,
+            statusClass: dec.statusClass,
+            tooltip: dec.tooltip
+          });
+        });
+
+        const colMarkers = columns.map(c => ({
+          left: padLeft + c.x * px - 5,
+          top: padTop + c.y * px - 5,
+          title: `結構柱位 (${c.x}m, ${c.y}m)`
+        }));
+
+        return {
+          width: padLeft * 2 + widthM * px,
+          height: padTop + depthM * px + 24,
+          outerFrame: {
+            left: padLeft,
+            top: padTop,
+            width: widthM * px,
+            height: depthM * px
+          },
+          columns: colMarkers,
+          nodes
+        };
+      }
+
+      // ==================== 模式 B：舊座標相容模式 ====================
+      const [rMin, rMax, cMin, cMax] = zoneObj.crop;
+      const cellW = zoneObj.cellW || (isEastRight ? 9 : 14);
+      const cellH = zoneObj.cellH || (isEastRight ? 11 : 14);
+      const pad = 36;
+
       const croppedItems = floorData.i.filter(([r, c, sr, sc]) => {
         const rEnd = r + sr;
         const cEnd = c + sc;
         return rEnd >= rMin && r <= rMax && cEnd >= cMin && c <= cMax;
       });
 
-      let frameMinX = Infinity, frameMinY = Infinity, frameMaxX = -Infinity, frameMaxY = -Infinity;
-
       const nodes = croppedItems.map(([r, c, sr, sc, label, xCode]) => {
         const isRack = Boolean(xCode);
-
         let left, top, w, h;
         if (isEastRight) {
           left = (rMax - (r + sr)) * cellW + pad;
@@ -1368,91 +1483,21 @@ export default {
           h = Math.max(18, sr * cellH - (isRack ? 1 : 0));
         }
 
-        frameMinX = Math.min(frameMinX, left);
-        frameMinY = Math.min(frameMinY, top);
-        frameMaxX = Math.max(frameMaxX, left + w);
-        frameMaxY = Math.max(frameMaxY, top + h);
-
-        const isVertical = h > w * 1.4 && isRack;
-
-        let statusClass = '';
-        let tooltip = label;
-
-        if (isRack) {
-          const rule = findRuleForX(xCode);
-          const xStat = this.report.byXRow?.[`${this.selectedMapFloor}|${xCode}`] || this.report.byXRow?.[`${ruleFl}|${xCode}`];
-          const zRole = rule?.zone_role || 'PICK';
-
-          // 依著色視角決定顏色
-          if (this.mapColorMode === 'ZONE_ROLE') {
-            if (zRole === 'CLOSED') statusClass = 'fp-status-closed';
-            else if (zRole === 'STORAGE') statusClass = 'fp-status-buy';
-            else if (zRole === 'BOTH') statusClass = 'fp-status-borrow';
-            else statusClass = 'fp-status-cat'; // PICK 撿貨區
-          } else if (this.mapColorMode === 'CATEGORY') {
-            if (zRole === 'CLOSED') statusClass = 'fp-status-closed';
-            else if (rule?.allowed_categories?.length > 0) statusClass = 'fp-status-cat';
-            else statusClass = 'fp-status-unset';
-          } else if (this.mapColorMode === 'SALES_TIER') {
-            const tiers = rule?.allowed_sales_tiers || [];
-            if (tiers.includes('A')) statusClass = 'fp-status-err';
-            else if (tiers.includes('B')) statusClass = 'fp-status-borrow';
-            else if (tiers.includes('C')) statusClass = 'fp-status-buy';
-            else statusClass = 'fp-status-unset';
-          } else {
-            // DEFAULT
-            if (xStat && xStat.failed > 0) {
-              statusClass = 'fp-status-err';
-            } else if (zRole === 'CLOSED') {
-              statusClass = 'fp-status-closed';
-            } else if (rule && rule.allowed_trade === '借') {
-              statusClass = 'fp-status-borrow';
-            } else if (rule && rule.allowed_trade === '採') {
-              statusClass = 'fp-status-buy';
-            } else if (rule && ((rule.allowed_categories && rule.allowed_categories.length > 0) || (rule.allowed_sales_tiers && rule.allowed_sales_tiers.length > 0))) {
-              statusClass = 'fp-status-cat';
-            } else {
-              statusClass = 'fp-status-unset';
-            }
-          }
-
-          const roleLabel = this.zoneRoleLabelMap[zRole] || '撿貨區';
-          const ruleText = rule
-            ? `用途：【${roleLabel}】｜長度：${rule.rack_length_m || 20}m｜借採：${rule.allowed_trade === 'ALL' ? '皆可' : '僅限' + rule.allowed_trade}${rule.allowed_sales_tiers?.length ? '｜月銷：' + rule.allowed_sales_tiers.join('/') + '級' : ''}${rule.allowed_categories?.length ? '｜大區：' + rule.allowed_categories.join('、') : ''}`
-            : '尚未設定獨立規則（沿用預設撿貨區）';
-          const statText = xStat ? `\n現況：共 ${xStat.total} 筆（合格 ${xStat.passed} / 異常 ${xStat.failed}）` : '';
-          tooltip = `${label}（排號 ${xCode}）\n${ruleText}${statText}`;
-        }
-
-        let shortLabel = label;
-        if (isRack) {
-          const m = String(label).match(/80([A-Z0-9]{2,4}\d{2,3})/);
-          shortLabel = m ? m[1] : xCode;
-        }
-
+        const dec = isRack ? decorateRack(xCode, label) : { statusClass: '', tooltip: label, shortLabel: label };
         return {
           left,
           top,
           width: w,
           height: h,
           label,
-          shortLabel,
+          shortLabel: dec.shortLabel,
           xCode,
           isRack,
-          isVertical,
-          statusClass,
-          tooltip
+          isVertical: h > w * 1.4 && isRack,
+          statusClass: dec.statusClass,
+          tooltip: dec.tooltip
         };
       });
-
-      const outerFrame = (zoneObj.showOuterFrame && nodes.length > 0)
-        ? {
-            left: Math.max(8, frameMinX - 8),
-            top: Math.max(28, frameMinY - 8),
-            width: (frameMaxX - frameMinX) + 16,
-            height: (frameMaxY - frameMinY) + 16
-          }
-        : null;
 
       const canvasWidth = isEastRight
         ? (rMax - rMin + 4) * cellW + pad * 2
@@ -1464,8 +1509,9 @@ export default {
       return {
         width: Math.max(640, canvasWidth),
         height: Math.max(460, canvasHeight),
-        nodes,
-        outerFrame
+        outerFrame: null,
+        columns: [],
+        nodes
       };
     },
     selectedRackStats() {
