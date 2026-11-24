@@ -978,7 +978,7 @@
       :title="ruleForm.id ? `✏️ 編輯儲位規則（${ruleForm.floor} - ${ruleForm.x_start}）` : '➕ 新增儲位擺放規則'"
       width="640px"
       append-to-body
-      custom-class="dark-dialog"
+      class="dark-dialog"
     >
       <div class="modal-grid-2">
         <div>
@@ -1077,7 +1077,7 @@
       :title="`⚡ 批次修改已勾選的 ${selectedRuleIds.length} 條規則`"
       width="540px"
       append-to-body
-      custom-class="dark-dialog"
+      class="dark-dialog"
     >
       <div style="display: flex; flex-direction: column; gap: 10px;">
         <div>
@@ -1147,7 +1147,7 @@
     </el-dialog>
 
     <!-- Modal 3: 月銷量級距門檻設定 -->
-    <el-dialog v-model="showTierModal" title="🔥 月銷量級距門檻設定" width="460px" append-to-body custom-class="dark-dialog">
+    <el-dialog v-model="showTierModal" title="🔥 月銷量級距門檻設定" width="460px" append-to-body class="dark-dialog">
       <div style="display: flex; flex-direction: column; gap: 12px;">
         <div class="tier-cfg-item">
           <span style="width: 110px;">A級爆品 ≥</span>
