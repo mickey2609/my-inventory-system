@@ -4,10 +4,10 @@ export const FLOOR_7F = {
   title: '7F 完整大平面（東側朝右橫向｜主力出貨層）',
   orientation: 'east-right', // 大面積完整樓層：東側朝右
   zones: [
-    { id: '7F-A', label: 'A區 (北側)', ruleFloor: '7F', crop: [2, 156, 1, 72] },
-    { id: '7F-B', label: 'B區 (中北)', ruleFloor: '7F', crop: [2, 156, 68, 136] },
-    { id: '7F-C', label: 'C區 (中南)', ruleFloor: '7F', crop: [2, 156, 132, 200] },
-    { id: '7F-D', label: 'D區 (南側)', ruleFloor: '7F', crop: [2, 156, 196, 264] }
+    { id: '7F-A', label: 'A區', ruleFloor: '7F', crop: [2, 156, 1, 72] },
+    { id: '7F-B', label: 'B區', ruleFloor: '7F', crop: [2, 156, 68, 136] },
+    { id: '7F-C', label: 'C區', ruleFloor: '7F', crop: [2, 156, 132, 200] },
+    { id: '7F-D', label: 'D區', ruleFloor: '7F', crop: [2, 156, 196, 264] }
   ],
   b: [3, 154, 1, 262],
   i: [

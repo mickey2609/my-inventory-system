@@ -4,10 +4,10 @@ export const FLOOR_3F = {
   title: '3F 完整大平面（東側朝右橫向）',
   orientation: 'east-right', // 大面積完整樓層：東側朝右
   zones: [
-    { id: '3F-A', label: 'A區 (北側)', ruleFloor: '3F', crop: [2, 148, 2, 74] },
-    { id: '3F-B', label: 'B區 (中北)', ruleFloor: '3F', crop: [2, 148, 70, 148] },
-    { id: '3F-C', label: 'C區 (中南)', ruleFloor: '3F', crop: [2, 148, 134, 206] },
-    { id: '3F-D', label: 'D區 (南側)', ruleFloor: '3F', crop: [2, 148, 198, 264] }
+    { id: '3F-A', label: 'A區', ruleFloor: '3F', crop: [2, 148, 2, 74] },
+    { id: '3F-B', label: 'B區', ruleFloor: '3F', crop: [2, 148, 70, 148] },
+    { id: '3F-C', label: 'C區', ruleFloor: '3F', crop: [2, 148, 134, 206] },
+    { id: '3F-D', label: 'D區', ruleFloor: '3F', crop: [2, 148, 198, 264] }
   ],
   b: [3, 145, 3, 261],
   i: [

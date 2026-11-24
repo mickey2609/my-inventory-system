@@ -977,10 +977,10 @@
         <div>
           <label class="m-lbl">所屬分區 (A~D)</label>
           <el-select v-model="ruleForm.area" size="mini" clearable placeholder="選擇 A~D 區" style="width: 100%;">
-            <el-option label="A區 (北側)" value="A" />
-            <el-option label="B區 (中北)" value="B" />
-            <el-option label="C區 (中南)" value="C" />
-            <el-option label="D區 (南側)" value="D" />
+            <el-option label="A區" value="A" />
+            <el-option label="B區" value="B" />
+            <el-option label="C區" value="C" />
+            <el-option label="D區" value="D" />
           </el-select>
         </div>
         <div style="grid-column: span 2;">
@@ -1071,10 +1071,10 @@
           <label class="m-lbl">📍 所屬分區 (A~D)：</label>
           <el-select v-model="tableBatchForm.area" size="mini" style="width: 100%;">
             <el-option label="（維持原分區）" value="KEEP" />
-            <el-option label="A區 (北側)" value="A" />
-            <el-option label="B區 (中北)" value="B" />
-            <el-option label="C區 (中南)" value="C" />
-            <el-option label="D區 (南側)" value="D" />
+            <el-option label="A區" value="A" />
+            <el-option label="B區" value="B" />
+            <el-option label="C區" value="C" />
+            <el-option label="D區" value="D" />
           </el-select>
         </div>
         <div>
