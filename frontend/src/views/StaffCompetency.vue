@@ -109,7 +109,8 @@
       <div v-else class="second-action-row">
         <div class="action-btns-left">
           <el-button size="mini" type="warning" icon="el-icon-plus" @click="openAddEmployeeModal">新增人員</el-button>
-          <el-button v-if="isSysAdmin || isAdmin" size="mini" type="info" plain icon="el-icon-setting" @click="openManageSkillsModal">管理項目</el-button>
+          <!-- 僅限系統管理員 (sys_admin) 可新增 / 修改 / 刪除能力項目 -->
+          <el-button v-if="isStrictlySysAdmin" size="mini" type="info" plain icon="el-icon-setting" @click="openManageSkillsModal">管理項目</el-button>
           <el-button
             v-if="canImport"
             size="mini"
@@ -548,18 +549,23 @@
       </template>
     </el-dialog>
 
-    <!-- 4. 管理能力項目 Modal -->
+    <!-- 4. 管理能力項目 Modal（僅限系統管理員 sys_admin 可新增 / 修改 / 刪除） -->
     <el-dialog
       v-model="showSkillsModal"
-      :title="`⚙️ 管理能力項目 - ${manageWh}`"
-      width="700px"
+      :title="`⚙️ 管理能力項目（限系統管理員） - ${manageWh}`"
+      width="740px"
       top="5vh"
       append-to-body
       custom-class="dark-dialog"
     >
       <div class="skills-modal-body">
+        <div class="sysadmin-only-tip">
+          👑 <strong>系統管理員專屬權限</strong>：現場人員能力會自動排列在幹部能力左側；點擊項目上的 <kbd>✎</kbd> 可修改名稱、組別或性質（既有員工打勾紀錄會自動保留），點擊 <kbd>✕</kbd> 可刪除項目。
+        </div>
+
+        <!-- 新增能力項目列 -->
         <div class="add-skill-bar">
-          <el-select v-model="manageWh" size="mini" style="width: 115px;">
+          <el-select v-model="manageWh" size="mini" style="width: 110px;">
             <el-option v-for="w in warehouses" :key="w" :label="w" :value="w" />
           </el-select>
           <el-select v-model="newSkillGroup" size="mini" filterable allow-create placeholder="選擇或輸入組別" style="width: 145px;">
@@ -577,7 +583,33 @@
             style="flex: 1;"
             @keyup.enter="addNewSkill"
           />
-          <el-button size="mini" type="primary" @click="addNewSkill">新增</el-button>
+          <el-button size="mini" type="primary" @click="addNewSkill">➕ 新增</el-button>
+        </div>
+
+        <!-- 修改能力項目橫幅（點選任一能力項目的 ✎ 時展開） -->
+        <div v-if="editingSkillTarget" class="edit-skill-panel">
+          <div class="edit-skill-title">
+            ✎ 正在修改能力項目：<strong>{{ editingSkillTarget.group }} - {{ editingSkillTarget.name }}</strong>
+          </div>
+          <div class="add-skill-bar" style="margin-top: 6px;">
+            <el-select v-model="editSkillForm.group" size="mini" filterable allow-create placeholder="所屬組別" style="width: 150px;">
+              <el-option v-for="g in getWarehouseGroups(manageWh)" :key="g" :label="g" :value="g" />
+            </el-select>
+            <el-select v-model="editSkillForm.type" size="mini" style="width: 150px;">
+              <el-option label="現場人員所需能力" value="field" />
+              <el-option label="異動單人員" value="special" />
+              <el-option label="幹部所需能力" value="cadre" />
+            </el-select>
+            <el-input
+              v-model="editSkillForm.name"
+              size="mini"
+              placeholder="輸入修改後的能力名稱..."
+              style="flex: 1;"
+              @keyup.enter="saveEditedSkill"
+            />
+            <el-button size="mini" type="success" @click="saveEditedSkill">💾 儲存修改</el-button>
+            <el-button size="mini" @click="editingSkillTarget = null">取消</el-button>
+          </div>
         </div>
 
         <div class="modal-skills-scroll">
@@ -586,16 +618,20 @@
             :key="'m_' + grp"
             class="modal-skill-group-box"
           >
-            <div class="msg-title">{{ grp }}</div>
+            <div class="msg-title">{{ grp }}（左：現場人員 ➔ 中：異動單 ➔ 右：幹部）</div>
             <div class="skill-pills-wrap">
               <span
                 v-for="s in (appData[manageWh]?.skills || []).filter(x => x.group === grp)"
                 :key="s.id"
                 class="manage-skill-pill"
-                :class="`pill-${s.type}`"
+                :class="[
+                  `pill-${s.type}`,
+                  editingSkillTarget && editingSkillTarget.id === s.id ? 'pill-editing' : ''
+                ]"
               >
                 <span>[{{ s.type === 'cadre' ? '幹部' : (s.type === 'special' ? '異動' : '現場') }}] {{ s.name }}</span>
-                <i class="el-icon-close del-x" @click="removeSkill(s)"></i>
+                <i class="el-icon-edit edit-x" title="修改此能力項目" @click="startEditSkill(s)"></i>
+                <i class="el-icon-close del-x" title="刪除此能力項目" @click="removeSkill(s)"></i>
               </span>
             </div>
           </div>
@@ -612,6 +648,7 @@ import * as XLSX from 'xlsx'
 
 const OVERDUE_DAYS_LIMIT = 30;
 const STICKY_LEFT_TOTAL_PX = 454;
+const SKILL_TYPE_ORDER = { field: 1, special: 2, cadre: 3 };
 
 export default {
   name: 'StaffCompetency',
@@ -630,7 +667,6 @@ export default {
       },
       renderTick: 0,
 
-      // 目前登入者資訊與即時權限
       currentUsername: '',
       currentUserRealName: '',
       currentUserRole: '',
@@ -674,7 +710,14 @@ export default {
       manageWh: '林口倉',
       newSkillGroup: '',
       newSkillType: 'field',
-      newSkillName: ''
+      newSkillName: '',
+
+      editingSkillTarget: null,
+      editSkillForm: {
+        group: '',
+        type: 'field',
+        name: ''
+      }
     }
   },
   created() {
@@ -696,6 +739,10 @@ export default {
     } catch (e) {}
   },
   computed: {
+    // 嚴格系統管理員判斷（只有系統管理員可管理/修改/刪除能力項目）
+    isStrictlySysAdmin() {
+      return this.isSysAdmin || this.currentUserRole === 'sys_admin' || this.currentUsername === 'admin';
+    },
     currentOperatorDisplay() {
       if (this.currentUserRealName && this.currentUsername && this.currentUserRealName !== this.currentUsername) {
         return `${this.currentUserRealName}(${this.currentUsername})`;
@@ -713,10 +760,9 @@ export default {
         return [];
       }
     },
-    // 解析每一組對應允許的班別 Map：{ '儲位上架組': Set(['日班']), '還貨作業組': Set(['夜班']) }
     myGroupShiftPermMap() {
       const map = new Map();
-      if (this.isSysAdmin || this.currentUserRole === 'sys_admin' || this.currentUsername === 'admin') {
+      if (this.isStrictlySysAdmin) {
         map.set('*', new Set(['*']));
         return map;
       }
@@ -1106,18 +1152,37 @@ export default {
       }
     },
 
+    // 正規化倉別資料，確保同一組別內「現場人員 (field)」永遠排在「異動單 (special)」與「幹部 (cadre)」左側
     normalizeWarehouseData(rawData) {
       const result = {};
       this.warehouses.forEach(wh => {
         const block = rawData?.[wh] || { skills: [], employees: [] };
-        const skills = block.skills || [];
+        const rawSkills = [...(block.skills || [])];
+        const groupOrder = [];
+        rawSkills.forEach(s => {
+          if (!groupOrder.includes(s.group)) groupOrder.push(s.group);
+        });
+
+        const skills = rawSkills
+          .map((s, idx) => ({ ...s, _origIdx: idx }))
+          .sort((a, b) => {
+            const gA = groupOrder.indexOf(a.group);
+            const gB = groupOrder.indexOf(b.group);
+            if (gA !== gB) return gA - gB;
+            const tA = SKILL_TYPE_ORDER[a.type] || 9;
+            const tB = SKILL_TYPE_ORDER[b.type] || 9;
+            if (tA !== tB) return tA - tB;
+            return a._origIdx - b._origIdx;
+          })
+          .map(({ _origIdx, ...rest }) => rest);
+
         const skillMetaMap = new Map(skills.map(s => [s.id, { type: s.type, group: s.group }]));
 
         const employees = (block.employees || []).map(emp => {
-          const rawSkills = { ...(emp.skills || {}) };
+          const empSkills = { ...(emp.skills || {}) };
           let f = 0, sp = 0, ca = 0, grpDone = 0;
-          for (const sid in rawSkills) {
-            if (rawSkills[sid] === 1) {
+          for (const sid in empSkills) {
+            if (empSkills[sid] === 1) {
               const meta = skillMetaMap.get(sid);
               if (meta) {
                 if (meta.type === 'field') f++;
@@ -1130,7 +1195,7 @@ export default {
           return {
             ...emp,
             shiftName: emp.shiftName || '',
-            skills: rawSkills,
+            skills: empSkills,
             _f: f,
             _sp: sp,
             _ca: ca,
@@ -1756,14 +1821,23 @@ export default {
       }).catch(() => {});
     },
 
+    // ==================== 管理 / 新增 / 修改 / 刪除能力項目（限系統管理員） ====================
     openManageSkillsModal() {
+      if (!this.isStrictlySysAdmin) {
+        return ElMessage.error('⛔ 只有系統管理員可以管理能力項目！');
+      }
       const existingGroups = this.getWarehouseGroups(this.currentWarehouse);
       this.manageWh = this.currentWarehouse;
       this.newSkillGroup = this.groupFilter !== 'all' ? this.groupFilter : (existingGroups[0] || '');
+      this.newSkillType = 'field';
       this.newSkillName = '';
+      this.editingSkillTarget = null;
       this.showSkillsModal = true;
     },
     async addNewSkill() {
+      if (!this.isStrictlySysAdmin) {
+        return ElMessage.error('⛔ 只有系統管理員可以新增能力項目！');
+      }
       const name = this.newSkillName.trim();
       const group = this.newSkillGroup.trim();
       const type = this.newSkillType;
@@ -1782,25 +1856,71 @@ export default {
       try {
         await axios.post('/api/staff-competency/skill/add', {
           warehouse: this.manageWh,
-          skill
+          skill,
+          isSysAdmin: true
         });
         this.newSkillName = '';
         await this.fetchAllData(true);
         ElMessage.success(`已新增能力：【${this.manageWh} - ${group}】${name}`);
       } catch (e) {
-        ElMessage.error('新增能力失敗：' + e.message);
+        ElMessage.error('新增能力失敗：' + (e.response?.data?.message || e.message));
+      }
+    },
+    startEditSkill(skill) {
+      if (!this.isStrictlySysAdmin) {
+        return ElMessage.error('⛔ 只有系統管理員可以修改能力項目！');
+      }
+      this.editingSkillTarget = skill;
+      this.editSkillForm = {
+        group: skill.group,
+        type: skill.type,
+        name: skill.name
+      };
+    },
+    async saveEditedSkill() {
+      if (!this.isStrictlySysAdmin || !this.editingSkillTarget) return;
+      const cleanName = String(this.editSkillForm.name || '').trim();
+      const cleanGroup = String(this.editSkillForm.group || '').trim();
+      const cleanType = this.editSkillForm.type;
+
+      if (!cleanGroup) return ElMessage.warning('請選擇或輸入所屬組別！');
+      if (!cleanName) return ElMessage.warning('請輸入能力名稱！');
+
+      try {
+        await axios.post('/api/staff-competency/skill/update', {
+          warehouse: this.manageWh,
+          originalSkillId: this.editingSkillTarget.id,
+          skill: {
+            group: cleanGroup,
+            type: cleanType,
+            name: cleanName
+          },
+          isSysAdmin: true
+        });
+        this.editingSkillTarget = null;
+        await this.fetchAllData(true);
+        ElMessage.success(`🎉 已修改能力項目為：【${cleanGroup}】${cleanName}`);
+      } catch (e) {
+        ElMessage.error('修改能力失敗：' + (e.response?.data?.message || e.message));
       }
     },
     removeSkill(skill) {
-      ElMessageBox.confirm(`確定要刪除【${this.manageWh} - ${skill.group}】的「${skill.name}」嗎？`, '刪除能力確認', {
+      if (!this.isStrictlySysAdmin) {
+        return ElMessage.error('⛔ 只有系統管理員可以刪除能力項目！');
+      }
+      ElMessageBox.confirm(`確定要刪除【${this.manageWh} - ${skill.group}】的「${skill.name}」嗎？（所有人員在此項目的勾選紀錄將一併清除）`, '刪除能力確認', {
         confirmButtonText: '確定刪除',
         cancelButtonText: '取消',
         type: 'warning'
       }).then(async () => {
         await axios.post('/api/staff-competency/skill/delete', {
           warehouse: this.manageWh,
-          skillId: skill.id
+          skillId: skill.id,
+          isSysAdmin: true
         });
+        if (this.editingSkillTarget && this.editingSkillTarget.id === skill.id) {
+          this.editingSkillTarget = null;
+        }
         await this.fetchAllData(true);
         ElMessage.success(`已刪除能力項目：${skill.name}`);
       }).catch(() => {});
@@ -1941,7 +2061,7 @@ export default {
           return;
         }
 
-        // ===== 模式 B：各組組檔局部合併匯入（同時過濾組別與每一組獨立班別權限） =====
+        // ===== 模式 B：各組組檔局部合併匯入 =====
         const groupsData = [];
         const deniedSheets = [];
         let skippedOtherShiftCount = 0;
@@ -2008,7 +2128,6 @@ export default {
             const staffGroup = String(row[grpColIdx] ?? '').trim() || groupName;
             const shiftName = shiftColIdx !== -1 ? String(row[shiftColIdx] ?? '').trim() : '';
 
-            // 檢查該組別底下的該班別權限，非自己負責班別的組員自動略過，絕不誤改！
             if (!this.canEditShiftForGroup(staffGroup, shiftName)) {
               skippedOtherShiftCount++;
               continue;
@@ -2514,6 +2633,33 @@ tfoot .sticky-col-1 { z-index: 25; border-right: 2px solid #64748b !important; }
 .quick-skill-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .add-skill-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
+.sysadmin-only-tip {
+  background: rgba(250, 204, 21, 0.12);
+  border: 1px solid rgba(250, 204, 21, 0.4);
+  color: #fde047;
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.sysadmin-only-tip kbd {
+  background: #0f172a;
+  border: 1px solid #facc15;
+  padding: 0 5px;
+  border-radius: 3px;
+}
+
+.edit-skill-panel {
+  background: rgba(56, 189, 248, 0.1);
+  border: 1px solid #38bdf8;
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+.edit-skill-title {
+  font-size: 12px;
+  color: #7dd3fc;
+}
+
 .modal-skills-scroll {
   max-height: 360px;
   overflow-y: auto;
@@ -2562,6 +2708,9 @@ tfoot .sticky-col-1 { z-index: 25; border-right: 2px solid #64748b !important; }
 .pill-field { background: rgba(16, 185, 129, 0.18); color: #6ee7b7; border: 1px solid rgba(16, 185, 129, 0.4); }
 .pill-special { background: rgba(245, 158, 11, 0.18); color: #fcd34d; border: 1px solid rgba(245, 158, 11, 0.4); }
 .pill-cadre { background: rgba(168, 85, 247, 0.18); color: #d8b4fe; border: 1px solid rgba(168, 85, 247, 0.4); }
+.pill-editing { outline: 2px solid #38bdf8; background: rgba(56, 189, 248, 0.22); }
+.edit-x { cursor: pointer; opacity: 0.8; color: #38bdf8; }
+.edit-x:hover { opacity: 1; transform: scale(1.15); }
 .del-x { cursor: pointer; opacity: 0.75; }
 .del-x:hover { opacity: 1; color: #f87171; }
 

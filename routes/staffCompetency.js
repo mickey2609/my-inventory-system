@@ -4,6 +4,7 @@ const express = require('express');
 module.exports = function(db) {
   const router = express.Router();
   const WAREHOUSES = ['林口倉', '3PL一組'];
+  const SKILL_TYPE_ORDER = { field: 1, special: 2, cadre: 3 };
 
   let currentVersion = Date.now();
   function bumpVersion() {
@@ -134,21 +135,42 @@ module.exports = function(db) {
       : null;
 
     const skillRows = await dbAll(
-      `SELECT wh_name, skill_id, skill_group, skill_type, skill_name, sub_header
+      `SELECT id as db_id, wh_name, skill_id, skill_group, skill_type, skill_name, sub_header, sort_order
        FROM staff_competency_skills
        WHERE wh_name IN ('林口倉', '3PL一組')
        ORDER BY sort_order ASC, id ASC`
     );
 
-    skillRows.forEach(r => {
-      if (!result[r.wh_name]) result[r.wh_name] = { skills: [], employees: [] };
-      result[r.wh_name].skills.push({
+    // 依倉別先保留群組出現順序，同一組別內固定將「現場人員 (field)」排在「異動單 (special)」與「幹部 (cadre)」左邊
+    WAREHOUSES.forEach(wh => {
+      const whRows = skillRows.filter(r => r.wh_name === wh);
+      const groupOrder = [];
+      whRows.forEach(r => {
+        if (!groupOrder.includes(r.skill_group)) groupOrder.push(r.skill_group);
+      });
+
+      whRows.sort((a, b) => {
+        const gIdxA = groupOrder.indexOf(a.skill_group);
+        const gIdxB = groupOrder.indexOf(b.skill_group);
+        if (gIdxA !== gIdxB) return gIdxA - gIdxB;
+
+        const tOrderA = SKILL_TYPE_ORDER[a.skill_type] || 9;
+        const tOrderB = SKILL_TYPE_ORDER[b.skill_type] || 9;
+        if (tOrderA !== tOrderB) return tOrderA - tOrderB;
+
+        if ((a.sort_order || 0) !== (b.sort_order || 0)) {
+          return (a.sort_order || 0) - (b.sort_order || 0);
+        }
+        return (a.db_id || 0) - (b.db_id || 0);
+      });
+
+      result[wh].skills = whRows.map(r => ({
         id: r.skill_id,
         group: r.skill_group,
         type: r.skill_type,
         name: r.skill_name,
         subHeader: r.sub_header || ''
-      });
+      }));
     });
 
     const empRows = await dbAll(
@@ -346,9 +368,12 @@ module.exports = function(db) {
     }
   });
 
-  // 6. 新增單一能力項目
+  // 6. 新增單一能力項目（僅限系統管理員，自動排入該組對應類型區塊，現場人員會在幹部左邊）
   router.post('/skill/add', async (req, res) => {
-    const { warehouse, skill } = req.body;
+    const { warehouse, skill, isSysAdmin } = req.body;
+    if (!isSysAdmin) {
+      return res.status(403).json({ success: false, message: '⛔ 權限不足：只有系統管理員可以新增能力項目！' });
+    }
     if (!warehouse || !skill || !skill.id || !skill.name) {
       return res.status(400).json({ success: false, message: '缺少能力項目參數' });
     }
@@ -371,9 +396,90 @@ module.exports = function(db) {
     }
   });
 
-  // 7. 刪除單一能力項目
+  // 6.5 修改單一能力項目（僅限系統管理員，修改名稱/組別/性質時同步轉移所有員工既有勾選紀錄）
+  router.post('/skill/update', async (req, res) => {
+    const { warehouse, originalSkillId, skill, isSysAdmin } = req.body;
+    if (!isSysAdmin) {
+      return res.status(403).json({ success: false, message: '⛔ 權限不足：只有系統管理員可以修改能力項目！' });
+    }
+    if (!warehouse || !originalSkillId || !skill || !skill.name || !skill.group || !skill.type) {
+      return res.status(400).json({ success: false, message: '缺少修改能力項目所需參數' });
+    }
+
+    const subHeader = skill.type === 'cadre'
+      ? '幹部所需能力'
+      : (skill.type === 'special' ? '異動單人員' : '現場人員所需能力');
+    const newSkillId = `${skill.group}::${subHeader}::${skill.name}`;
+
+    try {
+      await ensureTables();
+      await ensureWeeklyAutoSnapshot();
+
+      const existingTarget = await dbGet(
+        `SELECT id FROM staff_competency_skills WHERE wh_name = ? AND skill_id = ?`,
+        [warehouse, originalSkillId]
+      );
+      if (!existingTarget) {
+        return res.status(404).json({ success: false, message: '找不到欲修改的原能力項目' });
+      }
+
+      if (newSkillId !== originalSkillId) {
+        const duplicateCheck = await dbGet(
+          `SELECT id FROM staff_competency_skills WHERE wh_name = ? AND skill_id = ?`,
+          [warehouse, newSkillId]
+        );
+        if (duplicateCheck) {
+          return res.status(400).json({ success: false, message: `該組別已存在相同名稱與性質的能力項目「${skill.name}」！` });
+        }
+      }
+
+      await dbRun('BEGIN TRANSACTION');
+      try {
+        await dbRun(
+          `UPDATE staff_competency_skills
+           SET skill_id = ?, skill_group = ?, skill_type = ?, skill_name = ?, sub_header = ?
+           WHERE wh_name = ? AND skill_id = ?`,
+          [newSkillId, skill.group, skill.type, skill.name, subHeader, warehouse, originalSkillId]
+        );
+
+        if (newSkillId !== originalSkillId) {
+          const empRows = await dbAll(
+            `SELECT id, skills_json FROM staff_competency_employees WHERE wh_name = ?`,
+            [warehouse]
+          );
+          for (const r of empRows) {
+            try {
+              const sk = JSON.parse(r.skills_json || '{}');
+              if (sk[originalSkillId] === 1) {
+                delete sk[originalSkillId];
+                sk[newSkillId] = 1;
+                await dbRun(
+                  `UPDATE staff_competency_employees SET skills_json = ? WHERE id = ?`,
+                  [JSON.stringify(sk), r.id]
+                );
+              }
+            } catch (e) {}
+          }
+        }
+        await dbRun('COMMIT');
+      } catch (txErr) {
+        await dbRun('ROLLBACK').catch(() => {});
+        throw txErr;
+      }
+
+      bumpVersion();
+      res.json({ success: true, version: currentVersion });
+    } catch (err) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  // 7. 刪除單一能力項目（僅限系統管理員）
   router.post('/skill/delete', async (req, res) => {
-    const { warehouse, skillId } = req.body;
+    const { warehouse, skillId, isSysAdmin } = req.body;
+    if (!isSysAdmin) {
+      return res.status(403).json({ success: false, message: '⛔ 權限不足：只有系統管理員可以刪除能力項目！' });
+    }
     try {
       await ensureTables();
       await ensureWeeklyAutoSnapshot();
@@ -576,7 +682,7 @@ module.exports = function(db) {
     }
   });
 
-  // 10. 取得歷史備份快照清單（可依幹部權限篩選只顯示他有權限的備份或全倉備份）
+  // 10. 取得歷史備份快照清單
   router.get('/snapshots', async (req, res) => {
     try {
       await ensureTables();
@@ -605,7 +711,7 @@ module.exports = function(db) {
     }
   });
 
-  // 12. 記名＋分組獨立建立備份快照（同日同組同人自動覆蓋防洗版 ＋ 自動清理超過 90 筆的過期舊備份）
+  // 12. 記名＋分組獨立建立備份快照
   router.post('/snapshots/create', async (req, res) => {
     const {
       operatorName = '',
@@ -629,7 +735,6 @@ module.exports = function(db) {
       const title = `${weekKey} ${scopeLabel}手動備份 - ${whoLabel} (${dateStr} ${timeStr})`;
       const payloadStr = JSON.stringify(fullData);
 
-      // 檢查「同一天 + 同一組別 + 同一操作人」是否已有手動備份 -> 若有則直接覆蓋更新，避免連按洗版
       const existingSameDay = await dbGet(
         `SELECT id FROM staff_competency_snapshots
          WHERE snapshot_type = 'manual'
@@ -657,7 +762,6 @@ module.exports = function(db) {
         savedId = info.lastID;
       }
 
-      // 自動清理超過 90 筆的最舊歷史備份，維持資料庫輕量不膨脹
       await dbRun(
         `DELETE FROM staff_competency_snapshots
          WHERE id NOT IN (
@@ -679,7 +783,7 @@ module.exports = function(db) {
     }
   });
 
-  // 13. 從歷史快照還原「單一組員」或「指定組別」（僅限快照內存在的該組人員，絕不影響他組）
+  // 13. 從歷史快照還原
   router.post('/snapshots/restore', async (req, res) => {
     const { snapshotId, warehouse, empId = '', staffGroup = '', allowedGroups = [] } = req.body;
     if (!snapshotId || !warehouse) {
