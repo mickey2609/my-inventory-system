@@ -553,14 +553,14 @@
     <el-dialog
       v-model="showSkillsModal"
       :title="`⚙️ 管理能力項目（限系統管理員） - ${manageWh}`"
-      width="740px"
+      width="760px"
       top="5vh"
       append-to-body
       custom-class="dark-dialog"
     >
       <div class="skills-modal-body">
         <div class="sysadmin-only-tip">
-          👑 <strong>系統管理員專屬權限</strong>：現場人員能力會自動排列在幹部能力左側；點擊項目上的 <kbd>✎</kbd> 可修改名稱、組別或性質（既有員工打勾紀錄會自動保留），點擊 <kbd>✕</kbd> 可刪除項目。
+          👑 <strong>系統管理員專屬權限</strong>：現場人員能力會自動排列在幹部能力左側；<strong>直接點擊任一能力項目</strong>或右側 <kbd>✎</kbd> 可修改名稱、組別或性質（既有員工打勾紀錄會自動保留），點擊 <kbd>✕</kbd> 可刪除項目。
         </div>
 
         <!-- 新增能力項目列 -->
@@ -586,7 +586,7 @@
           <el-button size="mini" type="primary" @click="addNewSkill">➕ 新增</el-button>
         </div>
 
-        <!-- 修改能力項目橫幅（點選任一能力項目的 ✎ 時展開） -->
+        <!-- 修改能力項目橫幅（點選任一能力項目或 ✎ 時展開） -->
         <div v-if="editingSkillTarget" class="edit-skill-panel">
           <div class="edit-skill-title">
             ✎ 正在修改能力項目：<strong>{{ editingSkillTarget.group }} - {{ editingSkillTarget.name }}</strong>
@@ -620,7 +620,7 @@
           >
             <div class="msg-title">{{ grp }}（左：現場人員 ➔ 中：異動單 ➔ 右：幹部）</div>
             <div class="skill-pills-wrap">
-              <span
+              <div
                 v-for="s in (appData[manageWh]?.skills || []).filter(x => x.group === grp)"
                 :key="s.id"
                 class="manage-skill-pill"
@@ -628,11 +628,27 @@
                   `pill-${s.type}`,
                   editingSkillTarget && editingSkillTarget.id === s.id ? 'pill-editing' : ''
                 ]"
+                title="點擊可修改此能力名稱、組別或性質"
+                @click="startEditSkill(s)"
               >
-                <span>[{{ s.type === 'cadre' ? '幹部' : (s.type === 'special' ? '異動' : '現場') }}] {{ s.name }}</span>
-                <i class="el-icon-edit edit-x" title="修改此能力項目" @click="startEditSkill(s)"></i>
-                <i class="el-icon-close del-x" title="刪除此能力項目" @click="removeSkill(s)"></i>
-              </span>
+                <span class="pill-text">[{{ s.type === 'cadre' ? '幹部' : (s.type === 'special' ? '異動' : '現場') }}] {{ s.name }}</span>
+                <button
+                  type="button"
+                  class="pill-act-btn edit-x"
+                  title="修改此能力項目"
+                  @click.stop="startEditSkill(s)"
+                >
+                  ✎
+                </button>
+                <button
+                  type="button"
+                  class="pill-act-btn del-x"
+                  title="刪除此能力項目"
+                  @click.stop="removeSkill(s)"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -2695,24 +2711,46 @@ tfoot .sticky-col-1 { z-index: 25; border-right: 2px solid #64748b !important; }
 .tag-cadre { background: rgba(168, 85, 247, 0.25); color: #d8b4fe; }
 .msg-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.skill-pills-wrap { display: flex; flex-wrap: wrap; gap: 6px; }
+.skill-pills-wrap { display: flex; flex-wrap: wrap; gap: 7px; }
 .manage-skill-pill {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
+  gap: 5px;
+  padding: 4px 7px 4px 9px;
   border-radius: 5px;
   font-size: 12px;
   font-weight: bold;
+  cursor: pointer;
+  transition: transform 0.1s, box-shadow 0.1s;
 }
-.pill-field { background: rgba(16, 185, 129, 0.18); color: #6ee7b7; border: 1px solid rgba(16, 185, 129, 0.4); }
-.pill-special { background: rgba(245, 158, 11, 0.18); color: #fcd34d; border: 1px solid rgba(245, 158, 11, 0.4); }
-.pill-cadre { background: rgba(168, 85, 247, 0.18); color: #d8b4fe; border: 1px solid rgba(168, 85, 247, 0.4); }
-.pill-editing { outline: 2px solid #38bdf8; background: rgba(56, 189, 248, 0.22); }
-.edit-x { cursor: pointer; opacity: 0.8; color: #38bdf8; }
-.edit-x:hover { opacity: 1; transform: scale(1.15); }
-.del-x { cursor: pointer; opacity: 0.75; }
-.del-x:hover { opacity: 1; color: #f87171; }
+.manage-skill-pill:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+.pill-field { background: rgba(16, 185, 129, 0.18); color: #6ee7b7; border: 1px solid rgba(16, 185, 129, 0.45); }
+.pill-special { background: rgba(245, 158, 11, 0.18); color: #fcd34d; border: 1px solid rgba(245, 158, 11, 0.45); }
+.pill-cadre { background: rgba(168, 85, 247, 0.18); color: #d8b4fe; border: 1px solid rgba(168, 85, 247, 0.45); }
+.pill-editing { outline: 2px solid #38bdf8; background: rgba(56, 189, 248, 0.25); }
+
+.pill-act-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(15, 23, 42, 0.75);
+  font-size: 12px;
+  font-weight: bold;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+.edit-x { color: #38bdf8; }
+.edit-x:hover { background: #0284c7; color: #ffffff; border-color: #38bdf8; }
+.del-x { color: #f87171; }
+.del-x:hover { background: #dc2626; color: #ffffff; border-color: #f87171; }
 
 .empty-cell { padding: 36px; color: #64748b; font-weight: bold; }
 .text-blue { color: #38bdf8; }
