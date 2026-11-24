@@ -2576,54 +2576,49 @@ export default {
 </style>
 
 <style>
-/* 修正 append-to-body 彈窗白底淺字問題，統一為高對比深色視窗 */
-.dark-dialog {
-  background: #1e293b !important;
+/* 與右側面板一致的「黑底白框」高對比樣式 */
+.el-dialog.dark-dialog {
+  background: #0f172a !important;
   border: 1px solid #475569 !important;
   border-radius: 8px !important;
 }
-.dark-dialog .el-dialog__header {
-  background: #0f172a !important;
+.el-dialog.dark-dialog .el-dialog__header {
+  background: #1e293b !important;
   border-bottom: 1px solid #334155 !important;
   padding: 12px 16px !important;
+  margin-right: 0 !important;
   border-radius: 8px 8px 0 0 !important;
 }
-.dark-dialog .el-dialog__title {
+.el-dialog.dark-dialog .el-dialog__title {
   color: #38bdf8 !important;
   font-weight: bold !important;
   font-size: 15px !important;
 }
-.dark-dialog .el-dialog__headerbtn .el-dialog__close {
-  color: #cbd5e1 !important;
+.el-dialog.dark-dialog .el-dialog__headerbtn .el-dialog__close {
+  color: #e2e8f0 !important;
 }
-.dark-dialog .el-dialog__body {
-  background: #1e293b !important;
+.el-dialog.dark-dialog .el-dialog__body {
+  background: #0f172a !important;
   color: #f8fafc !important;
   padding: 16px !important;
 }
-.dark-dialog .el-dialog__footer {
-  background: #0f172a !important;
+.el-dialog.dark-dialog .el-dialog__footer {
+  background: #1e293b !important;
   border-top: 1px solid #334155 !important;
   padding: 10px 16px !important;
   border-radius: 0 0 8px 8px !important;
 }
-.dark-dialog .m-lbl {
+.el-dialog.dark-dialog .m-lbl {
   color: #f1f5f9 !important;
+  font-weight: bold !important;
 }
-.dark-dialog .el-input__inner,
-.dark-dialog .el-input-number__decrease,
-.dark-dialog .el-input-number__increase {
-  background-color: #0f172a !important;
-  border-color: #475569 !important;
-  color: #f8fafc !important;
-}
-.dark-dialog .el-switch__label {
+.el-dialog.dark-dialog .el-switch__label {
   color: #cbd5e1 !important;
 }
-.dark-dialog .el-switch__label.is-active {
+.el-dialog.dark-dialog .el-switch__label.is-active {
   color: #38bdf8 !important;
 }
-.dark-dialog .el-checkbox__label {
-  color: #e2e8f0 !important;
+.el-dialog.dark-dialog .el-checkbox__label {
+  color: #f1f5f9 !important;
 }
 </style>
