@@ -459,7 +459,6 @@
             </div>
           </div>
 
-          <!-- 依著色視角動態切換圖例 -->
           <div v-if="mapColorMode === 'ZONE_ROLE'" class="fp-legend">
             <span class="leg-item"><i class="leg-dot dot-cat"></i> 🛒 撿貨區</span>
             <span class="leg-item"><i class="leg-dot dot-buy"></i> 📦 庫區</span>
@@ -589,7 +588,6 @@
             {{ selectedMapRacks.length > 1 ? `⚡ 批次設定已選取 (${selectedMapRacks.length} 排)` : '🔎 儲位屬性與規則設定' }}
           </div>
 
-          <!-- 狀態 0：未選取 -->
           <div v-if="selectedMapRacks.length === 0" class="fp-inspector-empty">
             <div style="font-size: 28px; margin-bottom: 8px;">👆</div>
             <div>目前檢視：<strong>{{ selectedMapFloor }} {{ currentZoneObj?.label }}</strong></div>
@@ -599,10 +597,9 @@
             </div>
           </div>
 
-          <!-- 狀態 1：單排精準編輯 -->
           <div v-else-if="selectedMapRacks.length === 1" class="fp-inspector-body">
             <div class="insp-title-box">
-              <div class="text-blue font-bold" style="font-size: 15px;">{{ currentRuleFloorKey }} - {{ selectedMapRacks[0].xCode }} 排</div>
+              <div class="text-blue font-bold" style="font-size: 15px;">{{ currentRuleFloorKey }} ({{ currentZoneAreaCode }}區) - {{ selectedMapRacks[0].xCode }} 排</div>
               <div class="text-dim" style="font-size: 11px;">完整標示：{{ selectedMapRacks[0].label }}</div>
             </div>
 
@@ -698,7 +695,6 @@
             </div>
           </div>
 
-          <!-- 狀態 2：多排批次設定模式 -->
           <div v-else class="fp-inspector-body">
             <div class="insp-title-box">
               <div class="text-yellow font-bold" style="font-size: 14px;">
@@ -788,7 +784,7 @@
       </div>
     </div>
 
-    <!-- ==================== TAB 4: 儲位規則總表（純標籤＋分頁秒開＋Excel匯出入） ==================== -->
+    <!-- ==================== TAB 4: 儲位規則總表（含樓層＋區 A~D 篩選與分頁） ==================== -->
     <div v-if="activeTab === 'rules'" class="tab-content" v-loading="loading || batchSaving">
       <div class="panel-card rules-toolbar-card">
         <div class="row-between">
@@ -796,6 +792,13 @@
             <el-select v-model="ruleFloorFilter" size="mini" style="width: 110px;" @change="rulePage = 1">
               <el-option label="全部樓層" value="ALL" />
               <el-option v-for="fl in floorOptions" :key="fl" :label="fl" :value="fl" />
+            </el-select>
+            <el-select v-model="ruleAreaFilter" size="mini" style="width: 105px;" @change="rulePage = 1">
+              <el-option label="全部區" value="ALL" />
+              <el-option label="A區 (北)" value="A" />
+              <el-option label="B區 (中北)" value="B" />
+              <el-option label="C區 (中南)" value="C" />
+              <el-option label="D區 (南)" value="D" />
             </el-select>
             <el-select v-model="ruleRoleFilter" size="mini" style="width: 125px;" @change="rulePage = 1">
               <el-option label="全部區域用途" value="ALL" />
@@ -849,6 +852,7 @@
                 </th>
                 <th style="width: 55px;">狀態</th>
                 <th style="width: 65px;">樓層</th>
+                <th style="width: 62px;">區</th>
                 <th style="width: 135px;">區域名稱</th>
                 <th style="width: 110px;">X軸 (排號)</th>
                 <th style="width: 90px;">Y軸 / 層</th>
@@ -862,7 +866,7 @@
             </thead>
             <tbody>
               <tr v-if="paginatedRules.length === 0">
-                <td colspan="12" class="empty-td">查無符合篩選條件的儲位規則</td>
+                <td colspan="13" class="empty-td">查無符合篩選條件的儲位規則</td>
               </tr>
               <tr
                 v-for="r in paginatedRules"
@@ -878,6 +882,10 @@
                   </span>
                 </td>
                 <td class="font-bold text-blue">{{ r.floor }}</td>
+                <td>
+                  <span v-if="resolveRuleArea(r)" class="area-badge">{{ resolveRuleArea(r) }}區</span>
+                  <span v-else class="text-dim">-</span>
+                </td>
                 <td class="font-bold text-left">{{ r.zone_name }}</td>
                 <td class="font-bold text-yellow">
                   <span v-if="r.x_start === r.x_end">{{ r.x_start }}</span>
@@ -961,14 +969,23 @@
     >
       <div class="modal-grid-2">
         <div>
-          <label class="m-lbl">區域名稱 *</label>
-          <el-input v-model="ruleForm.zone_name" size="mini" placeholder="例如: 80C2A03 排" />
-        </div>
-        <div>
           <label class="m-lbl">樓層 *</label>
           <el-select v-model="ruleForm.floor" size="mini" style="width: 100%;">
             <el-option v-for="fl in floorOptions" :key="fl" :label="fl" :value="fl" />
           </el-select>
+        </div>
+        <div>
+          <label class="m-lbl">所屬分區 (A~D)</label>
+          <el-select v-model="ruleForm.area" size="mini" clearable placeholder="選擇 A~D 區" style="width: 100%;">
+            <el-option label="A區 (北側)" value="A" />
+            <el-option label="B區 (中北)" value="B" />
+            <el-option label="C區 (中南)" value="C" />
+            <el-option label="D區 (南側)" value="D" />
+          </el-select>
+        </div>
+        <div style="grid-column: span 2;">
+          <label class="m-lbl">區域名稱 *</label>
+          <el-input v-model="ruleForm.zone_name" size="mini" placeholder="例如: 80C2A03 排" />
         </div>
         <div>
           <label class="m-lbl">X軸起點 (排號) *</label>
@@ -1050,6 +1067,16 @@
       custom-class="dark-dialog"
     >
       <div style="display: flex; flex-direction: column; gap: 10px;">
+        <div>
+          <label class="m-lbl">📍 所屬分區 (A~D)：</label>
+          <el-select v-model="tableBatchForm.area" size="mini" style="width: 100%;">
+            <el-option label="（維持原分區）" value="KEEP" />
+            <el-option label="A區 (北側)" value="A" />
+            <el-option label="B區 (中北)" value="B" />
+            <el-option label="C區 (中南)" value="C" />
+            <el-option label="D區 (南側)" value="D" />
+          </el-select>
+        </div>
         <div>
           <label class="m-lbl">🏷️ 區域用途屬性：</label>
           <el-select v-model="tableBatchForm.zone_role" size="mini" style="width: 100%;">
@@ -1176,9 +1203,10 @@ export default {
         '休閒', '零組件', '母嬰', '保健', '大家電3', '超商', '筆記電腦', '通訊'
       ],
 
-      // 規則總表狀態（輕量＋分頁）
+      // 規則總表狀態（輕量＋分頁＋A~D區篩選）
       rules: [],
       ruleFloorFilter: 'ALL',
+      ruleAreaFilter: 'ALL',
       ruleRoleFilter: 'ALL',
       ruleKeyword: '',
       rulePage: 1,
@@ -1197,6 +1225,7 @@ export default {
         id: null,
         zone_name: '',
         floor: '2F東',
+        area: 'A',
         x_start: '',
         x_end: '',
         zone_role: 'PICK',
@@ -1252,7 +1281,7 @@ export default {
         zone_name: '',
         floor: '7F',
         storage_type: 'AGV層架',
-        area: 'A',
+        area: '',
         x_start: '',
         x_end: '',
         y_start: '01',
@@ -1269,6 +1298,7 @@ export default {
       },
 
       tableBatchForm: {
+        area: 'KEEP',
         zone_role: 'KEEP',
         applyLength: false,
         rack_length_m: 20,
@@ -1285,13 +1315,14 @@ export default {
       const kw = this.ruleKeyword.trim().toLowerCase();
       return this.rules.filter(r => {
         const okFloor = this.ruleFloorFilter === 'ALL' || r.floor === this.ruleFloorFilter;
+        const okArea = this.ruleAreaFilter === 'ALL' || this.resolveRuleArea(r) === this.ruleAreaFilter;
         const okRole = this.ruleRoleFilter === 'ALL' || (r.zone_role || 'PICK') === this.ruleRoleFilter;
         const okKw = !kw ||
           r.zone_name.toLowerCase().includes(kw) ||
           r.x_start.toLowerCase().includes(kw) ||
           r.x_end.toLowerCase().includes(kw) ||
           (r.allowed_categories || []).some(c => c.toLowerCase().includes(kw));
-        return okFloor && okRole && okKw;
+        return okFloor && okArea && okRole && okKw;
       });
     },
     paginatedRules() {
@@ -1327,6 +1358,11 @@ export default {
     },
     currentRuleFloorKey() {
       return this.currentZoneObj?.ruleFloor || this.selectedMapFloor;
+    },
+    currentZoneAreaCode() {
+      const parts = String(this.currentZoneObj?.id || '').split('-');
+      const last = parts[parts.length - 1];
+      return ['A', 'B', 'C', 'D'].includes(last) ? last : '';
     },
     isEastRightOrientation() {
       return this.currentFloorModule?.orientation === 'east-right';
@@ -1420,7 +1456,7 @@ export default {
         racks.forEach(rk => {
           const w = rk.w * px - 1;
           const h = rk.h * px - 1;
-          const dec = decorateRack(rk.xCode, rk.label);
+          const dec = decorateRack(rk.xCode, rk.label, w);
           nodes.push({
             left: padLeft + rk.x * px,
             top: padTop + rk.y * px,
@@ -1483,7 +1519,7 @@ export default {
           h = Math.max(18, sr * cellH - (isRack ? 1 : 0));
         }
 
-        const dec = isRack ? decorateRack(xCode, label) : { statusClass: '', tooltip: label, shortLabel: label };
+        const dec = isRack ? decorateRack(xCode, label, w) : { statusClass: '', tooltip: label, shortLabel: label };
         return {
           left,
           top,
@@ -1538,6 +1574,20 @@ export default {
     this.refreshAll();
   },
   methods: {
+    resolveRuleArea(r) {
+      if (r.area && ['A', 'B', 'C', 'D'].includes(String(r.area).trim().toUpperCase())) {
+        return String(r.area).trim().toUpperCase();
+      }
+      const zn = String(r.zone_name || '');
+      const m1 = zn.match(/([A-D])區/);
+      if (m1) return m1[1];
+      const m2 = zn.match(/80(?:C2|F3|H4)([A-D])/);
+      if (m2) return m2[1];
+      const xs = String(r.x_start || '');
+      const m3 = xs.match(/^(?:C2|F3|H4)([A-D])/);
+      if (m3) return m3[1];
+      return '';
+    },
     selectMapFloor(fl) {
       this.selectedMapFloor = fl;
       this.selectedMapRacks = [];
@@ -1601,6 +1651,9 @@ export default {
     },
     buildRulePayloadForX(xCode) {
       const ruleFl = this.currentRuleFloorKey;
+      const zoneArea = this.currentZoneAreaCode;
+      const defaultRole = this.currentZoneObj?.defaultRole || 'PICK';
+
       const exactRule = this.rules.find(
         r => (r.floor === ruleFl || r.floor === this.selectedMapFloor) &&
           r.x_start === xCode && r.x_end === xCode
@@ -1608,7 +1661,8 @@ export default {
       if (exactRule) {
         return {
           ...exactRule,
-          zone_role: exactRule.zone_role || 'PICK',
+          area: exactRule.area || zoneArea,
+          zone_role: exactRule.zone_role || defaultRole,
           rack_length_m: Number(exactRule.rack_length_m || 20),
           allowed_categories: [...(exactRule.allowed_categories || [])],
           allowed_volumes: [...(exactRule.allowed_volumes || [])],
@@ -1625,14 +1679,14 @@ export default {
         zone_name: `${xCode} 排`,
         floor: ruleFl,
         storage_type: rangeRule ? rangeRule.storage_type : '落地儲位',
-        area: rangeRule ? rangeRule.area : '',
+        area: zoneArea || (rangeRule ? rangeRule.area : ''),
         x_start: xCode,
         x_end: xCode,
         y_start: rangeRule ? rangeRule.y_start : '01',
         y_end: rangeRule ? rangeRule.y_end : '99',
         layer_start: rangeRule ? rangeRule.layer_start : 'A',
         layer_end: rangeRule ? rangeRule.layer_end : 'Z',
-        zone_role: rangeRule ? (rangeRule.zone_role || 'PICK') : 'PICK',
+        zone_role: rangeRule ? (rangeRule.zone_role || defaultRole) : defaultRole,
         rack_length_m: rangeRule ? Number(rangeRule.rack_length_m || 20) : 20,
         allowed_trade: rangeRule ? rangeRule.allowed_trade : 'ALL',
         allowed_categories: rangeRule ? [...(rangeRule.allowed_categories || [])] : [],
@@ -1764,7 +1818,7 @@ export default {
         zone_name: '',
         floor: '7F',
         storage_type: 'AGV層架',
-        area: 'A',
+        area: '',
         x_start: '',
         x_end: '',
         y_start: '01',
@@ -1784,6 +1838,7 @@ export default {
     openEditRuleModal(r) {
       this.ruleForm = {
         ...r,
+        area: this.resolveRuleArea(r),
         zone_role: r.zone_role || 'PICK',
         rack_length_m: Number(r.rack_length_m || 20),
         allowed_categories: [...(r.allowed_categories || [])],
@@ -1808,6 +1863,7 @@ export default {
     },
     openTableBatchModal() {
       this.tableBatchForm = {
+        area: 'KEEP',
         zone_role: 'KEEP',
         applyLength: false,
         rack_length_m: 20,
@@ -1821,7 +1877,7 @@ export default {
     },
     async submitTableBatchEdit() {
       const f = this.tableBatchForm;
-      if (f.zone_role === 'KEEP' && !f.applyLength && f.allowed_trade === 'KEEP' && !f.applyTiers && !f.applyCats) {
+      if (f.area === 'KEEP' && f.zone_role === 'KEEP' && !f.applyLength && f.allowed_trade === 'KEEP' && !f.applyTiers && !f.applyCats) {
         return ElMessage.warning('請至少選擇一項要修改的屬性！');
       }
       this.batchSaving = true;
@@ -1829,6 +1885,7 @@ export default {
         const targets = this.rules.filter(r => this.selectedRuleIds.includes(r.id));
         const payloads = targets.map(r => {
           const copy = { ...r };
+          if (f.area !== 'KEEP') copy.area = f.area;
           if (f.zone_role !== 'KEEP') copy.zone_role = f.zone_role;
           if (f.applyLength) copy.rack_length_m = f.rack_length_m;
           if (f.allowed_trade !== 'KEEP') copy.allowed_trade = f.allowed_trade;
@@ -1879,13 +1936,14 @@ export default {
     // ==================== 規則 Excel 匯出 / 匯入 ====================
     exportRulesExcel() {
       const rows = [
-        ['規則ID(勿改)', '啟用(1/0)', '樓層', '區域名稱', 'X軸起點', 'X軸終點', 'Y軸起點', 'Y軸終點', '層別起點', '層別終點', '區域用途(PICK/STORAGE/BOTH/CLOSED)', '層架長度(m)', '允許借採(ALL/借/採)', '允許月銷級距(逗號分隔)', '允許商品大區(逗號分隔)']
+        ['規則ID(勿改)', '啟用(1/0)', '樓層', '區(A~D)', '區域名稱', 'X軸起點', 'X軸終點', 'Y軸起點', 'Y軸終點', '層別起點', '層別終點', '區域用途(PICK/STORAGE/BOTH/CLOSED)', '層架長度(m)', '允許借採(ALL/借/採)', '允許月銷級距(逗號分隔)', '允許商品大區(逗號分隔)']
       ];
       this.filteredRules.forEach(r => {
         rows.push([
           r.id || '',
           r.enabled ? 1 : 0,
           r.floor,
+          this.resolveRuleArea(r),
           r.zone_name,
           r.x_start,
           r.x_end,
@@ -1933,6 +1991,7 @@ export default {
               id: row['規則ID(勿改)'] || null,
               enabled: String(row['啟用(1/0)']).trim() !== '0',
               floor: String(row['樓層']).trim(),
+              area: String(row['區(A~D)'] || '').trim().toUpperCase(),
               zone_name: String(row['區域名稱'] || `${row['X軸起點']} 排`).trim(),
               x_start: String(row['X軸起點']).trim(),
               x_end: String(row['X軸終點'] || row['X軸起點']).trim(),
@@ -2205,6 +2264,17 @@ export default {
 .role-BOTH { background: rgba(250, 204, 21, 0.16); color: #facc15; border: 1px solid rgba(250, 204, 21, 0.35); }
 .role-CLOSED { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.45); }
 
+.area-badge {
+  display: inline-block;
+  background: rgba(168, 85, 247, 0.18);
+  border: 1px solid rgba(168, 85, 247, 0.45);
+  color: #d8b4fe;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: bold;
+}
+
 .closed-rule-row td { background: rgba(239, 68, 68, 0.06) !important; }
 .selected-rule-row td { background: rgba(56, 189, 248, 0.12) !important; }
 .status-dot-txt { font-size: 11px; font-weight: bold; }
@@ -2341,7 +2411,6 @@ export default {
   z-index: 1;
 }
 
-/* 12m 標準結構柱位黑方塊 */
 .fp-struct-col {
   position: absolute;
   width: 10px;
