@@ -1063,7 +1063,9 @@ export default {
       const findRuleForX = (xCode) => {
         if (!xCode) return null;
         return floorRules.find(r => {
-          if (r.x_start === r.x_end) return r.x_start === xCode;
+          if (r.x_start === r.x_end) {
+            return r.x_start === xCode || xCode.startsWith(r.x_start);
+          }
           return xCode >= r.x_start && xCode <= r.x_end;
         }) || null;
       };
@@ -1261,18 +1263,19 @@ export default {
       } else {
         const rangeRule = this.rules.find(
           r => (r.floor === ruleFl || r.floor === this.selectedMapFloor) &&
-            node.xCode >= r.x_start && node.xCode <= r.x_end
+            ((r.x_start === r.x_end && node.xCode.startsWith(r.x_start)) ||
+              (node.xCode >= r.x_start && node.xCode <= r.x_end))
         );
         this.mapEditRule = {
           id: null,
           zone_name: `${node.xCode} 排`,
           floor: ruleFl,
-          storage_type: rangeRule ? rangeRule.storage_type : '',
+          storage_type: rangeRule ? rangeRule.storage_type : '落地儲位',
           area: rangeRule ? rangeRule.area : '',
           x_start: node.xCode,
           x_end: node.xCode,
-          y_start: rangeRule ? rangeRule.y_start : '001',
-          y_end: rangeRule ? rangeRule.y_end : '999',
+          y_start: rangeRule ? rangeRule.y_start : '01',
+          y_end: rangeRule ? rangeRule.y_end : '99',
           layer_start: rangeRule ? rangeRule.layer_start : 'A',
           layer_end: rangeRule ? rangeRule.layer_end : 'Z',
           zone_role: rangeRule ? (rangeRule.zone_role || 'PICK') : 'PICK',
