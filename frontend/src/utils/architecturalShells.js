@@ -93,10 +93,11 @@ export const SHELL_2F_WEST = {
     columns: buildWestWingColumns(60),
     rooms: [
       { x: 2.5, y: 18, w: 3.5, h: 6, label: '排煙管道' },
-      { x: 48, y: 0, w: 12, h: 6.5, label: '樓梯' },
-      { x: 48, y: 6.5, w: 12, h: 6.5, label: '電梯' },
-      { x: 48, y: 13, w: 12, h: 5.5, label: '空調機房' },
-      { x: 48, y: 18.5, w: 12, h: 5.5, label: '廁所、茶水間' }
+      // 右側核心筒（對齊 18m 柱位線，電梯內縮 6m，茶水間下方留 2m 通道）
+      { x: 48, y: 0, w: 12, h: 6, label: '樓梯' },
+      { x: 54, y: 6, w: 6, h: 6, label: '電梯' },
+      { x: 48, y: 12, w: 12, h: 6, label: '空調機房' },
+      { x: 48, y: 18, w: 12, h: 4, label: '廁所、茶水間' }
     ]
   },
   '2F-W-C': {
@@ -104,10 +105,11 @@ export const SHELL_2F_WEST = {
     depthM: 24,
     columns: buildWestWingColumns(60),
     rooms: [
-      { x: 0, y: 0, w: 12, h: 6.5, label: '樓梯' },
-      { x: 0, y: 6.5, w: 12, h: 6.5, label: '電梯' },
-      { x: 0, y: 13, w: 12, h: 5.5, label: '空調機房' },
-      { x: 0, y: 18.5, w: 12, h: 5.5, label: '廁所、茶水間' },
+      // 左側核心筒（對齊 18m 柱位線，電梯內縮 6m，茶水間下方留 2m 通道）
+      { x: 0, y: 0, w: 12, h: 6, label: '樓梯' },
+      { x: 0, y: 6, w: 6, h: 6, label: '電梯' },
+      { x: 0, y: 12, w: 12, h: 6, label: '空調機房' },
+      { x: 0, y: 18, w: 12, h: 4, label: '廁所、茶水間' },
       { x: 55, y: 18, w: 3.5, h: 6, label: '排煙管道' }
     ]
   }
