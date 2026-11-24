@@ -1352,10 +1352,10 @@ export default {
         }) || null;
       };
 
-      const decorateRack = (xCode, label) => {
+      const decorateRack = (xCode, label, widthPx = 0) => {
         const rule = findRuleForX(xCode);
         const xStat = this.report.byXRow?.[`${this.selectedMapFloor}|${xCode}`] || this.report.byXRow?.[`${ruleFl}|${xCode}`];
-        const zRole = rule?.zone_role || 'PICK';
+        const zRole = rule?.zone_role || zoneObj.defaultRole || 'PICK';
 
         let statusClass = 'fp-status-unset';
         if (this.mapColorMode === 'ZONE_ROLE') {
@@ -1382,13 +1382,13 @@ export default {
         const roleLabel = this.zoneRoleLabelMap[zRole] || '撿貨區';
         const ruleText = rule
           ? `用途：【${roleLabel}】｜長度：${rule.rack_length_m || 20}m｜借採：${rule.allowed_trade === 'ALL' ? '皆可' : '僅限' + rule.allowed_trade}${rule.allowed_sales_tiers?.length ? '｜月銷：' + rule.allowed_sales_tiers.join('/') + '級' : ''}${rule.allowed_categories?.length ? '｜大區：' + rule.allowed_categories.join('、') : ''}`
-          : '尚未設定獨立規則（沿用預設撿貨區）';
+          : `預設用途：【${roleLabel}】（尚未建立獨立規則）`;
         const statText = xStat ? `\n現況：共 ${xStat.total} 筆（合格 ${xStat.passed} / 異常 ${xStat.failed}）` : '';
         const m = String(label).match(/80([A-Z0-9]{2,4}\d{2,3})/);
         return {
           statusClass,
           tooltip: `${label}（排號 ${xCode}）\n${ruleText}${statText}`,
-          shortLabel: m ? m[1] : xCode
+          shortLabel: widthPx >= 110 ? label : (m ? m[1] : xCode)
         };
       };
 

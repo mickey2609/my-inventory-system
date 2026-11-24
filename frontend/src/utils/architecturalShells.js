@@ -1,7 +1,6 @@
 // frontend/src/utils/architecturalShells.js
 // 全棟建築結構基準：柱心間距 12 公尺（1 單位 = 1 公尺）
 
-// 產生標準柱位黑方塊（每 12m 一柱）
 export function buildStructuralColumns(widthM, depthM) {
   const cols = [];
   for (let x = 0; x <= widthM; x += 12) {
@@ -12,7 +11,19 @@ export function buildStructuralColumns(widthM, depthM) {
   return cols;
 }
 
-// 2F 東側夾層標準固定隔間（每區 60m × 24m，1 單位 = 1 公尺）
+// 2F 西側夾層柱位（D-C:12m, C-B:12m, B-A:6m，總進深 30m）
+export function buildWestWingColumns(widthM = 60) {
+  const yAxes = [0, 12, 24, 30];
+  const cols = [];
+  for (let x = 0; x <= widthM; x += 12) {
+    for (const y of yAxes) {
+      cols.push({ x, y });
+    }
+  }
+  return cols;
+}
+
+// 2F 東側夾層標準固定隔間（每區 60m × 24m）
 export const SHELL_2F_EAST = {
   '2F-E-A': {
     widthM: 60,
@@ -59,6 +70,45 @@ export const SHELL_2F_EAST = {
       { x: 14.5, y: 18, w: 5.5, h: 6, label: '機房' },
       { x: 20, y: 18, w: 3.5, h: 6, label: '排煙管道' },
       { x: 56, y: 20.5, w: 4, h: 3.5, label: '排煙管道' }
+    ]
+  }
+};
+
+// 2F 西側夾層標準固定隔間（每區 60m × 30m）
+export const SHELL_2F_WEST = {
+  '2F-W-A': {
+    widthM: 60,
+    depthM: 30,
+    columns: buildWestWingColumns(60),
+    rooms: [
+      { x: 0, y: 0, w: 12, h: 16, label: '電梯' },
+      { x: 0, y: 16, w: 3.5, h: 8, label: '樓梯' },
+      { x: 3.5, y: 16, w: 8.5, h: 14, label: '機房' },
+      { x: 56, y: 24, w: 4, h: 6, label: '排煙管道' }
+    ]
+  },
+  '2F-W-B': {
+    widthM: 60,
+    depthM: 30,
+    columns: buildWestWingColumns(60),
+    rooms: [
+      { x: 2.5, y: 24, w: 3.5, h: 6, label: '排煙管道' },
+      { x: 48, y: 0, w: 12, h: 8, label: '樓梯' },
+      { x: 48, y: 8, w: 12, h: 8, label: '電梯' },
+      { x: 48, y: 16, w: 12, h: 7, label: '空調機房' },
+      { x: 48, y: 23, w: 12, h: 7, label: '廁所、茶水間' }
+    ]
+  },
+  '2F-W-C': {
+    widthM: 60,
+    depthM: 30,
+    columns: buildWestWingColumns(60),
+    rooms: [
+      { x: 0, y: 0, w: 12, h: 8, label: '樓梯' },
+      { x: 0, y: 8, w: 12, h: 8, label: '電梯' },
+      { x: 0, y: 16, w: 12, h: 7, label: '空調機房' },
+      { x: 0, y: 23, w: 12, h: 7, label: '廁所、茶水間' },
+      { x: 55, y: 24, w: 3.5, h: 6, label: '排煙管道' }
     ]
   }
 };
