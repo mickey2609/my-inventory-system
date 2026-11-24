@@ -599,7 +599,9 @@
 
           <div v-else-if="selectedMapRacks.length === 1" class="fp-inspector-body">
             <div class="insp-title-box">
-              <div class="text-blue font-bold" style="font-size: 15px;">{{ currentRuleFloorKey }} ({{ currentZoneAreaCode }}區) - {{ selectedMapRacks[0].xCode }} 排</div>
+              <div class="text-blue font-bold" style="font-size: 15px;">
+                {{ currentRuleFloorKey }}<span v-if="currentZoneAreaCode"> ({{ currentZoneAreaCode }}區)</span> - {{ selectedMapRacks[0].xCode }} 排
+              </div>
               <div class="text-dim" style="font-size: 11px;">完整標示：{{ selectedMapRacks[0].label }}</div>
             </div>
 
@@ -624,6 +626,17 @@
 
             <div class="insp-rule-form">
               <div class="insp-sub-title">⚙️ 設定【{{ selectedMapRacks[0].xCode }} 排】屬性與規則</div>
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px;">
+                <div>
+                  <label class="m-lbl">層別起點：</label>
+                  <el-input v-model="mapEditRule.layer_start" size="mini" placeholder="A" />
+                </div>
+                <div>
+                  <label class="m-lbl">層別終點：</label>
+                  <el-input v-model="mapEditRule.layer_end" size="mini" placeholder="Z" />
+                </div>
+              </div>
 
               <label class="m-lbl">🏷️ 區域用途屬性：</label>
               <el-select v-model="mapEditRule.zone_role" size="mini" style="width: 100%; margin-bottom: 8px;">
@@ -793,7 +806,7 @@
               <el-option label="全部樓層" value="ALL" />
               <el-option v-for="fl in floorOptions" :key="fl" :label="fl" :value="fl" />
             </el-select>
-            <el-select v-model="ruleAreaFilter" size="mini" style="width: 105px;" @change="rulePage = 1">
+            <el-select v-model="ruleAreaFilter" size="mini" style="width: 95px;" @change="rulePage = 1">
               <el-option label="全部區" value="ALL" />
               <el-option label="A區" value="A" />
               <el-option label="B區" value="B" />
@@ -1228,6 +1241,8 @@ export default {
         area: 'A',
         x_start: '',
         x_end: '',
+        layer_start: 'A',
+        layer_end: 'Z',
         zone_role: 'PICK',
         rack_length_m: 20,
         allowed_trade: 'ALL',
@@ -1378,14 +1393,19 @@ export default {
         .filter(r => r.enabled && (r.floor === ruleFl || r.floor === this.selectedMapFloor))
         .sort((a, b) => (a.x_start === a.x_end ? -1 : 1));
 
+      const targetRole = zoneObj.defaultRole;
+      const isRoleSplitView = targetRole === 'PICK' || targetRole === 'STORAGE';
+
       const findRuleForX = (xCode) => {
         if (!xCode) return null;
-        return floorRules.find(r => {
-          if (r.x_start === r.x_end) {
-            return r.x_start === xCode || xCode.startsWith(r.x_start);
-          }
-          return xCode >= r.x_start && xCode <= r.x_end;
-        }) || null;
+        const matchX = (r) => (r.x_start === r.x_end)
+          ? (r.x_start === xCode || xCode.startsWith(r.x_start))
+          : (xCode >= r.x_start && xCode <= r.x_end);
+
+        if (isRoleSplitView) {
+          return floorRules.find(r => matchX(r) && r.zone_role === targetRole) || null;
+        }
+        return floorRules.find(matchX) || null;
       };
 
       const decorateRack = (xCode, label, widthPx = 0) => {
@@ -1416,8 +1436,9 @@ export default {
         }
 
         const roleLabel = this.zoneRoleLabelMap[zRole] || '撿貨區';
+        const layerText = rule ? `（${rule.layer_start || 'A'}~${rule.layer_end || 'Z'}層）` : '';
         const ruleText = rule
-          ? `用途：【${roleLabel}】｜長度：${rule.rack_length_m || 20}m｜借採：${rule.allowed_trade === 'ALL' ? '皆可' : '僅限' + rule.allowed_trade}${rule.allowed_sales_tiers?.length ? '｜月銷：' + rule.allowed_sales_tiers.join('/') + '級' : ''}${rule.allowed_categories?.length ? '｜大區：' + rule.allowed_categories.join('、') : ''}`
+          ? `用途：【${roleLabel}】${layerText}｜長度：${rule.rack_length_m || 20}m｜借採：${rule.allowed_trade === 'ALL' ? '皆可' : '僅限' + rule.allowed_trade}${rule.allowed_sales_tiers?.length ? '｜月銷：' + rule.allowed_sales_tiers.join('/') + '級' : ''}${rule.allowed_categories?.length ? '｜大區：' + rule.allowed_categories.join('、') : ''}`
           : `預設用途：【${roleLabel}】（尚未建立獨立規則）`;
         const statText = xStat ? `\n現況：共 ${xStat.total} 筆（合格 ${xStat.passed} / 異常 ${xStat.failed}）` : '';
         const m = String(label).match(/80([A-Z0-9]{2,4}\d{2,3})/);
@@ -1652,11 +1673,14 @@ export default {
     buildRulePayloadForX(xCode) {
       const ruleFl = this.currentRuleFloorKey;
       const zoneArea = this.currentZoneAreaCode;
-      const defaultRole = this.currentZoneObj?.defaultRole || 'PICK';
+      const targetRole = this.currentZoneObj?.defaultRole;
+      const isRoleSplitView = targetRole === 'PICK' || targetRole === 'STORAGE';
+      const defaultRole = targetRole || 'PICK';
 
       const exactRule = this.rules.find(
         r => (r.floor === ruleFl || r.floor === this.selectedMapFloor) &&
-          r.x_start === xCode && r.x_end === xCode
+          r.x_start === xCode && r.x_end === xCode &&
+          (!isRoleSplitView || r.zone_role === targetRole)
       );
       if (exactRule) {
         return {
@@ -1669,25 +1693,32 @@ export default {
           allowed_sales_tiers: [...(exactRule.allowed_sales_tiers || [])]
         };
       }
+
       const rangeRule = this.rules.find(
         r => (r.floor === ruleFl || r.floor === this.selectedMapFloor) &&
+          (!isRoleSplitView || r.zone_role === targetRole) &&
           ((r.x_start === r.x_end && xCode.startsWith(r.x_start)) ||
             (xCode >= r.x_start && xCode <= r.x_end))
       );
+
+      const defaultLayerStart = isRoleSplitView ? (targetRole === 'PICK' ? 'A' : 'C') : (rangeRule ? rangeRule.layer_start : 'A');
+      const defaultLayerEnd = isRoleSplitView ? (targetRole === 'PICK' ? 'B' : 'E') : (rangeRule ? rangeRule.layer_end : 'Z');
+      const roleSuffix = isRoleSplitView ? (targetRole === 'PICK' ? ' (撿貨區)' : ' (庫區)') : '';
+
       return {
         id: null,
-        zone_name: `${xCode} 排`,
+        zone_name: `${xCode} 排${roleSuffix}`,
         floor: ruleFl,
-        storage_type: rangeRule ? rangeRule.storage_type : '落地儲位',
+        storage_type: rangeRule ? rangeRule.storage_type : '重型層架',
         area: zoneArea || (rangeRule ? rangeRule.area : ''),
         x_start: xCode,
         x_end: xCode,
         y_start: rangeRule ? rangeRule.y_start : '01',
         y_end: rangeRule ? rangeRule.y_end : '99',
-        layer_start: rangeRule ? rangeRule.layer_start : 'A',
-        layer_end: rangeRule ? rangeRule.layer_end : 'Z',
-        zone_role: rangeRule ? (rangeRule.zone_role || defaultRole) : defaultRole,
-        rack_length_m: rangeRule ? Number(rangeRule.rack_length_m || 20) : 20,
+        layer_start: defaultLayerStart,
+        layer_end: defaultLayerEnd,
+        zone_role: defaultRole,
+        rack_length_m: rangeRule ? Number(rangeRule.rack_length_m || 20) : 48,
         allowed_trade: rangeRule ? rangeRule.allowed_trade : 'ALL',
         allowed_categories: rangeRule ? [...(rangeRule.allowed_categories || [])] : [],
         allowed_volumes: rangeRule ? [...(rangeRule.allowed_volumes || [])] : [],
@@ -2542,4 +2573,57 @@ export default {
 .text-red { color: #f87171; }
 .text-dim { color: #94a3b8; }
 .font-bold { font-weight: bold; }
+</style>
+
+<style>
+/* 修正 append-to-body 彈窗白底淺字問題，統一為高對比深色視窗 */
+.dark-dialog {
+  background: #1e293b !important;
+  border: 1px solid #475569 !important;
+  border-radius: 8px !important;
+}
+.dark-dialog .el-dialog__header {
+  background: #0f172a !important;
+  border-bottom: 1px solid #334155 !important;
+  padding: 12px 16px !important;
+  border-radius: 8px 8px 0 0 !important;
+}
+.dark-dialog .el-dialog__title {
+  color: #38bdf8 !important;
+  font-weight: bold !important;
+  font-size: 15px !important;
+}
+.dark-dialog .el-dialog__headerbtn .el-dialog__close {
+  color: #cbd5e1 !important;
+}
+.dark-dialog .el-dialog__body {
+  background: #1e293b !important;
+  color: #f8fafc !important;
+  padding: 16px !important;
+}
+.dark-dialog .el-dialog__footer {
+  background: #0f172a !important;
+  border-top: 1px solid #334155 !important;
+  padding: 10px 16px !important;
+  border-radius: 0 0 8px 8px !important;
+}
+.dark-dialog .m-lbl {
+  color: #f1f5f9 !important;
+}
+.dark-dialog .el-input__inner,
+.dark-dialog .el-input-number__decrease,
+.dark-dialog .el-input-number__increase {
+  background-color: #0f172a !important;
+  border-color: #475569 !important;
+  color: #f8fafc !important;
+}
+.dark-dialog .el-switch__label {
+  color: #cbd5e1 !important;
+}
+.dark-dialog .el-switch__label.is-active {
+  color: #38bdf8 !important;
+}
+.dark-dialog .el-checkbox__label {
+  color: #e2e8f0 !important;
+}
 </style>
