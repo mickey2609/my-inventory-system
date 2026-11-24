@@ -44,8 +44,8 @@ export const FLOOR_3F = {
   title: '3F B/C區重型層架（東側朝右橫向｜柱距12m）',
   orientation: 'east-right',
   zones: [
-    { id: '3F-BC-PICK', label: 'B/C區 (撿貨區)', ruleFloor: '3F', defaultRole: 'PICK', meterMode: true, pxPerM: 14, shell: SHELL_3F_BC },
-    { id: '3F-BC-STORAGE', label: 'B/C區 (庫區)', ruleFloor: '3F', defaultRole: 'STORAGE', meterMode: true, pxPerM: 14, shell: SHELL_3F_BC }
+    { id: '3F-BC-PICK', label: 'B/C區 (撿貨區)', ruleFloor: '3F', defaultRole: 'PICK', meterMode: true, pxPerM: 17.5, shell: SHELL_3F_BC },
+    { id: '3F-BC-STORAGE', label: 'B/C區 (庫區)', ruleFloor: '3F', defaultRole: 'STORAGE', meterMode: true, pxPerM: 17.5, shell: SHELL_3F_BC }
   ],
   zoneRacks: {
     '3F-BC-PICK': RACKS_3F_BC,

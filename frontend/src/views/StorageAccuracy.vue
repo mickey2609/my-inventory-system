@@ -1614,7 +1614,9 @@ export default {
       this.selectedMapRacks = [];
       const zones = FLOOR_MODULES[fl]?.zones || [];
       this.selectedZoneId = zones[0]?.id || '';
-      this.mapZoom = FLOOR_MODULES[fl]?.orientation === 'east-right' ? 0.95 : 1.15;
+      this.mapZoom = (fl === '2F' || fl === '3F')
+        ? 1.15
+        : (FLOOR_MODULES[fl]?.orientation === 'east-right' ? 0.95 : 1.15);
     },
     selectMapZone(zoneId) {
       this.selectedZoneId = zoneId;
