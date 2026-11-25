@@ -191,90 +191,90 @@ export const SHELL_6F = {
   }
 };
 
-// 7F 全層柱位（60m 寬 × 132m 深：北側 10 跨 12m + 南側 2 跨 6m）
-export function build7FColumns(widthM = 60) {
-  const yAxes = [0, 12, 24, 36, 48, 60, 72, 84, 96, 108, 120, 126, 132];
+// 7F 全層柱位（東側朝右橫向：132m 寬 × 60m 深｜西側 2 跨 6m + 東側 10 跨 12m）
+export function build7FColumns() {
+  const xAxes = [0, 6, 12, 24, 36, 48, 60, 72, 84, 96, 108, 120, 132];
   const cols = [];
-  for (let x = 0; x <= widthM; x += 12) {
-    for (const y of yAxes) {
+  for (const x of xAxes) {
+    for (let y = 0; y <= 60; y += 12) {
       cols.push({ x, y });
     }
   }
   return cols;
 }
 
-// 7F 全層標準固定隔間（A、B、C、D 四區，每區 60m × 132m，東側朝上）
+// 7F 全層標準固定隔間（A、B、C、D 四區，每區 132m × 60m，東側朝右）
 export const SHELL_7F = {
   '7F-A': {
-    widthM: 60,
-    depthM: 132,
-    columns: build7FColumns(60),
+    widthM: 132,
+    depthM: 60,
+    columns: build7FColumns(),
     rooms: [
-      { x: 0, y: 0, w: 6, h: 15, label: '廁所、茶水間' },
-      { x: 6, y: 0, w: 6, h: 15, label: '電梯' },
-      { x: 0, y: 15, w: 12, h: 9, label: '梯間' },
-      { x: 12, y: 18, w: 2.5, h: 6, label: '排煙管道' },
-      { x: 0, y: 24, w: 12, h: 12, label: '開箱機' },
-      { x: 12, y: 24, w: 6, h: 12, label: '小線B701' },
-      { x: 18, y: 24, w: 6, h: 12, label: '小線B702' },
-      { x: 24, y: 24, w: 6, h: 12, label: '小線B703' },
-      { x: 30, y: 24, w: 6, h: 12, label: '小線B704' },
-      { x: 48, y: 24, w: 12, h: 12, label: '檢出辦公區' },
-      { x: 48, y: 36, w: 12, h: 12, label: '檢出異常區' },
-      { x: 2, y: 103.5, w: 4, h: 4.5, label: '煙管' },
-      { x: 0, y: 108, w: 3.5, h: 18, label: '機房' },
-      { x: 3.5, y: 108, w: 3.5, h: 18, label: '樓梯' },
-      { x: 7, y: 108, w: 5, h: 18, label: '電梯' },
-      { x: 54, y: 127, w: 3.5, h: 4, label: '煙管' }
+      { x: 117, y: 0, w: 15, h: 6, label: '廁所、茶水間' },
+      { x: 117, y: 6, w: 15, h: 6, label: '電梯' },
+      { x: 108, y: 0, w: 9, h: 12, label: '梯間' },
+      { x: 108, y: 12, w: 6, h: 2.5, label: '排煙管道' },
+      { x: 96, y: 0, w: 12, h: 12, label: '開箱機' },
+      { x: 96, y: 12, w: 12, h: 6, label: '小線B701' },
+      { x: 96, y: 18, w: 12, h: 6, label: '小線B702' },
+      { x: 96, y: 24, w: 12, h: 6, label: '小線B703' },
+      { x: 96, y: 30, w: 12, h: 6, label: '小線B704' },
+      { x: 96, y: 48, w: 12, h: 12, label: '檢出辦公區' },
+      { x: 84, y: 48, w: 12, h: 12, label: '檢出異常區' },
+      { x: 24, y: 2, w: 4.5, h: 4, label: '煙管' },
+      { x: 6, y: 0, w: 18, h: 3.5, label: '機房' },
+      { x: 6, y: 3.5, w: 18, h: 3.5, label: '樓梯' },
+      { x: 6, y: 7, w: 18, h: 5, label: '電梯' },
+      { x: 1, y: 54, w: 4, h: 3.5, label: '煙管' }
     ]
   },
   '7F-B': {
-    widthM: 60,
-    depthM: 132,
-    columns: build7FColumns(60),
+    widthM: 132,
+    depthM: 60,
+    columns: build7FColumns(),
     rooms: [
-      { x: 0, y: 0, w: 12, h: 10, label: '東側' },
-      { x: 24, y: 0, w: 24, h: 6, label: '紙箱' },
-      { x: 24, y: 12, w: 12, h: 12, label: '紙箱' },
-      { x: 36, y: 18, w: 12, h: 6, label: '機房/管道' },
-      { x: 0, y: 30, w: 12, h: 12, label: '檢出點名區' },
-      { x: 12, y: 30, w: 6, h: 12, label: '大線B705' },
-      { x: 18, y: 30, w: 6, h: 12, label: '大線B706' },
-      { x: 24, y: 30, w: 6, h: 12, label: '大線B707' },
-      { x: 30, y: 30, w: 6, h: 12, label: '大線B708' },
-      { x: 36, y: 30, w: 6, h: 12, label: '大線B709' },
-      { x: 42, y: 30, w: 6, h: 12, label: '大線B710' },
-      { x: 48, y: 30, w: 6, h: 12, label: '大線B711' },
-      { x: 54, y: 30, w: 6, h: 12, label: '大線B712' },
-      { x: 48, y: 102, w: 12, h: 8, label: '樓梯' },
-      { x: 52.5, y: 110, w: 7.5, h: 8, label: '電梯' },
-      { x: 3.5, y: 125, w: 3, h: 6, label: '煙管' }
+      { x: 122, y: 0, w: 10, h: 12, label: '東側' },
+      { x: 126, y: 24, w: 6, h: 24, label: '紙箱' },
+      { x: 108, y: 24, w: 12, h: 12, label: '紙箱' },
+      { x: 108, y: 36, w: 6, h: 12, label: '機房/管道' },
+      { x: 90, y: 0, w: 12, h: 12, label: '檢出點名區' },
+      { x: 90, y: 12, w: 12, h: 6, label: '大線B705' },
+      { x: 90, y: 18, w: 12, h: 6, label: '大線B706' },
+      { x: 90, y: 24, w: 12, h: 6, label: '大線B707' },
+      { x: 90, y: 30, w: 12, h: 6, label: '大線B708' },
+      { x: 90, y: 36, w: 12, h: 6, label: '大線B709' },
+      { x: 90, y: 42, w: 12, h: 6, label: '大線B710' },
+      { x: 90, y: 48, w: 12, h: 6, label: '大線B711' },
+      { x: 90, y: 54, w: 12, h: 6, label: '大線B712' },
+      { x: 22, y: 48, w: 8, h: 12, label: '樓梯' },
+      { x: 14, y: 52.5, w: 8, h: 7.5, label: '電梯' },
+      { x: 1, y: 3.5, w: 6, h: 3, label: '煙管' }
     ]
   },
   '7F-C': {
-    widthM: 60,
-    depthM: 132,
-    columns: build7FColumns(60),
+    widthM: 132,
+    depthM: 60,
+    columns: build7FColumns(),
     rooms: [
-      { x: 48, y: 0, w: 12, h: 10, label: '東側' },
-      { x: 0, y: 14, w: 24, h: 10, label: '辦公室/茶水間' },
-      { x: 0, y: 102, w: 12, h: 8, label: '樓梯' },
-      { x: 0, y: 110, w: 7.5, h: 8, label: '電梯' },
-      { x: 53.5, y: 126, w: 3.5, h: 5, label: '煙管' }
+      { x: 122, y: 48, w: 10, h: 12, label: '東側' },
+      { x: 108, y: 0, w: 10, h: 24, label: '辦公室/茶水間' },
+      { x: 22, y: 0, w: 8, h: 12, label: '樓梯' },
+      { x: 14, y: 0, w: 8, h: 7.5, label: '電梯' },
+      { x: 1, y: 53.5, w: 5, h: 3.5, label: '煙管' }
     ]
   },
   '7F-D': {
-    widthM: 60,
-    depthM: 132,
-    columns: build7FColumns(60),
+    widthM: 132,
+    depthM: 60,
+    columns: build7FColumns(),
     rooms: [
-      { x: 48, y: 0, w: 6, h: 16, label: '電梯' },
-      { x: 54, y: 0, w: 6, h: 16, label: '廁所、茶水間' },
-      { x: 45, y: 16, w: 15, h: 8, label: '梯間' },
-      { x: 55, y: 102, w: 4, h: 5, label: '煙管' },
-      { x: 48, y: 108, w: 5, h: 18, label: '電梯' },
-      { x: 53, y: 108, w: 3.5, h: 18, label: '樓梯' },
-      { x: 56.5, y: 108, w: 3.5, h: 18, label: '機房' }
+      { x: 116, y: 48, w: 16, h: 6, label: '電梯' },
+      { x: 116, y: 54, w: 16, h: 6, label: '廁所、茶水間' },
+      { x: 108, y: 45, w: 8, h: 15, label: '梯間' },
+      { x: 25, y: 55, w: 5, h: 4, label: '煙管' },
+      { x: 6, y: 48, w: 18, h: 5, label: '電梯' },
+      { x: 6, y: 53, w: 18, h: 3.5, label: '樓梯' },
+      { x: 6, y: 56.5, w: 18, h: 3.5, label: '機房' }
     ]
   }
 };
