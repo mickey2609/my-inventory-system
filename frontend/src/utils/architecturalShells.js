@@ -138,3 +138,55 @@ export const SHELL_4F = {
     { x: 6.0, y: 5.7, w: 1.2, h: 0.6, label: '入口' }
   ]
 };
+
+// 6F 東側夾層標準固定隔間（B、C、D三區，每區 60m × 24m）
+export const SHELL_6F = {
+  '6F-B': {
+    widthM: 60,
+    depthM: 24,
+    columns: buildStructuralColumns(60, 24),
+    rooms: [
+      { x: 0, y: 0, w: 12, h: 12, label: '空調機房' },
+      { x: 54.5, y: 0, w: 5.5, h: 12, label: '茶水間、廁所' },
+      { x: 1.5, y: 20.5, w: 3.5, h: 3.5, label: '排煙管道' },
+      { x: 8.5, y: 18, w: 4.5, h: 6, label: '輸送帶預留垂直開口' },
+      { x: 36.5, y: 18, w: 4, h: 6, label: '排煙管道' },
+      { x: 40.5, y: 18, w: 6, h: 6, label: '機房' },
+      { x: 46.5, y: 18, w: 3.5, h: 6, label: '樓梯' },
+      { x: 50, y: 20, w: 3, h: 4, label: '客梯' },
+      { x: 53, y: 20, w: 3, h: 4, label: '棧板機' },
+      { x: 56, y: 18, w: 4, h: 6, label: '電梯' }
+    ]
+  },
+  '6F-C': {
+    widthM: 60,
+    depthM: 24,
+    columns: buildStructuralColumns(60, 24),
+    rooms: [
+      { x: 0, y: 0, w: 5.5, h: 12, label: '茶水間、廁所' },
+      { x: 48, y: 0, w: 12, h: 12, label: '空調機房' },
+      { x: 0, y: 18, w: 4.5, h: 6, label: '電梯' },
+      { x: 4.5, y: 20, w: 3.5, h: 4, label: '棧板機' },
+      { x: 8, y: 18, w: 3.5, h: 6, label: '樓梯' },
+      { x: 11.5, y: 18, w: 3.5, h: 6, label: '樓梯' },
+      { x: 15, y: 18, w: 5, h: 6, label: '機房' },
+      { x: 20, y: 18, w: 3.5, h: 6, label: '排煙管道' },
+      { x: 56, y: 20.5, w: 4, h: 3.5, label: '排煙管道' }
+    ]
+  },
+  '6F-D': {
+    widthM: 60,
+    depthM: 24,
+    columns: buildStructuralColumns(60, 24),
+    rooms: [
+      { x: 0, y: 0, w: 12, h: 12, label: '空調機房' },
+      { x: 48, y: 0, w: 6, h: 14, label: '電梯' },
+      { x: 54, y: 0, w: 6, h: 17, label: '廁所、茶水間' },
+      { x: 1.5, y: 18, w: 3.5, h: 6, label: '排煙管道' },
+      { x: 8.5, y: 18, w: 4.5, h: 6, label: '輸送帶預留開口' },
+      { x: 36.5, y: 20.5, w: 5.5, h: 3.5, label: '排煙管道' },
+      { x: 42, y: 17, w: 3.5, h: 7, label: '樓梯' },
+      { x: 45.5, y: 17, w: 14.5, h: 7, label: '梯間' }
+    ]
+  }
+};
