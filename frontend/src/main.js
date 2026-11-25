@@ -6,8 +6,8 @@ import * as ElementPlusIconsVue from '@element-plus/icons-vue';
 import axios from 'axios';
 import App from './App.vue';
 
-const BIN_ID = '6aad2ed2ac6210605adc4575';
-const JSONBIN_KEY = '$2a$10$GBayhoY0k2Exom4NkRzydu3CEcLJj1vior2Yld0PPsPDHsjDJG0wm';
+const BIN_ID = '6b06da24ac6210605aa35103';
+const JSONBIN_KEY = '$2a$10$0nr9sKdkJWcR9BBU1l7dLO8DN1ET8JzYNWyAGYEH4VAI6e1Ov23Tm';
 
 async function initDesktopApiBase() {
   try {

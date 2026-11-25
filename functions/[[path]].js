@@ -78,8 +78,8 @@ export async function onRequest(context) {
     let targetHost = '';
     
     try {
-      const binRes = await fetch('https://api.jsonbin.io/v3/b/6aad2ed2ac6210605adc4575/latest', {
-        headers: { 'X-Master-Key': '$2a$10$GBayhoY0k2Exom4NkRzydu3CEcLJj1vior2Yld0PPsPDHsjDJG0wm' }
+      const binRes = await fetch('https://api.jsonbin.io/v3/b/6b06da24ac6210605aa35103/latest', {
+        headers: { 'X-Master-Key': '$2a$10$0nr9sKdkJWcR9BBU1l7dLO8DN1ET8JzYNWyAGYEH4VAI6e1Ov23Tm' }
       });
       const binJson = await binRes.json();
       if (binJson.record && binJson.record.url) {

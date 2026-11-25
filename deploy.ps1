@@ -3,7 +3,7 @@
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
 $headers = @{
-    "X-Master-Key" = '$2a$10$GBayhoY0k2Exom4NkRzydu3CEcLJj1vior2Yld0PPsPDHsjDJG0wm'
+    "X-Master-Key" = '$2a$10$0nr9sKdkJWcR9BBU1l7dLO8DN1ET8JzYNWyAGYEH4VAI6e1Ov23Tm'
     "X-Bin-Meta"   = "false"
     "User-Agent"   = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 }
@@ -15,7 +15,7 @@ $url = ""
 for ($i = 1; $i -le 10; $i++) {
     try {
         $timestamp = [Math]::Floor((Get-Date -UFormat %s)) + $i
-        $res = Invoke-RestMethod -Uri "https://api.jsonbin.io/v3/b/6aad2ed2ac6210605adc4575/latest?t=$timestamp" -Headers $headers -TimeoutSec 10 -ErrorAction Stop
+        $res = Invoke-RestMethod -Uri "https://api.jsonbin.io/v3/b/6b06da24ac6210605aa35103/latest?t=$timestamp" -Headers $headers -TimeoutSec 10 -ErrorAction Stop
         $targetUrl = if ($res.record) { $res.record.url } else { $res.url }
         $targetUrl = $targetUrl.Trim().TrimEnd('/')
 
