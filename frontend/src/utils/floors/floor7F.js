@@ -120,32 +120,43 @@ const RACKS_7F_A_AGV = [
   ...buildAgvMRows(53, 43, 30.0, 9.5, '080~085A~E', false)
 ];
 
-// A區西側重型層架（N69~N55）：每 12m 柱跨嚴格 4 排（兩組背靠背），跟 3F 一樣
+// A區西側重型層架（N69~N55）：依柱位分為 67~69、63~66、59~62、55~58
 const build7FAHeavy = (layerSuffix) => {
   const layout = [
-    // y = 12 ~ 24m 柱跨（4排）
-    { num: 69, y: 13.6 }, { num: 68, y: 14.8 },
-    { num: 67, y: 18.6 }, { num: 66, y: 19.8 },
-    // y = 24 ~ 36m 柱跨（4排）
-    { num: 65, y: 25.6 }, { num: 64, y: 26.8 },
-    { num: 63, y: 30.6 }, { num: 62, y: 31.8 },
-    // y = 36 ~ 48m 柱跨（4排）
-    { num: 61, y: 37.6 }, { num: 60, y: 38.8 },
-    { num: 59, y: 42.6 }, { num: 58, y: 43.8 },
-    // y = 48 ~ 60m 柱跨（3排，N55 避讓西南煙管）
-    { num: 57, y: 49.6 }, { num: 56, y: 50.8 },
-    { num: 55, y: 54.6, w: 22.5 }
+    // y = 12 ~ 24m 柱跨（67~69，共 3 排）
+    { num: 69, y: 14.2, range: '052~072' },
+    { num: 68, y: 15.4, range: '052~072' },
+    { num: 67, y: 22.1, range: '052~072' },
+
+    // y = 24 ~ 36m 柱跨（63~66，共 4 排，柱子卡在 67/66 與 63/62 中間）
+    { num: 66, y: 24.8, range: '052~072' },
+    { num: 65, y: 29.4, range: '052~072' },
+    { num: 64, y: 30.6, range: '052~072' },
+    { num: 63, y: 34.1, range: '052~072' },
+
+    // y = 36 ~ 48m 柱跨（59~62，共 4 排）
+    { num: 62, y: 36.8, range: '052~072' },
+    { num: 61, y: 41.4, range: '052~072' },
+    { num: 60, y: 42.6, range: '052~072' },
+    { num: 59, y: 46.1, range: '052~072' },
+
+    // y = 48 ~ 60m 柱跨（55~58，共 4 排，56 與 55 西側避讓排煙管道）
+    { num: 58, y: 48.8, range: '052~072' },
+    { num: 57, y: 52.4, range: '052~075', w: 28.0 },
+    { num: 56, y: 53.6, range: '052~069', w: 22.5 },
+    { num: 55, y: 57.2, range: '055~069', w: 21.0, eastX: 27.5 }
   ];
 
   return layout.map((item) => {
     const code = `N${String(item.num).padStart(2, '0')}`;
     const rowW = item.w ?? 27.5;
+    const eastX = item.eastX ?? 28.5;
     return {
-      x: Number((28.5 - rowW).toFixed(2)),
+      x: Number((eastX - rowW).toFixed(2)),
       y: item.y,
       w: rowW,
       h: 1.05,
-      label: `80${code}052~075${layerSuffix}`,
+      label: `80${code}${item.range}${layerSuffix}`,
       xCode: code
     };
   });

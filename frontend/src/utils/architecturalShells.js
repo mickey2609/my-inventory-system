@@ -208,12 +208,11 @@ export const SHELL_7F = {
   '7F-A': {
     widthM: 132,
     depthM: 60,
-    columns: build7FColumns().filter((c) => !(c.x === 0 && c.y === 0)),
+    columns: build7FColumns().filter((c) => !(c.x < 12 && c.y < 12)),
     cutouts: [
-      { x: 0, y: 0, w: 6, h: 12 }
+      { x: 0, y: 0, w: 12, h: 12 }
     ],
     rooms: [
-      { x: 0, y: 0, w: 6, h: 12, label: '建築缺角(外部)', isCutout: true },
       { x: 117, y: 0, w: 15, h: 6, label: '廁所、茶水間' },
       { x: 117, y: 6, w: 15, h: 6, label: '電梯' },
       { x: 108, y: 0, w: 9, h: 12, label: '梯間' },
@@ -225,11 +224,11 @@ export const SHELL_7F = {
       { x: 96, y: 30, w: 12, h: 6, label: '小線B704' },
       { x: 96, y: 48, w: 12, h: 12, label: '檢出辦公區' },
       { x: 84, y: 48, w: 12, h: 12, label: '檢出異常區' },
-      { x: 24, y: 2, w: 4.5, h: 4, label: '煙管' },
-      { x: 6, y: 0, w: 18, h: 3.5, label: '機房' },
-      { x: 6, y: 3.5, w: 18, h: 3.5, label: '樓梯' },
-      { x: 6, y: 7, w: 18, h: 5, label: '電梯' },
-      { x: 1, y: 54, w: 4, h: 3.5, label: '煙管' }
+      { x: 30, y: 1.5, w: 4.5, h: 4.5, label: '煙管' },
+      { x: 12, y: 0, w: 18, h: 3.5, label: '機房' },
+      { x: 12, y: 3.5, w: 18, h: 3.5, label: '樓梯' },
+      { x: 12, y: 7, w: 18, h: 5, label: '電梯' },
+      { x: 0.5, y: 54, w: 4.5, h: 5, label: '排煙管道' }
     ]
   },
   '7F-B': {
