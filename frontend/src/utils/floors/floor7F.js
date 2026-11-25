@@ -58,12 +58,31 @@ function buildAgvMRows(startNum, endNum, x, w, suffix, shortenOnCol = false) {
     });
 }
 
+// A區第4段小層架（M43~M53）：第43~50條較長(x=30.0, w=9.5)，第51~53條避讓煙管(x=35.0, w=4.5)
+function buildAgvSeg4Rows() {
+  return AGV_M_LAYOUT
+    .filter((item) => item.num <= 53 && item.num >= 43)
+    .map((item) => {
+      const code = `M${String(item.num).padStart(2, '0')}`;
+      const isShortByDuct = item.num >= 51;
+      const prefixTag = item.unused ? '不使用 ' : '';
+      return {
+        x: isShortByDuct ? 35.0 : 30.0,
+        y: item.y,
+        w: isShortByDuct ? 4.5 : 9.5,
+        h: 0.85,
+        label: `${prefixTag}80${code}080~085A~E`,
+        xCode: code
+      };
+    });
+}
+
 // ==================== 7F A區貨架 ====================
 const RACKS_7F_A_AGV = [
   ...buildAgvMRows(53, 1, 70.5, 12.5, '001~052A~E', true),
   ...buildAgvMRows(53, 1, 56.0, 12.5, '056~067A~F', false),
   ...buildAgvMRows(53, 1, 41.5, 12.5, '068~079A~E', false),
-  ...buildAgvMRows(53, 43, 30.0, 9.5, '080~085A~E', false)
+  ...buildAgvSeg4Rows()
 ];
 
 // A區西側重型層架（N69~N55）：67~69、63~66、59~62、55~58
@@ -105,7 +124,6 @@ const build7FAHeavy = (layerSuffix) => {
 };
 
 // ==================== 7F B區貨架（N53~N35｜西起向東至 x=60m，第27座落在60m柱中） ====================
-// 柱間分組：51~53(0~12m)、47~50(12~24m)、43~46(24~36m)、39~42(36~48m)、35~38(48~60m)
 const build7FBHeavy = (layerSuffix) => {
   const layout = [
     // y = 0 ~ 12m 柱跨（51~53，3排；N53 避讓西北排煙管道，與 N52 不一樣長）
@@ -125,13 +143,13 @@ const build7FBHeavy = (layerSuffix) => {
     { num: 44, y: 30.1 },
     { num: 43, y: 34.1 },
 
-    // y = 36 ~ 48m 柱跨（39~42，4排；N38 切齊 y=48m 樓梯/電梯上方不遮擋）
+    // y = 36 ~ 48m 柱跨（39~42，4排）
     { num: 42, y: 36.8 },
     { num: 41, y: 40.9 },
     { num: 40, y: 42.1 },
     { num: 39, y: 45.6 },
 
-    // y = 48 ~ 60m 柱跨（35~38，4排；N38 切齊 y=46.8m，N37~35 避讓 12x12m 樓梯/電梯）
+    // y = 48 ~ 60m 柱跨（35~38，4排；N38 切齊 y=46.8m，N37~35 避讓 12x12m 電梯/樓梯）
     { num: 38, y: 46.8 },
     { num: 37, y: 52.4, x: 25.0, w: 35.0 },
     { num: 36, y: 53.6, x: 25.0, w: 35.0 },
@@ -152,10 +170,9 @@ const build7FBHeavy = (layerSuffix) => {
 };
 
 // ==================== 7F C區貨架（N34~N15｜西起向東至 x=95m） ====================
-// 柱間分組：31~34(0~12m，第34為落地僅A層)、27~30(12~24m)、23~26(24~36m)、19~22(36~48m)、15~18(48~60m)
 const build7FCHeavy = (layerSuffix) => {
   const layout = [
-    // y = 0 ~ 12m 柱跨（31~34，4排；34為落地僅A層，34與33避讓西北 12x12m 樓梯/電梯，32切齊y=12.6m）
+    // y = 0 ~ 12m 柱跨（31~34，4排；34為落地僅A層，34與33避讓西北 12x12m 電梯/樓梯）
     { num: 34, y: 1.4, x: 25.0, w: 70.0, floorOnlyA: true },
     { num: 33, y: 5.4, x: 25.0, w: 70.0 },
     { num: 32, y: 12.6 },
@@ -203,12 +220,11 @@ const build7FCHeavy = (layerSuffix) => {
 };
 
 // ==================== 7F D區貨架（N14~N01 + S05~S01｜西起向東至 x=95m） ====================
-// 柱間分組：N12~N14(0~12m，對面含一排落地N14)、N08~N11(12~24m)、N04~N07(24~36m)、S05~N03(36~48m)、S01~S04(48~60m)
 const build7FDHeavy = (layerSuffix) => {
   const layout = [
-    // y = 0 ~ 12m 柱跨（N14落地避讓西北排煙管較短 + N14~N12，4排）
+    // y = 0 ~ 12m 柱跨（N14落地與N14一樣短，避讓西北排煙管道）
     { prefix: 'N', num: 14, y: 1.4, x: 6.5, w: 88.5, floorOnlyA: true, tag: '落地 ' },
-    { prefix: 'N', num: 14, y: 5.4, x: 1.0, w: 94.0 },
+    { prefix: 'N', num: 14, y: 5.4, x: 6.5, w: 88.5 },
     { prefix: 'N', num: 13, y: 6.6, x: 1.0, w: 94.0 },
     { prefix: 'N', num: 12, y: 10.1 },
 
@@ -230,11 +246,11 @@ const build7FDHeavy = (layerSuffix) => {
     { prefix: 'N', num: 1, y: 42.1 },
     { prefix: 'S', num: 5, y: 46.1, closed: true, range: '001~056' },
 
-    // y = 48 ~ 60m 柱跨（S01~S04，4排關閉中；避讓西側南端電梯/樓梯/機房）
-    { prefix: 'S', num: 4, y: 48.8, x: 31.0, w: 64.0, closed: true, range: '001~056' },
-    { prefix: 'S', num: 3, y: 52.9, x: 31.0, w: 64.0, closed: true, range: '001~056' },
-    { prefix: 'S', num: 2, y: 54.1, x: 31.0, w: 64.0, closed: true, range: '001~056' },
-    { prefix: 'S', num: 1, y: 57.5, x: 31.0, w: 64.0, closed: true, range: '001~056' }
+    // y = 48 ~ 60m 柱跨（S01~S04，4排關閉中；S04~S03避讓12x12m核心筒，S02~S01再避讓排煙管道）
+    { prefix: 'S', num: 4, y: 48.8, x: 25.0, w: 70.0, closed: true, range: '001~056' },
+    { prefix: 'S', num: 3, y: 52.9, x: 25.0, w: 70.0, closed: true, range: '001~056' },
+    { prefix: 'S', num: 2, y: 54.1, x: 29.5, w: 65.5, closed: true, range: '001~056' },
+    { prefix: 'S', num: 1, y: 57.5, x: 29.5, w: 65.5, closed: true, range: '001~056' }
   ];
 
   return layout
