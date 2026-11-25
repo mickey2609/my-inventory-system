@@ -190,3 +190,91 @@ export const SHELL_6F = {
     ]
   }
 };
+
+// 7F 全層柱位（60m 寬 × 132m 深：北側 10 跨 12m + 南側 2 跨 6m）
+export function build7FColumns(widthM = 60) {
+  const yAxes = [0, 12, 24, 36, 48, 60, 72, 84, 96, 108, 120, 126, 132];
+  const cols = [];
+  for (let x = 0; x <= widthM; x += 12) {
+    for (const y of yAxes) {
+      cols.push({ x, y });
+    }
+  }
+  return cols;
+}
+
+// 7F 全層標準固定隔間（A、B、C、D 四區，每區 60m × 132m，東側朝上）
+export const SHELL_7F = {
+  '7F-A': {
+    widthM: 60,
+    depthM: 132,
+    columns: build7FColumns(60),
+    rooms: [
+      { x: 0, y: 0, w: 6, h: 15, label: '廁所、茶水間' },
+      { x: 6, y: 0, w: 6, h: 15, label: '電梯' },
+      { x: 0, y: 15, w: 12, h: 9, label: '梯間' },
+      { x: 12, y: 18, w: 2.5, h: 6, label: '排煙管道' },
+      { x: 0, y: 24, w: 12, h: 12, label: '開箱機' },
+      { x: 12, y: 24, w: 6, h: 12, label: '小線B701' },
+      { x: 18, y: 24, w: 6, h: 12, label: '小線B702' },
+      { x: 24, y: 24, w: 6, h: 12, label: '小線B703' },
+      { x: 30, y: 24, w: 6, h: 12, label: '小線B704' },
+      { x: 48, y: 24, w: 12, h: 12, label: '檢出辦公區' },
+      { x: 48, y: 36, w: 12, h: 12, label: '檢出異常區' },
+      { x: 2, y: 103.5, w: 4, h: 4.5, label: '煙管' },
+      { x: 0, y: 108, w: 3.5, h: 18, label: '機房' },
+      { x: 3.5, y: 108, w: 3.5, h: 18, label: '樓梯' },
+      { x: 7, y: 108, w: 5, h: 18, label: '電梯' },
+      { x: 54, y: 127, w: 3.5, h: 4, label: '煙管' }
+    ]
+  },
+  '7F-B': {
+    widthM: 60,
+    depthM: 132,
+    columns: build7FColumns(60),
+    rooms: [
+      { x: 0, y: 0, w: 12, h: 10, label: '東側' },
+      { x: 24, y: 0, w: 24, h: 6, label: '紙箱' },
+      { x: 24, y: 12, w: 12, h: 12, label: '紙箱' },
+      { x: 36, y: 18, w: 12, h: 6, label: '機房/管道' },
+      { x: 0, y: 30, w: 12, h: 12, label: '檢出點名區' },
+      { x: 12, y: 30, w: 6, h: 12, label: '大線B705' },
+      { x: 18, y: 30, w: 6, h: 12, label: '大線B706' },
+      { x: 24, y: 30, w: 6, h: 12, label: '大線B707' },
+      { x: 30, y: 30, w: 6, h: 12, label: '大線B708' },
+      { x: 36, y: 30, w: 6, h: 12, label: '大線B709' },
+      { x: 42, y: 30, w: 6, h: 12, label: '大線B710' },
+      { x: 48, y: 30, w: 6, h: 12, label: '大線B711' },
+      { x: 54, y: 30, w: 6, h: 12, label: '大線B712' },
+      { x: 48, y: 102, w: 12, h: 8, label: '樓梯' },
+      { x: 52.5, y: 110, w: 7.5, h: 8, label: '電梯' },
+      { x: 3.5, y: 125, w: 3, h: 6, label: '煙管' }
+    ]
+  },
+  '7F-C': {
+    widthM: 60,
+    depthM: 132,
+    columns: build7FColumns(60),
+    rooms: [
+      { x: 48, y: 0, w: 12, h: 10, label: '東側' },
+      { x: 0, y: 14, w: 24, h: 10, label: '辦公室/茶水間' },
+      { x: 0, y: 102, w: 12, h: 8, label: '樓梯' },
+      { x: 0, y: 110, w: 7.5, h: 8, label: '電梯' },
+      { x: 53.5, y: 126, w: 3.5, h: 5, label: '煙管' }
+    ]
+  },
+  '7F-D': {
+    widthM: 60,
+    depthM: 132,
+    columns: build7FColumns(60),
+    rooms: [
+      { x: 48, y: 0, w: 6, h: 16, label: '電梯' },
+      { x: 54, y: 0, w: 6, h: 16, label: '廁所、茶水間' },
+      { x: 45, y: 16, w: 15, h: 8, label: '梯間' },
+      { x: 55, y: 102, w: 4, h: 5, label: '煙管' },
+      { x: 48, y: 108, w: 5, h: 18, label: '電梯' },
+      { x: 53, y: 108, w: 3.5, h: 18, label: '樓梯' },
+      { x: 56.5, y: 108, w: 3.5, h: 18, label: '機房' }
+    ]
+  }
+};
