@@ -481,10 +481,24 @@
         </div>
       </div>
 
-      <div class="fp-workspace">
+      <div class="fp-workspace" :class="{ 'inspector-hidden': !showInspector }">
         <div class="fp-canvas-wrapper">
+          <!-- 收合狀態時的右上快速展開按鈕 -->
+          <button
+            v-if="!showInspector"
+            type="button"
+            class="reopen-inspector-btn"
+            @click="showInspector = true"
+          >
+            ◀ 展開屬性設定
+          </button>
+
           <!-- 方位羅盤圖標 -->
-          <div class="compass-widget" :title="isEastRightOrientation ? '目前視角：東側碼頭朝右、北側(A區)朝上' : '目前視角：東側碼頭朝上、北側(A區)朝左'">
+          <div
+            class="compass-widget"
+            :style="{ right: !showInspector ? '145px' : '16px' }"
+            :title="isEastRightOrientation ? '目前視角：東側碼頭朝右、北側(A區)朝上' : '目前視角：東側碼頭朝上、北側(A區)朝左'"
+          >
             <div class="compass-ring">
               <span class="cmp-dir cmp-top" :class="{ 'cmp-east': !isEastRightOrientation }">
                 {{ isEastRightOrientation ? '北 (A)' : '東 (碼頭)' }}
@@ -582,10 +596,18 @@
           </div>
         </div>
 
-        <!-- 右側屬性與規則編輯面板（支援單排 & 多排批次套用） -->
-        <div class="panel-card fp-inspector">
-          <div class="panel-head">
-            {{ selectedMapRacks.length > 1 ? `⚡ 批次設定已選取 (${selectedMapRacks.length} 排)` : '🔎 儲位屬性與規則設定' }}
+        <!-- 右側屬性與規則編輯面板（支援單排 & 多排批次套用，可收合） -->
+        <div v-if="showInspector" class="panel-card fp-inspector">
+          <div class="panel-head row-between">
+            <span>{{ selectedMapRacks.length > 1 ? `⚡ 批次設定已選取 (${selectedMapRacks.length} 排)` : '🔎 儲位屬性與規則設定' }}</span>
+            <button
+              type="button"
+              class="hide-inspector-btn"
+              title="隱藏右側面板以放大平面圖"
+              @click="showInspector = false"
+            >
+              收合 ▶
+            </button>
           </div>
 
           <div v-if="selectedMapRacks.length === 0" class="fp-inspector-empty">
@@ -1226,13 +1248,14 @@ export default {
       rulePageSize: 30,
       selectedRuleIds: [],
 
-      // 平面圖狀態（支援多選＋著色視角）
+      // 平面圖狀態（支援多選＋著色視角＋右側面板可收合）
       selectedMapFloor: '2F',
       selectedZoneId: '2F-E-A',
       mapZoom: 1.15,
       mapColorMode: 'DEFAULT',
       mapMultiSelectMode: false,
       selectedMapRacks: [],
+      showInspector: true,
 
       mapEditRule: {
         id: null,
@@ -1633,6 +1656,9 @@ export default {
         if (!uniqueMap.has(r.xCode)) uniqueMap.set(r.xCode, r);
       });
       this.selectedMapRacks = Array.from(uniqueMap.values());
+      if (this.selectedMapRacks.length > 0) {
+        this.showInspector = true;
+      }
       if (this.selectedMapRacks.length === 1) {
         this.loadSingleRackRule(this.selectedMapRacks[0]);
       } else if (this.selectedMapRacks.length > 1) {
@@ -1640,6 +1666,7 @@ export default {
       }
     },
     handleRackClick(node, event) {
+      this.showInspector = true;
       const isMulti = this.mapMultiSelectMode || event.ctrlKey || event.metaKey || event.shiftKey;
       if (isMulti) {
         const existsIdx = this.selectedMapRacks.findIndex(r => r.xCode === node.xCode);
@@ -2384,6 +2411,42 @@ export default {
 .fp-zoom-controls { display: flex; align-items: center; gap: 6px; }
 
 .fp-workspace { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 320px; gap: 10px; }
+.fp-workspace.inspector-hidden { grid-template-columns: 1fr; }
+
+.hide-inspector-btn {
+  background: #1e293b;
+  border: 1px solid #475569;
+  color: #cbd5e1;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.hide-inspector-btn:hover {
+  border-color: #38bdf8;
+  color: #38bdf8;
+}
+
+.reopen-inspector-btn {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  z-index: 45;
+  background: rgba(30, 41, 59, 0.95);
+  border: 1px solid #38bdf8;
+  color: #38bdf8;
+  font-size: 12px;
+  font-weight: bold;
+  padding: 7px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+.reopen-inspector-btn:hover {
+  background: #0284c7;
+  color: #ffffff;
+}
+
 .fp-canvas-wrapper { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .fp-canvas-scroll { flex: 1; background: #090e1a; border: 1px solid #334155; border-radius: 8px; overflow: auto; position: relative; }
 .fp-canvas { position: relative; }
