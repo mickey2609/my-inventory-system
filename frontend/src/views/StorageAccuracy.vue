@@ -545,7 +545,7 @@
                   ▶ 東側碼頭方向（{{ currentZoneObj?.label || '' }}｜柱心距 12m）
                 </div>
 
-                <!-- 建築結構外圍框（支援 L 型缺角輪廓） -->
+                <!-- 建築結構外圍框（支援 L 型缺角輪廓與夾層分界線） -->
                 <svg
                   v-if="currentFloorCanvas.outerFrame"
                   class="fp-zone-svg-outline"
@@ -564,6 +564,27 @@
                     stroke-width="2"
                     stroke-linejoin="round"
                   />
+                  <g v-for="(dv, dIdx) in currentFloorCanvas.dividers" :key="`dv-${dIdx}`">
+                    <line
+                      :x1="dv.x1"
+                      :y1="dv.y1"
+                      :x2="dv.x2"
+                      :y2="dv.y2"
+                      stroke="#38bdf8"
+                      stroke-width="2"
+                      stroke-dasharray="6,4"
+                    />
+                    <text
+                      :x="dv.x1"
+                      :y="14"
+                      fill="#38bdf8"
+                      font-size="11"
+                      font-weight="bold"
+                      text-anchor="middle"
+                    >
+                      {{ dv.label }}
+                    </text>
+                  </g>
                 </svg>
 
                 <!-- 12m 標準建築柱位黑方塊 -->
@@ -1416,7 +1437,7 @@ export default {
     currentFloorCanvas() {
       const floorData = this.currentFloorModule;
       const zoneObj = this.currentZoneObj;
-      if (!floorData || !zoneObj) return { width: 900, height: 550, nodes: [], outerFrame: null, columns: [] };
+      if (!floorData || !zoneObj) return { width: 900, height: 550, nodes: [], outerFrame: null, dividers: [], columns: [] };
 
       const isEastRight = floorData.orientation === 'east-right';
       const ruleFl = zoneObj.ruleFloor || this.selectedMapFloor;
@@ -1485,7 +1506,7 @@ export default {
         const px = zoneObj.pxPerM || 20;
         const padLeft = 36;
         const padTop = 36;
-        const { widthM, depthM, rooms = [], columns = [], cutouts = [] } = zoneObj.shell;
+        const { widthM, depthM, rooms = [], columns = [], cutouts = [], dividers = [] } = zoneObj.shell;
         const racks = floorData.zoneRacks?.[zoneObj.id] || [];
 
         const nodes = [];
@@ -1550,6 +1571,14 @@ export default {
         }
         const outlinePoints = pts.join(' ');
 
+        const dividerLines = dividers.map(dv => ({
+          x1: dv.x1 * px,
+          y1: dv.y1 * px,
+          x2: dv.x2 * px,
+          y2: dv.y2 * px,
+          label: dv.label || ''
+        }));
+
         return {
           width: padLeft * 2 + widthM * px,
           height: padTop + depthM * px + 24,
@@ -1560,6 +1589,7 @@ export default {
             height: depthM * px,
             points: outlinePoints
           },
+          dividers: dividerLines,
           columns: colMarkers,
           nodes
         };
@@ -1619,6 +1649,7 @@ export default {
         width: Math.max(640, canvasWidth),
         height: Math.max(460, canvasHeight),
         outerFrame: null,
+        dividers: [],
         columns: [],
         nodes
       };
