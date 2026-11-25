@@ -123,3 +123,18 @@ export const SHELL_3F_BC = {
     { x: 60, y: 0, w: 12, h: 24, label: '出貨區 (12m)' }
   ]
 };
+
+// 4F 獨立庫房（長 7.2m × 寬 6.3m，入口在右下角）
+export const SHELL_4F = {
+  widthM: 7.2,
+  depthM: 6.3,
+  columns: [
+    { x: 0, y: 0 },
+    { x: 7.2, y: 0 },
+    { x: 0, y: 6.3 },
+    { x: 7.2, y: 6.3 }
+  ],
+  rooms: [
+    { x: 6.0, y: 5.7, w: 1.2, h: 0.6, label: '入口' }
+  ]
+};
