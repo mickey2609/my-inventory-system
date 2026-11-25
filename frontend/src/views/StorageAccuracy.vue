@@ -1530,11 +1530,25 @@ export default {
           title: `結構柱位 (${c.x}m, ${c.y}m)`
         }));
 
-        // 計算外牆輪廓頂點（若左上角有 cutouts 缺角則自動內縮成 L 型）
+        // 計算外牆輪廓頂點（支援西北角與西南角對稱 12x12m 缺角）
         const nwCut = cutouts.find(ct => ct.x === 0 && ct.y === 0);
-        const outlinePoints = nwCut
-          ? `${nwCut.w * px},0 ${widthM * px},0 ${widthM * px},${depthM * px} 0,${depthM * px} 0,${nwCut.h * px} ${nwCut.w * px},${nwCut.h * px}`
-          : `0,0 ${widthM * px},0 ${widthM * px},${depthM * px} 0,${depthM * px}`;
+        const swCut = cutouts.find(ct => ct.x === 0 && ct.y > 0);
+        const pts = [];
+        pts.push(nwCut ? `${nwCut.w * px},0` : '0,0');
+        pts.push(`${widthM * px},0`);
+        pts.push(`${widthM * px},${depthM * px}`);
+        if (swCut) {
+          pts.push(`${swCut.w * px},${depthM * px}`);
+          pts.push(`${swCut.w * px},${swCut.y * px}`);
+          pts.push(`0,${swCut.y * px}`);
+        } else {
+          pts.push(`0,${depthM * px}`);
+        }
+        if (nwCut) {
+          pts.push(`0,${nwCut.h * px}`);
+          pts.push(`${nwCut.w * px},${nwCut.h * px}`);
+        }
+        const outlinePoints = pts.join(' ');
 
         return {
           width: padLeft * 2 + widthM * px,
