@@ -545,17 +545,26 @@
                   ▶ 東側碼頭方向（{{ currentZoneObj?.label || '' }}｜柱心距 12m）
                 </div>
 
-                <!-- 建築結構外圍框 -->
-                <div
+                <!-- 建築結構外圍框（支援 L 型缺角輪廓） -->
+                <svg
                   v-if="currentFloorCanvas.outerFrame"
-                  class="fp-zone-outline"
+                  class="fp-zone-svg-outline"
                   :style="{
                     left: `${currentFloorCanvas.outerFrame.left}px`,
                     top: `${currentFloorCanvas.outerFrame.top}px`,
                     width: `${currentFloorCanvas.outerFrame.width}px`,
                     height: `${currentFloorCanvas.outerFrame.height}px`
                   }"
-                ></div>
+                  :viewBox="`0 0 ${currentFloorCanvas.outerFrame.width} ${currentFloorCanvas.outerFrame.height}`"
+                >
+                  <polygon
+                    :points="currentFloorCanvas.outerFrame.points"
+                    fill="rgba(15, 23, 42, 0.35)"
+                    stroke="#64748b"
+                    stroke-width="2"
+                    stroke-linejoin="round"
+                  />
+                </svg>
 
                 <!-- 12m 標準建築柱位黑方塊 -->
                 <div
@@ -1476,7 +1485,7 @@ export default {
         const px = zoneObj.pxPerM || 20;
         const padLeft = 36;
         const padTop = 36;
-        const { widthM, depthM, rooms = [], columns = [] } = zoneObj.shell;
+        const { widthM, depthM, rooms = [], columns = [], cutouts = [] } = zoneObj.shell;
         const racks = floorData.zoneRacks?.[zoneObj.id] || [];
 
         const nodes = [];
@@ -1521,6 +1530,12 @@ export default {
           title: `結構柱位 (${c.x}m, ${c.y}m)`
         }));
 
+        // 計算外牆輪廓頂點（若左上角有 cutouts 缺角則自動內縮成 L 型）
+        const nwCut = cutouts.find(ct => ct.x === 0 && ct.y === 0);
+        const outlinePoints = nwCut
+          ? `${nwCut.w * px},0 ${widthM * px},0 ${widthM * px},${depthM * px} 0,${depthM * px} 0,${nwCut.h * px} ${nwCut.w * px},${nwCut.h * px}`
+          : `0,0 ${widthM * px},0 ${widthM * px},${depthM * px} 0,${depthM * px}`;
+
         return {
           width: padLeft * 2 + widthM * px,
           height: padTop + depthM * px + 24,
@@ -1528,7 +1543,8 @@ export default {
             left: padLeft,
             top: padTop,
             width: widthM * px,
-            height: depthM * px
+            height: depthM * px,
+            points: outlinePoints
           },
           columns: colMarkers,
           nodes
@@ -2496,12 +2512,9 @@ export default {
 .edge-top { top: 4px; left: 34px; right: 34px; height: 22px; }
 .edge-right { top: 34px; bottom: 34px; right: 4px; width: 24px; writing-mode: vertical-rl; }
 
-.fp-zone-outline {
+.fp-zone-svg-outline {
   position: absolute;
-  border: 2px solid #64748b;
-  border-radius: 4px;
-  background: rgba(15, 23, 42, 0.35);
-  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.2);
+  overflow: visible;
   pointer-events: none;
   z-index: 1;
 }
