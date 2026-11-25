@@ -6,7 +6,7 @@ export const FLOOR_4F = {
   title: '4F 獨立儲區（7.2m × 6.3m｜入口右下角）',
   orientation: 'east-up',
   zones: [
-    { id: '4F-MAIN', label: '4F 庫房 (80H01~18)', ruleFloor: '4F', defaultRole: 'PICK', meterMode: true, pxPerM: 85, shell: SHELL_4F }
+    { id: '4F-MAIN', label: '貴重區 (80H01~18)', ruleFloor: '4F', defaultRole: 'PICK', meterMode: true, pxPerM: 85, shell: SHELL_4F }
   ],
   zoneRacks: {
     '4F-MAIN': [

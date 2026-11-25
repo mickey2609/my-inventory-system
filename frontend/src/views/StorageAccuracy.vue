@@ -1399,8 +1399,7 @@ export default {
     },
     currentZoneAreaCode() {
       const parts = String(this.currentZoneObj?.id || '').split('-');
-      const last = parts[parts.length - 1];
-      return ['A', 'B', 'C', 'D'].includes(last) ? last : '';
+      return parts.find(p => ['A', 'B', 'C', 'D'].includes(p)) || '';
     },
     isEastRightOrientation() {
       return this.currentFloorModule?.orientation === 'east-right';
@@ -1729,7 +1728,9 @@ export default {
       );
 
       const defaultLayerStart = isRoleSplitView ? (targetRole === 'PICK' ? 'A' : 'C') : (rangeRule ? rangeRule.layer_start : 'A');
-      const defaultLayerEnd = isRoleSplitView ? (targetRole === 'PICK' ? 'B' : 'E') : (rangeRule ? rangeRule.layer_end : 'Z');
+      const defaultLayerEnd = isRoleSplitView
+        ? (targetRole === 'PICK' ? 'B' : (ruleFl === '6F' ? 'C' : 'E'))
+        : (rangeRule ? rangeRule.layer_end : 'Z');
       const roleSuffix = isRoleSplitView ? (targetRole === 'PICK' ? ' (撿貨區)' : ' (庫區)') : '';
 
       return {
