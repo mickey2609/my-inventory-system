@@ -1,31 +1,74 @@
 // frontend/src/utils/floors/floor7F.js
 import { SHELL_7F } from '../architecturalShells.js';
 
-// 產生 A 區 AGV 小層架橫排（東側朝右：M53 由上至下遞減至 M01，跨越 12m 柱列自動留出柱位）
-function buildAgvMRows(startNum, endNum, x, w, suffix) {
-  const rows = [];
-  let y = 3.2;
-  for (let n = startNum; n >= endNum; n--) {
-    // 避讓 y = 12, 24, 36, 48 的結構柱
-    if (Math.abs(y - 11.8) < 0.6 || Math.abs(y - 23.8) < 0.6 || Math.abs(y - 35.8) < 0.6 || Math.abs(y - 47.8) < 0.6) {
-      y += 1.0;
-    }
-    const code = `M${String(n).padStart(2, '0')}`;
-    rows.push({
-      x,
-      y: Number(y.toFixed(2)),
-      w,
-      h: 0.85,
-      label: `80${code}${suffix}`,
-      xCode: code
+// 7F A區 AGV 小層架固定 Y 座標對照表（1座AGV貨架 = 2排，第41~42排為走道）
+// 對柱子排數：43~44(y=12m)、31~32(y=24m)、19~20(y=36m)、7~8(y=48m)
+const AGV_M_LAYOUT = [
+  // 北側第1柱跨（y = 0 ~ 12m）：M53(單排未使用) + M52~M45(4組雙排)
+  { num: 53, y: 1.6, unused: true },
+  { num: 52, y: 3.2 }, { num: 51, y: 4.15 },
+  { num: 50, y: 5.4 }, { num: 49, y: 6.35 },
+  { num: 48, y: 7.6 }, { num: 47, y: 8.55 },
+  { num: 46, y: 9.8 }, { num: 45, y: 10.75 },
+
+  // 對齊 y = 12m 柱列：M44~M43（其下方 M42~M41 拿掉作為走道）
+  { num: 44, y: 11.55, onCol: true }, { num: 43, y: 12.5, onCol: true },
+
+  // 第2柱跨（y = 12 ~ 24m）：M40~M33(4組雙排)
+  { num: 40, y: 15.6 }, { num: 39, y: 16.55 },
+  { num: 38, y: 17.7 }, { num: 37, y: 18.65 },
+  { num: 36, y: 19.8 }, { num: 35, y: 20.75 },
+  { num: 34, y: 21.9 }, { num: 33, y: 22.85 },
+
+  // 對齊 y = 24m 柱列：M32~M31
+  { num: 32, y: 23.55, onCol: true }, { num: 31, y: 24.5, onCol: true },
+
+  // 第3柱跨（y = 24 ~ 36m）：M30~M21(5組雙排)
+  { num: 30, y: 25.6 }, { num: 29, y: 26.55 },
+  { num: 28, y: 27.6 }, { num: 27, y: 28.55 },
+  { num: 26, y: 29.6 }, { num: 25, y: 30.55 },
+  { num: 24, y: 31.6 }, { num: 23, y: 32.55 },
+  { num: 22, y: 33.6 }, { num: 21, y: 34.55 },
+
+  // 對齊 y = 36m 柱列：M20~M19
+  { num: 20, y: 35.55, onCol: true }, { num: 19, y: 36.5, onCol: true },
+
+  // 第4柱跨（y = 36 ~ 48m）：M18~M09(5組雙排)
+  { num: 18, y: 37.6 }, { num: 17, y: 38.55 },
+  { num: 16, y: 39.6 }, { num: 15, y: 40.55 },
+  { num: 14, y: 41.6 }, { num: 13, y: 42.55 },
+  { num: 12, y: 43.6 }, { num: 11, y: 44.55 },
+  { num: 10, y: 45.6 }, { num: 9, y: 46.55 },
+
+  // 對齊 y = 48m 柱列：M08~M07
+  { num: 8, y: 47.55, onCol: true }, { num: 7, y: 48.5, onCol: true },
+
+  // 南側第5柱跨（y = 48 ~ 60m）：M06~M01(3組雙排)
+  { num: 6, y: 50.0 }, { num: 5, y: 50.95 },
+  { num: 4, y: 52.3 }, { num: 3, y: 53.25 },
+  { num: 2, y: 54.6 }, { num: 1, y: 55.55 }
+];
+
+// 產生 A 區 AGV 小層架橫排（對柱子排數自動縮短東端以避開結構柱）
+function buildAgvMRows(startNum, endNum, x, w, suffix, shortenOnCol = false) {
+  return AGV_M_LAYOUT
+    .filter((item) => item.num <= startNum && item.num >= endNum)
+    .map((item) => {
+      const code = `M${String(item.num).padStart(2, '0')}`;
+      const rowW = shortenOnCol && item.onCol ? Number((w - 1.6).toFixed(2)) : w;
+      const prefixTag = item.unused ? '不使用 ' : '';
+      return {
+        x,
+        y: item.y,
+        w: rowW,
+        h: 0.85,
+        label: `${prefixTag}80${code}${suffix}`,
+        xCode: code
+      };
     });
-    // 背靠背雙排間距 0.9m，走道間距 1.05m
-    y += (startNum - n) % 2 === 1 ? 0.9 : 1.05;
-  }
-  return rows;
 }
 
-// 產生重型層架橫向背靠背雙排與單排（東側朝右：startNum 由上至下遞減至 endNum）
+// 產生重型層架橫向背靠背雙排與單排（B/C/D區通用）
 function buildHeavyNRows({
   startNum,
   endNum,
@@ -56,10 +99,8 @@ function buildHeavyNRows({
     });
 
     if (pairIdx % 2 === 0) {
-      // 同組背靠背緊鄰
       y += 1.15;
     } else {
-      // 走道間距
       y += 2.05;
     }
     pairIdx++;
@@ -69,28 +110,46 @@ function buildHeavyNRows({
 
 // ==================== 7F A區貨架 ====================
 const RACKS_7F_A_AGV = [
-  // 第1段（最靠東側）：001~052 A~E（M01~M53）
-  ...buildAgvMRows(53, 1, 70.5, 12.5, '001~052A~E'),
+  // 第1段（最靠東側，對柱排數縮短避柱）：001~052 A~E（M01~M53）
+  ...buildAgvMRows(53, 1, 70.5, 12.5, '001~052A~E', true),
   // 第2段：056~067 A~F（M01~M53）
-  ...buildAgvMRows(53, 1, 56.0, 12.5, '056~067A~F'),
+  ...buildAgvMRows(53, 1, 56.0, 12.5, '056~067A~F', false),
   // 第3段：068~079 A~E（M01~M53）
-  ...buildAgvMRows(53, 1, 41.5, 12.5, '068~079A~E'),
+  ...buildAgvMRows(53, 1, 41.5, 12.5, '068~079A~E', false),
   // 第4段（靠西側煙管旁）：080~085 A~E（M43~M53）
-  ...buildAgvMRows(53, 43, 30.0, 9.5, '080~085A~E')
+  ...buildAgvMRows(53, 43, 30.0, 9.5, '080~085A~E', false)
 ];
 
-const build7FAHeavy = (layerSuffix) =>
-  buildHeavyNRows({
-    startNum: 69,
-    endNum: 55,
-    startY: 15.0,
-    eastX: 28.5,
-    defaultW: 27.5,
-    prefix: 'N',
-    rangeSuffix: '052~075',
-    layerSuffix,
-    customWMap: { 55: 22.5 } // 最南側 N55 避讓西南角煙管
+// A區西側重型層架（N69~N55）：每 12m 柱跨嚴格 4 排（兩組背靠背），跟 3F 一樣
+const build7FAHeavy = (layerSuffix) => {
+  const layout = [
+    // y = 12 ~ 24m 柱跨（4排）
+    { num: 69, y: 13.6 }, { num: 68, y: 14.8 },
+    { num: 67, y: 18.6 }, { num: 66, y: 19.8 },
+    // y = 24 ~ 36m 柱跨（4排）
+    { num: 65, y: 25.6 }, { num: 64, y: 26.8 },
+    { num: 63, y: 30.6 }, { num: 62, y: 31.8 },
+    // y = 36 ~ 48m 柱跨（4排）
+    { num: 61, y: 37.6 }, { num: 60, y: 38.8 },
+    { num: 59, y: 42.6 }, { num: 58, y: 43.8 },
+    // y = 48 ~ 60m 柱跨（3排，N55 避讓西南煙管）
+    { num: 57, y: 49.6 }, { num: 56, y: 50.8 },
+    { num: 55, y: 54.6, w: 22.5 }
+  ];
+
+  return layout.map((item) => {
+    const code = `N${String(item.num).padStart(2, '0')}`;
+    const rowW = item.w ?? 27.5;
+    return {
+      x: Number((28.5 - rowW).toFixed(2)),
+      y: item.y,
+      w: rowW,
+      h: 1.05,
+      label: `80${code}052~075${layerSuffix}`,
+      xCode: code
+    };
   });
+};
 
 // ==================== 7F B區貨架（N53~N35） ====================
 const build7FBHeavy = (layerSuffix) =>
@@ -104,7 +163,7 @@ const build7FBHeavy = (layerSuffix) =>
     rangeSuffix: '027~075',
     layerSuffix,
     customWMap: {
-      37: 48.0, // 下方避讓中央樓梯/電梯
+      37: 48.0,
       36: 48.0,
       35: 48.0
     }
@@ -122,7 +181,7 @@ const build7FCHeavy = (layerSuffix) =>
     rangeSuffix: '001~075',
     layerSuffix,
     customWMap: {
-      34: 54.0, // 上方緊鄰中央樓梯/電梯
+      34: 54.0,
       33: 60.0
     }
   });
@@ -150,7 +209,7 @@ const build7FDHeavy = (layerSuffix) => [
     layerSuffix,
     closed: true,
     customWMap: {
-      1: 56.0 // 最南側 S01 避讓煙管
+      1: 56.0
     }
   })
 ];

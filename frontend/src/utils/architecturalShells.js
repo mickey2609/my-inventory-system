@@ -208,8 +208,12 @@ export const SHELL_7F = {
   '7F-A': {
     widthM: 132,
     depthM: 60,
-    columns: build7FColumns(),
+    columns: build7FColumns().filter((c) => !(c.x === 0 && c.y === 0)),
+    cutouts: [
+      { x: 0, y: 0, w: 6, h: 12 }
+    ],
     rooms: [
+      { x: 0, y: 0, w: 6, h: 12, label: '建築缺角(外部)', isCutout: true },
       { x: 117, y: 0, w: 15, h: 6, label: '廁所、茶水間' },
       { x: 117, y: 6, w: 15, h: 6, label: '電梯' },
       { x: 108, y: 0, w: 9, h: 12, label: '梯間' },
