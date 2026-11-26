@@ -1775,9 +1775,15 @@ export default {
       }
     }
   },
-  mounted() {
+mounted() {
     this.syncAuthFromDomAndStorage()
-    this.refreshAll()
+    this.initLoadWithRetry()
+  },
+  activated() {
+    this.syncAuthFromDomAndStorage()
+    if (this.rules.length === 0 || !this.report.hasData) {
+      this.initLoadWithRetry()
+    }
   },
   methods: {
     ssyncAuthFromDomAndStorage() {
@@ -2176,6 +2182,17 @@ export default {
       }
     },
 
+    async initLoadWithRetry(attempt = 0) {
+      this.syncAuthFromDomAndStorage()
+      await this.refreshAll()
+      // 若外層 App.vue 尚未完成設定後端 baseURL（導致回傳非 JSON 物件），自動延遲重試
+      if (this.rules.length === 0 && !this.report.hasData && attempt < 4) {
+        setTimeout(() => {
+          this.initLoadWithRetry(attempt + 1)
+        }, 500)
+      }
+    },
+    
     async refreshAll() {
       this.loading = true
       try {
