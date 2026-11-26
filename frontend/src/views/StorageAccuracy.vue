@@ -15,13 +15,6 @@
       accept=".xlsx,.xls"
       @change="handleRuleExcelImport"
     />
-    <input
-      type="file"
-      ref="skuGroupImportInput"
-      style="display: none;"
-      accept=".xlsx,.xls,.csv"
-      @change="handleSkuGroupImport"
-    />
 
     <!-- 頂部控制列 -->
     <div class="header-card">
@@ -935,157 +928,15 @@
       </div>
     </div>
 
-    <!-- ==================== TAB 5: 參數設定（月銷量級距門檻 ＋ 商品ID**區專區管理） ==================== -->
-    <div v-if="activeTab === 'settings'" class="tab-content" v-loading="loading">
-      <div class="settings-split-grid">
-        <div class="panel-card">
-          <div class="panel-head row-between">
-            <span>🔥 第三順位｜月銷量級距門檻參數設定</span>
-            <el-button size="mini" type="success" @click="saveModeSettings">💾 儲存所有參數並重算</el-button>
-          </div>
-          <div style="padding: 16px; display: flex; flex-direction: column; gap: 14px;">
-            <div class="tier-cfg-item">
-              <span class="tier-pill tier-A" style="width: 85px; text-align: center;">A級爆品</span>
-              <span>近月銷量 ≥</span>
-              <el-input-number v-model="modeSettings.tierA_min" :min="2" size="mini" style="width: 130px;" />
-              <span class="text-dim">件 / 月</span>
-            </div>
-            <div class="tier-cfg-item">
-              <span class="tier-pill tier-B" style="width: 85px; text-align: center;">B級常銷</span>
-              <span>近月銷量 ≥</span>
-              <el-input-number v-model="modeSettings.tierB_min" :min="1" size="mini" style="width: 130px;" />
-              <span class="text-dim">件 / 月（~ {{ modeSettings.tierA_min - 1 }} 件）</span>
-            </div>
-            <div class="tier-cfg-item">
-              <span class="tier-pill tier-C" style="width: 85px; text-align: center;">C級慢銷</span>
-              <span>近月銷量 ≥</span>
-              <el-input-number v-model="modeSettings.tierC_min" :min="1" size="mini" style="width: 130px;" />
-              <span class="text-dim">件 / 月（~ {{ modeSettings.tierB_min - 1 }} 件）</span>
-            </div>
-            <div class="tier-cfg-item">
-              <span class="tier-pill tier-D" style="width: 85px; text-align: center;">D級滯銷</span>
-              <span class="text-dim">近月銷量 = 0 件 / 月（系統自動歸類）</span>
-            </div>
+    <!-- ==================== TAB 5: 參數設定（獨立子元件，僅保留批次貼上＋匯入匯出） ==================== -->
+    <StorageSettingsTab
+      v-if="activeTab === 'settings'"
+      :mode-settings="modeSettings"
+      :skus="lookupOptions.skus"
+      @save="saveModeSettings"
+    />
 
-            <div style="background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 12px; font-size: 12px; color: #cbd5e1; line-height: 1.7; margin-top: 6px;">
-              <div class="text-blue font-bold" style="margin-bottom: 4px;">📋 儲位規則稽核優先順序說明：</div>
-              <div>1. <strong>第一順位（借 / 採）</strong>：先核對儲位允許借或採，吻合才進入下一順位。</div>
-              <div>2. <strong>第二順位（商品ID**區 ＞ 區名(帶區編) ＞ 大區名(帶大區編)）</strong>：若商品已加入右側任一「商品ID**區」，則<strong>強制限定</strong>只能放置於有勾選該專區的儲位；同一儲位若設定多個大區/區名，符合其中一項即合格。</div>
-              <div>3. <strong>第三順位（月銷量級距）</strong>：前兩順位皆吻合且儲位有勾選月銷級距時才檢查。</div>
-            </div>
-          </div>
-        </div>
-
-        <div class="panel-card">
-          <div class="panel-head row-between">
-            <span>🏷️ 第二順位｜「商品ID**區」專區管理（共 {{ (modeSettings.sku_groups || []).length }} 區）</span>
-            <div style="display: flex; gap: 6px;">
-              <el-button size="mini" type="info" plain icon="el-icon-download" @click="exportSkuGroupTemplate">
-                下載匯入範本
-              </el-button>
-              <el-button size="mini" type="warning" icon="el-icon-upload2" @click="triggerSkuGroupImport">
-                匯入商品ID清單
-              </el-button>
-              <el-button size="mini" type="primary" icon="el-icon-plus" @click="addNewSkuGroup">
-                新增專區
-              </el-button>
-              <el-button size="mini" type="success" @click="saveModeSettings">
-                💾 儲存設定
-              </el-button>
-            </div>
-          </div>
-
-          <div class="sku-group-workspace">
-            <div class="sku-group-list">
-              <div
-                v-for="(grp, gIdx) in modeSettings.sku_groups"
-                :key="gIdx"
-                class="sku-group-item"
-                :class="{ active: activeSkuGroupIdx === gIdx }"
-                @click="activeSkuGroupIdx = gIdx"
-              >
-                <div class="font-bold" style="font-size: 13px;">{{ grp.name }}</div>
-                <div class="text-dim" style="font-size: 11px;">已綁定 {{ (grp.skus || []).length }} 個商品</div>
-              </div>
-            </div>
-
-            <div v-if="currentSkuGroup" class="sku-group-editor">
-              <div class="row-between" style="margin-bottom: 10px;">
-                <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
-                  <span class="font-bold text-blue" style="white-space: nowrap;">專區名稱：</span>
-                  <el-input v-model="currentSkuGroup.name" size="mini" style="max-width: 240px;" placeholder="例如：商品ID貴重區" />
-                </div>
-                <el-button size="mini" type="danger" plain @click="deleteCurrentSkuGroup">
-                  刪除此專區
-                </el-button>
-              </div>
-
-              <label class="m-lbl">🔍 搜尋並多選商品ID（同時帶入商品名稱）：</label>
-              <el-select
-                v-model="currentSkuGroup.skus"
-                multiple
-                filterable
-                allow-create
-                default-first-option
-                size="mini"
-                placeholder="輸入商品ID或商品名稱關鍵字搜尋並多選..."
-                style="width: 100%; margin-bottom: 10px;"
-              >
-                <el-option
-                  v-for="s in lookupOptions.skus"
-                  :key="s.sku_id"
-                  :label="s.label"
-                  :value="s.sku_id"
-                />
-              </el-select>
-
-              <div class="row-between" style="margin-bottom: 6px;">
-                <span class="text-dim" style="font-size: 12px;">
-                  目前已納入【{{ currentSkuGroup.name }}】的商品明細（共 <strong>{{ (currentSkuGroup.skus || []).length }}</strong> 筆）：
-                </span>
-                <el-button
-                  v-if="(currentSkuGroup.skus || []).length > 0"
-                  size="mini"
-                  type="text"
-                  class="text-red"
-                  @click="currentSkuGroup.skus = []"
-                >
-                  清空本區商品
-                </el-button>
-              </div>
-
-              <div class="table-scroll" style="border: 1px solid #334155; border-radius: 6px;">
-                <table class="dark-table">
-                  <thead>
-                    <tr>
-                      <th style="width: 50px;">序號</th>
-                      <th style="width: 165px;">商品ID</th>
-                      <th>商品名稱</th>
-                      <th style="width: 70px;">操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-if="!currentSkuGroup.skus || currentSkuGroup.skus.length === 0">
-                      <td colspan="4" class="empty-td">尚未加入任何商品ID，可由上方搜尋多選或點選「匯入商品ID清單」</td>
-                    </tr>
-                    <tr v-for="(skuId, sIdx) in currentSkuGroup.skus" :key="skuId">
-                      <td>{{ sIdx + 1 }}</td>
-                      <td class="text-blue font-bold">{{ skuId }}</td>
-                      <td class="text-left">{{ getSkuNameById(skuId) }}</td>
-                      <td>
-                        <button type="button" class="del-rule-btn" @click="removeSkuFromCurrentGroup(skuId)">移除</button>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Modal 1: 新增 / 編輯單條規則（第二順位改為主條件＋子條件兩格連動） -->
+    <!-- Modal 1: 新增 / 編輯單條規則 -->
     <el-dialog
       v-model="showRuleModal"
       :title="ruleForm.id ? `✏️ 編輯儲位規則（${ruleForm.floor} - ${ruleForm.x_start}）` : '➕ 新增儲位擺放規則'"
@@ -1203,7 +1054,7 @@
       </template>
     </el-dialog>
 
-    <!-- Modal 2: 規則總表勾選批次編輯（第二順位改為主條件＋子條件兩格連動） -->
+    <!-- Modal 2: 規則總表勾選批次編輯 -->
     <el-dialog
       v-model="showTableBatchModal"
       :title="`⚡ 批次修改已勾選的 ${selectedRuleIds.length} 條規則`"
@@ -1372,11 +1223,13 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import * as XLSX from 'xlsx'
 import { FLOOR_MODULES } from '../utils/floorLayoutData.js'
 import StorageSimulationTab from '../components/StorageSimulationTab.vue'
+import StorageSettingsTab from '../components/StorageSettingsTab.vue'
 
 export default {
   name: 'StorageAccuracy',
   components: {
-    StorageSimulationTab
+    StorageSimulationTab,
+    StorageSettingsTab
   },
   data() {
     return {
@@ -1398,7 +1251,6 @@ export default {
           { name: '商品ID清倉區', skus: [] }
         ]
       },
-      activeSkuGroupIdx: 0,
 
       lookupOptions: {
         skus: [],
@@ -1526,148 +1378,139 @@ export default {
     }
   },
   computed: {
-    currentSkuGroup() {
-      const list = this.modeSettings.sku_groups || [];
-      return list[this.activeSkuGroupIdx] || list[0] || null;
-    },
-    skuNameMap() {
-      const map = new Map();
-      (this.lookupOptions.skus || []).forEach(s => map.set(s.sku_id, s.sku_name));
-      return map;
-    },
     filteredRules() {
-      const kw = this.ruleKeyword.trim().toLowerCase();
+      const kw = this.ruleKeyword.trim().toLowerCase()
       return this.rules.filter(r => {
-        const okFloor = this.ruleFloorFilter === 'ALL' || r.floor === this.ruleFloorFilter;
-        const okArea = this.ruleAreaFilter === 'ALL' || this.resolveRuleArea(r) === this.ruleAreaFilter;
-        const okRole = this.ruleRoleFilter === 'ALL' || (r.zone_role || 'PICK') === this.ruleRoleFilter;
+        const okFloor = this.ruleFloorFilter === 'ALL' || r.floor === this.ruleFloorFilter
+        const okArea = this.ruleAreaFilter === 'ALL' || this.resolveRuleArea(r) === this.ruleAreaFilter
+        const okRole = this.ruleRoleFilter === 'ALL' || (r.zone_role || 'PICK') === this.ruleRoleFilter
         const okKw = !kw ||
           r.zone_name.toLowerCase().includes(kw) ||
           r.x_start.toLowerCase().includes(kw) ||
           r.x_end.toLowerCase().includes(kw) ||
-          (r.allowed_targets || []).some(t => this.formatTargetToken(t).toLowerCase().includes(kw));
-        return okFloor && okArea && okRole && okKw;
-      });
+          (r.allowed_targets || []).some(t => this.formatTargetToken(t).toLowerCase().includes(kw))
+        return okFloor && okArea && okRole && okKw
+      })
     },
     paginatedRules() {
-      const start = (this.rulePage - 1) * this.rulePageSize;
-      return this.filteredRules.slice(start, start + this.rulePageSize);
+      const start = (this.rulePage - 1) * this.rulePageSize
+      return this.filteredRules.slice(start, start + this.rulePageSize)
     },
     isAllPageRulesSelected() {
       return this.paginatedRules.length > 0 &&
-        this.paginatedRules.every(r => this.selectedRuleIds.includes(r.id));
+        this.paginatedRules.every(r => this.selectedRuleIds.includes(r.id))
     },
     filteredExceptions() {
-      const kw = this.excKeyword.trim().toLowerCase();
+      const kw = this.excKeyword.trim().toLowerCase()
       return (this.report.exceptions || []).filter(item => {
-        const okRole = this.excRoleFilter === 'ALL' || item.zone_role === this.excRoleFilter;
-        const okTrade = this.excTradeFilter === 'ALL' || item.trade_type === this.excTradeFilter;
-        const okTier = this.excTierFilter === 'ALL' || item.sales_tier === this.excTierFilter;
-        const okFloor = this.excFloorFilter === 'ALL' || item.floor === this.excFloorFilter;
+        const okRole = this.excRoleFilter === 'ALL' || item.zone_role === this.excRoleFilter
+        const okTrade = this.excTradeFilter === 'ALL' || item.trade_type === this.excTradeFilter
+        const okTier = this.excTierFilter === 'ALL' || item.sales_tier === this.excTierFilter
+        const okFloor = this.excFloorFilter === 'ALL' || item.floor === this.excFloorFilter
         const okKw = !kw ||
           item.sku_id.toLowerCase().includes(kw) ||
           item.sku_name.toLowerCase().includes(kw) ||
-          item.bin_code.toLowerCase().includes(kw);
-        return okRole && okTrade && okTier && okFloor && okKw;
-      });
+          item.bin_code.toLowerCase().includes(kw)
+        return okRole && okTrade && okTier && okFloor && okKw
+      })
     },
     currentFloorModule() {
-      return FLOOR_MODULES[this.selectedMapFloor] || null;
+      return FLOOR_MODULES[this.selectedMapFloor] || null
     },
     currentFloorZones() {
-      return this.currentFloorModule?.zones || [];
+      return this.currentFloorModule?.zones || []
     },
     currentZoneObj() {
-      return this.currentFloorZones.find(z => z.id === this.selectedZoneId) || this.currentFloorZones[0] || null;
+      return this.currentFloorZones.find(z => z.id === this.selectedZoneId) || this.currentFloorZones[0] || null
     },
     currentRuleFloorKey() {
-      return this.currentZoneObj?.ruleFloor || this.selectedMapFloor;
+      return this.currentZoneObj?.ruleFloor || this.selectedMapFloor
     },
     currentZoneAreaCode() {
-      const parts = String(this.currentZoneObj?.id || '').split('-');
-      return parts.find(p => ['A', 'B', 'C', 'D'].includes(p)) || '';
+      const parts = String(this.currentZoneObj?.id || '').split('-')
+      return parts.find(p => ['A', 'B', 'C', 'D'].includes(p)) || ''
     },
     isEastRightOrientation() {
-      return this.currentFloorModule?.orientation === 'east-right';
+      return this.currentFloorModule?.orientation === 'east-right'
     },
     currentFloorCanvas() {
-      const floorData = this.currentFloorModule;
-      const zoneObj = this.currentZoneObj;
-      if (!floorData || !zoneObj) return { width: 900, height: 550, nodes: [], outerFrame: null, dividers: [], columns: [] };
+      const floorData = this.currentFloorModule
+      const zoneObj = this.currentZoneObj
+      if (!floorData || !zoneObj) return { width: 900, height: 550, nodes: [], outerFrame: null, dividers: [], columns: [] }
 
-      const isEastRight = floorData.orientation === 'east-right';
-      const ruleFl = zoneObj.ruleFloor || this.selectedMapFloor;
+      const isEastRight = floorData.orientation === 'east-right'
+      const ruleFl = zoneObj.ruleFloor || this.selectedMapFloor
       const floorRules = this.rules
         .filter(r => r.enabled && (r.floor === ruleFl || r.floor === this.selectedMapFloor))
-        .sort((a, b) => (a.x_start === a.x_end ? -1 : 1));
+        .sort((a, b) => (a.x_start === a.x_end ? -1 : 1))
 
-      const targetRole = zoneObj.defaultRole;
-      const isRoleSplitView = targetRole === 'PICK' || targetRole === 'STORAGE';
+      const targetRole = zoneObj.defaultRole
+      const isRoleSplitView = targetRole === 'PICK' || targetRole === 'STORAGE'
 
       const findRuleForX = (xCode) => {
-        if (!xCode) return null;
+        if (!xCode) return null
         const matchX = (r) => (r.x_start === r.x_end)
           ? (r.x_start === xCode || xCode.startsWith(r.x_start))
-          : (xCode >= r.x_start && xCode <= r.x_end);
+          : (xCode >= r.x_start && xCode <= r.x_end)
 
         if (isRoleSplitView) {
-          return floorRules.find(r => matchX(r) && r.zone_role === targetRole) || null;
+          return floorRules.find(r => matchX(r) && r.zone_role === targetRole) || null
         }
-        return floorRules.find(matchX) || null;
-      };
+        return floorRules.find(matchX) || null
+      }
 
       const decorateRack = (xCode, label, widthPx = 0) => {
-        const rule = findRuleForX(xCode);
-        const xStat = this.report.byXRow?.[`${this.selectedMapFloor}|${xCode}`] || this.report.byXRow?.[`${ruleFl}|${xCode}`];
-        const zRole = rule?.zone_role || zoneObj.defaultRole || 'PICK';
-        const targets = rule?.allowed_targets || [];
+        const rule = findRuleForX(xCode)
+        const xStat = this.report.byXRow?.[`${this.selectedMapFloor}|${xCode}`] || this.report.byXRow?.[`${ruleFl}|${xCode}`]
+        const zRole = rule?.zone_role || zoneObj.defaultRole || 'PICK'
+        const targets = rule?.allowed_targets || []
 
-        let statusClass = 'fp-status-unset';
+        let statusClass = 'fp-status-unset'
         if (this.mapColorMode === 'ZONE_ROLE') {
-          if (zRole === 'CLOSED') statusClass = 'fp-status-closed';
-          else if (zRole === 'STORAGE') statusClass = 'fp-status-buy';
-          else if (zRole === 'BOTH') statusClass = 'fp-status-borrow';
-          else statusClass = 'fp-status-cat';
+          if (zRole === 'CLOSED') statusClass = 'fp-status-closed'
+          else if (zRole === 'STORAGE') statusClass = 'fp-status-buy'
+          else if (zRole === 'BOTH') statusClass = 'fp-status-borrow'
+          else statusClass = 'fp-status-cat'
         } else if (this.mapColorMode === 'CATEGORY') {
-          if (zRole === 'CLOSED') statusClass = 'fp-status-closed';
-          else if (targets.length > 0) statusClass = 'fp-status-cat';
+          if (zRole === 'CLOSED') statusClass = 'fp-status-closed'
+          else if (targets.length > 0) statusClass = 'fp-status-cat'
         } else if (this.mapColorMode === 'SALES_TIER') {
-          const tiers = rule?.allowed_sales_tiers || [];
-          if (tiers.includes('A')) statusClass = 'fp-status-err';
-          else if (tiers.includes('B')) statusClass = 'fp-status-borrow';
-          else if (tiers.includes('C')) statusClass = 'fp-status-buy';
+          const tiers = rule?.allowed_sales_tiers || []
+          if (tiers.includes('A')) statusClass = 'fp-status-err'
+          else if (tiers.includes('B')) statusClass = 'fp-status-borrow'
+          else if (tiers.includes('C')) statusClass = 'fp-status-buy'
         } else {
-          if (xStat && xStat.failed > 0) statusClass = 'fp-status-err';
-          else if (zRole === 'CLOSED') statusClass = 'fp-status-closed';
-          else if (rule && rule.allowed_trade === '借') statusClass = 'fp-status-borrow';
-          else if (rule && rule.allowed_trade === '採') statusClass = 'fp-status-buy';
-          else if (rule && (targets.length > 0 || (rule.allowed_sales_tiers?.length > 0))) statusClass = 'fp-status-cat';
+          if (xStat && xStat.failed > 0) statusClass = 'fp-status-err'
+          else if (zRole === 'CLOSED') statusClass = 'fp-status-closed'
+          else if (rule && rule.allowed_trade === '借') statusClass = 'fp-status-borrow'
+          else if (rule && rule.allowed_trade === '採') statusClass = 'fp-status-buy'
+          else if (rule && (targets.length > 0 || (rule.allowed_sales_tiers?.length > 0))) statusClass = 'fp-status-cat'
         }
 
-        const roleLabel = this.zoneRoleLabelMap[zRole] || '撿貨區';
-        const layerText = rule ? `（${rule.layer_start || 'A'}~${rule.layer_end || 'Z'}層）` : '';
-        const targetText = targets.length ? `｜限定：${targets.map(this.formatTargetToken).join('、')}` : '';
+        const roleLabel = this.zoneRoleLabelMap[zRole] || '撿貨區'
+        const layerText = rule ? `（${rule.layer_start || 'A'}~${rule.layer_end || 'Z'}層）` : ''
+        const targetText = targets.length ? `｜限定：${targets.map(this.formatTargetToken).join('、')}` : ''
         const ruleText = rule
           ? `用途：【${roleLabel}】${layerText}｜借採：${rule.allowed_trade === 'ALL' ? '皆可' : '僅限' + rule.allowed_trade}${targetText}${rule.allowed_sales_tiers?.length ? '｜月銷：' + rule.allowed_sales_tiers.join('/') + '級' : ''}`
-          : `預設用途：【${roleLabel}】（尚未建立獨立規則）`;
-        const statText = xStat ? `\n現況：共 ${xStat.total} 筆（合格 ${xStat.passed} / 異常 ${xStat.failed}）` : '';
-        const m = String(label).match(/80([A-Z0-9]{2,4}\d{2,3})/);
+          : `預設用途：【${roleLabel}】（尚未建立獨立規則）`
+        const statText = xStat ? `\n現況：共 ${xStat.total} 筆（合格 ${xStat.passed} / 異常 ${xStat.failed}）` : ''
+        const m = String(label).match(/80([A-Z0-9]{2,4}\d{2,3})/)
         return {
           statusClass,
           hasError: Boolean(xStat && xStat.failed > 0),
           tooltip: `${label}（排號 ${xCode}）\n${ruleText}${statText}`,
           shortLabel: widthPx >= 110 ? label : (m ? m[1] : xCode)
-        };
-      };
+        }
+      }
 
       if (zoneObj.meterMode && zoneObj.shell) {
-        const px = zoneObj.pxPerM || 20;
-        const padLeft = 36;
-        const padTop = 36;
-        const { widthM, depthM, rooms = [], columns = [], cutouts = [], dividers = [] } = zoneObj.shell;
-        const racks = floorData.zoneRacks?.[zoneObj.id] || [];
+        const px = zoneObj.pxPerM || 20
+        const padLeft = 36
+        const padTop = 36
+        const { widthM, depthM, rooms = [], columns = [], cutouts = [], dividers = [] } = zoneObj.shell
+        const racks = floorData.zoneRacks?.[zoneObj.id] || []
 
-        const nodes = [];
+        const nodes = []
         rooms.forEach(rm => {
           nodes.push({
             left: padLeft + rm.x * px,
@@ -1682,13 +1525,13 @@ export default {
             statusClass: '',
             hasError: false,
             tooltip: `${rm.label} (${rm.w}m × ${rm.h}m)`
-          });
-        });
+          })
+        })
 
         racks.forEach(rk => {
-          const w = rk.w * px - 1;
-          const h = rk.h * px - 1;
-          const dec = decorateRack(rk.xCode, rk.label, w);
+          const w = rk.w * px - 1
+          const h = rk.h * px - 1
+          const dec = decorateRack(rk.xCode, rk.label, w)
           nodes.push({
             left: padLeft + rk.x * px,
             top: padTop + rk.y * px,
@@ -1702,33 +1545,33 @@ export default {
             statusClass: dec.statusClass,
             hasError: dec.hasError,
             tooltip: dec.tooltip
-          });
-        });
+          })
+        })
 
         const colMarkers = columns.map(c => ({
           left: padLeft + c.x * px - 5,
           top: padTop + c.y * px - 5,
           title: `結構柱位 (${c.x}m, ${c.y}m)`
-        }));
+        }))
 
-        const nwCut = cutouts.find(ct => ct.x === 0 && ct.y === 0);
-        const swCut = cutouts.find(ct => ct.x === 0 && ct.y > 0);
-        const pts = [];
-        pts.push(nwCut ? `${nwCut.w * px},0` : '0,0');
-        pts.push(`${widthM * px},0`);
-        pts.push(`${widthM * px},${depthM * px}`);
+        const nwCut = cutouts.find(ct => ct.x === 0 && ct.y === 0)
+        const swCut = cutouts.find(ct => ct.x === 0 && ct.y > 0)
+        const pts = []
+        pts.push(nwCut ? `${nwCut.w * px},0` : '0,0')
+        pts.push(`${widthM * px},0`)
+        pts.push(`${widthM * px},${depthM * px}`)
         if (swCut) {
-          pts.push(`${swCut.w * px},${depthM * px}`);
-          pts.push(`${swCut.w * px},${swCut.y * px}`);
-          pts.push(`0,${swCut.y * px}`);
+          pts.push(`${swCut.w * px},${depthM * px}`)
+          pts.push(`${swCut.w * px},${swCut.y * px}`)
+          pts.push(`0,${swCut.y * px}`)
         } else {
-          pts.push(`0,${depthM * px}`);
+          pts.push(`0,${depthM * px}`)
         }
         if (nwCut) {
-          pts.push(`0,${nwCut.h * px}`);
-          pts.push(`${nwCut.w * px},${nwCut.h * px}`);
+          pts.push(`0,${nwCut.h * px}`)
+          pts.push(`${nwCut.w * px},${nwCut.h * px}`)
         }
-        const outlinePoints = pts.join(' ');
+        const outlinePoints = pts.join(' ')
 
         const dividerLines = dividers.map(dv => ({
           x1: dv.x1 * px,
@@ -1736,7 +1579,7 @@ export default {
           x2: dv.x2 * px,
           y2: dv.y2 * px,
           label: dv.label || ''
-        }));
+        }))
 
         return {
           width: padLeft * 2 + widthM * px,
@@ -1751,36 +1594,36 @@ export default {
           dividers: dividerLines,
           columns: colMarkers,
           nodes
-        };
+        }
       }
 
-      const [rMin, rMax, cMin, cMax] = zoneObj.crop;
-      const cellW = zoneObj.cellW || (isEastRight ? 9 : 14);
-      const cellH = zoneObj.cellH || (isEastRight ? 11 : 14);
-      const pad = 36;
+      const [rMin, rMax, cMin, cMax] = zoneObj.crop
+      const cellW = zoneObj.cellW || (isEastRight ? 9 : 14)
+      const cellH = zoneObj.cellH || (isEastRight ? 11 : 14)
+      const pad = 36
 
       const croppedItems = floorData.i.filter(([r, c, sr, sc]) => {
-        const rEnd = r + sr;
-        const cEnd = c + sc;
-        return rEnd >= rMin && r <= rMax && cEnd >= cMin && c <= cMax;
-      });
+        const rEnd = r + sr
+        const cEnd = c + sc
+        return rEnd >= rMin && r <= rMax && cEnd >= cMin && c <= cMax
+      })
 
       const nodes = croppedItems.map(([r, c, sr, sc, label, xCode]) => {
-        const isRack = Boolean(xCode);
-        let left, top, w, h;
+        const isRack = Boolean(xCode)
+        let left, top, w, h
         if (isEastRight) {
-          left = (rMax - (r + sr)) * cellW + pad;
-          top = (c - cMin) * cellH + pad;
-          w = Math.max(14, sr * cellW - (isRack ? 1 : 0));
-          h = Math.max(14, sc * cellH - (isRack ? 1 : 0));
+          left = (rMax - (r + sr)) * cellW + pad
+          top = (c - cMin) * cellH + pad
+          w = Math.max(14, sr * cellW - (isRack ? 1 : 0))
+          h = Math.max(14, sc * cellH - (isRack ? 1 : 0))
         } else {
-          left = (c - cMin) * cellW + pad;
-          top = (r - rMin) * cellH + pad;
-          w = Math.max(16, sc * cellW - (isRack ? 1 : 0));
-          h = Math.max(18, sr * cellH - (isRack ? 1 : 0));
+          left = (c - cMin) * cellW + pad
+          top = (r - rMin) * cellH + pad
+          w = Math.max(16, sc * cellW - (isRack ? 1 : 0))
+          h = Math.max(18, sr * cellH - (isRack ? 1 : 0))
         }
 
-        const dec = isRack ? decorateRack(xCode, label, w) : { statusClass: '', hasError: false, tooltip: label, shortLabel: label };
+        const dec = isRack ? decorateRack(xCode, label, w) : { statusClass: '', hasError: false, tooltip: label, shortLabel: label }
         return {
           left,
           top,
@@ -1794,15 +1637,15 @@ export default {
           statusClass: dec.statusClass,
           hasError: dec.hasError,
           tooltip: dec.tooltip
-        };
-      });
+        }
+      })
 
       const canvasWidth = isEastRight
         ? (rMax - rMin + 4) * cellW + pad * 2
-        : (cMax - cMin + 4) * cellW + pad * 2;
+        : (cMax - cMin + 4) * cellW + pad * 2
       const canvasHeight = isEastRight
         ? (cMax - cMin + 4) * cellH + pad * 2
-        : (rMax - rMin + 4) * cellH + pad * 2;
+        : (rMax - rMin + 4) * cellH + pad * 2
 
       return {
         width: Math.max(640, canvasWidth),
@@ -1811,33 +1654,32 @@ export default {
         dividers: [],
         columns: [],
         nodes
-      };
+      }
     },
     selectedRackStats() {
       if (this.selectedMapRacks.length !== 1) {
-        return { total: 0, passed: 0, failed: 0, borrowCnt: 0, buyCnt: 0, accuracyPct: 100, topCatsText: '-', tiers: {} };
+        return { total: 0, passed: 0, failed: 0, borrowCnt: 0, buyCnt: 0, accuracyPct: 100, topCatsText: '-', tiers: {} }
       }
-      const rk = this.selectedMapRacks[0];
+      const rk = this.selectedMapRacks[0]
       const st = this.report.byXRow?.[`${this.selectedMapFloor}|${rk.xCode}`] ||
-        this.report.byXRow?.[`${this.currentRuleFloorKey}|${rk.xCode}`];
-      if (!st) return { total: 0, passed: 0, failed: 0, borrowCnt: 0, buyCnt: 0, accuracyPct: 100, topCatsText: '-', tiers: {} };
+        this.report.byXRow?.[`${this.currentRuleFloorKey}|${rk.xCode}`]
+      if (!st) return { total: 0, passed: 0, failed: 0, borrowCnt: 0, buyCnt: 0, accuracyPct: 100, topCatsText: '-', tiers: {} }
       const topCats = Object.entries(st.cats || {})
         .sort((a, b) => b[1] - a[1])
         .slice(0, 3)
         .map(([k, v]) => `${k}(${v})`)
-        .join('、') || '-';
+        .join('、') || '-'
       return {
         ...st,
         accuracyPct: st.total > 0 ? Number(((st.passed / st.total) * 100).toFixed(1)) : 100,
         topCatsText: topCats
-      };
+      }
     }
   },
   mounted() {
-    this.refreshAll();
+    this.refreshAll()
   },
   methods: {
-    // 依據主條件類別回傳對應的子條件下拉選單
     getSubOptionsByType(targetType) {
       if (targetType === 'GROUP') {
         return (this.modeSettings.sku_groups || [])
@@ -1845,194 +1687,116 @@ export default {
           .map(g => ({
             value: `GROUP:${g.name}`,
             label: `${g.name} (${(g.skus || []).length}品)`
-          }));
+          }))
       }
       if (targetType === 'ZONE') {
         return (this.lookupOptions.zones || []).map(z => ({
           value: z.token,
           label: z.label
-        }));
+        }))
       }
       if (targetType === 'CAT') {
         return (this.lookupOptions.categories || []).map(c => ({
           value: c.token,
           label: c.label
-        }));
+        }))
       }
-      return [];
+      return []
     },
-    // 從既有 allowed_targets 陣列自動反推主條件類別
     detectTargetType(targets) {
-      if (!Array.isArray(targets) || targets.length === 0) return 'NONE';
-      const first = String(targets[0] || '');
-      if (first.startsWith('GROUP:')) return 'GROUP';
-      if (first.startsWith('ZONE:')) return 'ZONE';
-      if (first.startsWith('CAT:')) return 'CAT';
-      return 'NONE';
+      if (!Array.isArray(targets) || targets.length === 0) return 'NONE'
+      const first = String(targets[0] || '')
+      if (first.startsWith('GROUP:')) return 'GROUP'
+      if (first.startsWith('ZONE:')) return 'ZONE'
+      if (first.startsWith('CAT:')) return 'CAT'
+      return 'NONE'
     },
     formatTargetToken(token) {
-      const str = String(token || '');
-      if (str.startsWith('GROUP:')) return `🏷️ ${str.slice(6)}`;
+      const str = String(token || '')
+      if (str.startsWith('GROUP:')) return `🏷️ ${str.slice(6)}`
       if (str.startsWith('ZONE:')) {
-        const [code, name] = str.slice(5).split('|');
-        return code && name ? `區:${code}-${name}` : `區:${code || name}`;
+        const [code, name] = str.slice(5).split('|')
+        return code && name ? `區:${code}-${name}` : `區:${code || name}`
       }
       if (str.startsWith('CAT:')) {
-        const [code, name] = str.slice(4).split('|');
-        return code && name ? `大區:${code}-${name}` : `大區:${code || name}`;
+        const [code, name] = str.slice(4).split('|')
+        return code && name ? `大區:${code}-${name}` : `大區:${code || name}`
       }
-      return str;
+      return str
     },
     getTargetChipClass(token) {
-      const str = String(token || '');
-      if (str.startsWith('GROUP:')) return 'chip-group';
-      if (str.startsWith('ZONE:')) return 'chip-zone';
-      return '';
-    },
-    getSkuNameById(skuId) {
-      return this.skuNameMap.get(skuId) || '（尚未在目前庫存檔中，儲存後將自動套用）';
-    },
-    addNewSkuGroup() {
-      const idx = (this.modeSettings.sku_groups || []).length + 1;
-      if (!Array.isArray(this.modeSettings.sku_groups)) this.modeSettings.sku_groups = [];
-      this.modeSettings.sku_groups.push({ name: `商品ID自訂區${idx}`, skus: [] });
-      this.activeSkuGroupIdx = this.modeSettings.sku_groups.length - 1;
-    },
-    deleteCurrentSkuGroup() {
-      if (!this.currentSkuGroup) return;
-      ElMessageBox.confirm(`確定要刪除專區「${this.currentSkuGroup.name}」嗎？`, '刪除專區確認', {
-        confirmButtonText: '確定刪除',
-        cancelButtonText: '取消',
-        type: 'warning'
-      }).then(() => {
-        this.modeSettings.sku_groups.splice(this.activeSkuGroupIdx, 1);
-        this.activeSkuGroupIdx = Math.max(0, this.activeSkuGroupIdx - 1);
-      }).catch(() => {});
-    },
-    removeSkuFromCurrentGroup(skuId) {
-      if (!this.currentSkuGroup) return;
-      this.currentSkuGroup.skus = (this.currentSkuGroup.skus || []).filter(id => id !== skuId);
-    },
-    exportSkuGroupTemplate() {
-      const rows = [
-        ['專區名稱(必填)', '商品ID(必填)', '商品名稱(選填參考)'],
-        ['商品ID貴重區', '示例商品ID001', '範例商品名稱'],
-        ['商品ID溫度區', '示例商品ID002', '範例商品名稱']
-      ];
-      const ws = XLSX.utils.aoa_to_sheet(rows);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, '商品ID專區匯入範本');
-      XLSX.writeFile(wb, '商品ID專區匯入範本.xlsx');
-    },
-    triggerSkuGroupImport() {
-      if (this.$refs.skuGroupImportInput) {
-        this.$refs.skuGroupImportInput.value = '';
-        this.$refs.skuGroupImportInput.click();
-      }
-    },
-    async handleSkuGroupImport(e) {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      try {
-        const buf = await file.arrayBuffer();
-        const wb = XLSX.read(buf, { type: 'array' });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
-        if (rows.length === 0) throw new Error('檔案內容為空');
-
-        if (!Array.isArray(this.modeSettings.sku_groups)) this.modeSettings.sku_groups = [];
-        let importedCnt = 0;
-
-        rows.forEach(row => {
-          const sku = String(row['商品ID(必填)'] || row['商品ID'] || row['sku_id'] || '').trim();
-          if (!sku) return;
-          const groupName = String(
-            row['專區名稱(必填)'] || row['專區名稱'] || row['區域名稱'] || (this.currentSkuGroup ? this.currentSkuGroup.name : '商品ID貴重區')
-          ).trim();
-
-          let targetGrp = this.modeSettings.sku_groups.find(g => g.name === groupName);
-          if (!targetGrp) {
-            targetGrp = { name: groupName, skus: [] };
-            this.modeSettings.sku_groups.push(targetGrp);
-          }
-          if (!targetGrp.skus.includes(sku)) {
-            targetGrp.skus.push(sku);
-          }
-          importedCnt++;
-        });
-
-        ElMessage.success(`🎉 已匯入 ${importedCnt} 筆商品ID至專區，請記得點擊「儲存設定」生效！`);
-      } catch (err) {
-        ElMessage.error('匯入商品ID清單失敗：' + err.message);
-      }
+      const str = String(token || '')
+      if (str.startsWith('GROUP:')) return 'chip-group'
+      if (str.startsWith('ZONE:')) return 'chip-zone'
+      return ''
     },
 
     resolveRuleArea(r) {
       if (r.area && ['A', 'B', 'C', 'D'].includes(String(r.area).trim().toUpperCase())) {
-        return String(r.area).trim().toUpperCase();
+        return String(r.area).trim().toUpperCase()
       }
-      const zn = String(r.zone_name || '');
-      const m1 = zn.match(/([A-D])區/);
-      if (m1) return m1[1];
-      const m2 = zn.match(/80(?:C2|F3|H4)([A-D])/);
-      if (m2) return m2[1];
-      const xs = String(r.x_start || '');
-      const m3 = xs.match(/^(?:C2|F3|H4)([A-D])/);
-      if (m3) return m3[1];
-      return '';
+      const zn = String(r.zone_name || '')
+      const m1 = zn.match(/([A-D])區/)
+      if (m1) return m1[1]
+      const m2 = zn.match(/80(?:C2|F3|H4)([A-D])/)
+      if (m2) return m2[1]
+      const xs = String(r.x_start || '')
+      const m3 = xs.match(/^(?:C2|F3|H4)([A-D])/)
+      if (m3) return m3[1]
+      return ''
     },
     selectMapFloor(fl) {
-      this.selectedMapFloor = fl;
-      this.selectedMapRacks = [];
-      const zones = FLOOR_MODULES[fl]?.zones || [];
-      this.selectedZoneId = zones[0]?.id || '';
-      this.mapZoom = 1.15;
+      this.selectedMapFloor = fl
+      this.selectedMapRacks = []
+      const zones = FLOOR_MODULES[fl]?.zones || []
+      this.selectedZoneId = zones[0]?.id || ''
+      this.mapZoom = 1.15
     },
     selectMapZone(zoneId) {
-      this.selectedZoneId = zoneId;
-      this.selectedMapRacks = [];
+      this.selectedZoneId = zoneId
+      this.selectedMapRacks = []
     },
     isNodeSelected(node) {
-      return this.selectedMapRacks.some(r => r.xCode === node.xCode && r.label === node.label);
+      return this.selectedMapRacks.some(r => r.xCode === node.xCode && r.label === node.label)
     },
     clearMapSelection() {
-      this.selectedMapRacks = [];
+      this.selectedMapRacks = []
     },
     selectAllRacksInZone() {
-      const racks = (this.currentFloorCanvas.nodes || []).filter(n => n.isRack);
-      const uniqueMap = new Map();
+      const racks = (this.currentFloorCanvas.nodes || []).filter(n => n.isRack)
+      const uniqueMap = new Map()
       racks.forEach(r => {
-        if (!uniqueMap.has(r.xCode)) uniqueMap.set(r.xCode, r);
-      });
-      this.selectedMapRacks = Array.from(uniqueMap.values());
+        if (!uniqueMap.has(r.xCode)) uniqueMap.set(r.xCode, r)
+      })
+      this.selectedMapRacks = Array.from(uniqueMap.values())
       if (this.selectedMapRacks.length > 0) {
-        this.showInspector = true;
+        this.showInspector = true
       }
       if (this.selectedMapRacks.length === 1) {
-        this.loadSingleRackRule(this.selectedMapRacks[0]);
+        this.loadSingleRackRule(this.selectedMapRacks[0])
       } else if (this.selectedMapRacks.length > 1) {
-        this.resetMapBatchForm();
+        this.resetMapBatchForm()
       }
     },
     openRackExceptionDialog(xCode) {
-      const fl = this.selectedMapFloor;
-      const ruleFl = this.currentRuleFloorKey;
+      const fl = this.selectedMapFloor
+      const ruleFl = this.currentRuleFloorKey
       const matches = (this.report.exceptions || []).filter(item => {
-        const itemFl = String(item.floor || '').trim();
-        const floorMatch = itemFl === fl || itemFl === ruleFl || (fl === '2F' && itemFl.startsWith('2F'));
-        const m = String(item.bin_code || '').trim().toUpperCase().match(/^80([A-Z0-9]{3})(\d{2,3})/);
-        const itemX = item.x_code || (m ? m[1] : '');
-        const itemSubX = item.sub_x_code || (m ? `${m[1]}${String(parseInt(m[2], 10)).padStart(2, '0')}` : '');
-        return floorMatch && (itemX === xCode || itemSubX === xCode);
-      });
-      this.rackExceptionTitle = `${ruleFl} - ${xCode} 排`;
-      this.rackExceptionList = matches;
-      this.showRackExceptionModal = true;
+        const itemFl = String(item.floor || '').trim()
+        const floorMatch = itemFl === fl || itemFl === ruleFl || (fl === '2F' && itemFl.startsWith('2F'))
+        const m = String(item.bin_code || '').trim().toUpperCase().match(/^80([A-Z0-9]{3})(\d{2,3})/)
+        const itemX = item.x_code || (m ? m[1] : '')
+        const itemSubX = item.sub_x_code || (m ? `${m[1]}${String(parseInt(m[2], 10)).padStart(2, '0')}` : '')
+        return floorMatch && (itemX === xCode || itemSubX === xCode)
+      })
+      this.rackExceptionTitle = `${ruleFl} - ${xCode} 排`
+      this.rackExceptionList = matches
+      this.showRackExceptionModal = true
     },
     exportRackExceptionsExcel() {
       const rows = [
         ['商品ID', '商品名稱', '儲位', 'PCS數', '大區編', '大區名', '區編', '區名', '材積別', '總才數', '月銷量', '建議擺放樓層', '區域', '層架類型(依總才數判斷)', '異常原因']
-      ];
+      ]
       this.rackExceptionList.forEach(item => {
         rows.push([
           item.sku_id,
@@ -2050,36 +1814,36 @@ export default {
           item.suggested_area || '',
           item.suggested_rack_type || '',
           item.reason
-        ]);
-      });
-      const ws = XLSX.utils.aoa_to_sheet(rows);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, '排號異常明細');
-      const today = new Date().toISOString().slice(0, 10);
-      XLSX.writeFile(wb, `異常儲位明細_${this.rackExceptionTitle}_${today}.xlsx`);
-      ElMessage.success('🎉 已匯出本排異常清單 Excel！');
+        ])
+      })
+      const ws = XLSX.utils.aoa_to_sheet(rows)
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, '排號異常明細')
+      const today = new Date().toISOString().slice(0, 10)
+      XLSX.writeFile(wb, `異常儲位明細_${this.rackExceptionTitle}_${today}.xlsx`)
+      ElMessage.success('🎉 已匯出本排異常清單 Excel！')
     },
     handleRackClick(node, event) {
-      this.showInspector = true;
-      const isMulti = this.mapMultiSelectMode || event.ctrlKey || event.metaKey || event.shiftKey;
+      this.showInspector = true
+      const isMulti = this.mapMultiSelectMode || event.ctrlKey || event.metaKey || event.shiftKey
       if (isMulti) {
-        const existsIdx = this.selectedMapRacks.findIndex(r => r.xCode === node.xCode);
+        const existsIdx = this.selectedMapRacks.findIndex(r => r.xCode === node.xCode)
         if (existsIdx !== -1) {
-          this.selectedMapRacks.splice(existsIdx, 1);
+          this.selectedMapRacks.splice(existsIdx, 1)
         } else {
-          this.selectedMapRacks.push(node);
+          this.selectedMapRacks.push(node)
         }
       } else {
-        this.selectedMapRacks = [node];
+        this.selectedMapRacks = [node]
       }
 
       if (this.selectedMapRacks.length === 1) {
-        this.loadSingleRackRule(this.selectedMapRacks[0]);
+        this.loadSingleRackRule(this.selectedMapRacks[0])
         if (!isMulti && (node.hasError || node.statusClass === 'fp-status-err')) {
-          this.openRackExceptionDialog(node.xCode);
+          this.openRackExceptionDialog(node.xCode)
         }
       } else if (this.selectedMapRacks.length > 1) {
-        this.resetMapBatchForm();
+        this.resetMapBatchForm()
       }
     },
     resetMapBatchForm() {
@@ -2092,22 +1856,22 @@ export default {
         allowed_targets: [],
         applyTiers: false,
         allowed_sales_tiers: []
-      };
+      }
     },
     buildRulePayloadForX(xCode) {
-      const ruleFl = this.currentRuleFloorKey;
-      const zoneArea = this.currentZoneAreaCode;
-      const targetRole = this.currentZoneObj?.defaultRole;
-      const isRoleSplitView = targetRole === 'PICK' || targetRole === 'STORAGE';
-      const defaultRole = targetRole || 'PICK';
+      const ruleFl = this.currentRuleFloorKey
+      const zoneArea = this.currentZoneAreaCode
+      const targetRole = this.currentZoneObj?.defaultRole
+      const isRoleSplitView = targetRole === 'PICK' || targetRole === 'STORAGE'
+      const defaultRole = targetRole || 'PICK'
 
       const exactRule = this.rules.find(
         r => (r.floor === ruleFl || r.floor === this.selectedMapFloor) &&
           r.x_start === xCode && r.x_end === xCode &&
           (!isRoleSplitView || r.zone_role === targetRole)
-      );
+      )
       if (exactRule) {
-        const targets = [...(exactRule.allowed_targets || [])];
+        const targets = [...(exactRule.allowed_targets || [])]
         return {
           ...exactRule,
           area: exactRule.area || zoneArea,
@@ -2117,7 +1881,7 @@ export default {
           allowed_targets: targets,
           allowed_volumes: [...(exactRule.allowed_volumes || [])],
           allowed_sales_tiers: [...(exactRule.allowed_sales_tiers || [])]
-        };
+        }
       }
 
       const rangeRule = this.rules.find(
@@ -2125,14 +1889,14 @@ export default {
           (!isRoleSplitView || r.zone_role === targetRole) &&
           ((r.x_start === r.x_end && xCode.startsWith(r.x_start)) ||
             (xCode >= r.x_start && xCode <= r.x_end))
-      );
+      )
 
-      const defaultLayerStart = isRoleSplitView ? (targetRole === 'PICK' ? 'A' : 'C') : (rangeRule ? rangeRule.layer_start : 'A');
+      const defaultLayerStart = isRoleSplitView ? (targetRole === 'PICK' ? 'A' : 'C') : (rangeRule ? rangeRule.layer_start : 'A')
       const defaultLayerEnd = isRoleSplitView
         ? (targetRole === 'PICK' ? 'B' : (ruleFl === '6F' ? 'C' : 'E'))
-        : (rangeRule ? rangeRule.layer_end : 'Z');
-      const roleSuffix = isRoleSplitView ? (targetRole === 'PICK' ? ' (撿貨區)' : ' (庫區)') : '';
-      const rangeTargets = rangeRule ? [...(rangeRule.allowed_targets || [])] : [];
+        : (rangeRule ? rangeRule.layer_end : 'Z')
+      const roleSuffix = isRoleSplitView ? (targetRole === 'PICK' ? ' (撿貨區)' : ' (庫區)') : ''
+      const rangeTargets = rangeRule ? [...(rangeRule.allowed_targets || [])] : []
 
       return {
         id: null,
@@ -2154,127 +1918,127 @@ export default {
         allowed_volumes: rangeRule ? [...(rangeRule.allowed_volumes || [])] : [],
         allowed_sales_tiers: rangeRule ? [...(rangeRule.allowed_sales_tiers || [])] : [],
         enabled: true
-      };
+      }
     },
     loadSingleRackRule(node) {
-      this.mapEditRule = this.buildRulePayloadForX(node.xCode);
+      this.mapEditRule = this.buildRulePayloadForX(node.xCode)
     },
     async saveMapRackRule() {
-      this.batchSaving = true;
+      this.batchSaving = true
       try {
         const payload = {
           ...this.mapEditRule,
           allowed_targets: this.mapEditRule.target_type === 'NONE' ? [] : [...(this.mapEditRule.allowed_targets || [])]
-        };
-        await axios.post('/api/storage-accuracy/rules/save', { rule: payload });
-        ElMessage.success(`🎉 已儲存【${payload.floor} - ${payload.x_start} 排】設定！`);
-        await this.refreshAll();
+        }
+        await axios.post('/api/storage-accuracy/rules/save', { rule: payload })
+        ElMessage.success(`🎉 已儲存【${payload.floor} - ${payload.x_start} 排】設定！`)
+        await this.refreshAll()
         if (this.selectedMapRacks.length === 1) {
-          this.loadSingleRackRule(this.selectedMapRacks[0]);
+          this.loadSingleRackRule(this.selectedMapRacks[0])
         }
       } catch (e) {
-        ElMessage.error('儲存規則失敗：' + e.message);
+        ElMessage.error('儲存規則失敗：' + e.message)
       } finally {
-        this.batchSaving = false;
+        this.batchSaving = false
       }
     },
     async saveMapBatchRules() {
-      const f = this.mapBatchForm;
+      const f = this.mapBatchForm
       if (f.zone_role === 'KEEP' && !f.applyLength && f.allowed_trade === 'KEEP' && f.target_type === 'KEEP' && !f.applyTiers) {
-        return ElMessage.warning('請至少選擇一項要批次套用的屬性！');
+        return ElMessage.warning('請至少選擇一項要批次套用的屬性！')
       }
-      this.batchSaving = true;
+      this.batchSaving = true
       try {
         const payloads = this.selectedMapRacks.map(rk => {
-          const base = this.buildRulePayloadForX(rk.xCode);
-          if (f.zone_role !== 'KEEP') base.zone_role = f.zone_role;
-          if (f.applyLength) base.rack_length_m = f.rack_length_m;
-          if (f.allowed_trade !== 'KEEP') base.allowed_trade = f.allowed_trade;
+          const base = this.buildRulePayloadForX(rk.xCode)
+          if (f.zone_role !== 'KEEP') base.zone_role = f.zone_role
+          if (f.applyLength) base.rack_length_m = f.rack_length_m
+          if (f.allowed_trade !== 'KEEP') base.allowed_trade = f.allowed_trade
           if (f.target_type === 'NONE') {
-            base.allowed_targets = [];
+            base.allowed_targets = []
           } else if (['GROUP', 'ZONE', 'CAT'].includes(f.target_type)) {
-            base.allowed_targets = [...f.allowed_targets];
+            base.allowed_targets = [...f.allowed_targets]
           }
-          if (f.applyTiers) base.allowed_sales_tiers = [...f.allowed_sales_tiers];
-          return base;
-        });
+          if (f.applyTiers) base.allowed_sales_tiers = [...f.allowed_sales_tiers]
+          return base
+        })
 
         for (let i = 0; i < payloads.length; i += 10) {
-          const chunk = payloads.slice(i, i + 10);
-          await Promise.all(chunk.map(rule => axios.post('/api/storage-accuracy/rules/save', { rule })));
+          const chunk = payloads.slice(i, i + 10)
+          await Promise.all(chunk.map(rule => axios.post('/api/storage-accuracy/rules/save', { rule })))
         }
 
-        ElMessage.success(`🎉 已成功批次套用至 ${payloads.length} 排貨架！`);
-        await this.refreshAll();
+        ElMessage.success(`🎉 已成功批次套用至 ${payloads.length} 排貨架！`)
+        await this.refreshAll()
       } catch (e) {
-        ElMessage.error('批次套用失敗：' + e.message);
+        ElMessage.error('批次套用失敗：' + e.message)
       } finally {
-        this.batchSaving = false;
+        this.batchSaving = false
       }
     },
 
     async refreshAll() {
-      this.loading = true;
+      this.loading = true
       try {
         const [modeRes, ruleRes, lookupRes] = await Promise.all([
           axios.get('/api/storage-accuracy/mode-settings'),
           axios.get('/api/storage-accuracy/rules'),
           axios.get('/api/storage-accuracy/lookup-options')
-        ]);
+        ])
         if (modeRes.data?.success && modeRes.data?.settings) {
           this.modeSettings = {
             ...this.modeSettings,
             ...modeRes.data.settings
-          };
+          }
         }
-        if (ruleRes.data?.success) this.rules = ruleRes.data.rules || [];
+        if (ruleRes.data?.success) this.rules = ruleRes.data.rules || []
         if (lookupRes.data?.success) {
           this.lookupOptions = {
             skus: lookupRes.data.skus || [],
             zones: lookupRes.data.zones || [],
             categories: lookupRes.data.categories || []
-          };
+          }
         }
 
-        const repRes = await axios.get(`/api/storage-accuracy/audit/report?mode=${this.modeSettings.mode}`);
-        if (repRes.data?.success) this.report = repRes.data;
+        const repRes = await axios.get(`/api/storage-accuracy/audit/report?mode=${this.modeSettings.mode}`)
+        if (repRes.data?.success) this.report = repRes.data
 
         if (this.activeTab === 'simulation' && this.$refs.simTab) {
-          await this.$refs.simTab.fetchSimulation();
+          await this.$refs.simTab.fetchSimulation()
         }
       } catch (e) {
-        ElMessage.error('載入儲位準確率資料失敗：' + e.message);
+        ElMessage.error('載入儲位準確率資料失敗：' + e.message)
       } finally {
-        this.loading = false;
+        this.loading = false
       }
     },
 
     async saveModeSettings() {
       try {
-        const res = await axios.post('/api/storage-accuracy/mode-settings/save', { settings: this.modeSettings });
+        const res = await axios.post('/api/storage-accuracy/mode-settings/save', { settings: this.modeSettings })
         if (res.data?.success) {
-          this.modeSettings = res.data.settings;
-          ElMessage.success(res.data.message);
-          await this.refreshAll();
+          this.modeSettings = res.data.settings
+          ElMessage.success(res.data.message)
+          await this.refreshAll()
         }
       } catch (e) {
-        ElMessage.error('儲存參數設定失敗：' + e.message);
+        ElMessage.error('儲存參數設定失敗：' + e.message)
       }
     },
 
     async applyModeFromSim(mode) {
-      this.modeSettings.mode = mode;
-      await this.saveModeSettings();
+      this.modeSettings.mode = mode
+      await this.saveModeSettings()
     },
 
     toggleSelectAllPageRules(e) {
-      const checked = e.target.checked;
-      const pageIds = this.paginatedRules.map(r => r.id);
+      const checked = e.target.checked
+      const pageIds = this.paginatedRules.map(r => r.id)
       if (checked) {
-        const set = new Set([...this.selectedRuleIds, ...pageIds]);
-        this.selectedRuleIds = Array.from(set);
+        const set = new Set([...this.selectedRuleIds, ...pageIds])
+        this.selectedRuleIds = Array.from(set)
       } else {
-        this.selectedRuleIds = this.selectedRuleIds.filter(id => !pageIds.includes(id));
+        this.selectedRuleIds = this.selectedRuleIds.filter(id => !pageIds.includes(id))
       }
     },
     openNewRuleModal() {
@@ -2298,11 +2062,11 @@ export default {
         allowed_volumes: [],
         allowed_sales_tiers: [],
         enabled: true
-      };
-      this.showRuleModal = true;
+      }
+      this.showRuleModal = true
     },
     openEditRuleModal(r) {
-      const targets = [...(r.allowed_targets || [])];
+      const targets = [...(r.allowed_targets || [])]
       this.ruleForm = {
         ...r,
         area: this.resolveRuleArea(r),
@@ -2312,25 +2076,25 @@ export default {
         allowed_targets: targets,
         allowed_volumes: [...(r.allowed_volumes || [])],
         allowed_sales_tiers: [...(r.allowed_sales_tiers || [])]
-      };
-      this.showRuleModal = true;
+      }
+      this.showRuleModal = true
     },
     async submitRuleForm() {
       if (!this.ruleForm.zone_name || !this.ruleForm.x_start) {
-        return ElMessage.warning('請填寫區域名稱與 X 軸排號！');
+        return ElMessage.warning('請填寫區域名稱與 X 軸排號！')
       }
       const payload = {
         ...this.ruleForm,
         x_end: this.ruleForm.x_end || this.ruleForm.x_start,
         allowed_targets: this.ruleForm.target_type === 'NONE' ? [] : [...(this.ruleForm.allowed_targets || [])]
-      };
+      }
       try {
-        await axios.post('/api/storage-accuracy/rules/save', { rule: payload });
-        this.showRuleModal = false;
-        await this.refreshAll();
-        ElMessage.success('🎉 已儲存儲位規則！');
+        await axios.post('/api/storage-accuracy/rules/save', { rule: payload })
+        this.showRuleModal = false
+        await this.refreshAll()
+        ElMessage.success('🎉 已儲存儲位規則！')
       } catch (e) {
-        ElMessage.error('儲存規則失敗：' + e.message);
+        ElMessage.error('儲存規則失敗：' + e.message)
       }
     },
     openTableBatchModal() {
@@ -2342,55 +2106,55 @@ export default {
         allowed_targets: [],
         applyTiers: false,
         allowed_sales_tiers: []
-      };
-      this.showTableBatchModal = true;
+      }
+      this.showTableBatchModal = true
     },
     async submitTableBatchEdit() {
-      const f = this.tableBatchForm;
+      const f = this.tableBatchForm
       if (f.area === 'KEEP' && f.zone_role === 'KEEP' && f.allowed_trade === 'KEEP' && f.target_type === 'KEEP' && !f.applyTiers) {
-        return ElMessage.warning('請至少選擇一項要修改的屬性！');
+        return ElMessage.warning('請至少選擇一項要修改的屬性！')
       }
-      this.batchSaving = true;
+      this.batchSaving = true
       try {
-        const targets = this.rules.filter(r => this.selectedRuleIds.includes(r.id));
+        const targets = this.rules.filter(r => this.selectedRuleIds.includes(r.id))
         const payloads = targets.map(r => {
-          const copy = { ...r };
-          if (f.area !== 'KEEP') copy.area = f.area;
-          if (f.zone_role !== 'KEEP') copy.zone_role = f.zone_role;
-          if (f.allowed_trade !== 'KEEP') copy.allowed_trade = f.allowed_trade;
+          const copy = { ...r }
+          if (f.area !== 'KEEP') copy.area = f.area
+          if (f.zone_role !== 'KEEP') copy.zone_role = f.zone_role
+          if (f.allowed_trade !== 'KEEP') copy.allowed_trade = f.allowed_trade
           if (f.target_type === 'NONE') {
-            copy.allowed_targets = [];
+            copy.allowed_targets = []
           } else if (['GROUP', 'ZONE', 'CAT'].includes(f.target_type)) {
-            copy.allowed_targets = [...f.allowed_targets];
+            copy.allowed_targets = [...f.allowed_targets]
           }
-          if (f.applyTiers) copy.allowed_sales_tiers = [...f.allowed_sales_tiers];
-          return copy;
-        });
+          if (f.applyTiers) copy.allowed_sales_tiers = [...f.allowed_sales_tiers]
+          return copy
+        })
 
         for (let i = 0; i < payloads.length; i += 10) {
-          const chunk = payloads.slice(i, i + 10);
-          await Promise.all(chunk.map(rule => axios.post('/api/storage-accuracy/rules/save', { rule })));
+          const chunk = payloads.slice(i, i + 10)
+          await Promise.all(chunk.map(rule => axios.post('/api/storage-accuracy/rules/save', { rule })))
         }
 
-        this.showTableBatchModal = false;
-        this.selectedRuleIds = [];
-        await this.refreshAll();
-        ElMessage.success(`🎉 已批次更新 ${payloads.length} 條規則！`);
+        this.showTableBatchModal = false
+        this.selectedRuleIds = []
+        await this.refreshAll()
+        ElMessage.success(`🎉 已批次更新 ${payloads.length} 條規則！`)
       } catch (e) {
-        ElMessage.error('批次更新失敗：' + e.message);
+        ElMessage.error('批次更新失敗：' + e.message)
       } finally {
-        this.batchSaving = false;
+        this.batchSaving = false
       }
     },
     async expandSingleRangeRule(rule) {
       try {
-        const res = await axios.post('/api/storage-accuracy/rules/expand', { ruleId: rule.id });
+        const res = await axios.post('/api/storage-accuracy/rules/expand', { ruleId: rule.id })
         if (res.data?.success) {
-          ElMessage.success(res.data.message);
-          await this.refreshAll();
+          ElMessage.success(res.data.message)
+          await this.refreshAll()
         }
       } catch (e) {
-        ElMessage.error('展開失敗：' + e.message);
+        ElMessage.error('展開失敗：' + e.message)
       }
     },
     deleteRule(rule) {
@@ -2399,17 +2163,17 @@ export default {
         cancelButtonText: '取消',
         type: 'warning'
       }).then(async () => {
-        await axios.post('/api/storage-accuracy/rules/delete', { id: rule.id });
-        this.selectedRuleIds = this.selectedRuleIds.filter(id => id !== rule.id);
-        await this.refreshAll();
-        ElMessage.success('已刪除該條規則');
-      }).catch(() => {});
+        await axios.post('/api/storage-accuracy/rules/delete', { id: rule.id })
+        this.selectedRuleIds = this.selectedRuleIds.filter(id => id !== rule.id)
+        await this.refreshAll()
+        ElMessage.success('已刪除該條規則')
+      }).catch(() => {})
     },
 
     exportRulesExcel() {
       const rows = [
         ['規則ID(勿改)', '啟用(1/0)', '樓層', '區(A~D)', '區域名稱', 'X軸起點', 'X軸終點', 'Y軸起點', 'Y軸終點', '層別起點', '層別終點', '區域用途(PICK/STORAGE/BOTH/CLOSED)', '層架長度(m)', '允許借採(ALL/借/採)', '第二順位專區/區名/大區代碼', '允許月銷級距(逗號分隔)']
-      ];
+      ]
       this.filteredRules.forEach(r => {
         rows.push([
           r.id || '',
@@ -2428,37 +2192,37 @@ export default {
           r.allowed_trade || 'ALL',
           (r.allowed_targets || []).join(','),
           (r.allowed_sales_tiers || []).join(',')
-        ]);
-      });
-      const ws = XLSX.utils.aoa_to_sheet(rows);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, '80庫儲位規則');
-      const today = new Date().toISOString().slice(0, 10);
-      XLSX.writeFile(wb, `80庫儲位規則設定_${today}.xlsx`);
-      ElMessage.success('🎉 已匯出儲位規則 Excel！');
+        ])
+      })
+      const ws = XLSX.utils.aoa_to_sheet(rows)
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, '80庫儲位規則')
+      const today = new Date().toISOString().slice(0, 10)
+      XLSX.writeFile(wb, `80庫儲位規則設定_${today}.xlsx`)
+      ElMessage.success('🎉 已匯出儲位規則 Excel！')
     },
     triggerRuleExcelInput() {
       if (this.$refs.ruleExcelInput) {
-        this.$refs.ruleExcelInput.value = '';
-        this.$refs.ruleExcelInput.click();
+        this.$refs.ruleExcelInput.value = ''
+        this.$refs.ruleExcelInput.click()
       }
     },
     async handleRuleExcelImport(e) {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      this.batchSaving = true;
+      const file = e.target.files?.[0]
+      if (!file) return
+      this.batchSaving = true
       try {
-        const buf = await file.arrayBuffer();
-        const wb = XLSX.read(buf, { type: 'array' });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
-        if (rows.length === 0) throw new Error('Excel 檔案內容為空');
+        const buf = await file.arrayBuffer()
+        const wb = XLSX.read(buf, { type: 'array' })
+        const ws = wb.Sheets[wb.SheetNames[0]]
+        const rows = XLSX.utils.sheet_to_json(ws, { defval: '' })
+        if (rows.length === 0) throw new Error('Excel 檔案內容為空')
 
         const payloads = rows
           .filter(row => row['樓層'] && row['X軸起點'])
           .map(row => {
-            const tiersRaw = String(row['允許月銷級距(逗號分隔)'] || '').trim();
-            const targetsRaw = String(row['第二順位專區/區名/大區代碼'] || '').trim();
+            const tiersRaw = String(row['允許月銷級距(逗號分隔)'] || '').trim()
+            const targetsRaw = String(row['第二順位專區/區名/大區代碼'] || '').trim()
             return {
               id: row['規則ID(勿改)'] || null,
               enabled: String(row['啟用(1/0)']).trim() !== '0',
@@ -2476,94 +2240,94 @@ export default {
               allowed_trade: String(row['允許借採(ALL/借/採)'] || 'ALL').trim(),
               allowed_targets: targetsRaw ? targetsRaw.split(/[,，]/).map(s => s.trim()).filter(Boolean) : [],
               allowed_sales_tiers: tiersRaw ? tiersRaw.split(/[,，]/).map(s => s.trim()).filter(Boolean) : []
-            };
-          });
+            }
+          })
 
         for (let i = 0; i < payloads.length; i += 10) {
-          const chunk = payloads.slice(i, i + 10);
-          await Promise.all(chunk.map(rule => axios.post('/api/storage-accuracy/rules/save', { rule })));
+          const chunk = payloads.slice(i, i + 10)
+          await Promise.all(chunk.map(rule => axios.post('/api/storage-accuracy/rules/save', { rule })))
         }
 
-        await this.refreshAll();
-        ElMessage.success(`🎉 成功匯入並更新 ${payloads.length} 條儲位規則！`);
+        await this.refreshAll()
+        ElMessage.success(`🎉 成功匯入並更新 ${payloads.length} 條儲位規則！`)
       } catch (err) {
-        ElMessage.error('匯入規則 Excel 失敗：' + err.message);
+        ElMessage.error('匯入規則 Excel 失敗：' + err.message)
       } finally {
-        this.batchSaving = false;
+        this.batchSaving = false
       }
     },
 
     triggerCsvInput() {
       if (this.$refs.csvInput) {
-        this.$refs.csvInput.value = '';
-        this.$refs.csvInput.click();
+        this.$refs.csvInput.value = ''
+        this.$refs.csvInput.click()
       }
     },
     parseCsvLine(line) {
-      const result = [];
-      let cur = '';
-      let inQuotes = false;
+      const result = []
+      let cur = ''
+      let inQuotes = false
       for (let i = 0; i < line.length; i++) {
-        const ch = line[i];
+        const ch = line[i]
         if (ch === '"') {
-          inQuotes = !inQuotes;
+          inQuotes = !inQuotes
         } else if (ch === ',' && !inQuotes) {
-          result.push(cur.trim());
-          cur = '';
+          result.push(cur.trim())
+          cur = ''
         } else {
-          cur += ch;
+          cur += ch
         }
       }
-      result.push(cur.trim());
-      return result;
+      result.push(cur.trim())
+      return result
     },
     async handleCsvUpload(e) {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      this.uploading = true;
-      this.uploadProgressText = '讀取 CSV 檔案中...';
+      const file = e.target.files?.[0]
+      if (!file) return
+      this.uploading = true
+      this.uploadProgressText = '讀取 CSV 檔案中...'
 
       try {
-        const text = await file.text();
-        const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
-        if (lines.length < 2) throw new Error('CSV 內容為空');
+        const text = await file.text()
+        const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0)
+        if (lines.length < 2) throw new Error('CSV 內容為空')
 
-        const headers = this.parseCsvLine(lines[0]).map(h => h.replace(/^\uFEFF/, ''));
-        const idxSku = headers.indexOf('商品ID');
-        const idxName = headers.indexOf('商品名稱');
-        const idxTrade = headers.indexOf('借/採');
-        const idxBin = headers.indexOf('儲位');
-        const idxQty = headers.indexOf('儲位庫存數');
-        const idxFloor = headers.indexOf('樓層');
-        const idxArea = headers.indexOf('樓層區域');
-        const idxType = headers.indexOf('儲位型態');
-        const idxCatCode = headers.indexOf('大區編');
-        const idxCatName = headers.indexOf('大區名');
-        const idxZoneId = headers.indexOf('區編');
-        const idxZoneName = headers.indexOf('區名');
-        const idxVolType = headers.indexOf('材積別');
-        const idxVol = headers.indexOf('材積判斷');
-        const idxCubicFeet = headers.indexOf('才數');
-        const idxTotalCubicFeet = headers.indexOf('總才數');
-        const idxMonthlySales = headers.indexOf('(近)月銷量');
-        const idxPickDaysM = headers.indexOf('(近)月-有揀貨單天數');
-        const idxNote = headers.indexOf('備註');
+        const headers = this.parseCsvLine(lines[0]).map(h => h.replace(/^\uFEFF/, ''))
+        const idxSku = headers.indexOf('商品ID')
+        const idxName = headers.indexOf('商品名稱')
+        const idxTrade = headers.indexOf('借/採')
+        const idxBin = headers.indexOf('儲位')
+        const idxQty = headers.indexOf('儲位庫存數')
+        const idxFloor = headers.indexOf('樓層')
+        const idxArea = headers.indexOf('樓層區域')
+        const idxType = headers.indexOf('儲位型態')
+        const idxCatCode = headers.indexOf('大區編')
+        const idxCatName = headers.indexOf('大區名')
+        const idxZoneId = headers.indexOf('區編')
+        const idxZoneName = headers.indexOf('區名')
+        const idxVolType = headers.indexOf('材積別')
+        const idxVol = headers.indexOf('材積判斷')
+        const idxCubicFeet = headers.indexOf('才數')
+        const idxTotalCubicFeet = headers.indexOf('總才數')
+        const idxMonthlySales = headers.indexOf('(近)月銷量')
+        const idxPickDaysM = headers.indexOf('(近)月-有揀貨單天數')
+        const idxNote = headers.indexOf('備註')
 
         if (idxSku === -1 || idxBin === -1) {
-          throw new Error('CSV 缺少「商品ID」或「儲位」欄位，請確認為 80 庫匯出檔');
+          throw new Error('CSV 缺少「商品ID」或「儲位」欄位，請確認為 80 庫匯出檔')
         }
 
-        const parsedRows = [];
+        const parsedRows = []
         for (let i = 1; i < lines.length; i++) {
-          const cols = this.parseCsvLine(lines[i]);
-          const sku = cols[idxSku];
-          const bin = cols[idxBin];
-          if (!sku || !bin) continue;
+          const cols = this.parseCsvLine(lines[i])
+          const sku = cols[idxSku]
+          const bin = cols[idxBin]
+          if (!sku || !bin) continue
 
-          const qtyVal = idxQty !== -1 ? Number(cols[idxQty] || 0) : 0;
-          const unitCf = idxCubicFeet !== -1 ? Number(String(cols[idxCubicFeet] || 0).replace(/,/g, '')) : 0;
-          const rawTotalCf = idxTotalCubicFeet !== -1 ? Number(String(cols[idxTotalCubicFeet] || 0).replace(/,/g, '')) : 0;
-          const totalCf = rawTotalCf > 0 ? rawTotalCf : Number((unitCf * qtyVal).toFixed(2));
+          const qtyVal = idxQty !== -1 ? Number(cols[idxQty] || 0) : 0
+          const unitCf = idxCubicFeet !== -1 ? Number(String(cols[idxCubicFeet] || 0).replace(/,/g, '')) : 0
+          const rawTotalCf = idxTotalCubicFeet !== -1 ? Number(String(cols[idxTotalCubicFeet] || 0).replace(/,/g, '')) : 0
+          const totalCf = rawTotalCf > 0 ? rawTotalCf : Number((unitCf * qtyVal).toFixed(2))
 
           parsedRows.push({
             sku_id: sku,
@@ -2584,35 +2348,35 @@ export default {
             monthly_sales: idxMonthlySales !== -1 ? Number(String(cols[idxMonthlySales] || 0).replace(/,/g, '')) : 0,
             pick_days_m: idxPickDaysM !== -1 ? Number(String(cols[idxPickDaysM] || 0).replace(/,/g, '')) : 0,
             note: idxNote !== -1 ? cols[idxNote] : ''
-          });
+          })
         }
 
-        const batchId = `batch_${Date.now()}`;
-        const chunkSize = 5000;
+        const batchId = `batch_${Date.now()}`
+        const chunkSize = 5000
         for (let offset = 0; offset < parsedRows.length; offset += chunkSize) {
-          const chunk = parsedRows.slice(offset, offset + chunkSize);
-          this.uploadProgressText = `寫入資料庫中 (${Math.min(offset + chunkSize, parsedRows.length).toLocaleString()} / ${parsedRows.length.toLocaleString()})...`;
+          const chunk = parsedRows.slice(offset, offset + chunkSize)
+          this.uploadProgressText = `寫入資料庫中 (${Math.min(offset + chunkSize, parsedRows.length).toLocaleString()} / ${parsedRows.length.toLocaleString()})...`
           await axios.post('/api/storage-accuracy/audit/upload-chunk', {
             batchId,
             isFirstChunk: offset === 0,
             rows: chunk
-          });
+          })
         }
 
-        this.uploadProgressText = '計算擺放準確率與動線分析中...';
-        await this.refreshAll();
-        ElMessage.success(`🎉 成功匯入 ${parsedRows.length.toLocaleString()} 筆 80 庫儲位明細並完成準確率稽核！`);
+        this.uploadProgressText = '計算擺放準確率與動線分析中...'
+        await this.refreshAll()
+        ElMessage.success(`🎉 成功匯入 ${parsedRows.length.toLocaleString()} 筆 80 庫儲位明細並完成準確率稽核！`)
       } catch (err) {
-        ElMessage.error('上傳 80 庫 CSV 失敗：' + err.message);
+        ElMessage.error('上傳 80 庫 CSV 失敗：' + err.message)
       } finally {
-        this.uploading = false;
-        this.uploadProgressText = '';
+        this.uploading = false
+        this.uploadProgressText = ''
       }
     },
     exportExceptionsExcel() {
       const rows = [
         ['商品ID', '商品名稱', '借/採', '大區編', '商品大區', '區編', '區名', '材積別', '總才數', '月銷量', '月銷級距', '樓層', '目前儲位', '區域用途', '庫存數', '建議擺放樓層', '建議區域', '層架類型(依總才數判斷)', '異常原因']
-      ];
+      ]
       this.filteredExceptions.forEach(item => {
         rows.push([
           item.sku_id,
@@ -2634,14 +2398,14 @@ export default {
           item.suggested_area || '',
           item.suggested_rack_type || '',
           item.reason
-        ]);
-      });
-      const ws = XLSX.utils.aoa_to_sheet(rows);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, '儲位異常移庫清單');
-      const today = new Date().toISOString().slice(0, 10);
-      XLSX.writeFile(wb, `80庫儲位異常移庫單_${today}.xlsx`);
-      ElMessage.success('🎉 已成功匯出儲位異常移庫單！');
+        ])
+      })
+      const ws = XLSX.utils.aoa_to_sheet(rows)
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, '儲位異常移庫清單')
+      const today = new Date().toISOString().slice(0, 10)
+      XLSX.writeFile(wb, `80庫儲位異常移庫單_${today}.xlsx`)
+      ElMessage.success('🎉 已成功匯出儲位異常移庫單！')
     }
   }
 }
@@ -2730,28 +2494,6 @@ export default {
 .st-bar-wrap { height: 7px; background: #334155; border-radius: 4px; overflow: hidden; }
 .st-bar { height: 100%; }
 .st-pct { font-weight: bold; text-align: right; }
-
-/* ==================== 參數設定分割版面 ==================== */
-.settings-split-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: 420px 1fr; gap: 10px; }
-.sku-group-workspace { flex: 1; min-height: 0; display: grid; grid-template-columns: 200px 1fr; }
-.sku-group-list { background: #0f172a; border-right: 1px solid #334155; padding: 8px; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; }
-.sku-group-item {
-  padding: 9px 10px;
-  border-radius: 6px;
-  border: 1px solid #334155;
-  background: #1e293b;
-  cursor: pointer;
-  transition: all 0.12s;
-}
-.sku-group-item:hover { border-color: #38bdf8; }
-.sku-group-item.active {
-  background: rgba(37, 99, 235, 0.25);
-  border-color: #38bdf8;
-  color: #ffffff;
-}
-.sku-group-editor { padding: 12px; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
-
-.tier-cfg-item { display: inline-flex; align-items: center; gap: 10px; font-size: 13px; color: #f8fafc; }
 
 .role-pill { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 11px; font-weight: bold; white-space: nowrap; }
 .role-PICK { background: rgba(74, 222, 128, 0.16); color: #4ade80; border: 1px solid rgba(74, 222, 128, 0.35); }
