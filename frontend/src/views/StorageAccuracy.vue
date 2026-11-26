@@ -1580,11 +1580,14 @@ export default {
           else if (tiers.includes('B')) statusClass = 'fp-status-borrow'
           else if (tiers.includes('C')) statusClass = 'fp-status-buy'
         } else {
+          // 預設著色視角：有異常必亮紅燈；其餘只要有設定條件（含區域用途）皆顯示對應顏色，空儲位亦同
           if (xStat && xStat.failed > 0) statusClass = 'fp-status-err'
           else if (zRole === 'CLOSED') statusClass = 'fp-status-closed'
           else if (rule && rule.allowed_trade === '借') statusClass = 'fp-status-borrow'
           else if (rule && rule.allowed_trade === '採') statusClass = 'fp-status-buy'
           else if (rule && (targets.length > 0 || (rule.allowed_sales_tiers?.length > 0))) statusClass = 'fp-status-cat'
+          else if (rule && zRole === 'STORAGE') statusClass = 'fp-status-buy'
+          else if (rule) statusClass = 'fp-status-cat'
         }
 
         const roleLabel = this.zoneRoleLabelMap[zRole] || '撿貨區'
@@ -2184,15 +2187,22 @@ mounted() {
 
     async initLoadWithRetry(attempt = 0) {
       this.syncAuthFromDomAndStorage()
+      const hasBaseUrl = Boolean(axios.defaults.baseURL)
+      // 若外層 App.vue 尚未掛載完後端 API 網址，先每 400ms 等待就緒（最多等 10 秒）
+      if (!hasBaseUrl && attempt < 25) {
+        setTimeout(() => {
+          this.initLoadWithRetry(attempt + 1)
+        }, 400)
+        return
+      }
       await this.refreshAll()
-      // 若外層 App.vue 尚未完成設定後端 baseURL（導致回傳非 JSON 物件），自動延遲重試
-      if (this.rules.length === 0 && !this.report.hasData && attempt < 4) {
+      if (this.rules.length === 0 && !this.report.hasData && attempt < 25) {
         setTimeout(() => {
           this.initLoadWithRetry(attempt + 1)
         }, 500)
       }
     },
-    
+
     async refreshAll() {
       this.loading = true
       try {
