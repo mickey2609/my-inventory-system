@@ -308,14 +308,14 @@ export const SHELL_7F = {
   }
 };
 
-// 8F 東側夾層標準固定隔間（A～C區同 2F 東側，A區北側含室外機；D區同 6F-D）
+// 8F 東側夾層標準固定隔間（A～C區同 2F 東側，A區移除空壓系統並補上北側室外機；D區同 6F-D）
 export const SHELL_8F = {
   '8F-A': {
     widthM: 60,
     depthM: 24,
     columns: buildStructuralColumns(60, 24),
     rooms: [
-      ...SHELL_2F_EAST['2F-E-A'].rooms,
+      ...SHELL_2F_EAST['2F-E-A'].rooms.filter((rm) => rm.label !== '空壓系統'),
       { x: 36, y: 0, w: 12, h: 2.2, label: '室外機' }
     ]
   },
