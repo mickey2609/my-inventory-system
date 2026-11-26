@@ -1590,17 +1590,25 @@ export default {
         return floorRules.find(r => matchX(r) && matchY(r)) || null
       }
 
-      // 若規則總表已修改該段儲位編碼（例如 80D07059~065A），自動同步覆蓋平面圖顯示文字與統計範圍
-      const resolveEffectiveLabel = (xCode, rawLabel) => {
-        const matched = findRuleForSegment(xCode, rawLabel)
-        if (matched && matched.x_start === xCode && matched.x_end === xCode) {
-          const cleanName = String(matched.zone_name || '').replace(/\s*\(.*\)$/, '').trim()
-          if (/^80[A-Z0-9]{3}\d{2,3}/.test(cleanName)) {
-            return cleanName
-          }
-        }
-        return rawLabel
-      }
+      // 僅當規則為「單段專屬規則」（規則的 Y 軸範圍完全落於該段之內，非 001~999 整排共用規則）時才同步覆蓋名稱
+   const resolveEffectiveLabel = (xCode, rawLabel) => {
+     const range = this.parseRackYRange(rawLabel, xCode)
+     const matched = findRuleForSegment(xCode, rawLabel)
+     if (matched && matched.x_start === xCode && matched.x_end === xCode) {
+       const raw1 = parseInt(matched.y_start || '0', 10)
+       const raw2 = parseInt(matched.y_end || '999', 10)
+       const rY1 = Math.min(raw1, raw2)
+       const rY2 = Math.max(raw1, raw2)
+       const isSegmentSpecific = range.hasYRange && rY1 >= range.yStart && rY2 <= range.yEnd
+       if (isSegmentSpecific) {
+         const cleanName = String(matched.zone_name || '').replace(/\s*\(.*\)$/, '').trim()
+         if (/^80[A-Z0-9]{3}\d{2,3}/.test(cleanName)) {
+           return cleanName
+         }
+       }
+     }
+     return rawLabel
+   }
 
       const decorateRack = (xCode, label, widthPx = 0) => {
         const rule = findRuleForSegment(xCode, label)
@@ -1976,7 +1984,7 @@ export default {
       this.selectedMapRacks = []
     },
     isNodeSelected(node) {
-      return this.selectedMapRacks.some(r => r.xCode === node.xCode && r.label === node.label)
+      return this.selectedMapRacks.some(r => r.uid === node.uid)
     },
     clearMapSelection() {
       this.selectedMapRacks = []
