@@ -15,6 +15,13 @@
       accept=".xlsx,.xls"
       @change="handleRuleExcelImport"
     />
+    <input
+      type="file"
+      ref="skuGroupImportInput"
+      style="display: none;"
+      accept=".xlsx,.xls,.csv"
+      @change="handleSkuGroupImport"
+    />
 
     <!-- 頂部控制列 -->
     <div class="header-card">
@@ -53,21 +60,18 @@
           >
             ⚙️ 儲位規則總表 ({{ rules.length }} 條)
           </button>
+          <button
+            type="button"
+            class="sub-tab-btn"
+            :class="{ active: activeTab === 'settings' }"
+            @click="activeTab = 'settings'"
+          >
+            🛠️ 參數設定
+          </button>
         </div>
       </div>
 
       <div class="header-right">
-        <el-select
-          v-model="modeSettings.mode"
-          size="mini"
-          style="width: 185px;"
-          @change="saveModeSettings"
-        >
-          <el-option label="模式1：大區 + 借採" value="CAT_TRADE" />
-          <el-option label="模式2：月銷 + 借採" value="SALES_TRADE" />
-          <el-option label="模式3：大區 + 月銷 + 借採" value="CAT_SALES_TRADE" />
-        </el-select>
-
         <span v-if="uploadProgressText" class="upload-status-pill">{{ uploadProgressText }}</span>
         <el-button size="mini" type="success" icon="el-icon-upload2" :loading="uploading" @click="triggerCsvInput">
           上傳 80庫 CSV
@@ -98,7 +102,7 @@
           <div class="kpi-num text-red">{{ report.summary.failed.toLocaleString() }}</div>
         </div>
         <div class="kpi-box highlight-kpi">
-          <div class="kpi-lbl">🎯 當前模式擺放準確率</div>
+          <div class="kpi-lbl">🎯 全庫擺放準確率</div>
           <div class="kpi-num" :class="report.summary.accuracyPct >= 95 ? 'text-green' : 'text-yellow'">
             {{ report.summary.accuracyPct }}%
           </div>
@@ -107,7 +111,7 @@
 
       <div v-if="!report.hasData" class="empty-guide-card">
         <h4>尚未匯入 80 庫庫存快照資料</h4>
-        <p>您可先切換至 <strong>「🗺️ 樓層儲位平面配置圖」</strong> 點選或框選貨架設定用途（庫區 / 撿貨區 / 庫區+撿貨區 / 關閉中），再上傳 80 庫 CSV 即可自動分析！</p>
+        <p>您可先切換至 <strong>「🗺️ 樓層儲位平面配置圖」</strong> 點選或框選貨架設定用途與規則，再上傳 80 庫 CSV 即可自動分析！</p>
       </div>
 
       <template v-else>
@@ -179,7 +183,7 @@
 
         <div class="panel-card exception-table-card">
           <div class="panel-head row-between">
-            <span>🚨 放錯儲位異常移庫清單（共 {{ filteredExceptions.length }} 筆異常｜當前模式：{{ modeLabelMap[modeSettings.mode] }}）</span>
+            <span>🚨 放錯儲位異常移庫清單（共 {{ filteredExceptions.length }} 筆異常｜判斷順位：借/採 ＞ 商品ID專區/區名/大區 ＞ 月銷量級距）</span>
             <div class="exc-filters">
               <el-input v-model="excKeyword" size="mini" placeholder="搜尋商品ID/名稱/儲位..." style="width: 165px;" clearable />
               <el-select v-model="excRoleFilter" size="mini" style="width: 120px;">
@@ -218,9 +222,9 @@
                   <th>商品ID</th>
                   <th>商品名稱</th>
                   <th>借/採</th>
-                  <th>商品大區</th>
+                  <th>大區編 / 大區名</th>
+                  <th>區編 / 區名</th>
                   <th>月銷量</th>
-                  <th>月銷級距</th>
                   <th>樓層</th>
                   <th>目前儲位</th>
                   <th>區域用途</th>
@@ -241,11 +245,9 @@
                       {{ item.trade_type }}
                     </span>
                   </td>
-                  <td>{{ item.cat_name }}</td>
+                  <td>{{ item.cat_code ? `${item.cat_code} - ${item.cat_name}` : item.cat_name }}</td>
+                  <td>{{ item.zone_id ? `${item.zone_id} - ${item.zone_name}` : item.zone_name }}</td>
                   <td class="font-bold text-yellow">{{ item.monthly_sales }}</td>
-                  <td>
-                    <span class="tier-pill" :class="`tier-${item.sales_tier}`">{{ item.sales_tier_label }}</span>
-                  </td>
                   <td class="font-bold">{{ item.floor }}</td>
                   <td class="text-yellow font-bold">{{ item.bin_code }}</td>
                   <td>
@@ -417,7 +419,7 @@
             <el-select v-model="mapColorMode" size="mini" style="width: 165px;">
               <el-option label="預設（異常＋借採/規則）" value="DEFAULT" />
               <el-option label="🏷️ 依區域用途（撿/庫/關）" value="ZONE_ROLE" />
-              <el-option label="🗂️ 依商品大區設定" value="CATEGORY" />
+              <el-option label="🗂️ 依專區/區名/大區設定" value="CATEGORY" />
               <el-option label="🔥 依月銷級距設定" value="SALES_TIER" />
             </el-select>
 
@@ -472,7 +474,7 @@
           <div v-else class="fp-legend">
             <span class="leg-item"><i class="leg-dot dot-buy"></i> 僅限「採」</span>
             <span class="leg-item"><i class="leg-dot dot-borrow"></i> 僅限「借」</span>
-            <span class="leg-item"><i class="leg-dot dot-cat"></i> 已設大區/月銷</span>
+            <span class="leg-item"><i class="leg-dot dot-cat"></i> 已設專區/區名/大區</span>
             <span class="leg-item"><i class="leg-dot dot-closed"></i> 🚫 關閉中</span>
             <span class="leg-item"><i class="leg-dot dot-err"></i> 含異常庫存（點擊看明細）</span>
           </div>
@@ -541,7 +543,7 @@
                   ▶ 東側碼頭方向（{{ currentZoneObj?.label || '' }}｜柱心距 12m）
                 </div>
 
-                <!-- 建築結構外圍框（支援 L 型缺角輪廓與夾層分界線） -->
+                <!-- 建築結構外圍框 -->
                 <svg
                   v-if="currentFloorCanvas.outerFrame"
                   class="fp-zone-svg-outline"
@@ -714,50 +716,48 @@
                 style="width: 100%; margin-bottom: 8px;"
               />
 
-              <label class="m-lbl">允許借 / 採：</label>
+              <label class="m-lbl">① 第一順位｜允許借 / 採：</label>
               <el-select v-model="mapEditRule.allowed_trade" size="mini" style="width: 100%; margin-bottom: 8px;">
                 <el-option label="借採皆可" value="ALL" />
                 <el-option label="僅限「借」" value="借" />
                 <el-option label="僅限「採」" value="採" />
               </el-select>
 
-              <label class="m-lbl">允許月銷量級距（可多選）：</label>
+              <label class="m-lbl">② 第二順位｜商品ID專區 / 區名 / 大區名（可多選）：</label>
+              <el-select
+                v-model="mapEditRule.allowed_targets"
+                multiple
+                filterable
+                size="mini"
+                placeholder="不限（可多選商品ID專區、區編-區名、大區編-大區名）"
+                style="width: 100%; margin-bottom: 8px;"
+              >
+                <el-option-group
+                  v-for="grp in groupedTargetOptions"
+                  :key="grp.label"
+                  :label="grp.label"
+                >
+                  <el-option
+                    v-for="opt in grp.options"
+                    :key="opt.value"
+                    :label="opt.label"
+                    :value="opt.value"
+                  />
+                </el-option-group>
+              </el-select>
+
+              <label class="m-lbl">③ 第三順位｜允許月銷量級距（可多選）：</label>
               <el-select
                 v-model="mapEditRule.allowed_sales_tiers"
                 multiple
                 size="mini"
-                placeholder="不限月銷級距"
-                style="width: 100%; margin-bottom: 8px;"
+                placeholder="暫不設定（不限月銷級距）"
+                style="width: 100%; margin-bottom: 10px;"
               >
                 <el-option :label="`A級爆品 (≥${modeSettings.tierA_min})`" value="A" />
                 <el-option :label="`B級常銷 (${modeSettings.tierB_min}~${modeSettings.tierA_min - 1})`" value="B" />
                 <el-option :label="`C級慢銷 (${modeSettings.tierC_min}~${modeSettings.tierB_min - 1})`" value="C" />
                 <el-option label="D級滯銷 (0)" value="D" />
-              </el-select>
-
-              <label class="m-lbl">允許商品大區（可多選）：</label>
-              <el-select
-                v-model="mapEditRule.allowed_categories"
-                multiple
-                filterable
-                size="mini"
-                placeholder="不限大區"
-                style="width: 100%; margin-bottom: 8px;"
-              >
-                <el-option v-for="cat in categoryOptions" :key="cat" :label="cat" :value="cat" />
-              </el-select>
-
-              <label class="m-lbl">允許材積：</label>
-              <el-select
-                v-model="mapEditRule.allowed_volumes"
-                multiple
-                size="mini"
-                placeholder="不限材積"
-                style="width: 100%; margin-bottom: 10px;"
-              >
-                <el-option label="小材積" value="小材積" />
-                <el-option label="大材積" value="大材積" />
-                <el-option label="超大材" value="超大材" />
               </el-select>
 
               <el-button type="primary" size="mini" style="width: 100%;" :loading="batchSaving" @click="saveMapRackRule">
@@ -804,7 +804,7 @@
                 style="width: 100%; margin-bottom: 8px;"
               />
 
-              <label class="m-lbl">允許借 / 採：</label>
+              <label class="m-lbl">① 第一順位｜允許借 / 採：</label>
               <el-select v-model="mapBatchForm.allowed_trade" size="mini" style="width: 100%; margin-bottom: 8px;">
                 <el-option label="（維持各排原設定）" value="KEEP" />
                 <el-option label="借採皆可" value="ALL" />
@@ -813,7 +813,34 @@
               </el-select>
 
               <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
-                <label class="m-lbl" style="margin: 0;">允許月銷量級距：</label>
+                <label class="m-lbl" style="margin: 0;">② 商品ID專區/區名/大區：</label>
+                <el-checkbox v-model="mapBatchForm.applyTargets" size="mini">覆蓋設定</el-checkbox>
+              </div>
+              <el-select
+                v-model="mapBatchForm.allowed_targets"
+                :disabled="!mapBatchForm.applyTargets"
+                multiple
+                filterable
+                size="mini"
+                placeholder="勾選右側後選擇（留空=不限）"
+                style="width: 100%; margin-bottom: 8px;"
+              >
+                <el-option-group
+                  v-for="grp in groupedTargetOptions"
+                  :key="grp.label"
+                  :label="grp.label"
+                >
+                  <el-option
+                    v-for="opt in grp.options"
+                    :key="opt.value"
+                    :label="opt.label"
+                    :value="opt.value"
+                  />
+                </el-option-group>
+              </el-select>
+
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+                <label class="m-lbl" style="margin: 0;">③ 允許月銷量級距：</label>
                 <el-checkbox v-model="mapBatchForm.applyTiers" size="mini">覆蓋月銷</el-checkbox>
               </div>
               <el-select
@@ -822,28 +849,12 @@
                 multiple
                 size="mini"
                 placeholder="勾選右側後選擇級距（留空=不限）"
-                style="width: 100%; margin-bottom: 8px;"
+                style="width: 100%; margin-bottom: 10px;"
               >
                 <el-option :label="`A級爆品 (≥${modeSettings.tierA_min})`" value="A" />
                 <el-option :label="`B級常銷 (${modeSettings.tierB_min}~${modeSettings.tierA_min - 1})`" value="B" />
                 <el-option :label="`C級慢銷 (${modeSettings.tierC_min}~${modeSettings.tierB_min - 1})`" value="C" />
                 <el-option label="D級滯銷 (0)" value="D" />
-              </el-select>
-
-              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
-                <label class="m-lbl" style="margin: 0;">允許商品大區：</label>
-                <el-checkbox v-model="mapBatchForm.applyCats" size="mini">覆蓋大區</el-checkbox>
-              </div>
-              <el-select
-                v-model="mapBatchForm.allowed_categories"
-                :disabled="!mapBatchForm.applyCats"
-                multiple
-                filterable
-                size="mini"
-                placeholder="勾選右側後選擇大區（留空=不限）"
-                style="width: 100%; margin-bottom: 10px;"
-              >
-                <el-option v-for="cat in categoryOptions" :key="cat" :label="cat" :value="cat" />
               </el-select>
 
               <el-button type="success" size="mini" style="width: 100%;" :loading="batchSaving" @click="saveMapBatchRules">
@@ -881,8 +892,8 @@
             <el-input
               v-model="ruleKeyword"
               size="mini"
-              placeholder="搜尋區域名稱、X軸或大區..."
-              style="width: 205px;"
+              placeholder="搜尋區域名稱、X軸、專區或大區..."
+              style="width: 225px;"
               clearable
               @input="rulePage = 1"
             />
@@ -897,8 +908,8 @@
           </div>
 
           <div class="rule-actions">
-            <el-button size="mini" type="warning" plain @click="showTierModal = true">
-              🔥 月銷門檻設定
+            <el-button size="mini" type="warning" plain @click="activeTab = 'settings'">
+              🛠️ 參數設定（月銷 / 商品ID專區）
             </el-button>
             <el-button size="mini" type="success" plain icon="el-icon-download" @click="exportRulesExcel">
               匯出規則 Excel
@@ -928,16 +939,15 @@
                 <th style="width: 110px;">X軸 (排號)</th>
                 <th style="width: 90px;">Y軸 / 層</th>
                 <th style="width: 110px;">🏷️ 區域用途</th>
-                <th style="width: 80px;">📏 層架(m)</th>
-                <th style="width: 85px;">借 / 採</th>
-                <th style="width: 145px;">允許月銷級距</th>
-                <th>允許商品大區</th>
+                <th style="width: 85px;">① 借/採</th>
+                <th>② 商品ID專區 / 區名 / 大區名</th>
+                <th style="width: 135px;">③ 允許月銷級距</th>
                 <th style="width: 135px;">操作</th>
               </tr>
             </thead>
             <tbody>
               <tr v-if="paginatedRules.length === 0">
-                <td colspan="13" class="empty-td">查無符合篩選條件的儲位規則</td>
+                <td colspan="12" class="empty-td">查無符合篩選條件的儲位規則</td>
               </tr>
               <tr
                 v-for="r in paginatedRules"
@@ -968,11 +978,23 @@
                     {{ zoneRoleLabelMap[r.zone_role || 'PICK'] }}
                   </span>
                 </td>
-                <td class="font-bold">{{ r.rack_length_m || 20 }} m</td>
                 <td>
                   <span v-if="r.allowed_trade === '借'" class="trade-pill pill-borrow">僅限借</span>
                   <span v-else-if="r.allowed_trade === '採'" class="trade-pill pill-buy">僅限採</span>
                   <span v-else class="text-dim">皆可</span>
+                </td>
+                <td class="text-left">
+                  <template v-if="r.allowed_targets && r.allowed_targets.length">
+                    <span
+                      v-for="tok in r.allowed_targets"
+                      :key="tok"
+                      class="cat-chip"
+                      :class="getTargetChipClass(tok)"
+                    >
+                      {{ formatTargetToken(tok) }}
+                    </span>
+                  </template>
+                  <span v-else class="text-dim">不限</span>
                 </td>
                 <td>
                   <template v-if="r.allowed_sales_tiers && r.allowed_sales_tiers.length">
@@ -987,12 +1009,6 @@
                     </span>
                   </template>
                   <span v-else class="text-dim">不限</span>
-                </td>
-                <td class="text-left">
-                  <template v-if="r.allowed_categories && r.allowed_categories.length">
-                    <span v-for="c in r.allowed_categories" :key="c" class="cat-chip">{{ c }}</span>
-                  </template>
-                  <span v-else class="text-dim">不限大區</span>
                 </td>
                 <td style="white-space: nowrap;">
                   <button type="button" class="expand-rule-btn" @click="openEditRuleModal(r)">編輯</button>
@@ -1025,6 +1041,160 @@
             @current-change="val => rulePage = val"
             @size-change="val => { rulePageSize = val; rulePage = 1; }"
           />
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== TAB 5: 參數設定（月銷量級距門檻 ＋ 商品ID**區專區管理） ==================== -->
+    <div v-if="activeTab === 'settings'" class="tab-content" v-loading="loading">
+      <div class="settings-split-grid">
+        <!-- 左側：月銷量級距門檻設定 -->
+        <div class="panel-card">
+          <div class="panel-head row-between">
+            <span>🔥 第三順位｜月銷量級距門檻參數設定</span>
+            <el-button size="mini" type="success" @click="saveModeSettings">💾 儲存所有參數並重算</el-button>
+          </div>
+          <div style="padding: 16px; display: flex; flex-direction: column; gap: 14px;">
+            <div class="tier-cfg-item">
+              <span class="tier-pill tier-A" style="width: 85px; text-align: center;">A級爆品</span>
+              <span>近月銷量 ≥</span>
+              <el-input-number v-model="modeSettings.tierA_min" :min="2" size="mini" style="width: 130px;" />
+              <span class="text-dim">件 / 月</span>
+            </div>
+            <div class="tier-cfg-item">
+              <span class="tier-pill tier-B" style="width: 85px; text-align: center;">B級常銷</span>
+              <span>近月銷量 ≥</span>
+              <el-input-number v-model="modeSettings.tierB_min" :min="1" size="mini" style="width: 130px;" />
+              <span class="text-dim">件 / 月（~ {{ modeSettings.tierA_min - 1 }} 件）</span>
+            </div>
+            <div class="tier-cfg-item">
+              <span class="tier-pill tier-C" style="width: 85px; text-align: center;">C級慢銷</span>
+              <span>近月銷量 ≥</span>
+              <el-input-number v-model="modeSettings.tierC_min" :min="1" size="mini" style="width: 130px;" />
+              <span class="text-dim">件 / 月（~ {{ modeSettings.tierB_min - 1 }} 件）</span>
+            </div>
+            <div class="tier-cfg-item">
+              <span class="tier-pill tier-D" style="width: 85px; text-align: center;">D級滯銷</span>
+              <span class="text-dim">近月銷量 = 0 件 / 月（系統自動歸類）</span>
+            </div>
+
+            <div style="background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 12px; font-size: 12px; color: #cbd5e1; line-height: 1.7; margin-top: 6px;">
+              <div class="text-blue font-bold" style="margin-bottom: 4px;">📋 儲位規則稽核優先順序說明：</div>
+              <div>1. <strong>第一順位（借 / 採）</strong>：先核對儲位允許借或採，吻合才進入下一順位。</div>
+              <div>2. <strong>第二順位（商品ID**區 ＞ 區名(帶區編) ＞ 大區名(帶大區編)）</strong>：若商品已加入右側任一「商品ID**區」，則<strong>強制限定</strong>只能放置於有勾選該專區的儲位；同一儲位若設定多個大區/區名，符合其中一項即合格。</div>
+              <div>3. <strong>第三順位（月銷量級距）</strong>：前兩順位皆吻合且儲位有勾選月銷級距時才檢查。</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 右側：商品ID**區 專區管理（多選商品ID帶名稱 ＋ Excel/CSV 匯入） -->
+        <div class="panel-card">
+          <div class="panel-head row-between">
+            <span>🏷️ 第二順位｜「商品ID**區」專區管理（共 {{ (modeSettings.sku_groups || []).length }} 區）</span>
+            <div style="display: flex; gap: 6px;">
+              <el-button size="mini" type="info" plain icon="el-icon-download" @click="exportSkuGroupTemplate">
+                下載匯入範本
+              </el-button>
+              <el-button size="mini" type="warning" icon="el-icon-upload2" @click="triggerSkuGroupImport">
+                匯入商品ID清單
+              </el-button>
+              <el-button size="mini" type="primary" icon="el-icon-plus" @click="addNewSkuGroup">
+                新增專區
+              </el-button>
+              <el-button size="mini" type="success" @click="saveModeSettings">
+                💾 儲存設定
+              </el-button>
+            </div>
+          </div>
+
+          <div class="sku-group-workspace">
+            <!-- 專區清單側欄 -->
+            <div class="sku-group-list">
+              <div
+                v-for="(grp, gIdx) in modeSettings.sku_groups"
+                :key="gIdx"
+                class="sku-group-item"
+                :class="{ active: activeSkuGroupIdx === gIdx }"
+                @click="activeSkuGroupIdx = gIdx"
+              >
+                <div class="font-bold" style="font-size: 13px;">{{ grp.name }}</div>
+                <div class="text-dim" style="font-size: 11px;">已綁定 {{ (grp.skus || []).length }} 個商品</div>
+              </div>
+            </div>
+
+            <!-- 選定專區編輯區 -->
+            <div v-if="currentSkuGroup" class="sku-group-editor">
+              <div class="row-between" style="margin-bottom: 10px;">
+                <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
+                  <span class="font-bold text-blue" style="white-space: nowrap;">專區名稱：</span>
+                  <el-input v-model="currentSkuGroup.name" size="mini" style="max-width: 240px;" placeholder="例如：商品ID貴重區" />
+                </div>
+                <el-button size="mini" type="danger" plain @click="deleteCurrentSkuGroup">
+                  刪除此專區
+                </el-button>
+              </div>
+
+              <label class="m-lbl">🔍 搜尋並多選商品ID（同時帶入商品名稱）：</label>
+              <el-select
+                v-model="currentSkuGroup.skus"
+                multiple
+                filterable
+                allow-create
+                default-first-option
+                size="mini"
+                placeholder="輸入商品ID或商品名稱關鍵字搜尋並多選..."
+                style="width: 100%; margin-bottom: 10px;"
+              >
+                <el-option
+                  v-for="s in lookupOptions.skus"
+                  :key="s.sku_id"
+                  :label="s.label"
+                  :value="s.sku_id"
+                />
+              </el-select>
+
+              <div class="row-between" style="margin-bottom: 6px;">
+                <span class="text-dim" style="font-size: 12px;">
+                  目前已納入【{{ currentSkuGroup.name }}】的商品明細（共 <strong>{{ (currentSkuGroup.skus || []).length }}</strong> 筆）：
+                </span>
+                <el-button
+                  v-if="(currentSkuGroup.skus || []).length > 0"
+                  size="mini"
+                  type="text"
+                  class="text-red"
+                  @click="currentSkuGroup.skus = []"
+                >
+                  清空本區商品
+                </el-button>
+              </div>
+
+              <div class="table-scroll" style="border: 1px solid #334155; border-radius: 6px;">
+                <table class="dark-table">
+                  <thead>
+                    <tr>
+                      <th style="width: 50px;">序號</th>
+                      <th style="width: 165px;">商品ID</th>
+                      <th>商品名稱</th>
+                      <th style="width: 70px;">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-if="!currentSkuGroup.skus || currentSkuGroup.skus.length === 0">
+                      <td colspan="4" class="empty-td">尚未加入任何商品ID，可由上方搜尋多選或點選「匯入商品ID清單」</td>
+                    </tr>
+                    <tr v-for="(skuId, sIdx) in currentSkuGroup.skus" :key="skuId">
+                      <td>{{ sIdx + 1 }}</td>
+                      <td class="text-blue font-bold">{{ skuId }}</td>
+                      <td class="text-left">{{ getSkuNameById(skuId) }}</td>
+                      <td>
+                        <button type="button" class="del-rule-btn" @click="removeSkuFromCurrentGroup(skuId)">移除</button>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -1091,34 +1261,37 @@
           </el-select>
         </div>
         <div>
-          <label class="m-lbl">📏 層架總長度 (公尺)</label>
-          <el-input-number v-model="ruleForm.rack_length_m" :min="0.5" :max="200" :step="0.5" size="mini" style="width: 100%;" />
-        </div>
-        <div>
-          <label class="m-lbl">允許借 / 採</label>
+          <label class="m-lbl">① 第一順位｜允許借 / 採</label>
           <el-select v-model="ruleForm.allowed_trade" size="mini" style="width: 100%;">
             <el-option label="借採皆可" value="ALL" />
             <el-option label="僅限「借」" value="借" />
             <el-option label="僅限「採」" value="採" />
           </el-select>
         </div>
-        <div>
-          <label class="m-lbl">啟用狀態</label>
-          <el-switch v-model="ruleForm.enabled" active-text="啟用中" inactive-text="已停用" />
+        <div style="grid-column: span 2;">
+          <label class="m-lbl">② 第二順位｜商品ID專區 / 區名 / 大區名（可多選，留空代表不限）</label>
+          <el-select v-model="ruleForm.allowed_targets" multiple filterable size="mini" style="width: 100%;">
+            <el-option-group
+              v-for="grp in groupedTargetOptions"
+              :key="grp.label"
+              :label="grp.label"
+            >
+              <el-option
+                v-for="opt in grp.options"
+                :key="opt.value"
+                :label="opt.label"
+                :value="opt.value"
+              />
+            </el-option-group>
+          </el-select>
         </div>
         <div style="grid-column: span 2;">
-          <label class="m-lbl">允許月銷量級距（可多選，留空代表不限）</label>
+          <label class="m-lbl">③ 第三順位｜允許月銷量級距（可多選，暫不設定請留空）</label>
           <el-select v-model="ruleForm.allowed_sales_tiers" multiple size="mini" style="width: 100%;">
             <el-option :label="`A級爆品 (≥${modeSettings.tierA_min})`" value="A" />
             <el-option :label="`B級常銷 (${modeSettings.tierB_min}~${modeSettings.tierA_min - 1})`" value="B" />
             <el-option :label="`C級慢銷 (${modeSettings.tierC_min}~${modeSettings.tierB_min - 1})`" value="C" />
             <el-option label="D級滯銷 (0)" value="D" />
-          </el-select>
-        </div>
-        <div style="grid-column: span 2;">
-          <label class="m-lbl">允許商品大區（可多選，留空代表不限）</label>
-          <el-select v-model="ruleForm.allowed_categories" multiple filterable size="mini" style="width: 100%;">
-            <el-option v-for="cat in categoryOptions" :key="cat" :label="cat" :value="cat" />
           </el-select>
         </div>
       </div>
@@ -1158,14 +1331,7 @@
           </el-select>
         </div>
         <div>
-          <div style="display: flex; justify-content: space-between;">
-            <label class="m-lbl">📏 層架長度（公尺）：</label>
-            <el-checkbox v-model="tableBatchForm.applyLength" size="mini">套用新長度</el-checkbox>
-          </div>
-          <el-input-number v-model="tableBatchForm.rack_length_m" :disabled="!tableBatchForm.applyLength" :min="0.5" :max="200" :step="0.5" size="mini" style="width: 100%;" />
-        </div>
-        <div>
-          <label class="m-lbl">允許借 / 採：</label>
+          <label class="m-lbl">① 第一順位｜允許借 / 採：</label>
           <el-select v-model="tableBatchForm.allowed_trade" size="mini" style="width: 100%;">
             <el-option label="（維持原設定）" value="KEEP" />
             <el-option label="借採皆可" value="ALL" />
@@ -1175,7 +1341,27 @@
         </div>
         <div>
           <div style="display: flex; justify-content: space-between;">
-            <label class="m-lbl">允許月銷量級距：</label>
+            <label class="m-lbl">② 第二順位｜商品ID專區 / 區名 / 大區名：</label>
+            <el-checkbox v-model="tableBatchForm.applyTargets" size="mini">覆蓋設定</el-checkbox>
+          </div>
+          <el-select v-model="tableBatchForm.allowed_targets" :disabled="!tableBatchForm.applyTargets" multiple filterable size="mini" style="width: 100%;">
+            <el-option-group
+              v-for="grp in groupedTargetOptions"
+              :key="grp.label"
+              :label="grp.label"
+            >
+              <el-option
+                v-for="opt in grp.options"
+                :key="opt.value"
+                :label="opt.label"
+                :value="opt.value"
+              />
+            </el-option-group>
+          </el-select>
+        </div>
+        <div>
+          <div style="display: flex; justify-content: space-between;">
+            <label class="m-lbl">③ 第三順位｜允許月銷量級距：</label>
             <el-checkbox v-model="tableBatchForm.applyTiers" size="mini">覆蓋月銷設定</el-checkbox>
           </div>
           <el-select v-model="tableBatchForm.allowed_sales_tiers" :disabled="!tableBatchForm.applyTiers" multiple size="mini" style="width: 100%;">
@@ -1185,47 +1371,12 @@
             <el-option label="D級滯銷 (0)" value="D" />
           </el-select>
         </div>
-        <div>
-          <div style="display: flex; justify-content: space-between;">
-            <label class="m-lbl">允許商品大區：</label>
-            <el-checkbox v-model="tableBatchForm.applyCats" size="mini">覆蓋商品大區</el-checkbox>
-          </div>
-          <el-select v-model="tableBatchForm.allowed_categories" :disabled="!tableBatchForm.applyCats" multiple filterable size="mini" style="width: 100%;">
-            <el-option v-for="cat in categoryOptions" :key="cat" :label="cat" :value="cat" />
-          </el-select>
-        </div>
       </div>
       <template #footer>
         <el-button size="mini" @click="showTableBatchModal = false">取消</el-button>
         <el-button size="mini" type="primary" :loading="batchSaving" @click="submitTableBatchEdit">
           確定批次套用
         </el-button>
-      </template>
-    </el-dialog>
-
-    <!-- Modal 3: 月銷量級距門檻設定 -->
-    <el-dialog v-model="showTierModal" title="🔥 月銷量級距門檻設定" width="460px" append-to-body class="dark-dialog">
-      <div style="display: flex; flex-direction: column; gap: 12px;">
-        <div class="tier-cfg-item">
-          <span style="width: 110px;">A級爆品 ≥</span>
-          <el-input-number v-model="modeSettings.tierA_min" :min="2" size="mini" style="width: 130px;" />
-          <span class="text-dim">件 / 月</span>
-        </div>
-        <div class="tier-cfg-item">
-          <span style="width: 110px;">B級常銷 ≥</span>
-          <el-input-number v-model="modeSettings.tierB_min" :min="1" size="mini" style="width: 130px;" />
-          <span class="text-dim">件 / 月</span>
-        </div>
-        <div class="tier-cfg-item">
-          <span style="width: 110px;">C級慢銷 ≥</span>
-          <el-input-number v-model="modeSettings.tierC_min" :min="1" size="mini" style="width: 130px;" />
-          <span class="text-dim">件 / 月</span>
-        </div>
-        <div class="text-dim" style="font-size: 12px;">※ 近月銷量 = 0 自動歸類為「D級滯銷」。</div>
-      </div>
-      <template #footer>
-        <el-button size="mini" @click="showTierModal = false">取消</el-button>
-        <el-button size="mini" type="success" @click="saveModeSettings(); showTierModal = false">儲存門檻並重算</el-button>
       </template>
     </el-dialog>
 
@@ -1240,7 +1391,7 @@
     >
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
         <span class="text-dim" style="font-size: 12px;">
-          ※ 層架類型係依據「儲位材積設定表」之單格才數上限，按該儲位商品<strong>總才數</strong>自動判定最適合規格。
+          ※ 層架類型係依據「儲位材積設定表」之單格才數上限，按該儲位商品<strong>總才數</strong>自動判定最適合規格，並同步核對建議樓層是否具備該層架。
         </span>
         <el-button size="mini" type="warning" icon="el-icon-download" @click="exportRackExceptionsExcel">
           匯出本排異常清單 Excel
@@ -1321,13 +1472,22 @@ export default {
         mode: 'CAT_TRADE',
         tierA_min: 50,
         tierB_min: 10,
-        tierC_min: 1
+        tierC_min: 1,
+        sku_groups: [
+          { name: '商品ID溫度區', skus: [] },
+          { name: '商品ID貴重區', skus: [] },
+          { name: '商品ID票卷區', skus: [] },
+          { name: '商品ID清倉區', skus: [] }
+        ]
       },
-      modeLabelMap: {
-        CAT_TRADE: '模式1：大區 + 借採',
-        SALES_TRADE: '模式2：月銷 + 借採',
-        CAT_SALES_TRADE: '模式3：大區 + 月銷 + 借採'
+      activeSkuGroupIdx: 0,
+
+      lookupOptions: {
+        skus: [],
+        zones: [],
+        categories: []
       },
+
       zoneRoleLabelMap: {
         STORAGE: '庫區',
         PICK: '撿貨區',
@@ -1336,11 +1496,6 @@ export default {
       },
 
       floorOptions: ['1F', '2F東', '2F西', '3F', '4F', '6F', '7F', '8F'],
-      categoryOptions: [
-        '書店24H', '食品飲料', '日用品', '生活育樂', '家電', '保養',
-        '新3C', '書店DVD', '流行', '數位', '居家', '周邊耗材',
-        '休閒', '零組件', '母嬰', '保健', '大家電3', '超商', '筆記電腦', '通訊'
-      ],
 
       rules: [],
       ruleFloorFilter: 'ALL',
@@ -1359,7 +1514,6 @@ export default {
       selectedMapRacks: [],
       showInspector: true,
 
-      // 紅色異常貨架彈窗狀態
       showRackExceptionModal: false,
       rackExceptionTitle: '',
       rackExceptionList: [],
@@ -1376,7 +1530,7 @@ export default {
         zone_role: 'PICK',
         rack_length_m: 20,
         allowed_trade: 'ALL',
-        allowed_categories: [],
+        allowed_targets: [],
         allowed_volumes: [],
         allowed_sales_tiers: []
       },
@@ -1386,10 +1540,10 @@ export default {
         applyLength: false,
         rack_length_m: 20,
         allowed_trade: 'KEEP',
+        applyTargets: false,
+        allowed_targets: [],
         applyTiers: false,
-        allowed_sales_tiers: [],
-        applyCats: false,
-        allowed_categories: []
+        allowed_sales_tiers: []
       },
 
       report: {
@@ -1419,7 +1573,6 @@ export default {
 
       showRuleModal: false,
       showTableBatchModal: false,
-      showTierModal: false,
 
       ruleForm: {
         id: null,
@@ -1436,7 +1589,7 @@ export default {
         zone_role: 'PICK',
         rack_length_m: 20,
         allowed_trade: 'ALL',
-        allowed_categories: [],
+        allowed_targets: [],
         allowed_volumes: [],
         allowed_sales_tiers: [],
         enabled: true
@@ -1445,17 +1598,54 @@ export default {
       tableBatchForm: {
         area: 'KEEP',
         zone_role: 'KEEP',
-        applyLength: false,
-        rack_length_m: 20,
         allowed_trade: 'KEEP',
+        applyTargets: false,
+        allowed_targets: [],
         applyTiers: false,
-        allowed_sales_tiers: [],
-        applyCats: false,
-        allowed_categories: []
+        allowed_sales_tiers: []
       }
     }
   },
   computed: {
+    currentSkuGroup() {
+      const list = this.modeSettings.sku_groups || [];
+      return list[this.activeSkuGroupIdx] || list[0] || null;
+    },
+    skuNameMap() {
+      const map = new Map();
+      (this.lookupOptions.skus || []).forEach(s => map.set(s.sku_id, s.sku_name));
+      return map;
+    },
+    // 第二順位同一個格子內的分組選單：商品ID**區 > 區名(帶區編) > 大區名(帶大區編)
+    groupedTargetOptions() {
+      const groups = [];
+      const skuGroupOpts = (this.modeSettings.sku_groups || [])
+        .filter(g => g && g.name)
+        .map(g => ({
+          value: `GROUP:${g.name}`,
+          label: `${g.name} (${(g.skus || []).length}品)`
+        }));
+      if (skuGroupOpts.length > 0) {
+        groups.push({ label: '① 商品ID**區（最高專區優先權）', options: skuGroupOpts });
+      }
+
+      const zoneOpts = (this.lookupOptions.zones || []).map(z => ({
+        value: z.token,
+        label: z.label
+      }));
+      if (zoneOpts.length > 0) {
+        groups.push({ label: '② 區編 - 區名', options: zoneOpts });
+      }
+
+      const catOpts = (this.lookupOptions.categories || []).map(c => ({
+        value: c.token,
+        label: c.label
+      }));
+      if (catOpts.length > 0) {
+        groups.push({ label: '③ 大區編 - 大區名', options: catOpts });
+      }
+      return groups;
+    },
     filteredRules() {
       const kw = this.ruleKeyword.trim().toLowerCase();
       return this.rules.filter(r => {
@@ -1466,7 +1656,7 @@ export default {
           r.zone_name.toLowerCase().includes(kw) ||
           r.x_start.toLowerCase().includes(kw) ||
           r.x_end.toLowerCase().includes(kw) ||
-          (r.allowed_categories || []).some(c => c.toLowerCase().includes(kw));
+          (r.allowed_targets || []).some(t => this.formatTargetToken(t).toLowerCase().includes(kw));
         return okFloor && okArea && okRole && okKw;
       });
     },
@@ -1541,6 +1731,7 @@ export default {
         const rule = findRuleForX(xCode);
         const xStat = this.report.byXRow?.[`${this.selectedMapFloor}|${xCode}`] || this.report.byXRow?.[`${ruleFl}|${xCode}`];
         const zRole = rule?.zone_role || zoneObj.defaultRole || 'PICK';
+        const targets = rule?.allowed_targets || [];
 
         let statusClass = 'fp-status-unset';
         if (this.mapColorMode === 'ZONE_ROLE') {
@@ -1550,7 +1741,7 @@ export default {
           else statusClass = 'fp-status-cat';
         } else if (this.mapColorMode === 'CATEGORY') {
           if (zRole === 'CLOSED') statusClass = 'fp-status-closed';
-          else if (rule?.allowed_categories?.length > 0) statusClass = 'fp-status-cat';
+          else if (targets.length > 0) statusClass = 'fp-status-cat';
         } else if (this.mapColorMode === 'SALES_TIER') {
           const tiers = rule?.allowed_sales_tiers || [];
           if (tiers.includes('A')) statusClass = 'fp-status-err';
@@ -1561,13 +1752,14 @@ export default {
           else if (zRole === 'CLOSED') statusClass = 'fp-status-closed';
           else if (rule && rule.allowed_trade === '借') statusClass = 'fp-status-borrow';
           else if (rule && rule.allowed_trade === '採') statusClass = 'fp-status-buy';
-          else if (rule && ((rule.allowed_categories?.length > 0) || (rule.allowed_sales_tiers?.length > 0))) statusClass = 'fp-status-cat';
+          else if (rule && (targets.length > 0 || (rule.allowed_sales_tiers?.length > 0))) statusClass = 'fp-status-cat';
         }
 
         const roleLabel = this.zoneRoleLabelMap[zRole] || '撿貨區';
         const layerText = rule ? `（${rule.layer_start || 'A'}~${rule.layer_end || 'Z'}層）` : '';
+        const targetText = targets.length ? `｜限定：${targets.map(this.formatTargetToken).join('、')}` : '';
         const ruleText = rule
-          ? `用途：【${roleLabel}】${layerText}｜長度：${rule.rack_length_m || 20}m｜借採：${rule.allowed_trade === 'ALL' ? '皆可' : '僅限' + rule.allowed_trade}${rule.allowed_sales_tiers?.length ? '｜月銷：' + rule.allowed_sales_tiers.join('/') + '級' : ''}${rule.allowed_categories?.length ? '｜大區：' + rule.allowed_categories.join('、') : ''}`
+          ? `用途：【${roleLabel}】${layerText}｜借採：${rule.allowed_trade === 'ALL' ? '皆可' : '僅限' + rule.allowed_trade}${targetText}${rule.allowed_sales_tiers?.length ? '｜月銷：' + rule.allowed_sales_tiers.join('/') + '級' : ''}`
           : `預設用途：【${roleLabel}】（尚未建立獨立規則）`;
         const statText = xStat ? `\n現況：共 ${xStat.total} 筆（合格 ${xStat.passed} / 異常 ${xStat.failed}）` : '';
         const m = String(label).match(/80([A-Z0-9]{2,4}\d{2,3})/);
@@ -1756,6 +1948,103 @@ export default {
     this.refreshAll();
   },
   methods: {
+    formatTargetToken(token) {
+      const str = String(token || '');
+      if (str.startsWith('GROUP:')) return `🏷️ ${str.slice(6)}`;
+      if (str.startsWith('ZONE:')) {
+        const [code, name] = str.slice(5).split('|');
+        return code && name ? `區:${code}-${name}` : `區:${code || name}`;
+      }
+      if (str.startsWith('CAT:')) {
+        const [code, name] = str.slice(4).split('|');
+        return code && name ? `大區:${code}-${name}` : `大區:${code || name}`;
+      }
+      return str;
+    },
+    getTargetChipClass(token) {
+      const str = String(token || '');
+      if (str.startsWith('GROUP:')) return 'chip-group';
+      if (str.startsWith('ZONE:')) return 'chip-zone';
+      return '';
+    },
+    getSkuNameById(skuId) {
+      return this.skuNameMap.get(skuId) || '（尚未在目前庫存檔中，儲存後將自動套用）';
+    },
+    addNewSkuGroup() {
+      const idx = (this.modeSettings.sku_groups || []).length + 1;
+      if (!Array.isArray(this.modeSettings.sku_groups)) this.modeSettings.sku_groups = [];
+      this.modeSettings.sku_groups.push({ name: `商品ID自訂區${idx}`, skus: [] });
+      this.activeSkuGroupIdx = this.modeSettings.sku_groups.length - 1;
+    },
+    deleteCurrentSkuGroup() {
+      if (!this.currentSkuGroup) return;
+      ElMessageBox.confirm(`確定要刪除專區「${this.currentSkuGroup.name}」嗎？`, '刪除專區確認', {
+        confirmButtonText: '確定刪除',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }).then(() => {
+        this.modeSettings.sku_groups.splice(this.activeSkuGroupIdx, 1);
+        this.activeSkuGroupIdx = Math.max(0, this.activeSkuGroupIdx - 1);
+      }).catch(() => {});
+    },
+    removeSkuFromCurrentGroup(skuId) {
+      if (!this.currentSkuGroup) return;
+      this.currentSkuGroup.skus = (this.currentSkuGroup.skus || []).filter(id => id !== skuId);
+    },
+    exportSkuGroupTemplate() {
+      const rows = [
+        ['專區名稱(必填)', '商品ID(必填)', '商品名稱(選填參考)'],
+        ['商品ID貴重區', '示例商品ID001', '範例商品名稱'],
+        ['商品ID溫度區', '示例商品ID002', '範例商品名稱']
+      ];
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, '商品ID專區匯入範本');
+      XLSX.writeFile(wb, '商品ID專區匯入範本.xlsx');
+    },
+    triggerSkuGroupImport() {
+      if (this.$refs.skuGroupImportInput) {
+        this.$refs.skuGroupImportInput.value = '';
+        this.$refs.skuGroupImportInput.click();
+      }
+    },
+    async handleSkuGroupImport(e) {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      try {
+        const buf = await file.arrayBuffer();
+        const wb = XLSX.read(buf, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+        if (rows.length === 0) throw new Error('檔案內容為空');
+
+        if (!Array.isArray(this.modeSettings.sku_groups)) this.modeSettings.sku_groups = [];
+        let importedCnt = 0;
+
+        rows.forEach(row => {
+          const sku = String(row['商品ID(必填)'] || row['商品ID'] || row['sku_id'] || '').trim();
+          if (!sku) return;
+          const groupName = String(
+            row['專區名稱(必填)'] || row['專區名稱'] || row['區域名稱'] || (this.currentSkuGroup ? this.currentSkuGroup.name : '商品ID貴重區')
+          ).trim();
+
+          let targetGrp = this.modeSettings.sku_groups.find(g => g.name === groupName);
+          if (!targetGrp) {
+            targetGrp = { name: groupName, skus: [] };
+            this.modeSettings.sku_groups.push(targetGrp);
+          }
+          if (!targetGrp.skus.includes(sku)) {
+            targetGrp.skus.push(sku);
+          }
+          importedCnt++;
+        });
+
+        ElMessage.success(`🎉 已匯入 ${importedCnt} 筆商品ID至專區，請記得點擊「儲存設定」生效！`);
+      } catch (err) {
+        ElMessage.error('匯入商品ID清單失敗：' + err.message);
+      }
+    },
+
     resolveRuleArea(r) {
       if (r.area && ['A', 'B', 'C', 'D'].includes(String(r.area).trim().toUpperCase())) {
         return String(r.area).trim().toUpperCase();
@@ -1864,7 +2153,6 @@ export default {
 
       if (this.selectedMapRacks.length === 1) {
         this.loadSingleRackRule(this.selectedMapRacks[0]);
-        // 單擊紅色異常貨架時，直接彈出異常儲位明細視窗
         if (!isMulti && (node.hasError || node.statusClass === 'fp-status-err')) {
           this.openRackExceptionDialog(node.xCode);
         }
@@ -1878,10 +2166,10 @@ export default {
         applyLength: false,
         rack_length_m: 20,
         allowed_trade: 'KEEP',
+        applyTargets: false,
+        allowed_targets: [],
         applyTiers: false,
-        allowed_sales_tiers: [],
-        applyCats: false,
-        allowed_categories: []
+        allowed_sales_tiers: []
       };
     },
     buildRulePayloadForX(xCode) {
@@ -1902,7 +2190,7 @@ export default {
           area: exactRule.area || zoneArea,
           zone_role: exactRule.zone_role || defaultRole,
           rack_length_m: Number(exactRule.rack_length_m || 20),
-          allowed_categories: [...(exactRule.allowed_categories || [])],
+          allowed_targets: [...(exactRule.allowed_targets || [])],
           allowed_volumes: [...(exactRule.allowed_volumes || [])],
           allowed_sales_tiers: [...(exactRule.allowed_sales_tiers || [])]
         };
@@ -1936,7 +2224,7 @@ export default {
         zone_role: defaultRole,
         rack_length_m: rangeRule ? Number(rangeRule.rack_length_m || 20) : 48,
         allowed_trade: rangeRule ? rangeRule.allowed_trade : 'ALL',
-        allowed_categories: rangeRule ? [...(rangeRule.allowed_categories || [])] : [],
+        allowed_targets: rangeRule ? [...(rangeRule.allowed_targets || [])] : [],
         allowed_volumes: rangeRule ? [...(rangeRule.allowed_volumes || [])] : [],
         allowed_sales_tiers: rangeRule ? [...(rangeRule.allowed_sales_tiers || [])] : [],
         enabled: true
@@ -1962,7 +2250,7 @@ export default {
     },
     async saveMapBatchRules() {
       const f = this.mapBatchForm;
-      if (f.zone_role === 'KEEP' && !f.applyLength && f.allowed_trade === 'KEEP' && !f.applyTiers && !f.applyCats) {
+      if (f.zone_role === 'KEEP' && !f.applyLength && f.allowed_trade === 'KEEP' && !f.applyTargets && !f.applyTiers) {
         return ElMessage.warning('請至少選擇一項要批次套用的屬性！');
       }
       this.batchSaving = true;
@@ -1972,8 +2260,8 @@ export default {
           if (f.zone_role !== 'KEEP') base.zone_role = f.zone_role;
           if (f.applyLength) base.rack_length_m = f.rack_length_m;
           if (f.allowed_trade !== 'KEEP') base.allowed_trade = f.allowed_trade;
+          if (f.applyTargets) base.allowed_targets = [...f.allowed_targets];
           if (f.applyTiers) base.allowed_sales_tiers = [...f.allowed_sales_tiers];
-          if (f.applyCats) base.allowed_categories = [...f.allowed_categories];
           return base;
         });
 
@@ -1994,14 +2282,25 @@ export default {
     async refreshAll() {
       this.loading = true;
       try {
-        const [modeRes, ruleRes] = await Promise.all([
+        const [modeRes, ruleRes, lookupRes] = await Promise.all([
           axios.get('/api/storage-accuracy/mode-settings'),
-          axios.get('/api/storage-accuracy/rules')
+          axios.get('/api/storage-accuracy/rules'),
+          axios.get('/api/storage-accuracy/lookup-options')
         ]);
         if (modeRes.data?.success && modeRes.data?.settings) {
-          this.modeSettings = modeRes.data.settings;
+          this.modeSettings = {
+            ...this.modeSettings,
+            ...modeRes.data.settings
+          };
         }
         if (ruleRes.data?.success) this.rules = ruleRes.data.rules || [];
+        if (lookupRes.data?.success) {
+          this.lookupOptions = {
+            skus: lookupRes.data.skus || [],
+            zones: lookupRes.data.zones || [],
+            categories: lookupRes.data.categories || []
+          };
+        }
 
         const repRes = await axios.get(`/api/storage-accuracy/audit/report?mode=${this.modeSettings.mode}`);
         if (repRes.data?.success) this.report = repRes.data;
@@ -2025,7 +2324,7 @@ export default {
           await this.refreshAll();
         }
       } catch (e) {
-        ElMessage.error('儲存擺放模式失敗：' + e.message);
+        ElMessage.error('儲存參數設定失敗：' + e.message);
       }
     },
 
@@ -2074,7 +2373,7 @@ export default {
         zone_role: 'PICK',
         rack_length_m: 20,
         allowed_trade: 'ALL',
-        allowed_categories: [],
+        allowed_targets: [],
         allowed_volumes: [],
         allowed_sales_tiers: [],
         enabled: true
@@ -2087,7 +2386,7 @@ export default {
         area: this.resolveRuleArea(r),
         zone_role: r.zone_role || 'PICK',
         rack_length_m: Number(r.rack_length_m || 20),
-        allowed_categories: [...(r.allowed_categories || [])],
+        allowed_targets: [...(r.allowed_targets || [])],
         allowed_volumes: [...(r.allowed_volumes || [])],
         allowed_sales_tiers: [...(r.allowed_sales_tiers || [])]
       };
@@ -2111,19 +2410,17 @@ export default {
       this.tableBatchForm = {
         area: 'KEEP',
         zone_role: 'KEEP',
-        applyLength: false,
-        rack_length_m: 20,
         allowed_trade: 'KEEP',
+        applyTargets: false,
+        allowed_targets: [],
         applyTiers: false,
-        allowed_sales_tiers: [],
-        applyCats: false,
-        allowed_categories: []
+        allowed_sales_tiers: []
       };
       this.showTableBatchModal = true;
     },
     async submitTableBatchEdit() {
       const f = this.tableBatchForm;
-      if (f.area === 'KEEP' && f.zone_role === 'KEEP' && !f.applyLength && f.allowed_trade === 'KEEP' && !f.applyTiers && !f.applyCats) {
+      if (f.area === 'KEEP' && f.zone_role === 'KEEP' && f.allowed_trade === 'KEEP' && !f.applyTargets && !f.applyTiers) {
         return ElMessage.warning('請至少選擇一項要修改的屬性！');
       }
       this.batchSaving = true;
@@ -2133,10 +2430,9 @@ export default {
           const copy = { ...r };
           if (f.area !== 'KEEP') copy.area = f.area;
           if (f.zone_role !== 'KEEP') copy.zone_role = f.zone_role;
-          if (f.applyLength) copy.rack_length_m = f.rack_length_m;
           if (f.allowed_trade !== 'KEEP') copy.allowed_trade = f.allowed_trade;
+          if (f.applyTargets) copy.allowed_targets = [...f.allowed_targets];
           if (f.applyTiers) copy.allowed_sales_tiers = [...f.allowed_sales_tiers];
-          if (f.applyCats) copy.allowed_categories = [...f.allowed_categories];
           return copy;
         });
 
@@ -2181,7 +2477,7 @@ export default {
 
     exportRulesExcel() {
       const rows = [
-        ['規則ID(勿改)', '啟用(1/0)', '樓層', '區(A~D)', '區域名稱', 'X軸起點', 'X軸終點', 'Y軸起點', 'Y軸終點', '層別起點', '層別終點', '區域用途(PICK/STORAGE/BOTH/CLOSED)', '層架長度(m)', '允許借採(ALL/借/採)', '允許月銷級距(逗號分隔)', '允許商品大區(逗號分隔)']
+        ['規則ID(勿改)', '啟用(1/0)', '樓層', '區(A~D)', '區域名稱', 'X軸起點', 'X軸終點', 'Y軸起點', 'Y軸終點', '層別起點', '層別終點', '區域用途(PICK/STORAGE/BOTH/CLOSED)', '層架長度(m)', '允許借採(ALL/借/採)', '第二順位專區/區名/大區代碼', '允許月銷級距(逗號分隔)']
       ];
       this.filteredRules.forEach(r => {
         rows.push([
@@ -2199,8 +2495,8 @@ export default {
           r.zone_role || 'PICK',
           r.rack_length_m || 20,
           r.allowed_trade || 'ALL',
-          (r.allowed_sales_tiers || []).join(','),
-          (r.allowed_categories || []).join(',')
+          (r.allowed_targets || []).join(','),
+          (r.allowed_sales_tiers || []).join(',')
         ]);
       });
       const ws = XLSX.utils.aoa_to_sheet(rows);
@@ -2231,7 +2527,7 @@ export default {
           .filter(row => row['樓層'] && row['X軸起點'])
           .map(row => {
             const tiersRaw = String(row['允許月銷級距(逗號分隔)'] || '').trim();
-            const catsRaw = String(row['允許商品大區(逗號分隔)'] || '').trim();
+            const targetsRaw = String(row['第二順位專區/區名/大區代碼'] || '').trim();
             return {
               id: row['規則ID(勿改)'] || null,
               enabled: String(row['啟用(1/0)']).trim() !== '0',
@@ -2247,8 +2543,8 @@ export default {
               zone_role: String(row['區域用途(PICK/STORAGE/BOTH/CLOSED)'] || 'PICK').trim(),
               rack_length_m: Number(row['層架長度(m)'] || 20),
               allowed_trade: String(row['允許借採(ALL/借/採)'] || 'ALL').trim(),
-              allowed_sales_tiers: tiersRaw ? tiersRaw.split(/[,，]/).map(s => s.trim()).filter(Boolean) : [],
-              allowed_categories: catsRaw ? catsRaw.split(/[,，]/).map(s => s.trim()).filter(Boolean) : []
+              allowed_targets: targetsRaw ? targetsRaw.split(/[,，]/).map(s => s.trim()).filter(Boolean) : [],
+              allowed_sales_tiers: tiersRaw ? tiersRaw.split(/[,，]/).map(s => s.trim()).filter(Boolean) : []
             };
           });
 
@@ -2521,7 +2817,27 @@ export default {
 .sim-desc-box { font-size: 12px; color: #cbd5e1; line-height: 1.5; }
 .sim-bottom-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1.35fr; gap: 10px; }
 
-.tier-cfg-item { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: #f8fafc; }
+/* ==================== 參數設定分割版面 ==================== */
+.settings-split-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: 420px 1fr; gap: 10px; }
+.sku-group-workspace { flex: 1; min-height: 0; display: grid; grid-template-columns: 200px 1fr; }
+.sku-group-list { background: #0f172a; border-right: 1px solid #334155; padding: 8px; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; }
+.sku-group-item {
+  padding: 9px 10px;
+  border-radius: 6px;
+  border: 1px solid #334155;
+  background: #1e293b;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.sku-group-item:hover { border-color: #38bdf8; }
+.sku-group-item.active {
+  background: rgba(37, 99, 235, 0.25);
+  border-color: #38bdf8;
+  color: #ffffff;
+}
+.sku-group-editor { padding: 12px; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+
+.tier-cfg-item { display: inline-flex; align-items: center; gap: 10px; font-size: 13px; color: #f8fafc; }
 
 .role-pill { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 11px; font-weight: bold; white-space: nowrap; }
 .role-PICK { background: rgba(74, 222, 128, 0.16); color: #4ade80; border: 1px solid rgba(74, 222, 128, 0.35); }
@@ -2552,6 +2868,17 @@ export default {
   border-radius: 4px;
   font-size: 11px;
   margin: 1px 3px 1px 0;
+}
+.cat-chip.chip-group {
+  background: rgba(250, 204, 21, 0.18);
+  border-color: rgba(250, 204, 21, 0.45);
+  color: #fde047;
+  font-weight: bold;
+}
+.cat-chip.chip-zone {
+  background: rgba(168, 85, 247, 0.18);
+  border-color: rgba(168, 85, 247, 0.45);
+  color: #d8b4fe;
 }
 
 .tier-pill { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 11px; font-weight: bold; }
@@ -2616,7 +2943,7 @@ export default {
 .dot-err { background: #dc2626; border: 1px solid #f87171; }
 .fp-zoom-controls { display: flex; align-items: center; gap: 6px; }
 
-.fp-workspace { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 320px; gap: 10px; }
+.fp-workspace { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 330px; gap: 10px; }
 .fp-workspace.inspector-hidden { grid-template-columns: 1fr; }
 
 .hide-inspector-btn {

@@ -41,16 +41,23 @@ module.exports = function(db) {
     { zone_name: '80R、Q-D區', floor: '8F', storage_type: '重型層架', wh: '80', area: 'D', x_start: 'R01', x_end: 'R05', y_start: '001', y_end: '026', layer_start: 'A', layer_end: 'C', rack_length_m: 16, zone_role: 'BOTH' }
   ];
 
+  const DEFAULT_SKU_GROUPS = [
+    { name: '商品ID溫度區', skus: [] },
+    { name: '商品ID貴重區', skus: [] },
+    { name: '商品ID票卷區', skus: [] },
+    { name: '商品ID清倉區', skus: [] }
+  ];
+
   const DEFAULT_MODE_SETTINGS = {
     mode: 'CAT_TRADE',
     tierA_min: 50,
     tierB_min: 10,
-    tierC_min: 1
+    tierC_min: 1,
+    sku_groups: DEFAULT_SKU_GROUPS
   };
 
   const VALID_ZONE_ROLES = ['STORAGE', 'PICK', 'BOTH', 'CLOSED'];
 
-  // 層架基礎型態的單格才數容量排序（由小到大）
   const BASE_RACK_CAPACITY_ORDER = [
     { baseType: '鐵櫃', maxCf: 0.2 },
     { baseType: '小藍格', maxCf: 0.6 },
@@ -74,7 +81,6 @@ module.exports = function(db) {
     return map[role] || '撿貨區';
   }
 
-  // 將細分層架名稱正規化為樓層定義表(locations_master)的基礎儲位型態
   function normalizeBaseRackType(rawType) {
     const t = String(rawType || '').trim();
     if (!t) return '';
@@ -91,7 +97,6 @@ module.exports = function(db) {
     return t;
   }
 
-  // 依「儲位材積設定」表，根據總才數自動判斷最適合的層架類型（含細分規格與基礎型態）
   function classifyRackSpecByCubicFeet(totalCf) {
     const cf = Number(totalCf || 0);
     if (cf <= 0.2) return { label: '鐵櫃 (鐵10)', baseType: '鐵櫃' };
@@ -111,9 +116,8 @@ module.exports = function(db) {
     return { label: '板式 / 超大材 (板140)', baseType: '板式' };
   }
 
-  // 建立各樓層實際擁有的層架型態對照表（整合 locations_master 與開放中的規則表）
   function buildFloorRackInventory(masterRows, openRules) {
-    const floorTypesMap = {}; // { '3F': Set(['重型層架', '重型層架-低']), ... }
+    const floorTypesMap = {};
     const addType = (fl, rawType) => {
       const f = String(fl || '').trim();
       const base = normalizeBaseRackType(rawType);
@@ -142,9 +146,7 @@ module.exports = function(db) {
         const set = floorTypesMap[key];
         if (!set || set.size === 0) return false;
         if (set.has(baseType)) return true;
-        // 中型層架(格) 與 AGV層架-紙抽 同屬 1.8 才格位
         if (baseType === '中型層架(格)' && set.has('AGV層架-紙抽')) return true;
-        // 重型層架160 與 落地儲位 同屬 45.5 才重型儲位
         if (baseType === '重型層架' && set.has('落地儲位')) return true;
         return false;
       };
@@ -153,7 +155,6 @@ module.exports = function(db) {
       return false;
     };
 
-    // 若指定樓層沒有理想層架，從該樓層實際擁有的層架中挑出「能容納 totalCf 的最小規格」
     const pickBestAvailableOnFloor = (fl, totalCf, idealSpec) => {
       const f = String(fl || '').trim();
       const set = floorTypesMap[f] || (f === '2F' ? (floorTypesMap['2F東'] || floorTypesMap['2F西']) : null);
@@ -211,6 +212,7 @@ module.exports = function(db) {
           layer_end TEXT DEFAULT 'Z',
           allowed_trade TEXT DEFAULT 'ALL',
           allowed_categories TEXT DEFAULT '[]',
+          allowed_targets TEXT DEFAULT '[]',
           allowed_volumes TEXT DEFAULT '[]',
           allowed_sales_tiers TEXT DEFAULT '[]',
           rack_length_m REAL DEFAULT 20,
@@ -221,6 +223,7 @@ module.exports = function(db) {
         )
       `);
 
+      db.run(`ALTER TABLE storage_placement_rules ADD COLUMN allowed_targets TEXT DEFAULT '[]'`, () => {});
       db.run(`ALTER TABLE storage_placement_rules ADD COLUMN allowed_sales_tiers TEXT DEFAULT '[]'`, () => {});
       db.run(`ALTER TABLE storage_placement_rules ADD COLUMN rack_length_m REAL DEFAULT 20`, () => {});
       db.run(`ALTER TABLE storage_placement_rules ADD COLUMN zone_role TEXT DEFAULT 'PICK'`, () => {});
@@ -263,8 +266,8 @@ module.exports = function(db) {
         if (!err && row && row.cnt === 0) {
           const stmt = db.prepare(`
             INSERT INTO storage_placement_rules
-            (zone_name, floor, storage_type, area, x_start, x_end, y_start, y_end, layer_start, layer_end, allowed_trade, allowed_categories, allowed_volumes, allowed_sales_tiers, rack_length_m, zone_role, enabled, sort_order)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ALL', '[]', '[]', '[]', ?, ?, 1, ?)
+            (zone_name, floor, storage_type, area, x_start, x_end, y_start, y_end, layer_start, layer_end, allowed_trade, allowed_categories, allowed_targets, allowed_volumes, allowed_sales_tiers, rack_length_m, zone_role, enabled, sort_order)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ALL', '[]', '[]', '[]', '[]', ?, ?, 1, ?)
           `);
           DEFAULT_ZONE_ZONES.forEach((z, idx) => {
             stmt.run(z.zone_name, z.floor, z.storage_type, z.area, z.x_start, z.x_end, z.y_start, z.y_end, z.layer_start, z.layer_end, z.rack_length_m || 20, z.zone_role || 'PICK', idx * 100);
@@ -285,10 +288,17 @@ module.exports = function(db) {
     db.get(`SELECT config_value FROM system_config WHERE config_key = 'storage_accuracy_mode_settings'`, [], (err, row) => {
       if (row && row.config_value) {
         try {
-          return cb({ ...DEFAULT_MODE_SETTINGS, ...JSON.parse(row.config_value) });
+          const parsed = JSON.parse(row.config_value);
+          return cb({
+            ...DEFAULT_MODE_SETTINGS,
+            ...parsed,
+            sku_groups: Array.isArray(parsed.sku_groups) && parsed.sku_groups.length > 0
+              ? parsed.sku_groups
+              : DEFAULT_SKU_GROUPS
+          });
         } catch (e) {}
       }
-      cb({ ...DEFAULT_MODE_SETTINGS });
+      cb({ ...DEFAULT_MODE_SETTINGS, sku_groups: DEFAULT_SKU_GROUPS });
     });
   }
 
@@ -310,6 +320,7 @@ module.exports = function(db) {
     return map[tier] || tier;
   }
 
+  // 解析儲位編碼（同時產生 3 碼 x 如 C2A，與 5 碼 subX 如 C2A03）
   function parseBinCode(binCode) {
     const clean = String(binCode || '').trim().toUpperCase().replace(/^80-/, '80');
     const m = clean.match(/^80([A-Z0-9]{3})(\d{2,3})([A-Z]?)$/);
@@ -326,9 +337,9 @@ module.exports = function(db) {
   function compareX(val, start, end) {
     if (!val || !start || !end) return false;
     if (start === end) return val === start;
-    const mVal = val.match(/^([A-Z]+)(\d+)$/);
-    const mStart = start.match(/^([A-Z]+)(\d+)$/);
-    const mEnd = end.match(/^([A-Z]+)(\d+)$/);
+    const mVal = val.match(/^([A-Z0-9]+?)(\d+)$/);
+    const mStart = start.match(/^([A-Z0-9]+?)(\d+)$/);
+    const mEnd = end.match(/^([A-Z0-9]+?)(\d+)$/);
     if (mVal && mStart && mEnd) {
       if (mVal[1] !== mStart[1] && mVal[1] !== mEnd[1]) return val >= start && val <= end;
       const nVal = parseInt(mVal[2], 10);
@@ -339,6 +350,7 @@ module.exports = function(db) {
     return val >= start && val <= end;
   }
 
+  // 精準匹配規則（支援 5 碼 subX 如 C2A03 與 3 碼 x 如 C2A）
   function matchRuleForRecord(rec, sortedRules) {
     const parsed = parseBinCode(rec.bin_code);
     for (let i = 0; i < sortedRules.length; i++) {
@@ -347,10 +359,16 @@ module.exports = function(db) {
         if (r.floor !== rec.floor && !(r.floor === '2F' && rec.floor.startsWith('2F'))) continue;
       }
       if (parsed) {
-        if (!compareX(parsed.x, r.x_start, r.x_end)) continue;
-        const yStart = parseInt(r.y_start || '0', 10);
-        const yEnd = parseInt(r.y_end || '999', 10);
-        if (parsed.y < yStart || parsed.y > yEnd) continue;
+        const is5CharRule = r.x_start.length >= 5 || r.x_end.length >= 5;
+        const targetX = is5CharRule ? parsed.subX : parsed.x;
+        if (!compareX(targetX, r.x_start, r.x_end)) continue;
+
+        // 5 碼細分排號（如 C2A03）本身已代表特定格號，不重複卡 3 碼格號區間；3 碼規則才檢查 Y 格號
+        if (!is5CharRule) {
+          const yStart = parseInt(r.y_start || '0', 10);
+          const yEnd = parseInt(r.y_end || '999', 10);
+          if (parsed.y < yStart || parsed.y > yEnd) continue;
+        }
         if (r.layer_start && r.layer_end) {
           if (parsed.layer < r.layer_start || parsed.layer > r.layer_end) continue;
         }
@@ -360,6 +378,44 @@ module.exports = function(db) {
       }
     }
     return null;
+  }
+
+  // 解析第二順位允許清單（相容舊版 allowed_categories 與新版 allowed_targets）
+  function parseRuleAllowedTargets(rule) {
+    let targets = [];
+    try {
+      const raw = typeof rule.allowed_targets === 'string'
+        ? JSON.parse(rule.allowed_targets || '[]')
+        : (rule.allowed_targets || []);
+      if (Array.isArray(raw)) targets = [...raw];
+    } catch (e) {}
+
+    if (targets.length === 0) {
+      let cats = [];
+      try {
+        cats = typeof rule.allowed_categories === 'string'
+          ? JSON.parse(rule.allowed_categories || '[]')
+          : (rule.allowed_categories || []);
+      } catch (e) {}
+      if (Array.isArray(cats) && cats.length > 0) {
+        targets = cats.map(c => `CAT:|${c}`);
+      }
+    }
+    return targets;
+  }
+
+  function formatTargetDisplay(token) {
+    const str = String(token || '');
+    if (str.startsWith('GROUP:')) return `【專區】${str.slice(6)}`;
+    if (str.startsWith('ZONE:')) {
+      const [code, name] = str.slice(5).split('|');
+      return code ? `【區】${code}-${name || ''}` : `【區】${name || ''}`;
+    }
+    if (str.startsWith('CAT:')) {
+      const [code, name] = str.slice(4).split('|');
+      return code ? `【大區】${code}-${name || ''}` : `【大區】${name || ''}`;
+    }
+    return str;
   }
 
   function loadAuditRecordsWithSales(cb) {
@@ -474,7 +530,7 @@ module.exports = function(db) {
     });
   }
 
-  // 0. 讀取 / 儲存擺放模式與月銷量級距門檻
+  // 0. 讀取 / 儲存參數設定（擺放模式、月銷量級距門檻、商品ID**區群組）
   router.get('/mode-settings', (req, res) => {
     ensureTables(() => {
       getModeSettings((settings) => {
@@ -485,11 +541,21 @@ module.exports = function(db) {
 
   router.post('/mode-settings/save', (req, res) => {
     const incoming = req.body.settings || {};
+    const cleanGroups = Array.isArray(incoming.sku_groups)
+      ? incoming.sku_groups
+          .filter(g => g && String(g.name || '').trim())
+          .map(g => ({
+            name: String(g.name).trim(),
+            skus: Array.from(new Set((Array.isArray(g.skus) ? g.skus : []).map(s => String(s).trim()).filter(Boolean)))
+          }))
+      : DEFAULT_SKU_GROUPS;
+
     const clean = {
       mode: ['CAT_TRADE', 'SALES_TRADE', 'CAT_SALES_TRADE'].includes(incoming.mode) ? incoming.mode : 'CAT_TRADE',
       tierA_min: Math.max(1, Number(incoming.tierA_min || 50)),
       tierB_min: Math.max(1, Number(incoming.tierB_min || 10)),
-      tierC_min: Math.max(1, Number(incoming.tierC_min || 1))
+      tierC_min: Math.max(1, Number(incoming.tierC_min || 1)),
+      sku_groups: cleanGroups
     };
     db.run(
       `INSERT INTO system_config (config_key, config_value) VALUES ('storage_accuracy_mode_settings', ?)
@@ -497,9 +563,64 @@ module.exports = function(db) {
       [JSON.stringify(clean)],
       (err) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
-        res.json({ success: true, settings: clean, message: '🎉 擺放模式與月銷量級距設定已儲存！' });
+        res.json({ success: true, settings: clean, message: '🎉 參數設定（月銷門檻與商品ID專區）已儲存！' });
       }
     );
+  });
+
+  // 0.5 取得下拉選單選項（商品ID+名稱、區編+區名、大區編+大區名）
+  router.get('/lookup-options', (req, res) => {
+    ensureTables(() => {
+      loadAuditRecordsWithSales((err, records) => {
+        if (err) return res.status(500).json({ success: false, message: err.message });
+        const skuMap = new Map();
+        const zoneMap = new Map();
+        const catMap = new Map();
+
+        (records || []).forEach(r => {
+          const sku = String(r.sku_id || '').trim();
+          const sName = String(r.sku_name || '').trim();
+          if (sku && !skuMap.has(sku)) {
+            skuMap.set(sku, { sku_id: sku, sku_name: sName, label: sName ? `${sku} - ${sName}` : sku });
+          }
+
+          const zId = String(r.zone_id || '').trim();
+          const zName = String(r.zone_name || '').trim();
+          if (zId || zName) {
+            const zKey = `${zId}|${zName}`;
+            if (!zoneMap.has(zKey)) {
+              zoneMap.set(zKey, {
+                token: `ZONE:${zKey}`,
+                zone_id: zId,
+                zone_name: zName,
+                label: zId && zName ? `${zId} - ${zName}` : (zId || zName)
+              });
+            }
+          }
+
+          const cId = String(r.cat_code || '').trim();
+          const cName = String(r.cat_name || '').trim();
+          if (cId || cName) {
+            const cKey = `${cId}|${cName}`;
+            if (!catMap.has(cKey)) {
+              catMap.set(cKey, {
+                token: `CAT:${cKey}`,
+                cat_code: cId,
+                cat_name: cName,
+                label: cId && cName ? `${cId} - ${cName}` : (cId || cName)
+              });
+            }
+          }
+        });
+
+        res.json({
+          success: true,
+          skus: Array.from(skuMap.values()).sort((a, b) => a.sku_id.localeCompare(b.sku_id)),
+          zones: Array.from(zoneMap.values()).sort((a, b) => a.label.localeCompare(b.label)),
+          categories: Array.from(catMap.values()).sort((a, b) => a.label.localeCompare(b.label))
+        });
+      });
+    });
   });
 
   // 1. 取得所有儲位擺放規則
@@ -512,10 +633,12 @@ module.exports = function(db) {
           try { cats = JSON.parse(r.allowed_categories || '[]'); } catch (e) {}
           try { vols = JSON.parse(r.allowed_volumes || '[]'); } catch (e) {}
           try { tiers = JSON.parse(r.allowed_sales_tiers || '[]'); } catch (e) {}
+          const targets = parseRuleAllowedTargets(r);
           const zoneRole = VALID_ZONE_ROLES.includes(r.zone_role) ? r.zone_role : 'PICK';
           return {
             ...r,
             allowed_categories: cats,
+            allowed_targets: targets,
             allowed_volumes: vols,
             allowed_sales_tiers: tiers,
             rack_length_m: Number(r.rack_length_m || 20),
@@ -536,7 +659,13 @@ module.exports = function(db) {
     }
     const xStart = String(rule.x_start).trim().toUpperCase();
     const xEnd = String(rule.x_end || rule.x_start).trim().toUpperCase();
-    const catsJson = JSON.stringify(rule.allowed_categories || []);
+    const targetsArr = Array.isArray(rule.allowed_targets) ? rule.allowed_targets : [];
+    const legacyCats = targetsArr
+      .filter(t => String(t).startsWith('CAT:'))
+      .map(t => String(t).slice(4).split('|')[1] || String(t).slice(4).split('|')[0])
+      .filter(Boolean);
+    const catsJson = JSON.stringify(legacyCats.length > 0 ? legacyCats : (rule.allowed_categories || []));
+    const targetsJson = JSON.stringify(targetsArr);
     const volsJson = JSON.stringify(rule.allowed_volumes || []);
     const tiersJson = JSON.stringify(rule.allowed_sales_tiers || []);
     const rackLen = Math.max(0.5, Number(rule.rack_length_m || 20));
@@ -549,7 +678,7 @@ module.exports = function(db) {
           zone_name = ?, floor = ?, storage_type = ?, area = ?,
           x_start = ?, x_end = ?, y_start = ?, y_end = ?,
           layer_start = ?, layer_end = ?,
-          allowed_trade = ?, allowed_categories = ?, allowed_volumes = ?, allowed_sales_tiers = ?,
+          allowed_trade = ?, allowed_categories = ?, allowed_targets = ?, allowed_volumes = ?, allowed_sales_tiers = ?,
           rack_length_m = ?, zone_role = ?, enabled = ?, remark = ?
         WHERE id = ?
       `, [
@@ -557,7 +686,7 @@ module.exports = function(db) {
         xStart, xEnd,
         String(rule.y_start || '001').padStart(3, '0'), String(rule.y_end || '999').padStart(3, '0'),
         String(rule.layer_start || 'A').toUpperCase(), String(rule.layer_end || 'Z').toUpperCase(),
-        rule.allowed_trade || 'ALL', catsJson, volsJson, tiersJson,
+        rule.allowed_trade || 'ALL', catsJson, targetsJson, volsJson, tiersJson,
         rackLen, zoneRole, enabledInt, rule.remark || '', rule.id
       ], (err) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
@@ -566,14 +695,14 @@ module.exports = function(db) {
     } else {
       db.run(`
         INSERT INTO storage_placement_rules
-        (zone_name, floor, storage_type, area, x_start, x_end, y_start, y_end, layer_start, layer_end, allowed_trade, allowed_categories, allowed_volumes, allowed_sales_tiers, rack_length_m, zone_role, enabled, remark, sort_order)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 999)
+        (zone_name, floor, storage_type, area, x_start, x_end, y_start, y_end, layer_start, layer_end, allowed_trade, allowed_categories, allowed_targets, allowed_volumes, allowed_sales_tiers, rack_length_m, zone_role, enabled, remark, sort_order)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 999)
       `, [
         rule.zone_name, rule.floor, rule.storage_type || '', rule.area || '',
         xStart, xEnd,
         String(rule.y_start || '001').padStart(3, '0'), String(rule.y_end || '999').padStart(3, '0'),
         String(rule.layer_start || 'A').toUpperCase(), String(rule.layer_end || 'Z').toUpperCase(),
-        rule.allowed_trade || 'ALL', catsJson, volsJson, tiersJson,
+        rule.allowed_trade || 'ALL', catsJson, targetsJson, volsJson, tiersJson,
         rackLen, zoneRole, enabledInt, rule.remark || ''
       ], (err) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
@@ -607,12 +736,12 @@ module.exports = function(db) {
           xList.forEach((xCode, idx) => {
             db.run(`
               INSERT INTO storage_placement_rules
-              (zone_name, floor, storage_type, area, x_start, x_end, y_start, y_end, layer_start, layer_end, allowed_trade, allowed_categories, allowed_volumes, allowed_sales_tiers, rack_length_m, zone_role, enabled, remark, sort_order)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              (zone_name, floor, storage_type, area, x_start, x_end, y_start, y_end, layer_start, layer_end, allowed_trade, allowed_categories, allowed_targets, allowed_volumes, allowed_sales_tiers, rack_length_m, zone_role, enabled, remark, sort_order)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `, [
               `${r.zone_name}-${xCode}`, r.floor, r.storage_type, r.area,
               xCode, xCode, r.y_start, r.y_end, r.layer_start, r.layer_end,
-              r.allowed_trade, r.allowed_categories, r.allowed_volumes, r.allowed_sales_tiers || '[]',
+              r.allowed_trade, r.allowed_categories, r.allowed_targets || '[]', r.allowed_volumes, r.allowed_sales_tiers || '[]',
               Number(r.rack_length_m || 20), r.zone_role || 'PICK', r.enabled, r.remark,
               (r.sort_order || 0) + idx
             ]);
@@ -687,13 +816,24 @@ module.exports = function(db) {
     });
   });
 
-  // 6. 依據目前「擺放模式」、「區域用途」與規則，計算準確率與異常清單（同步驗證樓層是否具備對應層架類型）
+  // 6. 依據順位（第一順位：借/採 -> 第二順位：商品ID**區 > 區名 > 大區名 -> 第三順位：月銷量級距）計算準確率
   router.get('/audit/report', (req, res) => {
     ensureTables(() => {
       getModeSettings((settings) => {
         const activeMode = req.query.mode || settings.mode || 'CAT_TRADE';
-        const checkCat = activeMode === 'CAT_TRADE' || activeMode === 'CAT_SALES_TRADE';
-        const checkSales = activeMode === 'SALES_TRADE' || activeMode === 'CAT_SALES_TRADE';
+
+        // 建立 SKU -> 所屬「商品ID**區」專區集合（支援專區排他性判斷）
+        const skuToGroupsMap = new Map();
+        (settings.sku_groups || []).forEach(g => {
+          const gName = String(g.name || '').trim();
+          if (!gName) return;
+          (g.skus || []).forEach(sku => {
+            const cleanSku = String(sku || '').trim();
+            if (!cleanSku) return;
+            if (!skuToGroupsMap.has(cleanSku)) skuToGroupsMap.set(cleanSku, new Set());
+            skuToGroupsMap.get(cleanSku).add(gName);
+          });
+        });
 
         db.all(`SELECT * FROM storage_placement_rules WHERE enabled = 1`, [], (rErr, ruleRows) => {
           if (rErr) return res.status(500).json({ success: false, message: rErr.message });
@@ -704,16 +844,23 @@ module.exports = function(db) {
               try { cats = JSON.parse(r.allowed_categories || '[]'); } catch (e) {}
               try { vols = JSON.parse(r.allowed_volumes || '[]'); } catch (e) {}
               try { tiers = JSON.parse(r.allowed_sales_tiers || '[]'); } catch (e) {}
+              const targets = parseRuleAllowedTargets(r);
+              const isSingleX = r.x_start === r.x_end;
+              const is5CharSingle = isSingleX && String(r.x_start).length >= 5;
+              // 排序權重：5碼單排(2) > 3碼單排(1) > 區間排(0)
+              const specificity = is5CharSingle ? 2 : (isSingleX ? 1 : 0);
+
               return {
                 ...r,
                 allowed_categories: cats,
+                allowed_targets: targets,
                 allowed_volumes: vols,
                 allowed_sales_tiers: tiers,
                 rack_length_m: Number(r.rack_length_m || 20),
                 zone_role: VALID_ZONE_ROLES.includes(r.zone_role) ? r.zone_role : 'PICK',
-                _isExactX: r.x_start === r.x_end ? 1 : 0
+                _specificity: specificity
               };
-            }).sort((a, b) => b._isExactX - a._isExactX || a.id - b.id);
+            }).sort((a, b) => b._specificity - a._specificity || a.id - b.id);
 
             const openRules = rules.filter(r => r.zone_role !== 'CLOSED');
             const { floorHasBaseType, pickBestAvailableOnFloor } = buildFloorRackInventory(masterRows || [], openRules);
@@ -758,10 +905,11 @@ module.exports = function(db) {
               const byXRow = {};
               const exceptions = [];
 
-              // 建議移庫目標池（結構化保留樓層、區域、排號與規則層架型態，排除「關閉中」）
-              const catTargetMap = {};
+              // 建議移庫目標池（依 allowed_targets 與 allowed_sales_tiers 建立）
+              const targetTokenMap = {};
               const tierTargetMap = {};
               const allOpenTargets = [];
+
               openRules.forEach(r => {
                 const xLabel = r.x_start === r.x_end ? r.x_start : `${r.x_start}~${r.x_end}`;
                 const roleTag = `[${formatZoneRoleLabel(r.zone_role)}]`;
@@ -776,12 +924,12 @@ module.exports = function(db) {
                   label
                 };
                 allOpenTargets.push(targetObj);
-                if (r.allowed_categories.length > 0) {
-                  r.allowed_categories.forEach(c => {
-                    if (!catTargetMap[c]) catTargetMap[c] = [];
-                    if (!catTargetMap[c].some(t => t.label === label)) catTargetMap[c].push(targetObj);
-                  });
-                }
+
+                r.allowed_targets.forEach(tok => {
+                  if (!targetTokenMap[tok]) targetTokenMap[tok] = [];
+                  if (!targetTokenMap[tok].some(t => t.label === label)) targetTokenMap[tok].push(targetObj);
+                });
+
                 if (r.allowed_sales_tiers.length > 0) {
                   r.allowed_sales_tiers.forEach(t => {
                     if (!tierTargetMap[t]) tierTargetMap[t] = [];
@@ -790,18 +938,46 @@ module.exports = function(db) {
                 }
               });
 
+              const checkTargetTokenMatch = (token, rec, itemGroups) => {
+                const str = String(token || '');
+                if (str.startsWith('GROUP:')) {
+                  const gName = str.slice(6);
+                  return itemGroups ? itemGroups.has(gName) : false;
+                }
+                if (str.startsWith('ZONE:')) {
+                  const [zCode, zName] = str.slice(5).split('|');
+                  const recZCode = String(rec.zone_id || '').trim();
+                  const recZName = String(rec.zone_name || '').trim();
+                  if (zCode && recZCode) return zCode === recZCode;
+                  return Boolean(zName && zName === recZName);
+                }
+                if (str.startsWith('CAT:')) {
+                  const [cCode, cName] = str.slice(4).split('|');
+                  const recCCode = String(rec.cat_code || '').trim();
+                  const recCName = String(rec.cat_name || '').trim();
+                  if (cCode && recCCode) return cCode === recCCode;
+                  return Boolean(cName && cName === recCName);
+                }
+                return false;
+              };
+
               records.forEach(rec => {
                 const salesTier = classifySalesTier(rec.monthly_sales, settings);
                 const matchedRule = matchRuleForRecord(rec, rules);
                 const zoneRole = matchedRule ? matchedRule.zone_role : 'PICK';
+                const itemGroups = skuToGroupsMap.get(String(rec.sku_id || '').trim()) || null;
 
                 const isClosedZone = zoneRole === 'CLOSED';
-                const hasActiveConstraint = matchedRule && (
-                  isClosedZone ||
-                  (matchedRule.allowed_trade && matchedRule.allowed_trade !== 'ALL') ||
-                  (checkCat && matchedRule.allowed_categories && matchedRule.allowed_categories.length > 0) ||
-                  (checkSales && matchedRule.allowed_sales_tiers && matchedRule.allowed_sales_tiers.length > 0) ||
-                  (matchedRule.allowed_volumes && matchedRule.allowed_volumes.length > 0)
+                const ruleTargets = matchedRule ? matchedRule.allowed_targets : [];
+                const hasActiveConstraint = Boolean(
+                  (itemGroups && itemGroups.size > 0) ||
+                  (matchedRule && (
+                    isClosedZone ||
+                    (matchedRule.allowed_trade && matchedRule.allowed_trade !== 'ALL') ||
+                    ruleTargets.length > 0 ||
+                    (matchedRule.allowed_sales_tiers && matchedRule.allowed_sales_tiers.length > 0) ||
+                    (matchedRule.allowed_volumes && matchedRule.allowed_volumes.length > 0)
+                  ))
                 );
 
                 let isOk = true;
@@ -814,20 +990,55 @@ module.exports = function(db) {
                     isOk = false;
                     reasons.push(`🚫 區域「關閉中」：該儲位已停用關閉，禁止存放庫存（現有 ${rec.qty} 件需立即移出）`);
                   } else {
-                    if (matchedRule.allowed_trade !== 'ALL' && rec.trade_type && matchedRule.allowed_trade !== rec.trade_type) {
-                      isOk = false;
-                      reasons.push(`借/採不符：限放「${matchedRule.allowed_trade}」，實際「${rec.trade_type}」`);
+                    // ==================== 第一順位：借 / 採 ====================
+                    let step1Passed = true;
+                    if (matchedRule && matchedRule.allowed_trade && matchedRule.allowed_trade !== 'ALL') {
+                      if (!rec.trade_type || matchedRule.allowed_trade !== rec.trade_type) {
+                        isOk = false;
+                        step1Passed = false;
+                        reasons.push(`【第一順位】借/採不符：限放「${matchedRule.allowed_trade}」，實際「${rec.trade_type || '未標示'}」`);
+                      }
                     }
-                    if (checkCat && matchedRule.allowed_categories.length > 0 && rec.cat_name && !matchedRule.allowed_categories.includes(rec.cat_name)) {
-                      isOk = false;
-                      reasons.push(`大區不符：限放[${matchedRule.allowed_categories.join('、')}]，實際「${rec.cat_name}」`);
+
+                    // ==================== 第二順位：商品ID**區 > 區名 > 大區名（第一順位吻合才檢查） ====================
+                    let step2Passed = true;
+                    if (step1Passed) {
+                      // 專區排他性：若商品屬於參數設定內的「商品ID**區」，只能擺放在允許該專區的儲位
+                      if (itemGroups && itemGroups.size > 0) {
+                        const groupList = Array.from(itemGroups);
+                        const allowedByGroup = ruleTargets.some(
+                          tok => tok.startsWith('GROUP:') && itemGroups.has(tok.slice(6))
+                        );
+                        if (!allowedByGroup) {
+                          isOk = false;
+                          step2Passed = false;
+                          reasons.push(`【第二順位】商品ID專區不符：此商品限定放置於[${groupList.join('、')}]`);
+                        }
+                      } else if (ruleTargets.length > 0) {
+                        const matchedAnyTarget = ruleTargets.some(tok => checkTargetTokenMatch(tok, rec, itemGroups));
+                        if (!matchedAnyTarget) {
+                          isOk = false;
+                          step2Passed = false;
+                          const allowedNames = ruleTargets.map(formatTargetDisplay).join('、');
+                          const actualInfo = [
+                            rec.zone_id || rec.zone_name ? `區:${rec.zone_id}-${rec.zone_name}` : '',
+                            rec.cat_code || rec.cat_name ? `大區:${rec.cat_code}-${rec.cat_name}` : ''
+                          ].filter(Boolean).join(' / ') || '未分類';
+                          reasons.push(`【第二順位】專區/區名/大區不符：限放[${allowedNames}]，實際「${actualInfo}」`);
+                        }
+                      }
                     }
-                    if (checkSales && matchedRule.allowed_sales_tiers.length > 0 && !matchedRule.allowed_sales_tiers.includes(salesTier)) {
-                      const allowedLabels = matchedRule.allowed_sales_tiers.map(formatTierLabel).join('、');
-                      isOk = false;
-                      reasons.push(`月銷不符：限放[${allowedLabels}]，實際「${formatTierLabel(salesTier)}(月銷${rec.monthly_sales})」`);
+
+                    // ==================== 第三順位：月銷量級距（前兩順位皆吻合才檢查） ====================
+                    if (step1Passed && step2Passed && matchedRule && matchedRule.allowed_sales_tiers.length > 0) {
+                      if (!matchedRule.allowed_sales_tiers.includes(salesTier)) {
+                        const allowedLabels = matchedRule.allowed_sales_tiers.map(formatTierLabel).join('、');
+                        isOk = false;
+                        reasons.push(`【第三順位】月銷不符：限放[${allowedLabels}]，實際「${formatTierLabel(salesTier)}(月銷${rec.monthly_sales})」`);
+                      }
                     }
-                    if (matchedRule.allowed_volumes.length > 0 && rec.volume_type && !matchedRule.allowed_volumes.includes(rec.volume_type)) {
+
+                    if (matchedRule && matchedRule.allowed_volumes.length > 0 && rec.volume_type && !matchedRule.allowed_volumes.includes(rec.volume_type)) {
                       isOk = false;
                       reasons.push(`材積不符：限放[${matchedRule.allowed_volumes.join('、')}]，實際「${rec.volume_type}」`);
                     }
@@ -844,24 +1055,38 @@ module.exports = function(db) {
                     const idealSpec = classifyRackSpecByCubicFeet(totalCf);
 
                     let targetObjs = [];
-                    if (checkSales && tierTargetMap[salesTier]) targetObjs = targetObjs.concat(tierTargetMap[salesTier]);
-                    if (checkCat && catTargetMap[rec.cat_name]) targetObjs = targetObjs.concat(catTargetMap[rec.cat_name]);
+                    if (itemGroups && itemGroups.size > 0) {
+                      itemGroups.forEach(gName => {
+                        const tok = `GROUP:${gName}`;
+                        if (targetTokenMap[tok]) targetObjs = targetObjs.concat(targetTokenMap[tok]);
+                      });
+                    } else {
+                      const zTok = `ZONE:${rec.zone_id || ''}|${rec.zone_name || ''}`;
+                      const cTok = `CAT:${rec.cat_code || ''}|${rec.cat_name || ''}`;
+                      if (targetTokenMap[zTok]) targetObjs = targetObjs.concat(targetTokenMap[zTok]);
+                      if (targetTokenMap[cTok]) targetObjs = targetObjs.concat(targetTokenMap[cTok]);
+                      if (tierTargetMap[salesTier]) targetObjs = targetObjs.concat(tierTargetMap[salesTier]);
+                    }
+
+                    // 過濾符合該商品借/採屬性的目標區
+                    const tradeMatchedTargets = targetObjs.filter(
+                      t => t.allowedTrade === 'ALL' || !rec.trade_type || t.allowedTrade === rec.trade_type
+                    );
+                    const candidatePool = tradeMatchedTargets.length > 0 ? tradeMatchedTargets : targetObjs;
 
                     const uniqueTargets = [];
                     const seenLabels = new Set();
-                    targetObjs.forEach(t => {
+                    candidatePool.forEach(t => {
                       if (!seenLabels.has(t.label)) {
                         seenLabels.add(t.label);
                         uniqueTargets.push(t);
                       }
                     });
 
-                    // 1. 優先挑選「符合規則」且「該樓層確實具備該理想層架類型」的目標
                     const targetWithMatchingRack = uniqueTargets.find(
                       t => t.baseRackType === idealSpec.baseType || floorHasBaseType(t.floor, idealSpec.baseType)
                     );
 
-                    // 2. 若符合大區/月銷規則的樓層本身沒有該理想層架，則在該合規樓層內選取實際存在的合適層架
                     let primaryTarget = targetWithMatchingRack || uniqueTargets[0] || null;
                     let suggestedFloor = '';
                     let suggestedArea = '';
@@ -869,14 +1094,17 @@ module.exports = function(db) {
 
                     if (primaryTarget) {
                       suggestedFloor = primaryTarget.floor;
-                      suggestedArea = primaryTarget.area || '依大區/動線分配';
+                      suggestedArea = primaryTarget.area || '依規則/動線分配';
                       if (!floorHasBaseType(suggestedFloor, idealSpec.baseType)) {
                         finalRackType = pickBestAvailableOnFloor(suggestedFloor, totalCf, idealSpec);
                       }
+                    } else if (itemGroups && itemGroups.size > 0) {
+                      suggestedFloor = '尚未設定專區儲位';
+                      suggestedArea = Array.from(itemGroups).join('、');
                     } else {
-                      // 無特定大區規則限制時，直接從實際擁有該層架類型的樓層中挑選
                       const fallbackRackTarget = allOpenTargets.find(
-                        t => t.baseRackType === idealSpec.baseType || floorHasBaseType(t.floor, idealSpec.baseType)
+                        t => (t.allowedTrade === 'ALL' || !rec.trade_type || t.allowedTrade === rec.trade_type) &&
+                             (t.baseRackType === idealSpec.baseType || floorHasBaseType(t.floor, idealSpec.baseType))
                       );
                       if (fallbackRackTarget) {
                         suggestedFloor = fallbackRackTarget.floor;
@@ -893,7 +1121,7 @@ module.exports = function(db) {
                     const prioritizedTargets = targetWithMatchingRack
                       ? [targetWithMatchingRack, ...uniqueTargets.filter(t => t.label !== targetWithMatchingRack.label)]
                       : uniqueTargets;
-                    const suggested = prioritizedTargets.slice(0, 2).map(t => t.label).join(' 或 ') || '請移往開放中的撿貨區/庫區';
+                    const suggested = prioritizedTargets.slice(0, 2).map(t => t.label).join(' 或 ') || '請移往符合規則的開放儲位';
 
                     exceptions.push({
                       sku_id: rec.sku_id,
@@ -1024,12 +1252,16 @@ module.exports = function(db) {
     ensureTables(() => {
       getModeSettings((settings) => {
         db.all(`SELECT * FROM storage_placement_rules WHERE enabled = 1`, [], (rErr, ruleRows) => {
-          const rules = (ruleRows || []).map(r => ({
-            ...r,
-            rack_length_m: Number(r.rack_length_m || 20),
-            zone_role: VALID_ZONE_ROLES.includes(r.zone_role) ? r.zone_role : 'PICK',
-            _isExactX: r.x_start === r.x_end ? 1 : 0
-          })).sort((a, b) => b._isExactX - a._isExactX || a.id - b.id);
+          const rules = (ruleRows || []).map(r => {
+            const isSingleX = r.x_start === r.x_end;
+            const is5CharSingle = isSingleX && String(r.x_start).length >= 5;
+            return {
+              ...r,
+              rack_length_m: Number(r.rack_length_m || 20),
+              zone_role: VALID_ZONE_ROLES.includes(r.zone_role) ? r.zone_role : 'PICK',
+              _specificity: is5CharSingle ? 2 : (isSingleX ? 1 : 0)
+            };
+          }).sort((a, b) => b._specificity - a._specificity || a.id - b.id);
 
           loadAuditRecordsWithSales((err, records) => {
             if (err) return res.status(500).json({ success: false, message: err.message });
@@ -1279,9 +1511,10 @@ module.exports = function(db) {
             records.forEach(rec => {
               const matched = matchRuleForRecord(rec, rules);
               if (matched) {
-                if (rec.cat_name) {
+                if (rec.cat_code || rec.cat_name) {
+                  const tok = `CAT:${rec.cat_code || ''}|${rec.cat_name || ''}`;
                   if (!zoneCatCounts[matched.id]) zoneCatCounts[matched.id] = {};
-                  zoneCatCounts[matched.id][rec.cat_name] = (zoneCatCounts[matched.id][rec.cat_name] || 0) + 1;
+                  zoneCatCounts[matched.id][tok] = (zoneCatCounts[matched.id][tok] || 0) + 1;
                 }
                 const tier = classifySalesTier(rec.monthly_sales, settings);
                 if (!zoneTierCounts[matched.id]) zoneTierCounts[matched.id] = {};
@@ -1294,10 +1527,10 @@ module.exports = function(db) {
               Object.keys(zoneCatCounts).forEach((ruleId) => {
                 const counts = zoneCatCounts[ruleId] || {};
                 const totalInZone = Object.values(counts).reduce((a, b) => a + b, 0);
-                const majorCats = Object.entries(counts)
+                const majorTokens = Object.entries(counts)
                   .filter(([, cnt]) => cnt / totalInZone >= 0.15)
                   .sort((a, b) => b[1] - a[1])
-                  .map(([cat]) => cat);
+                  .map(([tok]) => tok);
 
                 const tCounts = zoneTierCounts[ruleId] || {};
                 const totalT = Object.values(tCounts).reduce((a, b) => a + b, 0);
@@ -1307,8 +1540,8 @@ module.exports = function(db) {
                   .map(([t]) => t);
 
                 db.run(
-                  `UPDATE storage_placement_rules SET allowed_categories = ?, allowed_sales_tiers = ? WHERE id = ?`,
-                  [JSON.stringify(majorCats), JSON.stringify(majorTiers), Number(ruleId)]
+                  `UPDATE storage_placement_rules SET allowed_targets = ?, allowed_sales_tiers = ? WHERE id = ?`,
+                  [JSON.stringify(majorTokens), JSON.stringify(majorTiers), Number(ruleId)]
                 );
               });
               db.run('COMMIT', (cErr) => {
