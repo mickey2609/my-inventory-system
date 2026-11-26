@@ -50,6 +50,20 @@ module.exports = function(db) {
 
   const VALID_ZONE_ROLES = ['STORAGE', 'PICK', 'BOTH', 'CLOSED'];
 
+  // 層架基礎型態的單格才數容量排序（由小到大）
+  const BASE_RACK_CAPACITY_ORDER = [
+    { baseType: '鐵櫃', maxCf: 0.2 },
+    { baseType: '小藍格', maxCf: 0.6 },
+    { baseType: '中型層架(格)', maxCf: 1.8 },
+    { baseType: 'AGV層架-紙抽', maxCf: 1.8 },
+    { baseType: 'AGV層架', maxCf: 7.1 },
+    { baseType: '中型層架', maxCf: 8.6 },
+    { baseType: '重型層架-低', maxCf: 39.8 },
+    { baseType: '重型層架', maxCf: 45.5 },
+    { baseType: '落地儲位', maxCf: 45.5 },
+    { baseType: '板式', maxCf: 49.8 }
+  ];
+
   function formatZoneRoleLabel(role) {
     const map = {
       STORAGE: '庫區',
@@ -60,24 +74,102 @@ module.exports = function(db) {
     return map[role] || '撿貨區';
   }
 
-  // 依「儲位材積設定」表，根據總才數自動判斷最適合的層架類型
-  function classifyRackTypeByCubicFeet(totalCf) {
+  // 將細分層架名稱正規化為樓層定義表(locations_master)的基礎儲位型態
+  function normalizeBaseRackType(rawType) {
+    const t = String(rawType || '').trim();
+    if (!t) return '';
+    if (t.includes('鐵櫃')) return '鐵櫃';
+    if (t.includes('小藍格')) return '小藍格';
+    if (t.includes('中型層架(格)')) return '中型層架(格)';
+    if (t.includes('紙抽')) return 'AGV層架-紙抽';
+    if (t.includes('AGV')) return 'AGV層架';
+    if (t.includes('中型層架') || t.includes('小層架')) return '中型層架';
+    if (t.includes('重型層架-低') || /重(30|50|65|80|90|100|110|140)/.test(t)) return '重型層架-低';
+    if (t.includes('重型層架') || t.includes('重160')) return '重型層架';
+    if (t.includes('落地')) return '落地儲位';
+    if (t.includes('板式') || t.includes('板140')) return '板式';
+    return t;
+  }
+
+  // 依「儲位材積設定」表，根據總才數自動判斷最適合的層架類型（含細分規格與基礎型態）
+  function classifyRackSpecByCubicFeet(totalCf) {
     const cf = Number(totalCf || 0);
-    if (cf <= 0.2) return '鐵櫃 (鐵10)';
-    if (cf <= 0.6) return '小藍格 (小藍格20)';
-    if (cf <= 1.8) return '中型層架(格) / AGV層架-紙抽';
-    if (cf <= 5.3) return 'AGV層架30 (A30)';
-    if (cf <= 7.1) return 'AGV層架40 (A40)';
-    if (cf <= 8.6) return '中型層架 / 小層架 (中40)';
-    if (cf <= 14.2) return '重型層架-低7 (重50)';
-    if (cf <= 18.5) return '重型層架-低6 (重65)';
-    if (cf <= 22.8) return '重型層架-低5 (重80)';
-    if (cf <= 25.6) return '重型層架-低4 (重90)';
-    if (cf <= 28.4) return '重型層架-低3 (重100)';
-    if (cf <= 31.3) return '重型層架-低2 (重110)';
-    if (cf <= 39.8) return '重型層架-低1 (重140)';
-    if (cf <= 45.5) return '重型層架160 / 落地儲位';
-    return '板式 / 超大材 (板140)';
+    if (cf <= 0.2) return { label: '鐵櫃 (鐵10)', baseType: '鐵櫃' };
+    if (cf <= 0.6) return { label: '小藍格 (小藍格20)', baseType: '小藍格' };
+    if (cf <= 1.8) return { label: '中型層架(格) / AGV層架-紙抽', baseType: '中型層架(格)' };
+    if (cf <= 5.3) return { label: 'AGV層架30 (A30)', baseType: 'AGV層架' };
+    if (cf <= 7.1) return { label: 'AGV層架40 (A40)', baseType: 'AGV層架' };
+    if (cf <= 8.6) return { label: '中型層架 / 小層架 (中40)', baseType: '中型層架' };
+    if (cf <= 14.2) return { label: '重型層架-低7 (重50)', baseType: '重型層架-低' };
+    if (cf <= 18.5) return { label: '重型層架-低6 (重65)', baseType: '重型層架-低' };
+    if (cf <= 22.8) return { label: '重型層架-低5 (重80)', baseType: '重型層架-低' };
+    if (cf <= 25.6) return { label: '重型層架-低4 (重90)', baseType: '重型層架-低' };
+    if (cf <= 28.4) return { label: '重型層架-低3 (重100)', baseType: '重型層架-低' };
+    if (cf <= 31.3) return { label: '重型層架-低2 (重110)', baseType: '重型層架-低' };
+    if (cf <= 39.8) return { label: '重型層架-低1 (重140)', baseType: '重型層架-低' };
+    if (cf <= 45.5) return { label: '重型層架160 / 落地儲位', baseType: '重型層架' };
+    return { label: '板式 / 超大材 (板140)', baseType: '板式' };
+  }
+
+  // 建立各樓層實際擁有的層架型態對照表（整合 locations_master 與開放中的規則表）
+  function buildFloorRackInventory(masterRows, openRules) {
+    const floorTypesMap = {}; // { '3F': Set(['重型層架', '重型層架-低']), ... }
+    const addType = (fl, rawType) => {
+      const f = String(fl || '').trim();
+      const base = normalizeBaseRackType(rawType);
+      if (!f || !base) return;
+      if (!floorTypesMap[f]) floorTypesMap[f] = new Set();
+      floorTypesMap[f].add(base);
+      if (f.startsWith('2F') && f !== '2F') {
+        if (!floorTypesMap['2F']) floorTypesMap['2F'] = new Set();
+        floorTypesMap['2F'].add(base);
+      }
+    };
+
+    (masterRows || []).forEach(m => {
+      if (Number(m.grid_count || 0) > 0 || Number(m.cubic_feet || 0) > 0) {
+        addType(m.floor, m.loc_type);
+      }
+    });
+    (openRules || []).forEach(r => {
+      addType(r.floor, r.storage_type);
+    });
+
+    const floorHasBaseType = (fl, baseType) => {
+      const f = String(fl || '').trim();
+      if (!f || !baseType) return false;
+      const checkSet = (key) => {
+        const set = floorTypesMap[key];
+        if (!set || set.size === 0) return false;
+        if (set.has(baseType)) return true;
+        // 中型層架(格) 與 AGV層架-紙抽 同屬 1.8 才格位
+        if (baseType === '中型層架(格)' && set.has('AGV層架-紙抽')) return true;
+        // 重型層架160 與 落地儲位 同屬 45.5 才重型儲位
+        if (baseType === '重型層架' && set.has('落地儲位')) return true;
+        return false;
+      };
+      if (checkSet(f)) return true;
+      if (f === '2F') return checkSet('2F東') || checkSet('2F西');
+      return false;
+    };
+
+    // 若指定樓層沒有理想層架，從該樓層實際擁有的層架中挑出「能容納 totalCf 的最小規格」
+    const pickBestAvailableOnFloor = (fl, totalCf, idealSpec) => {
+      const f = String(fl || '').trim();
+      const set = floorTypesMap[f] || (f === '2F' ? (floorTypesMap['2F東'] || floorTypesMap['2F西']) : null);
+      if (!set || set.size === 0) return idealSpec.label;
+
+      const available = BASE_RACK_CAPACITY_ORDER.filter(item => set.has(item.baseType));
+      if (available.length === 0) {
+        const firstType = Array.from(set)[0];
+        return `${firstType} (${f}現有層架｜原材積適${idealSpec.baseType})`;
+      }
+
+      const fit = available.find(item => item.maxCf >= Number(totalCf || 0)) || available[available.length - 1];
+      return `${fit.baseType} (${f}現有規格｜原材積適${idealSpec.baseType})`;
+    };
+
+    return { floorTypesMap, floorHasBaseType, pickBestAvailableOnFloor };
   }
 
   function expandXRange(xStart, xEnd) {
@@ -266,7 +358,6 @@ module.exports = function(db) {
     return null;
   }
 
-  // 自動整合主庫 inventory 與獨立上傳快照 storage_audit_records（若首頁有較新匯入則優先採用主庫）
   function loadAuditRecordsWithSales(cb) {
     db.all(`SELECT * FROM storage_audit_records`, [], (dErr, records) => {
       if (dErr) return cb(dErr, []);
@@ -289,7 +380,6 @@ module.exports = function(db) {
               }
             });
 
-            // 判斷獨立快照是否已過時（例如昨天透過首頁重新匯入了 80 庫）
             let auditBatchMs = 0;
             if (records && records.length > 0 && records[0].batch_id) {
               const m = String(records[0].batch_id).match(/^batch_(\d+)$/);
@@ -593,7 +683,7 @@ module.exports = function(db) {
     });
   });
 
-  // 6. 依據目前「擺放模式」、「區域用途」與規則，計算準確率與異常清單
+  // 6. 依據目前「擺放模式」、「區域用途」與規則，計算準確率與異常清單（同步驗證樓層是否具備對應層架類型）
   router.get('/audit/report', (req, res) => {
     ensureTables(() => {
       getModeSettings((settings) => {
@@ -604,263 +694,308 @@ module.exports = function(db) {
         db.all(`SELECT * FROM storage_placement_rules WHERE enabled = 1`, [], (rErr, ruleRows) => {
           if (rErr) return res.status(500).json({ success: false, message: rErr.message });
 
-          const rules = (ruleRows || []).map(r => {
-            let cats = [], vols = [], tiers = [];
-            try { cats = JSON.parse(r.allowed_categories || '[]'); } catch (e) {}
-            try { vols = JSON.parse(r.allowed_volumes || '[]'); } catch (e) {}
-            try { tiers = JSON.parse(r.allowed_sales_tiers || '[]'); } catch (e) {}
-            return {
-              ...r,
-              allowed_categories: cats,
-              allowed_volumes: vols,
-              allowed_sales_tiers: tiers,
-              rack_length_m: Number(r.rack_length_m || 20),
-              zone_role: VALID_ZONE_ROLES.includes(r.zone_role) ? r.zone_role : 'PICK',
-              _isExactX: r.x_start === r.x_end ? 1 : 0
-            };
-          }).sort((a, b) => b._isExactX - a._isExactX || a.id - b.id);
+          db.all(`SELECT floor, zone, loc_type, cubic_feet, grid_count, single_cubic_feet FROM locations_master`, [], (mErr, masterRows) => {
+            const rules = (ruleRows || []).map(r => {
+              let cats = [], vols = [], tiers = [];
+              try { cats = JSON.parse(r.allowed_categories || '[]'); } catch (e) {}
+              try { vols = JSON.parse(r.allowed_volumes || '[]'); } catch (e) {}
+              try { tiers = JSON.parse(r.allowed_sales_tiers || '[]'); } catch (e) {}
+              return {
+                ...r,
+                allowed_categories: cats,
+                allowed_volumes: vols,
+                allowed_sales_tiers: tiers,
+                rack_length_m: Number(r.rack_length_m || 20),
+                zone_role: VALID_ZONE_ROLES.includes(r.zone_role) ? r.zone_role : 'PICK',
+                _isExactX: r.x_start === r.x_end ? 1 : 0
+              };
+            }).sort((a, b) => b._isExactX - a._isExactX || a.id - b.id);
 
-          loadAuditRecordsWithSales((dErr, records) => {
-            if (dErr) return res.status(500).json({ success: false, message: dErr.message });
+            const openRules = rules.filter(r => r.zone_role !== 'CLOSED');
+            const { floorHasBaseType, pickBestAvailableOnFloor } = buildFloorRackInventory(masterRows || [], openRules);
 
-            const totalCount = (records || []).length;
-            if (totalCount === 0) {
-              return res.json({
+            loadAuditRecordsWithSales((dErr, records) => {
+              if (dErr) return res.status(500).json({ success: false, message: dErr.message });
+
+              const totalCount = (records || []).length;
+              if (totalCount === 0) {
+                return res.json({
+                  success: true,
+                  hasData: false,
+                  activeMode,
+                  settings,
+                  summary: { total: 0, audited: 0, passed: 0, failed: 0, accuracyPct: 0 },
+                  byTrade: [],
+                  byFloor: [],
+                  byCategory: [],
+                  bySalesTier: [],
+                  byZoneRole: [],
+                  byXRow: {},
+                  exceptions: []
+                });
+              }
+
+              let audited = 0, passed = 0, failed = 0;
+              const tradeStats = {};
+              const floorStats = {};
+              const catStats = {};
+              const roleStats = {
+                PICK: { role: 'PICK', label: '🛒 撿貨區', total: 0, passed: 0, failed: 0 },
+                BOTH: { role: 'BOTH', label: '🔄 庫區+撿貨區', total: 0, passed: 0, failed: 0 },
+                STORAGE: { role: 'STORAGE', label: '📦 庫區', total: 0, passed: 0, failed: 0 },
+                CLOSED: { role: 'CLOSED', label: '🚫 關閉中', total: 0, passed: 0, failed: 0 }
+              };
+              const tierStats = {
+                A: { label: 'A級爆品', total: 0, passed: 0, failed: 0 },
+                B: { label: 'B級常銷', total: 0, passed: 0, failed: 0 },
+                C: { label: 'C級慢銷', total: 0, passed: 0, failed: 0 },
+                D: { label: 'D級滯銷', total: 0, passed: 0, failed: 0 }
+              };
+              const byXRow = {};
+              const exceptions = [];
+
+              // 建議移庫目標池（結構化保留樓層、區域、排號與規則層架型態，排除「關閉中」）
+              const catTargetMap = {};
+              const tierTargetMap = {};
+              const allOpenTargets = [];
+              openRules.forEach(r => {
+                const xLabel = r.x_start === r.x_end ? r.x_start : `${r.x_start}~${r.x_end}`;
+                const roleTag = `[${formatZoneRoleLabel(r.zone_role)}]`;
+                const areaStr = r.area ? `${r.area}區` : '';
+                const label = `${r.floor} ${areaStr} ${xLabel}${roleTag}${r.allowed_trade !== 'ALL' ? '(' + r.allowed_trade + ')' : ''}`.replace(/\s+/g, ' ');
+                const targetObj = {
+                  floor: r.floor || '',
+                  area: areaStr,
+                  xLabel,
+                  baseRackType: normalizeBaseRackType(r.storage_type),
+                  allowedTrade: r.allowed_trade || 'ALL',
+                  label
+                };
+                allOpenTargets.push(targetObj);
+                if (r.allowed_categories.length > 0) {
+                  r.allowed_categories.forEach(c => {
+                    if (!catTargetMap[c]) catTargetMap[c] = [];
+                    if (!catTargetMap[c].some(t => t.label === label)) catTargetMap[c].push(targetObj);
+                  });
+                }
+                if (r.allowed_sales_tiers.length > 0) {
+                  r.allowed_sales_tiers.forEach(t => {
+                    if (!tierTargetMap[t]) tierTargetMap[t] = [];
+                    if (!tierTargetMap[t].some(item => item.label === label)) tierTargetMap[t].push(targetObj);
+                  });
+                }
+              });
+
+              records.forEach(rec => {
+                const salesTier = classifySalesTier(rec.monthly_sales, settings);
+                const matchedRule = matchRuleForRecord(rec, rules);
+                const zoneRole = matchedRule ? matchedRule.zone_role : 'PICK';
+
+                const isClosedZone = zoneRole === 'CLOSED';
+                const hasActiveConstraint = matchedRule && (
+                  isClosedZone ||
+                  (matchedRule.allowed_trade && matchedRule.allowed_trade !== 'ALL') ||
+                  (checkCat && matchedRule.allowed_categories && matchedRule.allowed_categories.length > 0) ||
+                  (checkSales && matchedRule.allowed_sales_tiers && matchedRule.allowed_sales_tiers.length > 0) ||
+                  (matchedRule.allowed_volumes && matchedRule.allowed_volumes.length > 0)
+                );
+
+                let isOk = true;
+                const reasons = [];
+
+                if (hasActiveConstraint) {
+                  audited++;
+
+                  if (isClosedZone) {
+                    isOk = false;
+                    reasons.push(`🚫 區域「關閉中」：該儲位已停用關閉，禁止存放庫存（現有 ${rec.qty} 件需立即移出）`);
+                  } else {
+                    if (matchedRule.allowed_trade !== 'ALL' && rec.trade_type && matchedRule.allowed_trade !== rec.trade_type) {
+                      isOk = false;
+                      reasons.push(`借/採不符：限放「${matchedRule.allowed_trade}」，實際「${rec.trade_type}」`);
+                    }
+                    if (checkCat && matchedRule.allowed_categories.length > 0 && rec.cat_name && !matchedRule.allowed_categories.includes(rec.cat_name)) {
+                      isOk = false;
+                      reasons.push(`大區不符：限放[${matchedRule.allowed_categories.join('、')}]，實際「${rec.cat_name}」`);
+                    }
+                    if (checkSales && matchedRule.allowed_sales_tiers.length > 0 && !matchedRule.allowed_sales_tiers.includes(salesTier)) {
+                      const allowedLabels = matchedRule.allowed_sales_tiers.map(formatTierLabel).join('、');
+                      isOk = false;
+                      reasons.push(`月銷不符：限放[${allowedLabels}]，實際「${formatTierLabel(salesTier)}(月銷${rec.monthly_sales})」`);
+                    }
+                    if (matchedRule.allowed_volumes.length > 0 && rec.volume_type && !matchedRule.allowed_volumes.includes(rec.volume_type)) {
+                      isOk = false;
+                      reasons.push(`材積不符：限放[${matchedRule.allowed_volumes.join('、')}]，實際「${rec.volume_type}」`);
+                    }
+                  }
+                }
+
+                const parsed = parseBinCode(rec.bin_code);
+
+                if (isOk) passed++;
+                else {
+                  failed++;
+                  if (exceptions.length < 5000) {
+                    const totalCf = Number(rec.total_cubic_feet || 0);
+                    const idealSpec = classifyRackSpecByCubicFeet(totalCf);
+
+                    let targetObjs = [];
+                    if (checkSales && tierTargetMap[salesTier]) targetObjs = targetObjs.concat(tierTargetMap[salesTier]);
+                    if (checkCat && catTargetMap[rec.cat_name]) targetObjs = targetObjs.concat(catTargetMap[rec.cat_name]);
+
+                    const uniqueTargets = [];
+                    const seenLabels = new Set();
+                    targetObjs.forEach(t => {
+                      if (!seenLabels.has(t.label)) {
+                        seenLabels.add(t.label);
+                        uniqueTargets.push(t);
+                      }
+                    });
+
+                    // 1. 優先挑選「符合規則」且「該樓層確實具備該理想層架類型」的目標
+                    const targetWithMatchingRack = uniqueTargets.find(
+                      t => t.baseRackType === idealSpec.baseType || floorHasBaseType(t.floor, idealSpec.baseType)
+                    );
+
+                    // 2. 若符合大區/月銷規則的樓層本身沒有該理想層架，則在該合規樓層內選取實際存在的合適層架
+                    let primaryTarget = targetWithMatchingRack || uniqueTargets[0] || null;
+                    let suggestedFloor = '';
+                    let suggestedArea = '';
+                    let finalRackType = idealSpec.label;
+
+                    if (primaryTarget) {
+                      suggestedFloor = primaryTarget.floor;
+                      suggestedArea = primaryTarget.area || '依大區/動線分配';
+                      if (!floorHasBaseType(suggestedFloor, idealSpec.baseType)) {
+                        finalRackType = pickBestAvailableOnFloor(suggestedFloor, totalCf, idealSpec);
+                      }
+                    } else {
+                      // 無特定大區規則限制時，直接從實際擁有該層架類型的樓層中挑選
+                      const fallbackRackTarget = allOpenTargets.find(
+                        t => t.baseRackType === idealSpec.baseType || floorHasBaseType(t.floor, idealSpec.baseType)
+                      );
+                      if (fallbackRackTarget) {
+                        suggestedFloor = fallbackRackTarget.floor;
+                        suggestedArea = fallbackRackTarget.area || '開放撿貨區/庫區';
+                      } else {
+                        suggestedFloor = rec.assigned_floor || (salesTier === 'A' ? '7F' : '6F');
+                        suggestedArea = '開放撿貨區/庫區';
+                        if (!floorHasBaseType(suggestedFloor, idealSpec.baseType)) {
+                          finalRackType = pickBestAvailableOnFloor(suggestedFloor, totalCf, idealSpec);
+                        }
+                      }
+                    }
+
+                    const prioritizedTargets = targetWithMatchingRack
+                      ? [targetWithMatchingRack, ...uniqueTargets.filter(t => t.label !== targetWithMatchingRack.label)]
+                      : uniqueTargets;
+                    const suggested = prioritizedTargets.slice(0, 2).map(t => t.label).join(' 或 ') || '請移往開放中的撿貨區/庫區';
+
+                    exceptions.push({
+                      sku_id: rec.sku_id,
+                      sku_name: rec.sku_name,
+                      trade_type: rec.trade_type,
+                      cat_code: rec.cat_code || '',
+                      cat_name: rec.cat_name || '',
+                      zone_id: rec.zone_id || '',
+                      zone_name: rec.zone_name || (matchedRule ? matchedRule.zone_name : '未定義區段'),
+                      vol_type: rec.vol_type || rec.volume_type || '',
+                      total_cubic_feet: Number(totalCf.toFixed(2)),
+                      monthly_sales: rec.monthly_sales,
+                      sales_tier: salesTier,
+                      sales_tier_label: formatTierLabel(salesTier),
+                      volume_type: rec.volume_type,
+                      floor: rec.floor,
+                      area: rec.area,
+                      bin_code: rec.bin_code,
+                      x_code: parsed ? parsed.x : '',
+                      qty: rec.qty,
+                      zone_role: zoneRole,
+                      zone_role_label: formatZoneRoleLabel(zoneRole),
+                      reason: reasons.join('；'),
+                      suggested_floor: suggestedFloor,
+                      suggested_area: suggestedArea,
+                      suggested_rack_type: finalRackType,
+                      suggested_zone: suggested
+                    });
+                  }
+                }
+
+                if (parsed && rec.floor) {
+                  const baseFloor = rec.floor.startsWith('2F') ? '2F' : rec.floor;
+                  const xKey = `${baseFloor}|${parsed.x}`;
+                  if (!byXRow[xKey]) {
+                    byXRow[xKey] = { total: 0, passed: 0, failed: 0, borrowCnt: 0, buyCnt: 0, cats: {}, tiers: { A: 0, B: 0, C: 0, D: 0 } };
+                  }
+                  const xs = byXRow[xKey];
+                  xs.total++;
+                  if (isOk) xs.passed++; else xs.failed++;
+                  if (rec.trade_type === '借') xs.borrowCnt++;
+                  if (rec.trade_type === '採') xs.buyCnt++;
+                  if (rec.cat_name) xs.cats[rec.cat_name] = (xs.cats[rec.cat_name] || 0) + 1;
+                  xs.tiers[salesTier] = (xs.tiers[salesTier] || 0) + 1;
+                }
+
+                const tKey = rec.trade_type || '未標示';
+                if (!tradeStats[tKey]) tradeStats[tKey] = { label: tKey, total: 0, passed: 0, failed: 0 };
+                tradeStats[tKey].total++;
+                if (isOk) tradeStats[tKey].passed++; else tradeStats[tKey].failed++;
+
+                const fKey = rec.floor || '未標示';
+                if (!floorStats[fKey]) floorStats[fKey] = { label: fKey, total: 0, passed: 0, failed: 0 };
+                floorStats[fKey].total++;
+                if (isOk) floorStats[fKey].passed++; else floorStats[fKey].failed++;
+
+                const cKey = rec.cat_name || '未分類';
+                if (!catStats[cKey]) catStats[cKey] = { label: cKey, total: 0, passed: 0, failed: 0 };
+                catStats[cKey].total++;
+                if (isOk) catStats[cKey].passed++; else catStats[cKey].failed++;
+
+                tierStats[salesTier].total++;
+                if (isOk) tierStats[salesTier].passed++; else tierStats[salesTier].failed++;
+
+                if (roleStats[zoneRole]) {
+                  roleStats[zoneRole].total++;
+                  if (isOk) roleStats[zoneRole].passed++; else roleStats[zoneRole].failed++;
+                }
+              });
+
+              const toArr = (obj) => Object.values(obj).map(x => ({
+                ...x,
+                accuracyPct: x.total > 0 ? Number(((x.passed / x.total) * 100).toFixed(2)) : 0
+              })).sort((a, b) => b.total - a.total);
+
+              const bySalesTier = ['A', 'B', 'C', 'D'].map(k => ({
+                tier: k,
+                ...tierStats[k],
+                accuracyPct: tierStats[k].total > 0 ? Number(((tierStats[k].passed / tierStats[k].total) * 100).toFixed(2)) : 0
+              }));
+
+              const byZoneRole = ['PICK', 'BOTH', 'STORAGE', 'CLOSED'].map(k => ({
+                ...roleStats[k],
+                accuracyPct: roleStats[k].total > 0 ? Number(((roleStats[k].passed / roleStats[k].total) * 100).toFixed(2)) : 0
+              }));
+
+              res.json({
                 success: true,
-                hasData: false,
+                hasData: true,
                 activeMode,
                 settings,
-                summary: { total: 0, audited: 0, passed: 0, failed: 0, accuracyPct: 0 },
-                byTrade: [],
-                byFloor: [],
-                byCategory: [],
-                bySalesTier: [],
-                byZoneRole: [],
-                byXRow: {},
-                exceptions: []
+                summary: {
+                  total: totalCount,
+                  audited,
+                  passed,
+                  failed,
+                  accuracyPct: totalCount > 0 ? Number(((passed / totalCount) * 100).toFixed(2)) : 0
+                },
+                byTrade: toArr(tradeStats),
+                byFloor: toArr(floorStats),
+                byCategory: toArr(catStats),
+                bySalesTier,
+                byZoneRole,
+                byXRow,
+                exceptions
               });
-            }
-
-            let audited = 0, passed = 0, failed = 0;
-            const tradeStats = {};
-            const floorStats = {};
-            const catStats = {};
-            const roleStats = {
-              PICK: { role: 'PICK', label: '🛒 撿貨區', total: 0, passed: 0, failed: 0 },
-              BOTH: { role: 'BOTH', label: '🔄 庫區+撿貨區', total: 0, passed: 0, failed: 0 },
-              STORAGE: { role: 'STORAGE', label: '📦 庫區', total: 0, passed: 0, failed: 0 },
-              CLOSED: { role: 'CLOSED', label: '🚫 關閉中', total: 0, passed: 0, failed: 0 }
-            };
-            const tierStats = {
-              A: { label: 'A級爆品', total: 0, passed: 0, failed: 0 },
-              B: { label: 'B級常銷', total: 0, passed: 0, failed: 0 },
-              C: { label: 'C級慢銷', total: 0, passed: 0, failed: 0 },
-              D: { label: 'D級滯銷', total: 0, passed: 0, failed: 0 }
-            };
-            const byXRow = {};
-            const exceptions = [];
-
-            // 建議移庫目標池（結構化保留樓層、區域與排號，排除「關閉中」）
-            const catTargetMap = {};
-            const tierTargetMap = {};
-            rules.filter(r => r.zone_role !== 'CLOSED').forEach(r => {
-              const xLabel = r.x_start === r.x_end ? r.x_start : `${r.x_start}~${r.x_end}`;
-              const roleTag = `[${formatZoneRoleLabel(r.zone_role)}]`;
-              const areaStr = r.area ? `${r.area}區` : '';
-              const label = `${r.floor} ${areaStr} ${xLabel}${roleTag}${r.allowed_trade !== 'ALL' ? '(' + r.allowed_trade + ')' : ''}`.replace(/\s+/g, ' ');
-              const targetObj = {
-                floor: r.floor || '',
-                area: areaStr,
-                xLabel,
-                label
-              };
-              if (r.allowed_categories.length > 0) {
-                r.allowed_categories.forEach(c => {
-                  if (!catTargetMap[c]) catTargetMap[c] = [];
-                  if (!catTargetMap[c].some(t => t.label === label)) catTargetMap[c].push(targetObj);
-                });
-              }
-              if (r.allowed_sales_tiers.length > 0) {
-                r.allowed_sales_tiers.forEach(t => {
-                  if (!tierTargetMap[t]) tierTargetMap[t] = [];
-                  if (!tierTargetMap[t].some(item => item.label === label)) tierTargetMap[t].push(targetObj);
-                });
-              }
-            });
-
-            records.forEach(rec => {
-              const salesTier = classifySalesTier(rec.monthly_sales, settings);
-              const matchedRule = matchRuleForRecord(rec, rules);
-              const zoneRole = matchedRule ? matchedRule.zone_role : 'PICK';
-
-              const isClosedZone = zoneRole === 'CLOSED';
-              const hasActiveConstraint = matchedRule && (
-                isClosedZone ||
-                (matchedRule.allowed_trade && matchedRule.allowed_trade !== 'ALL') ||
-                (checkCat && matchedRule.allowed_categories && matchedRule.allowed_categories.length > 0) ||
-                (checkSales && matchedRule.allowed_sales_tiers && matchedRule.allowed_sales_tiers.length > 0) ||
-                (matchedRule.allowed_volumes && matchedRule.allowed_volumes.length > 0)
-              );
-
-              let isOk = true;
-              const reasons = [];
-
-              if (hasActiveConstraint) {
-                audited++;
-
-                if (isClosedZone) {
-                  isOk = false;
-                  reasons.push(`🚫 區域「關閉中」：該儲位已停用關閉，禁止存放庫存（現有 ${rec.qty} 件需立即移出）`);
-                } else {
-                  if (matchedRule.allowed_trade !== 'ALL' && rec.trade_type && matchedRule.allowed_trade !== rec.trade_type) {
-                    isOk = false;
-                    reasons.push(`借/採不符：限放「${matchedRule.allowed_trade}」，實際「${rec.trade_type}」`);
-                  }
-                  if (checkCat && matchedRule.allowed_categories.length > 0 && rec.cat_name && !matchedRule.allowed_categories.includes(rec.cat_name)) {
-                    isOk = false;
-                    reasons.push(`大區不符：限放[${matchedRule.allowed_categories.join('、')}]，實際「${rec.cat_name}」`);
-                  }
-                  if (checkSales && matchedRule.allowed_sales_tiers.length > 0 && !matchedRule.allowed_sales_tiers.includes(salesTier)) {
-                    const allowedLabels = matchedRule.allowed_sales_tiers.map(formatTierLabel).join('、');
-                    isOk = false;
-                    reasons.push(`月銷不符：限放[${allowedLabels}]，實際「${formatTierLabel(salesTier)}(月銷${rec.monthly_sales})」`);
-                  }
-                  if (matchedRule.allowed_volumes.length > 0 && rec.volume_type && !matchedRule.allowed_volumes.includes(rec.volume_type)) {
-                    isOk = false;
-                    reasons.push(`材積不符：限放[${matchedRule.allowed_volumes.join('、')}]，實際「${rec.volume_type}」`);
-                  }
-                }
-              }
-
-              const parsed = parseBinCode(rec.bin_code);
-
-              if (isOk) passed++;
-              else {
-                failed++;
-                if (exceptions.length < 5000) {
-                  let targetObjs = [];
-                  if (checkSales && tierTargetMap[salesTier]) targetObjs = targetObjs.concat(tierTargetMap[salesTier]);
-                  if (checkCat && catTargetMap[rec.cat_name]) targetObjs = targetObjs.concat(catTargetMap[rec.cat_name]);
-
-                  const uniqueTargets = [];
-                  const seenLabels = new Set();
-                  targetObjs.forEach(t => {
-                    if (!seenLabels.has(t.label)) {
-                      seenLabels.add(t.label);
-                      uniqueTargets.push(t);
-                    }
-                  });
-
-                  const primaryTarget = uniqueTargets[0] || null;
-                  const suggested = uniqueTargets.slice(0, 2).map(t => t.label).join(' 或 ') || '請移往開放中的撿貨區/庫區';
-                  const suggestedFloor = primaryTarget ? primaryTarget.floor : (rec.assigned_floor || (salesTier === 'A' ? '7F' : '6F'));
-                  const suggestedArea = primaryTarget ? (primaryTarget.area || '依大區/動線分配') : '開放撿貨區/庫區';
-                  const totalCf = Number(rec.total_cubic_feet || 0);
-
-                  exceptions.push({
-                    sku_id: rec.sku_id,
-                    sku_name: rec.sku_name,
-                    trade_type: rec.trade_type,
-                    cat_code: rec.cat_code || '',
-                    cat_name: rec.cat_name || '',
-                    zone_id: rec.zone_id || '',
-                    zone_name: rec.zone_name || (matchedRule ? matchedRule.zone_name : '未定義區段'),
-                    vol_type: rec.vol_type || rec.volume_type || '',
-                    total_cubic_feet: Number(totalCf.toFixed(2)),
-                    monthly_sales: rec.monthly_sales,
-                    sales_tier: salesTier,
-                    sales_tier_label: formatTierLabel(salesTier),
-                    volume_type: rec.volume_type,
-                    floor: rec.floor,
-                    area: rec.area,
-                    bin_code: rec.bin_code,
-                    x_code: parsed ? parsed.x : '',
-                    qty: rec.qty,
-                    zone_role: zoneRole,
-                    zone_role_label: formatZoneRoleLabel(zoneRole),
-                    reason: reasons.join('；'),
-                    suggested_floor: suggestedFloor,
-                    suggested_area: suggestedArea,
-                    suggested_rack_type: classifyRackTypeByCubicFeet(totalCf),
-                    suggested_zone: suggested
-                  });
-                }
-              }
-
-              if (parsed && rec.floor) {
-                const baseFloor = rec.floor.startsWith('2F') ? '2F' : rec.floor;
-                const xKey = `${baseFloor}|${parsed.x}`;
-                if (!byXRow[xKey]) {
-                  byXRow[xKey] = { total: 0, passed: 0, failed: 0, borrowCnt: 0, buyCnt: 0, cats: {}, tiers: { A: 0, B: 0, C: 0, D: 0 } };
-                }
-                const xs = byXRow[xKey];
-                xs.total++;
-                if (isOk) xs.passed++; else xs.failed++;
-                if (rec.trade_type === '借') xs.borrowCnt++;
-                if (rec.trade_type === '採') xs.buyCnt++;
-                if (rec.cat_name) xs.cats[rec.cat_name] = (xs.cats[rec.cat_name] || 0) + 1;
-                xs.tiers[salesTier] = (xs.tiers[salesTier] || 0) + 1;
-              }
-
-              const tKey = rec.trade_type || '未標示';
-              if (!tradeStats[tKey]) tradeStats[tKey] = { label: tKey, total: 0, passed: 0, failed: 0 };
-              tradeStats[tKey].total++;
-              if (isOk) tradeStats[tKey].passed++; else tradeStats[tKey].failed++;
-
-              const fKey = rec.floor || '未標示';
-              if (!floorStats[fKey]) floorStats[fKey] = { label: fKey, total: 0, passed: 0, failed: 0 };
-              floorStats[fKey].total++;
-              if (isOk) floorStats[fKey].passed++; else floorStats[fKey].failed++;
-
-              const cKey = rec.cat_name || '未分類';
-              if (!catStats[cKey]) catStats[cKey] = { label: cKey, total: 0, passed: 0, failed: 0 };
-              catStats[cKey].total++;
-              if (isOk) catStats[cKey].passed++; else catStats[cKey].failed++;
-
-              tierStats[salesTier].total++;
-              if (isOk) tierStats[salesTier].passed++; else tierStats[salesTier].failed++;
-
-              if (roleStats[zoneRole]) {
-                roleStats[zoneRole].total++;
-                if (isOk) roleStats[zoneRole].passed++; else roleStats[zoneRole].failed++;
-              }
-            });
-
-            const toArr = (obj) => Object.values(obj).map(x => ({
-              ...x,
-              accuracyPct: x.total > 0 ? Number(((x.passed / x.total) * 100).toFixed(2)) : 0
-            })).sort((a, b) => b.total - a.total);
-
-            const bySalesTier = ['A', 'B', 'C', 'D'].map(k => ({
-              tier: k,
-              ...tierStats[k],
-              accuracyPct: tierStats[k].total > 0 ? Number(((tierStats[k].passed / tierStats[k].total) * 100).toFixed(2)) : 0
-            }));
-
-            const byZoneRole = ['PICK', 'BOTH', 'STORAGE', 'CLOSED'].map(k => ({
-              ...roleStats[k],
-              accuracyPct: roleStats[k].total > 0 ? Number(((roleStats[k].passed / roleStats[k].total) * 100).toFixed(2)) : 0
-            }));
-
-            res.json({
-              success: true,
-              hasData: true,
-              activeMode,
-              settings,
-              summary: {
-                total: totalCount,
-                audited,
-                passed,
-                failed,
-                accuracyPct: totalCount > 0 ? Number(((passed / totalCount) * 100).toFixed(2)) : 0
-              },
-              byTrade: toArr(tradeStats),
-              byFloor: toArr(floorStats),
-              byCategory: toArr(catStats),
-              bySalesTier,
-              byZoneRole,
-              byXRow,
-              exceptions
             });
           });
         });
