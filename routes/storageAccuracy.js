@@ -48,7 +48,6 @@ module.exports = function(db) {
     tierC_min: 1
   };
 
-  // 區域用途屬性：'STORAGE' (庫區) | 'PICK' (撿貨區) | 'BOTH' (庫區+撿貨區) | 'CLOSED' (關閉中)
   const VALID_ZONE_ROLES = ['STORAGE', 'PICK', 'BOTH', 'CLOSED'];
 
   function formatZoneRoleLabel(role) {
@@ -59,6 +58,26 @@ module.exports = function(db) {
       CLOSED: '關閉中'
     };
     return map[role] || '撿貨區';
+  }
+
+  // 依「儲位材積設定」表，根據總才數自動判斷最適合的層架類型
+  function classifyRackTypeByCubicFeet(totalCf) {
+    const cf = Number(totalCf || 0);
+    if (cf <= 0.2) return '鐵櫃 (鐵10)';
+    if (cf <= 0.6) return '小藍格 (小藍格20)';
+    if (cf <= 1.8) return '中型層架(格) / AGV層架-紙抽';
+    if (cf <= 5.3) return 'AGV層架30 (A30)';
+    if (cf <= 7.1) return 'AGV層架40 (A40)';
+    if (cf <= 8.6) return '中型層架 / 小層架 (中40)';
+    if (cf <= 14.2) return '重型層架-低7 (重50)';
+    if (cf <= 18.5) return '重型層架-低6 (重65)';
+    if (cf <= 22.8) return '重型層架-低5 (重80)';
+    if (cf <= 25.6) return '重型層架-低4 (重90)';
+    if (cf <= 28.4) return '重型層架-低3 (重100)';
+    if (cf <= 31.3) return '重型層架-低2 (重110)';
+    if (cf <= 39.8) return '重型層架-低1 (重140)';
+    if (cf <= 45.5) return '重型層架160 / 落地儲位';
+    return '板式 / 超大材 (板140)';
   }
 
   function expandXRange(xStart, xEnd) {
@@ -128,7 +147,11 @@ module.exports = function(db) {
           storage_type TEXT DEFAULT '',
           cat_code TEXT DEFAULT '',
           cat_name TEXT DEFAULT '',
+          zone_id TEXT DEFAULT '',
+          zone_name TEXT DEFAULT '',
+          vol_type TEXT DEFAULT '',
           volume_type TEXT DEFAULT '',
+          total_cubic_feet REAL DEFAULT 0,
           monthly_sales REAL DEFAULT 0,
           pick_days_m REAL DEFAULT 0,
           note TEXT DEFAULT ''
@@ -137,6 +160,10 @@ module.exports = function(db) {
 
       db.run(`ALTER TABLE storage_audit_records ADD COLUMN monthly_sales REAL DEFAULT 0`, () => {});
       db.run(`ALTER TABLE storage_audit_records ADD COLUMN pick_days_m REAL DEFAULT 0`, () => {});
+      db.run(`ALTER TABLE storage_audit_records ADD COLUMN zone_id TEXT DEFAULT ''`, () => {});
+      db.run(`ALTER TABLE storage_audit_records ADD COLUMN zone_name TEXT DEFAULT ''`, () => {});
+      db.run(`ALTER TABLE storage_audit_records ADD COLUMN vol_type TEXT DEFAULT ''`, () => {});
+      db.run(`ALTER TABLE storage_audit_records ADD COLUMN total_cubic_feet REAL DEFAULT 0`, () => {});
 
       db.run(`CREATE TABLE IF NOT EXISTS system_config (config_key TEXT PRIMARY KEY, config_value TEXT)`);
 
@@ -239,66 +266,116 @@ module.exports = function(db) {
     return null;
   }
 
+  // 自動整合主庫 inventory 與獨立上傳快照 storage_audit_records（若首頁有較新匯入則優先採用主庫）
   function loadAuditRecordsWithSales(cb) {
     db.all(`SELECT * FROM storage_audit_records`, [], (dErr, records) => {
       if (dErr) return cb(dErr, []);
-      db.all(`SELECT item_id, location, monthly_sales, pick_days_m, borrow_proc, qty, floor, floor_zone, loc_type, big_zone_id, big_zone, vol_check, remark, item_name FROM inventory`, [], (iErr, invRows) => {
-        const invByBinSku = new Map();
-        const invSalesBySku = new Map();
+      db.get(`SELECT imported_at FROM import_logs WHERE module_type = '80' ORDER BY id DESC LIMIT 1`, [], (lErr, latestLog) => {
+        db.all(
+          `SELECT item_id, item_name, borrow_proc, location, qty, zone_id, zone_name, floor, floor_zone, loc_type, big_zone_id, big_zone, vol_type, vol_check, cubic_feet, total_cubic_feet, monthly_sales, pick_days_m, assigned_floor, remark FROM inventory`,
+          [],
+          (iErr, invRows) => {
+            const invByBinSku = new Map();
+            const invSalesBySku = new Map();
 
-        (invRows || []).forEach(iv => {
-          const sku = String(iv.item_id || '').trim();
-          const bin = String(iv.location || '').trim().toUpperCase();
-          const ms = Number(iv.monthly_sales || 0);
-          const pd = Number(iv.pick_days_m || 0);
-          if (sku && bin) invByBinSku.set(`${sku}|${bin}`, iv);
-          if (sku && (!invSalesBySku.has(sku) || ms > invSalesBySku.get(sku).ms)) {
-            invSalesBySku.set(sku, { ms, pd });
-          }
-        });
+            (invRows || []).forEach(iv => {
+              const sku = String(iv.item_id || '').trim();
+              const bin = String(iv.location || '').trim().toUpperCase();
+              const ms = Number(iv.monthly_sales || 0);
+              const pd = Number(iv.pick_days_m || 0);
+              if (sku && bin) invByBinSku.set(`${sku}|${bin}`, iv);
+              if (sku && (!invSalesBySku.has(sku) || ms > invSalesBySku.get(sku).ms)) {
+                invSalesBySku.set(sku, { ms, pd });
+              }
+            });
 
-        if ((!records || records.length === 0) && invRows && invRows.length > 0) {
-          const mapped = invRows
-            .filter(iv => iv.item_id && iv.location)
-            .map((iv, idx) => ({
-              id: idx + 1,
-              batch_id: 'main_inventory',
-              sku_id: iv.item_id || '',
-              sku_name: iv.item_name || '',
-              trade_type: iv.borrow_proc || '',
-              bin_code: iv.location || '',
-              qty: Number(iv.qty || 0),
-              floor: iv.floor || '',
-              area: iv.floor_zone || '',
-              storage_type: iv.loc_type || '',
-              cat_code: iv.big_zone_id || '',
-              cat_name: iv.big_zone || '',
-              volume_type: iv.vol_check || '',
-              monthly_sales: Number(iv.monthly_sales || 0),
-              pick_days_m: Number(iv.pick_days_m || 0),
-              note: iv.remark || ''
-            }));
-          return cb(null, mapped);
-        }
-
-        const enriched = (records || []).map(rec => {
-          let ms = Number(rec.monthly_sales || 0);
-          let pd = Number(rec.pick_days_m || 0);
-          if (ms === 0 && pd === 0) {
-            const exact = invByBinSku.get(`${rec.sku_id}|${String(rec.bin_code || '').toUpperCase()}`);
-            if (exact) {
-              ms = Number(exact.monthly_sales || 0);
-              pd = Number(exact.pick_days_m || 0);
-            } else if (invSalesBySku.has(rec.sku_id)) {
-              const fallback = invSalesBySku.get(rec.sku_id);
-              ms = fallback.ms;
-              pd = fallback.pd;
+            // 判斷獨立快照是否已過時（例如昨天透過首頁重新匯入了 80 庫）
+            let auditBatchMs = 0;
+            if (records && records.length > 0 && records[0].batch_id) {
+              const m = String(records[0].batch_id).match(/^batch_(\d+)$/);
+              if (m) auditBatchMs = Number(m[1]);
             }
-          }
-          return { ...rec, monthly_sales: ms, pick_days_m: pd };
-        });
+            let mainImportMs = 0;
+            if (latestLog && latestLog.imported_at) {
+              const parsedMs = Date.parse(latestLog.imported_at.replace(' ', 'T') + 'Z');
+              if (!Number.isNaN(parsedMs)) mainImportMs = parsedMs;
+            }
 
-        cb(null, enriched);
+            const shouldUseMainInventory =
+              (invRows && invRows.length > 0) &&
+              (!records || records.length === 0 || (mainImportMs > 0 && mainImportMs > auditBatchMs));
+
+            if (shouldUseMainInventory) {
+              const mapped = invRows
+                .filter(iv => iv.item_id && iv.location)
+                .map((iv, idx) => {
+                  const totalCf = Number(iv.total_cubic_feet || 0) > 0
+                    ? Number(iv.total_cubic_feet)
+                    : Number((Number(iv.cubic_feet || 0) * Number(iv.qty || 0)).toFixed(2));
+                  return {
+                    id: idx + 1,
+                    batch_id: 'main_inventory',
+                    sku_id: iv.item_id || '',
+                    sku_name: iv.item_name || '',
+                    trade_type: iv.borrow_proc || '',
+                    bin_code: iv.location || '',
+                    qty: Number(iv.qty || 0),
+                    floor: iv.floor || '',
+                    area: iv.floor_zone || '',
+                    storage_type: iv.loc_type || '',
+                    cat_code: iv.big_zone_id || '',
+                    cat_name: iv.big_zone || '',
+                    zone_id: iv.zone_id || '',
+                    zone_name: iv.zone_name || '',
+                    vol_type: iv.vol_type || '',
+                    volume_type: iv.vol_check || '',
+                    total_cubic_feet: totalCf,
+                    monthly_sales: Number(iv.monthly_sales || 0),
+                    pick_days_m: Number(iv.pick_days_m || 0),
+                    assigned_floor: iv.assigned_floor || '',
+                    note: iv.remark || ''
+                  };
+                });
+              return cb(null, mapped);
+            }
+
+            const enriched = (records || []).map(rec => {
+              const exact = invByBinSku.get(`${rec.sku_id}|${String(rec.bin_code || '').toUpperCase()}`);
+              let ms = Number(rec.monthly_sales || 0);
+              let pd = Number(rec.pick_days_m || 0);
+              if (ms === 0 && pd === 0) {
+                if (exact) {
+                  ms = Number(exact.monthly_sales || 0);
+                  pd = Number(exact.pick_days_m || 0);
+                } else if (invSalesBySku.has(rec.sku_id)) {
+                  const fallback = invSalesBySku.get(rec.sku_id);
+                  ms = fallback.ms;
+                  pd = fallback.pd;
+                }
+              }
+              const totalCf = Number(rec.total_cubic_feet || 0) > 0
+                ? Number(rec.total_cubic_feet)
+                : (exact
+                    ? (Number(exact.total_cubic_feet || 0) > 0
+                        ? Number(exact.total_cubic_feet)
+                        : Number((Number(exact.cubic_feet || 0) * Number(rec.qty || 0)).toFixed(2)))
+                    : 0);
+
+              return {
+                ...rec,
+                zone_id: rec.zone_id || (exact ? exact.zone_id || '' : ''),
+                zone_name: rec.zone_name || (exact ? exact.zone_name || '' : ''),
+                vol_type: rec.vol_type || (exact ? exact.vol_type || '' : ''),
+                total_cubic_feet: totalCf,
+                monthly_sales: ms,
+                pick_days_m: pd,
+                assigned_floor: exact ? exact.assigned_floor || '' : ''
+              };
+            });
+
+            cb(null, enriched);
+          }
+        );
       });
     });
   }
@@ -357,7 +434,7 @@ module.exports = function(db) {
     });
   });
 
-  // 2. 儲存 / 更新單條規則（含層架長度 rack_length_m 與區域屬性 zone_role）
+  // 2. 儲存 / 更新單條規則
   router.post('/rules/save', (req, res) => {
     const rule = req.body.rule;
     if (!rule || !rule.zone_name || !rule.floor || !rule.x_start) {
@@ -480,8 +557,8 @@ module.exports = function(db) {
         }
         const stmt = db.prepare(`
           INSERT INTO storage_audit_records
-          (batch_id, sku_id, sku_name, trade_type, bin_code, qty, floor, area, storage_type, cat_code, cat_name, volume_type, monthly_sales, pick_days_m, note)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          (batch_id, sku_id, sku_name, trade_type, bin_code, qty, floor, area, storage_type, cat_code, cat_name, zone_id, zone_name, vol_type, volume_type, total_cubic_feet, monthly_sales, pick_days_m, note)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         rows.forEach(r => {
           stmt.run(
@@ -496,7 +573,11 @@ module.exports = function(db) {
             r.storage_type || '',
             r.cat_code || '',
             r.cat_name || '',
+            r.zone_id || '',
+            r.zone_name || '',
+            r.vol_type || '',
             r.volume_type || '',
+            Number(r.total_cubic_feet || 0),
             Number(r.monthly_sales || 0),
             Number(r.pick_days_m || 0),
             r.note || ''
@@ -512,7 +593,7 @@ module.exports = function(db) {
     });
   });
 
-  // 6. 依據目前「擺放模式」、「區域用途(庫區/撿貨區/庫區+撿貨區/關閉中)」與規則，計算準確率與異常清單
+  // 6. 依據目前「擺放模式」、「區域用途」與規則，計算準確率與異常清單
   router.get('/audit/report', (req, res) => {
     ensureTables(() => {
       getModeSettings((settings) => {
@@ -579,23 +660,30 @@ module.exports = function(db) {
             const byXRow = {};
             const exceptions = [];
 
-            // 建議移庫目標池（自動排除「關閉中」的區域）
+            // 建議移庫目標池（結構化保留樓層、區域與排號，排除「關閉中」）
             const catTargetMap = {};
             const tierTargetMap = {};
             rules.filter(r => r.zone_role !== 'CLOSED').forEach(r => {
               const xLabel = r.x_start === r.x_end ? r.x_start : `${r.x_start}~${r.x_end}`;
               const roleTag = `[${formatZoneRoleLabel(r.zone_role)}]`;
-              const label = `${r.floor} ${xLabel}${roleTag}${r.allowed_trade !== 'ALL' ? '(' + r.allowed_trade + ')' : ''}`;
+              const areaStr = r.area ? `${r.area}區` : '';
+              const label = `${r.floor} ${areaStr} ${xLabel}${roleTag}${r.allowed_trade !== 'ALL' ? '(' + r.allowed_trade + ')' : ''}`.replace(/\s+/g, ' ');
+              const targetObj = {
+                floor: r.floor || '',
+                area: areaStr,
+                xLabel,
+                label
+              };
               if (r.allowed_categories.length > 0) {
                 r.allowed_categories.forEach(c => {
                   if (!catTargetMap[c]) catTargetMap[c] = [];
-                  if (!catTargetMap[c].includes(label)) catTargetMap[c].push(label);
+                  if (!catTargetMap[c].some(t => t.label === label)) catTargetMap[c].push(targetObj);
                 });
               }
               if (r.allowed_sales_tiers.length > 0) {
                 r.allowed_sales_tiers.forEach(t => {
                   if (!tierTargetMap[t]) tierTargetMap[t] = [];
-                  if (!tierTargetMap[t].includes(label)) tierTargetMap[t].push(label);
+                  if (!tierTargetMap[t].some(item => item.label === label)) tierTargetMap[t].push(targetObj);
                 });
               }
             });
@@ -644,20 +732,41 @@ module.exports = function(db) {
                 }
               }
 
+              const parsed = parseBinCode(rec.bin_code);
+
               if (isOk) passed++;
               else {
                 failed++;
-                if (exceptions.length < 3000) {
-                  let suggestedList = [];
-                  if (checkSales && tierTargetMap[salesTier]) suggestedList = suggestedList.concat(tierTargetMap[salesTier]);
-                  if (checkCat && catTargetMap[rec.cat_name]) suggestedList = suggestedList.concat(catTargetMap[rec.cat_name]);
-                  const suggested = Array.from(new Set(suggestedList)).slice(0, 2).join(' 或 ') || '請移往開放中的撿貨區/庫區';
+                if (exceptions.length < 5000) {
+                  let targetObjs = [];
+                  if (checkSales && tierTargetMap[salesTier]) targetObjs = targetObjs.concat(tierTargetMap[salesTier]);
+                  if (checkCat && catTargetMap[rec.cat_name]) targetObjs = targetObjs.concat(catTargetMap[rec.cat_name]);
+
+                  const uniqueTargets = [];
+                  const seenLabels = new Set();
+                  targetObjs.forEach(t => {
+                    if (!seenLabels.has(t.label)) {
+                      seenLabels.add(t.label);
+                      uniqueTargets.push(t);
+                    }
+                  });
+
+                  const primaryTarget = uniqueTargets[0] || null;
+                  const suggested = uniqueTargets.slice(0, 2).map(t => t.label).join(' 或 ') || '請移往開放中的撿貨區/庫區';
+                  const suggestedFloor = primaryTarget ? primaryTarget.floor : (rec.assigned_floor || (salesTier === 'A' ? '7F' : '6F'));
+                  const suggestedArea = primaryTarget ? (primaryTarget.area || '依大區/動線分配') : '開放撿貨區/庫區';
+                  const totalCf = Number(rec.total_cubic_feet || 0);
 
                   exceptions.push({
                     sku_id: rec.sku_id,
                     sku_name: rec.sku_name,
                     trade_type: rec.trade_type,
-                    cat_name: rec.cat_name,
+                    cat_code: rec.cat_code || '',
+                    cat_name: rec.cat_name || '',
+                    zone_id: rec.zone_id || '',
+                    zone_name: rec.zone_name || (matchedRule ? matchedRule.zone_name : '未定義區段'),
+                    vol_type: rec.vol_type || rec.volume_type || '',
+                    total_cubic_feet: Number(totalCf.toFixed(2)),
                     monthly_sales: rec.monthly_sales,
                     sales_tier: salesTier,
                     sales_tier_label: formatTierLabel(salesTier),
@@ -665,17 +774,19 @@ module.exports = function(db) {
                     floor: rec.floor,
                     area: rec.area,
                     bin_code: rec.bin_code,
+                    x_code: parsed ? parsed.x : '',
                     qty: rec.qty,
-                    zone_name: matchedRule ? matchedRule.zone_name : '未定義區段',
                     zone_role: zoneRole,
                     zone_role_label: formatZoneRoleLabel(zoneRole),
                     reason: reasons.join('；'),
+                    suggested_floor: suggestedFloor,
+                    suggested_area: suggestedArea,
+                    suggested_rack_type: classifyRackTypeByCubicFeet(totalCf),
                     suggested_zone: suggested
                   });
                 }
               }
 
-              const parsed = parseBinCode(rec.bin_code);
               if (parsed && rec.floor) {
                 const baseFloor = rec.floor.startsWith('2F') ? '2F' : rec.floor;
                 const xKey = `${baseFloor}|${parsed.x}`;
@@ -757,7 +868,7 @@ module.exports = function(db) {
     });
   });
 
-  // 7. 🧠 80 庫真實數據「三種擺放模式實際步行公尺(m)與找貨效益精算分析」（納入庫區/撿貨區/庫區+撿貨區/關閉中屬性）
+  // 7. 三種擺放模式實際步行公尺(m)與找貨效益精算分析
   router.get('/audit/simulate-modes', (req, res) => {
     ensureTables(() => {
       getModeSettings((settings) => {
@@ -867,7 +978,6 @@ module.exports = function(db) {
                 closedZoneStockCount++;
               }
 
-              // 只有「撿貨區 (PICK)」與「庫區+撿貨區 (BOTH)」計入日常散單揀貨步行公里數；「純庫區 (STORAGE)」不計入散單步行
               if (rec.zoneRole === 'PICK' || rec.zoneRole === 'BOTH') {
                 currentTotalMeters += rec.pickFreq * rec.roundTripM;
                 totalPickFrequency += rec.pickFreq;
@@ -899,7 +1009,6 @@ module.exports = function(db) {
               }
             });
 
-            // 只在「撿貨區 / 庫區+撿貨區」的有效儲位池中進行熱度重排模擬（排除關閉中與純庫區）
             const activePickRecords = enrichedRecords.filter(r => r.zoneRole === 'PICK' || r.zoneRole === 'BOTH');
             const allSlotMeters = activePickRecords.map(r => r.roundTripM).sort((a, b) => a - b);
             const recordsByFreqDesc = [...activePickRecords].sort((a, b) => b.pickFreq - a.pickFreq);
@@ -972,7 +1081,6 @@ module.exports = function(db) {
               }
             ];
 
-            // 優先移庫建議：1) 放在「關閉中」區域的庫存  2) 放在純「庫區」的 A/B 級爆品  3) 放在遠端夾層(2F~4F)的 A/B 級爆品
             const topMoveCandidates = enrichedRecords
               .map(r => {
                 const tier = classifySalesTier(r.monthly_sales, settings);

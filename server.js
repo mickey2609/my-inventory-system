@@ -1174,6 +1174,7 @@ app.post('/api/upload', (req, res) => {
       db.run('BEGIN TRANSACTION');
       if (isFirstChunk) {
         db.run('DELETE FROM inventory');
+        db.run('DELETE FROM storage_audit_records');
         db.run(`UPDATE item_sales_history SET stock_qty_80 = 0, total_stock_qty = IFNULL(stock_qty_15, 0)`);
       }
 

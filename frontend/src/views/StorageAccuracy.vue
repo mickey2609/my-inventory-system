@@ -398,7 +398,6 @@
     <!-- ==================== TAB 3: 樓層儲位平面配置圖（主力規則編輯器＋多選批次） ==================== -->
     <div v-if="activeTab === 'floorplan'" class="tab-content" v-loading="loading">
       <div class="panel-card fp-toolbar">
-        <!-- 第一排：樓層切換 ＋ 著色視角切換 ＋ 縮放 -->
         <div class="row-between">
           <div class="fp-floor-tabs">
             <button
@@ -441,7 +440,6 @@
           </div>
         </div>
 
-        <!-- 第二排：該樓層獨立分區按鈕 ＋ 動態圖例 -->
         <div class="fp-zone-bar">
           <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
             <span class="zone-bar-title">📍 {{ currentFloorModule?.title || selectedMapFloor }}：</span>
@@ -476,14 +474,13 @@
             <span class="leg-item"><i class="leg-dot dot-borrow"></i> 僅限「借」</span>
             <span class="leg-item"><i class="leg-dot dot-cat"></i> 已設大區/月銷</span>
             <span class="leg-item"><i class="leg-dot dot-closed"></i> 🚫 關閉中</span>
-            <span class="leg-item"><i class="leg-dot dot-err"></i> 含異常庫存</span>
+            <span class="leg-item"><i class="leg-dot dot-err"></i> 含異常庫存（點擊看明細）</span>
           </div>
         </div>
       </div>
 
       <div class="fp-workspace" :class="{ 'inspector-hidden': !showInspector }">
         <div class="fp-canvas-wrapper">
-          <!-- 收合狀態時的右上快速展開按鈕 -->
           <button
             v-if="!showInspector"
             type="button"
@@ -493,7 +490,6 @@
             ◀ 展開屬性設定
           </button>
 
-          <!-- 方位羅盤圖標 -->
           <div
             class="compass-widget"
             :style="{ right: !showInspector ? '145px' : '16px' }"
@@ -626,7 +622,7 @@
           </div>
         </div>
 
-        <!-- 右側屬性與規則編輯面板（支援單排 & 多排批次套用，可收合） -->
+        <!-- 右側屬性與規則編輯面板 -->
         <div v-if="showInspector" class="panel-card fp-inspector">
           <div class="panel-head row-between">
             <span>{{ selectedMapRacks.length > 1 ? `⚡ 批次設定已選取 (${selectedMapRacks.length} 排)` : '🔎 儲位屬性與規則設定' }}</span>
@@ -644,7 +640,7 @@
             <div style="font-size: 28px; margin-bottom: 8px;">👆</div>
             <div>目前檢視：<strong>{{ selectedMapFloor }} {{ currentZoneObj?.label }}</strong></div>
             <div class="text-dim" style="font-size: 12px; margin-top: 8px; line-height: 1.6;">
-              • <strong>單排設定</strong>：直接點擊任一排貨架<br />
+              • <strong>紅色異常貨架</strong>：點擊可直接彈出該排異常商品明細視窗<br />
               • <strong>多排批次設定</strong>：按住 <kbd>Ctrl</kbd> 連續點選多排（或點上方「全選本區」），即可一次套用規則！
             </div>
           </div>
@@ -658,7 +654,17 @@
             </div>
 
             <div class="insp-stat-card">
-              <div class="insp-sub-title">📦 目前該排庫存統計</div>
+              <div class="row-between" style="margin-bottom: 6px;">
+                <div class="insp-sub-title" style="margin: 0;">📦 目前該排庫存統計</div>
+                <el-button
+                  v-if="selectedRackStats.failed > 0"
+                  size="mini"
+                  type="danger"
+                  @click="openRackExceptionDialog(selectedMapRacks[0].xCode)"
+                >
+                  🚨 檢視異常 ({{ selectedRackStats.failed }})
+                </el-button>
+              </div>
               <div v-if="selectedRackStats.total === 0" class="text-dim" style="font-size: 12px;">
                 尚無庫存資料
               </div>
@@ -849,7 +855,7 @@
       </div>
     </div>
 
-    <!-- ==================== TAB 4: 儲位規則總表（含樓層＋區 A~D 篩選與分頁） ==================== -->
+    <!-- ==================== TAB 4: 儲位規則總表 ==================== -->
     <div v-if="activeTab === 'rules'" class="tab-content" v-loading="loading || batchSaving">
       <div class="panel-card rules-toolbar-card">
         <div class="row-between">
@@ -1005,7 +1011,6 @@
           </table>
         </div>
 
-        <!-- 分頁控制列 -->
         <div class="pagination-bar">
           <span class="text-dim" style="font-size: 12px;">
             共 <strong>{{ filteredRules.length }}</strong> 條規則（目前已勾選 {{ selectedRuleIds.length }} 條）
@@ -1223,6 +1228,75 @@
         <el-button size="mini" type="success" @click="saveModeSettings(); showTierModal = false">儲存門檻並重算</el-button>
       </template>
     </el-dialog>
+
+    <!-- Modal 4: 點擊平面圖紅色異常貨架彈出的「異常儲位與層架類型建議視窗」 -->
+    <el-dialog
+      v-model="showRackExceptionModal"
+      :title="`🚨 儲位異常明細與層架配置建議（${rackExceptionTitle}｜共 ${rackExceptionList.length} 筆）`"
+      width="94%"
+      top="5vh"
+      append-to-body
+      class="dark-dialog"
+    >
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
+        <span class="text-dim" style="font-size: 12px;">
+          ※ 層架類型係依據「儲位材積設定表」之單格才數上限，按該儲位商品<strong>總才數</strong>自動判定最適合規格。
+        </span>
+        <el-button size="mini" type="warning" icon="el-icon-download" @click="exportRackExceptionsExcel">
+          匯出本排異常清單 Excel
+        </el-button>
+      </div>
+
+      <div style="max-height: 64vh; overflow: auto; border: 1px solid #334155; border-radius: 6px;">
+        <table class="dark-table">
+          <thead>
+            <tr>
+              <th>商品ID</th>
+              <th>商品名稱</th>
+              <th>儲位</th>
+              <th>PCS數</th>
+              <th>大區編</th>
+              <th>大區名</th>
+              <th>區編</th>
+              <th>區名</th>
+              <th>材積別</th>
+              <th>總才數</th>
+              <th>月銷量</th>
+              <th>建議擺放樓層</th>
+              <th>區域</th>
+              <th>層架類型(依總才數判斷)</th>
+              <th>異常原因</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-if="rackExceptionList.length === 0">
+              <td colspan="15" class="empty-td">此排目前無異常明細資料</td>
+            </tr>
+            <tr v-for="(item, idx) in rackExceptionList" :key="idx">
+              <td class="text-blue font-bold">{{ item.sku_id }}</td>
+              <td class="text-left" style="min-width: 170px;">{{ item.sku_name }}</td>
+              <td class="text-yellow font-bold">{{ item.bin_code }}</td>
+              <td class="font-bold">{{ item.qty }}</td>
+              <td>{{ item.cat_code || '-' }}</td>
+              <td>{{ item.cat_name || '-' }}</td>
+              <td>{{ item.zone_id || '-' }}</td>
+              <td>{{ item.zone_name || '-' }}</td>
+              <td>{{ item.vol_type || '-' }}</td>
+              <td class="text-yellow font-bold">{{ item.total_cubic_feet ?? 0 }}</td>
+              <td class="font-bold">{{ item.monthly_sales }}</td>
+              <td class="text-green font-bold">{{ item.suggested_floor || '-' }}</td>
+              <td class="text-green font-bold">{{ item.suggested_area || '-' }}</td>
+              <td class="text-blue font-bold" style="white-space: nowrap;">{{ item.suggested_rack_type || '-' }}</td>
+              <td class="text-left text-red" style="min-width: 180px;">{{ item.reason }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <template #footer>
+        <el-button size="mini" type="primary" @click="showRackExceptionModal = false">關閉視窗</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -1268,7 +1342,6 @@ export default {
         '休閒', '零組件', '母嬰', '保健', '大家電3', '超商', '筆記電腦', '通訊'
       ],
 
-      // 規則總表狀態（輕量＋分頁＋A~D區篩選）
       rules: [],
       ruleFloorFilter: 'ALL',
       ruleAreaFilter: 'ALL',
@@ -1278,7 +1351,6 @@ export default {
       rulePageSize: 30,
       selectedRuleIds: [],
 
-      // 平面圖狀態（支援多選＋著色視角＋右側面板可收合）
       selectedMapFloor: '2F',
       selectedZoneId: '2F-E-A',
       mapZoom: 1.15,
@@ -1286,6 +1358,11 @@ export default {
       mapMultiSelectMode: false,
       selectedMapRacks: [],
       showInspector: true,
+
+      // 紅色異常貨架彈窗狀態
+      showRackExceptionModal: false,
+      rackExceptionTitle: '',
+      rackExceptionList: [],
 
       mapEditRule: {
         id: null,
@@ -1496,12 +1573,12 @@ export default {
         const m = String(label).match(/80([A-Z0-9]{2,4}\d{2,3})/);
         return {
           statusClass,
+          hasError: Boolean(xStat && xStat.failed > 0),
           tooltip: `${label}（排號 ${xCode}）\n${ruleText}${statText}`,
           shortLabel: widthPx >= 110 ? label : (m ? m[1] : xCode)
         };
       };
 
-      // ==================== 模式 A：12m 標準建築公尺底圖模式 ====================
       if (zoneObj.meterMode && zoneObj.shell) {
         const px = zoneObj.pxPerM || 20;
         const padLeft = 36;
@@ -1522,6 +1599,7 @@ export default {
             isRack: false,
             isVertical: false,
             statusClass: '',
+            hasError: false,
             tooltip: `${rm.label} (${rm.w}m × ${rm.h}m)`
           });
         });
@@ -1541,6 +1619,7 @@ export default {
             isRack: true,
             isVertical: h > w * 1.4,
             statusClass: dec.statusClass,
+            hasError: dec.hasError,
             tooltip: dec.tooltip
           });
         });
@@ -1551,7 +1630,6 @@ export default {
           title: `結構柱位 (${c.x}m, ${c.y}m)`
         }));
 
-        // 計算外牆輪廓頂點（支援西北角與西南角對稱 12x12m 缺角）
         const nwCut = cutouts.find(ct => ct.x === 0 && ct.y === 0);
         const swCut = cutouts.find(ct => ct.x === 0 && ct.y > 0);
         const pts = [];
@@ -1595,7 +1673,6 @@ export default {
         };
       }
 
-      // ==================== 模式 B：舊座標相容模式 ====================
       const [rMin, rMax, cMin, cMax] = zoneObj.crop;
       const cellW = zoneObj.cellW || (isEastRight ? 9 : 14);
       const cellH = zoneObj.cellH || (isEastRight ? 11 : 14);
@@ -1622,7 +1699,7 @@ export default {
           h = Math.max(18, sr * cellH - (isRack ? 1 : 0));
         }
 
-        const dec = isRack ? decorateRack(xCode, label, w) : { statusClass: '', tooltip: label, shortLabel: label };
+        const dec = isRack ? decorateRack(xCode, label, w) : { statusClass: '', hasError: false, tooltip: label, shortLabel: label };
         return {
           left,
           top,
@@ -1634,6 +1711,7 @@ export default {
           isRack,
           isVertical: h > w * 1.4 && isRack,
           statusClass: dec.statusClass,
+          hasError: dec.hasError,
           tooltip: dec.tooltip
         };
       });
@@ -1725,6 +1803,49 @@ export default {
         this.resetMapBatchForm();
       }
     },
+    openRackExceptionDialog(xCode) {
+      const fl = this.selectedMapFloor;
+      const ruleFl = this.currentRuleFloorKey;
+      const matches = (this.report.exceptions || []).filter(item => {
+        const itemFl = String(item.floor || '').trim();
+        const floorMatch = itemFl === fl || itemFl === ruleFl || (fl === '2F' && itemFl.startsWith('2F'));
+        const itemX = item.x_code || (String(item.bin_code || '').match(/^80([A-Z0-9]{3})/)?.[1] || '');
+        return floorMatch && itemX === xCode;
+      });
+      this.rackExceptionTitle = `${ruleFl} - ${xCode} 排`;
+      this.rackExceptionList = matches;
+      this.showRackExceptionModal = true;
+    },
+    exportRackExceptionsExcel() {
+      const rows = [
+        ['商品ID', '商品名稱', '儲位', 'PCS數', '大區編', '大區名', '區編', '區名', '材積別', '總才數', '月銷量', '建議擺放樓層', '區域', '層架類型(依總才數判斷)', '異常原因']
+      ];
+      this.rackExceptionList.forEach(item => {
+        rows.push([
+          item.sku_id,
+          item.sku_name,
+          item.bin_code,
+          item.qty,
+          item.cat_code || '',
+          item.cat_name || '',
+          item.zone_id || '',
+          item.zone_name || '',
+          item.vol_type || '',
+          item.total_cubic_feet ?? 0,
+          item.monthly_sales,
+          item.suggested_floor || '',
+          item.suggested_area || '',
+          item.suggested_rack_type || '',
+          item.reason
+        ]);
+      });
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, '排號異常明細');
+      const today = new Date().toISOString().slice(0, 10);
+      XLSX.writeFile(wb, `異常儲位明細_${this.rackExceptionTitle}_${today}.xlsx`);
+      ElMessage.success('🎉 已匯出本排異常清單 Excel！');
+    },
     handleRackClick(node, event) {
       this.showInspector = true;
       const isMulti = this.mapMultiSelectMode || event.ctrlKey || event.metaKey || event.shiftKey;
@@ -1741,6 +1862,10 @@ export default {
 
       if (this.selectedMapRacks.length === 1) {
         this.loadSingleRackRule(this.selectedMapRacks[0]);
+        // 單擊紅色異常貨架時，直接彈出異常儲位明細視窗
+        if (!isMulti && (node.hasError || node.statusClass === 'fp-status-err')) {
+          this.openRackExceptionDialog(node.xCode);
+        }
       } else if (this.selectedMapRacks.length > 1) {
         this.resetMapBatchForm();
       }
@@ -1921,7 +2046,6 @@ export default {
       }
     },
 
-    // ==================== 規則總表操作 ====================
     toggleSelectAllPageRules(e) {
       const checked = e.target.checked;
       const pageIds = this.paginatedRules.map(r => r.id);
@@ -2053,7 +2177,6 @@ export default {
       }).catch(() => {});
     },
 
-    // ==================== 規則 Excel 匯出 / 匯入 ====================
     exportRulesExcel() {
       const rows = [
         ['規則ID(勿改)', '啟用(1/0)', '樓層', '區(A~D)', '區域名稱', 'X軸起點', 'X軸終點', 'Y軸起點', 'Y軸終點', '層別起點', '層別終點', '區域用途(PICK/STORAGE/BOTH/CLOSED)', '層架長度(m)', '允許借採(ALL/借/採)', '允許月銷級距(逗號分隔)', '允許商品大區(逗號分隔)']
@@ -2141,7 +2264,6 @@ export default {
       }
     },
 
-    // ==================== CSV 上傳與異常匯出 ====================
     triggerCsvInput() {
       if (this.$refs.csvInput) {
         this.$refs.csvInput.value = '';
@@ -2188,7 +2310,12 @@ export default {
         const idxType = headers.indexOf('儲位型態');
         const idxCatCode = headers.indexOf('大區編');
         const idxCatName = headers.indexOf('大區名');
+        const idxZoneId = headers.indexOf('區編');
+        const idxZoneName = headers.indexOf('區名');
+        const idxVolType = headers.indexOf('材積別');
         const idxVol = headers.indexOf('材積判斷');
+        const idxCubicFeet = headers.indexOf('才數');
+        const idxTotalCubicFeet = headers.indexOf('總才數');
         const idxMonthlySales = headers.indexOf('(近)月銷量');
         const idxPickDaysM = headers.indexOf('(近)月-有揀貨單天數');
         const idxNote = headers.indexOf('備註');
@@ -2204,18 +2331,27 @@ export default {
           const bin = cols[idxBin];
           if (!sku || !bin) continue;
 
+          const qtyVal = idxQty !== -1 ? Number(cols[idxQty] || 0) : 0;
+          const unitCf = idxCubicFeet !== -1 ? Number(String(cols[idxCubicFeet] || 0).replace(/,/g, '')) : 0;
+          const rawTotalCf = idxTotalCubicFeet !== -1 ? Number(String(cols[idxTotalCubicFeet] || 0).replace(/,/g, '')) : 0;
+          const totalCf = rawTotalCf > 0 ? rawTotalCf : Number((unitCf * qtyVal).toFixed(2));
+
           parsedRows.push({
             sku_id: sku,
             sku_name: idxName !== -1 ? cols[idxName] : '',
             trade_type: idxTrade !== -1 ? cols[idxTrade] : '',
             bin_code: bin,
-            qty: idxQty !== -1 ? Number(cols[idxQty] || 0) : 0,
+            qty: qtyVal,
             floor: idxFloor !== -1 ? cols[idxFloor] : '',
             area: idxArea !== -1 ? cols[idxArea] : '',
             storage_type: idxType !== -1 ? cols[idxType] : '',
             cat_code: idxCatCode !== -1 ? cols[idxCatCode] : '',
             cat_name: idxCatName !== -1 ? cols[idxCatName] : '',
+            zone_id: idxZoneId !== -1 ? cols[idxZoneId] : '',
+            zone_name: idxZoneName !== -1 ? cols[idxZoneName] : '',
+            vol_type: idxVolType !== -1 ? cols[idxVolType] : '',
             volume_type: idxVol !== -1 ? cols[idxVol] : '',
+            total_cubic_feet: totalCf,
             monthly_sales: idxMonthlySales !== -1 ? Number(String(cols[idxMonthlySales] || 0).replace(/,/g, '')) : 0,
             pick_days_m: idxPickDaysM !== -1 ? Number(String(cols[idxPickDaysM] || 0).replace(/,/g, '')) : 0,
             note: idxNote !== -1 ? cols[idxNote] : ''
@@ -2246,22 +2382,29 @@ export default {
     },
     exportExceptionsExcel() {
       const rows = [
-        ['商品ID', '商品名稱', '借/採', '商品大區', '月銷量', '月銷級距', '樓層', '目前儲位', '區域用途', '庫存數', '異常原因', '建議移往區段']
+        ['商品ID', '商品名稱', '借/採', '大區編', '商品大區', '區編', '區名', '材積別', '總才數', '月銷量', '月銷級距', '樓層', '目前儲位', '區域用途', '庫存數', '建議擺放樓層', '建議區域', '層架類型(依總才數判斷)', '異常原因']
       ];
       this.filteredExceptions.forEach(item => {
         rows.push([
           item.sku_id,
           item.sku_name,
           item.trade_type,
+          item.cat_code || '',
           item.cat_name,
+          item.zone_id || '',
+          item.zone_name || '',
+          item.vol_type || '',
+          item.total_cubic_feet ?? 0,
           item.monthly_sales,
           item.sales_tier_label,
           item.floor,
           item.bin_code,
           item.zone_role_label,
           item.qty,
-          item.reason,
-          item.suggested_zone
+          item.suggested_floor || '',
+          item.suggested_area || '',
+          item.suggested_rack_type || '',
+          item.reason
         ]);
       });
       const ws = XLSX.utils.aoa_to_sheet(rows);
@@ -2415,7 +2558,6 @@ export default {
 .tier-C { background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); }
 .tier-D { background: rgba(148, 163, 184, 0.2); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.4); }
 
-/* ==================== 平面圖工具列與獨立分區列 ==================== */
 .fp-toolbar { padding: 8px 12px; flex-shrink: 0; gap: 8px; }
 .fp-floor-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
 .fp-fl-btn {
@@ -2698,7 +2840,6 @@ export default {
 </style>
 
 <style>
-/* 與右側面板一致的「黑底白框」高對比樣式 */
 .el-dialog.dark-dialog {
   background: #0f172a !important;
   border: 1px solid #475569 !important;
