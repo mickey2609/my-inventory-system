@@ -1809,8 +1809,10 @@ export default {
       const matches = (this.report.exceptions || []).filter(item => {
         const itemFl = String(item.floor || '').trim();
         const floorMatch = itemFl === fl || itemFl === ruleFl || (fl === '2F' && itemFl.startsWith('2F'));
-        const itemX = item.x_code || (String(item.bin_code || '').match(/^80([A-Z0-9]{3})/)?.[1] || '');
-        return floorMatch && itemX === xCode;
+        const m = String(item.bin_code || '').trim().toUpperCase().match(/^80([A-Z0-9]{3})(\d{2,3})/);
+        const itemX = item.x_code || (m ? m[1] : '');
+        const itemSubX = item.sub_x_code || (m ? `${m[1]}${String(parseInt(m[2], 10)).padStart(2, '0')}` : '');
+        return floorMatch && (itemX === xCode || itemSubX === xCode);
       });
       this.rackExceptionTitle = `${ruleFl} - ${xCode} 排`;
       this.rackExceptionList = matches;

@@ -311,11 +311,15 @@ module.exports = function(db) {
   }
 
   function parseBinCode(binCode) {
-    const clean = String(binCode || '').trim().toUpperCase();
-    const m = clean.match(/^80([A-Z0-9]{3})(\d{3})([A-Z])$/);
-    if (m) return { x: m[1], y: parseInt(m[2], 10), layer: m[3] };
-    const m2 = clean.match(/^80([A-Z0-9]{3})(\d{3})/);
-    if (m2) return { x: m2[1], y: parseInt(m2[2], 10), layer: 'A' };
+    const clean = String(binCode || '').trim().toUpperCase().replace(/^80-/, '80');
+    const m = clean.match(/^80([A-Z0-9]{3})(\d{2,3})([A-Z]?)$/);
+    if (m) {
+      const x = m[1];
+      const y = parseInt(m[2], 10);
+      const layer = m[3] || 'A';
+      const subX = `${x}${String(y).padStart(2, '0')}`;
+      return { x, y, layer, subX };
+    }
     return null;
   }
 
@@ -909,6 +913,7 @@ module.exports = function(db) {
                       area: rec.area,
                       bin_code: rec.bin_code,
                       x_code: parsed ? parsed.x : '',
+                      sub_x_code: parsed ? parsed.subX : '',
                       qty: rec.qty,
                       zone_role: zoneRole,
                       zone_role_label: formatZoneRoleLabel(zoneRole),
@@ -921,19 +926,30 @@ module.exports = function(db) {
                   }
                 }
 
-                if (parsed && rec.floor) {
-                  const baseFloor = rec.floor.startsWith('2F') ? '2F' : rec.floor;
-                  const xKey = `${baseFloor}|${parsed.x}`;
-                  if (!byXRow[xKey]) {
-                    byXRow[xKey] = { total: 0, passed: 0, failed: 0, borrowCnt: 0, buyCnt: 0, cats: {}, tiers: { A: 0, B: 0, C: 0, D: 0 } };
+                if (parsed) {
+                  const rawFl = String(rec.floor || '').trim();
+                  const baseFloor = rawFl
+                    ? (rawFl.startsWith('2F') ? '2F' : rawFl)
+                    : (parsed.x.startsWith('C2') ? '2F' : '');
+
+                  if (baseFloor) {
+                    const keys = [parsed.x];
+                    if (parsed.subX && parsed.subX !== parsed.x) keys.push(parsed.subX);
+
+                    keys.forEach(kCode => {
+                      const xKey = `${baseFloor}|${kCode}`;
+                      if (!byXRow[xKey]) {
+                        byXRow[xKey] = { total: 0, passed: 0, failed: 0, borrowCnt: 0, buyCnt: 0, cats: {}, tiers: { A: 0, B: 0, C: 0, D: 0 } };
+                      }
+                      const xs = byXRow[xKey];
+                      xs.total++;
+                      if (isOk) xs.passed++; else xs.failed++;
+                      if (rec.trade_type === '借') xs.borrowCnt++;
+                      if (rec.trade_type === '採') xs.buyCnt++;
+                      if (rec.cat_name) xs.cats[rec.cat_name] = (xs.cats[rec.cat_name] || 0) + 1;
+                      xs.tiers[salesTier] = (xs.tiers[salesTier] || 0) + 1;
+                    });
                   }
-                  const xs = byXRow[xKey];
-                  xs.total++;
-                  if (isOk) xs.passed++; else xs.failed++;
-                  if (rec.trade_type === '借') xs.borrowCnt++;
-                  if (rec.trade_type === '採') xs.buyCnt++;
-                  if (rec.cat_name) xs.cats[rec.cat_name] = (xs.cats[rec.cat_name] || 0) + 1;
-                  xs.tiers[salesTier] = (xs.tiers[salesTier] || 0) + 1;
                 }
 
                 const tKey = rec.trade_type || '未標示';
