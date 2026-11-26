@@ -370,9 +370,11 @@ module.exports = function(db) {
     for (let i = 0; i < sortedRules.length; i++) {
       const r = sortedRules[i];
       if (r.floor && rec.floor) {
-        const is2FMatch = r.floor.startsWith('2F') && rec.floor.startsWith('2F') &&
-          (r.floor === '2F' || rec.floor === '2F' || r.floor === rec.floor);
-        if (r.floor !== rec.floor && !is2FMatch) continue;
+        const rf = String(r.floor).trim();
+        const df = String(rec.floor).trim();
+        const is2FMatch = rf.startsWith('2F') && df.startsWith('2F') &&
+          (rf === '2F' || df === '2F' || df.startsWith(rf) || rf.startsWith(df));
+        if (rf !== df && !is2FMatch) continue;
       }
       if (parsed) {
         const is5CharRule = r.x_start.length >= 5 || r.x_end.length >= 5;
@@ -860,7 +862,10 @@ module.exports = function(db) {
               const targets = parseRuleAllowedTargets(r);
               const isSingleX = r.x_start === r.x_end;
               const is5CharSingle = isSingleX && String(r.x_start).length >= 5;
-              const specificity = is5CharSingle ? 2 : (isSingleX ? 1 : 0);
+              const yStartNum = parseInt(r.y_start || '0', 10);
+              const yEndNum = parseInt(r.y_end || '999', 10);
+              const ySpan = Math.max(0, yEndNum - yStartNum);
+              const specificity = is5CharSingle ? 3 : (isSingleX && ySpan < 900 ? 2 : (isSingleX ? 1 : 0));
 
               return {
                 ...r,
@@ -870,9 +875,10 @@ module.exports = function(db) {
                 allowed_sales_tiers: tiers,
                 rack_length_m: Number(r.rack_length_m || 20),
                 zone_role: VALID_ZONE_ROLES.includes(r.zone_role) ? r.zone_role : 'PICK',
-                _specificity: specificity
+                _specificity: specificity,
+                _ySpan: ySpan
               };
-            }).sort((a, b) => b._specificity - a._specificity || a.id - b.id);
+            }).sort((a, b) => b._specificity - a._specificity || a._ySpan - b._ySpan || b.id - a.id);
 
             const openRules = rules.filter(r => r.zone_role !== 'CLOSED');
             const { floorHasBaseType, pickBestAvailableOnFloor } = buildFloorRackInventory(masterRows || [], openRules);
