@@ -295,7 +295,7 @@
           <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
             <span class="text-dim" style="font-size: 12px;">🎨 著色視角：</span>
             <el-select v-model="mapColorMode" size="mini" style="width: 165px;">
-              <el-option label="預設（異常＋借採/規則）" value="DEFAULT" />
+              <el-option label="預設（異常＋借採）" value="DEFAULT" />
               <el-option label="🏷️ 依區域用途（撿/庫/關）" value="ZONE_ROLE" />
               <el-option label="🗂️ 依專區/區名/大區設定" value="CATEGORY" />
               <el-option label="🔥 依月銷級距設定" value="SALES_TIER" />
@@ -343,6 +343,10 @@
             <span class="leg-item"><i class="leg-dot dot-cat"></i> 🛒 撿貨區</span>
             <span class="leg-item"><i class="leg-dot dot-buy"></i> 📦 庫區</span>
             <span class="leg-item"><i class="leg-dot dot-borrow"></i> 🔄 庫區+撿貨區</span>
+            <span class="leg-item"><i class="leg-dot dot-closed"></i> 🚫 關閉中</span>
+          </div>
+          <div v-else-if="mapColorMode === 'CATEGORY'" class="fp-legend">
+            <span class="leg-item"><i class="leg-dot dot-cat"></i> 已設專區/區名/大區</span>
             <span class="leg-item"><i class="leg-dot dot-closed"></i> 🚫 關閉中</span>
           </div>
           <div v-else-if="mapColorMode === 'SALES_TIER'" class="fp-legend">
@@ -571,6 +575,22 @@
             <div v-if="isSysAdmin" class="insp-rule-form">
               <div class="insp-sub-title">⚙️ 設定【{{ selectedMapRacks[0].label }}】屬性與規則</div>
 
+              <div style="margin-bottom: 8px;">
+                <label class="m-lbl">🏷️ 儲位標示（同步顯示於平面圖）：</label>
+                <el-input v-model="mapEditRule.zone_name" size="mini" placeholder="例如：80D07059~065A" />
+              </div>
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px;">
+                <div>
+                  <label class="m-lbl">Y軸起點 (格)：</label>
+                  <el-input v-model="mapEditRule.y_start" size="mini" placeholder="001" />
+                </div>
+                <div>
+                  <label class="m-lbl">Y軸終點 (格)：</label>
+                  <el-input v-model="mapEditRule.y_end" size="mini" placeholder="999" />
+                </div>
+              </div>
+
               <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px;">
                 <div>
                   <label class="m-lbl">層別起點：</label>
@@ -662,6 +682,7 @@
             <div v-else class="insp-rule-form">
               <div class="insp-sub-title">🔒 目前排號規則（唯讀檢視）</div>
               <div style="font-size: 12px; color: #cbd5e1; line-height: 1.8;">
+                <div>• 格號範圍：<strong>{{ mapEditRule.y_start }} ~ {{ mapEditRule.y_end }}</strong></div>
                 <div>• 層別範圍：<strong>{{ mapEditRule.layer_start }} ~ {{ mapEditRule.layer_end }}</strong></div>
                 <div>• 區域用途：<strong>{{ zoneRoleLabelMap[mapEditRule.zone_role] || '撿貨區' }}</strong></div>
                 <div>• 允許借/採：<strong>{{ mapEditRule.allowed_trade === 'ALL' ? '借採皆可' : '僅限「' + mapEditRule.allowed_trade + '」' }}</strong></div>
@@ -675,7 +696,7 @@
                 </div>
               </div>
               <div class="text-dim" style="font-size: 11px; margin-top: 8px;">
-                ※ 僅限系統管理員 (sys_admin) 可修改儲位規則。
+                ※ 僅限系統管理員 (admin) 可修改儲位規則。
               </div>
             </div>
           </div>
@@ -999,12 +1020,12 @@
           </el-select>
         </div>
         <div style="grid-column: span 2;">
-          <label class="m-lbl">區域名稱 *</label>
-          <el-input v-model="ruleForm.zone_name" size="mini" placeholder="例如: 80C2A03 排" />
+          <label class="m-lbl">區域名稱（同步顯示於平面圖）*</label>
+          <el-input v-model="ruleForm.zone_name" size="mini" placeholder="例如: 80D07059~065A" />
         </div>
         <div>
           <label class="m-lbl">X軸起點 (排號) *</label>
-          <el-input v-model="ruleForm.x_start" size="mini" placeholder="例如: C2A03" />
+          <el-input v-model="ruleForm.x_start" size="mini" placeholder="例如: D07" />
         </div>
         <div>
           <label class="m-lbl">X軸終點 (單條請填同上)</label>
@@ -1012,11 +1033,11 @@
         </div>
         <div>
           <label class="m-lbl">Y軸起點 (格)</label>
-          <el-input v-model="ruleForm.y_start" size="mini" placeholder="01" />
+          <el-input v-model="ruleForm.y_start" size="mini" placeholder="059" />
         </div>
         <div>
           <label class="m-lbl">Y軸終點 (格)</label>
-          <el-input v-model="ruleForm.y_end" size="mini" placeholder="99" />
+          <el-input v-model="ruleForm.y_end" size="mini" placeholder="065" />
         </div>
         <div>
           <label class="m-lbl">層別起點</label>
@@ -1343,6 +1364,8 @@ export default {
         area: 'A',
         x_start: '',
         x_end: '',
+        y_start: '001',
+        y_end: '999',
         layer_start: 'A',
         layer_end: 'Z',
         zone_role: 'PICK',
@@ -1395,8 +1418,8 @@ export default {
         area: '',
         x_start: '',
         x_end: '',
-        y_start: '01',
-        y_end: '99',
+        y_start: '001',
+        y_end: '999',
         layer_start: 'A',
         layer_end: 'Z',
         zone_role: 'PICK',
@@ -1425,7 +1448,6 @@ export default {
       let username = this.detectedAuth.username || ''
       let role = this.detectedAuth.role || ''
 
-      // 掃描 localStorage 與 sessionStorage 所有鍵值，相容各種主系統儲存名稱
       const storages = [window.localStorage, window.sessionStorage]
       for (const st of storages) {
         if (!st) continue
@@ -1458,7 +1480,7 @@ export default {
       if (!username) {
         username = localStorage.getItem('username') || sessionStorage.getItem('username') || ''
       }
-      if (!role && username === 'admin') {
+      if (!role && username.toLowerCase() === 'admin') {
         role = 'sys_admin'
       }
 
@@ -1568,6 +1590,18 @@ export default {
         return floorRules.find(r => matchX(r) && matchY(r)) || null
       }
 
+      // 若規則總表已修改該段儲位編碼（例如 80D07059~065A），自動同步覆蓋平面圖顯示文字與統計範圍
+      const resolveEffectiveLabel = (xCode, rawLabel) => {
+        const matched = findRuleForSegment(xCode, rawLabel)
+        if (matched && matched.x_start === xCode && matched.x_end === xCode) {
+          const cleanName = String(matched.zone_name || '').replace(/\s*\(.*\)$/, '').trim()
+          if (/^80[A-Z0-9]{3}\d{2,3}/.test(cleanName)) {
+            return cleanName
+          }
+        }
+        return rawLabel
+      }
+
       const decorateRack = (xCode, label, widthPx = 0) => {
         const rule = findRuleForSegment(xCode, label)
         const xStat = this.computeSegmentStats(xCode, label)
@@ -1640,13 +1674,14 @@ export default {
         racks.forEach(rk => {
           const w = rk.w * px - 1
           const h = rk.h * px - 1
-          const dec = decorateRack(rk.xCode, rk.label, w)
+          const effectiveLabel = resolveEffectiveLabel(rk.xCode, rk.label)
+          const dec = decorateRack(rk.xCode, effectiveLabel, w)
           nodes.push({
             left: padLeft + rk.x * px,
             top: padTop + rk.y * px,
             width: w,
             height: h,
-            label: rk.label,
+            label: effectiveLabel,
             shortLabel: dec.shortLabel,
             xCode: rk.xCode,
             isRack: true,
@@ -1732,13 +1767,14 @@ export default {
           h = Math.max(18, sr * cellH - (isRack ? 1 : 0))
         }
 
-        const dec = isRack ? decorateRack(xCode, label, w) : { statusClass: '', hasError: false, tooltip: label, shortLabel: label }
+        const effectiveLabel = isRack ? resolveEffectiveLabel(xCode, label) : label
+        const dec = isRack ? decorateRack(xCode, effectiveLabel, w) : { statusClass: '', hasError: false, tooltip: label, shortLabel: label }
         return {
           left,
           top,
           width: w,
           height: h,
-          label,
+          label: effectiveLabel,
           shortLabel: dec.shortLabel,
           xCode,
           isRack,
@@ -1784,7 +1820,7 @@ export default {
       }
     }
   },
-mounted() {
+  mounted() {
     this.syncAuthFromDomAndStorage()
     this.initLoadWithRetry()
   },
@@ -1795,7 +1831,7 @@ mounted() {
     }
   },
   methods: {
-    ssyncAuthFromDomAndStorage() {
+    syncAuthFromDomAndStorage() {
       // 僅限左上角顯示「系統管理員，歡迎登入」或帳號為 admin 時才賦予最高設定權限
       const headerText = document.body ? document.body.innerText || '' : ''
       if (headerText.includes('系統管理員，歡迎登入')) {
@@ -1812,7 +1848,7 @@ mounted() {
         }
       }
     },
-    // 從貨架標示（如 80D01081A~110C、80D02059A~072B、D07069）解析該段專屬的 Y 格號起訖範圍
+    // 從貨架標示（如 80D01081A~110C、80D07059~065A、D07069）解析該段專屬的 Y 格號起訖範圍
     parseRackYRange(label, xCode) {
       const str = String(label || '').trim().toUpperCase()
       const mRange = str.match(/^80([A-Z0-9]{3})(\d{2,3})[A-Z]?~(\d{2,3})[A-Z]?$/)
@@ -2098,8 +2134,10 @@ mounted() {
         const matchX = (r.x_start === r.x_end && xCode.startsWith(r.x_start)) || (xCode >= r.x_start && xCode <= r.x_end)
         if (!matchX) return false
         if (range.hasYRange) {
-          const rY1 = parseInt(r.y_start || '0', 10)
-          const rY2 = parseInt(r.y_end || '999', 10)
+          const raw1 = parseInt(r.y_start || '0', 10)
+          const raw2 = parseInt(r.y_end || '999', 10)
+          const rY1 = Math.min(raw1, raw2)
+          const rY2 = Math.max(raw1, raw2)
           return range.yStart >= rY1 && range.yEnd <= rY2
         }
         return true
@@ -2149,6 +2187,7 @@ mounted() {
         ElMessage.success(`🎉 已儲存【${payload.floor} - ${payload.x_start} 排】設定！`)
         await this.refreshAll()
         if (this.selectedMapRacks.length === 1) {
+          this.selectedMapRacks[0].label = payload.zone_name || this.selectedMapRacks[0].label
           this.loadSingleRackRule(this.selectedMapRacks[0])
         }
       } catch (e) {
@@ -2196,7 +2235,6 @@ mounted() {
     async initLoadWithRetry(attempt = 0) {
       this.syncAuthFromDomAndStorage()
       const hasBaseUrl = Boolean(axios.defaults.baseURL)
-      // 若外層 App.vue 尚未掛載完後端 API 網址，先每 400ms 等待就緒（最多等 10 秒）
       if (!hasBaseUrl && attempt < 25) {
         setTimeout(() => {
           this.initLoadWithRetry(attempt + 1)
@@ -2286,8 +2324,8 @@ mounted() {
         area: '',
         x_start: '',
         x_end: '',
-        y_start: '01',
-        y_end: '99',
+        y_start: '001',
+        y_end: '999',
         layer_start: 'A',
         layer_end: 'Z',
         zone_role: 'PICK',
@@ -2423,8 +2461,8 @@ mounted() {
           r.zone_name,
           r.x_start,
           r.x_end,
-          r.y_start || '01',
-          r.y_end || '99',
+          r.y_start || '001',
+          r.y_end || '999',
           r.layer_start || 'A',
           r.layer_end || 'Z',
           r.zone_role || 'PICK',
@@ -2473,8 +2511,8 @@ mounted() {
               zone_name: String(row['區域名稱'] || `${row['X軸起點']} 排`).trim(),
               x_start: String(row['X軸起點']).trim(),
               x_end: String(row['X軸終點'] || row['X軸起點']).trim(),
-              y_start: String(row['Y軸起點'] || '01').trim(),
-              y_end: String(row['Y軸終點'] || '99').trim(),
+              y_start: String(row['Y軸起點'] || '001').trim(),
+              y_end: String(row['Y軸終點'] || '999').trim(),
               layer_start: String(row['層別起點'] || 'A').trim(),
               layer_end: String(row['層別終點'] || 'Z').trim(),
               zone_role: String(row['區域用途(PICK/STORAGE/BOTH/CLOSED)'] || 'PICK').trim(),
