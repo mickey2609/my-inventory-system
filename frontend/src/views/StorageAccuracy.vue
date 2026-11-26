@@ -46,6 +46,7 @@
             🗺️ 樓層儲位平面配置圖
           </button>
           <button
+            v-if="isSysAdmin"
             type="button"
             class="sub-tab-btn"
             :class="{ active: activeTab === 'rules' }"
@@ -54,6 +55,7 @@
             ⚙️ 儲位規則總表 ({{ rules.length }} 條)
           </button>
           <button
+            v-if="isSysAdmin"
             type="button"
             class="sub-tab-btn"
             :class="{ active: activeTab === 'settings' }"
@@ -66,7 +68,14 @@
 
       <div class="header-right">
         <span v-if="uploadProgressText" class="upload-status-pill">{{ uploadProgressText }}</span>
-        <el-button size="mini" type="success" icon="el-icon-upload2" :loading="uploading" @click="triggerCsvInput">
+        <el-button
+          v-if="isSysAdmin"
+          size="mini"
+          type="success"
+          icon="el-icon-upload2"
+          :loading="uploading"
+          @click="triggerCsvInput"
+        >
           上傳 80庫 CSV
         </el-button>
         <el-button size="mini" type="primary" icon="el-icon-refresh" @click="refreshAll">
@@ -104,7 +113,7 @@
 
       <div v-if="!report.hasData" class="empty-guide-card">
         <h4>尚未匯入 80 庫庫存快照資料</h4>
-        <p>您可先切換至 <strong>「🗺️ 樓層儲位平面配置圖」</strong> 點選或框選貨架設定用途與規則，再上傳 80 庫 CSV 即可自動分析！</p>
+        <p>請由系統管理員匯入 80 庫庫存資料後，系統即可自動產生準確率與異常移庫清單。</p>
       </div>
 
       <template v-else>
@@ -262,10 +271,11 @@
       v-if="activeTab === 'simulation'"
       ref="simTab"
       :active-mode="modeSettings.mode"
+      :is-sys-admin="isSysAdmin"
       @apply-mode="applyModeFromSim"
     />
 
-    <!-- ==================== TAB 3: 樓層儲位平面配置圖（主力規則編輯器＋多選批次） ==================== -->
+    <!-- ==================== TAB 3: 樓層儲位平面配置圖（sys_admin可編輯 / 一般人員唯讀檢視） ==================== -->
     <div v-if="activeTab === 'floorplan'" class="tab-content" v-loading="loading">
       <div class="panel-card fp-toolbar">
         <div class="row-between">
@@ -291,15 +301,17 @@
               <el-option label="🔥 依月銷級距設定" value="SALES_TIER" />
             </el-select>
 
-            <el-checkbox v-model="mapMultiSelectMode" size="mini" border>
-              多選模式 (或按 Ctrl 點選)
-            </el-checkbox>
-            <el-button size="mini" type="info" plain @click="selectAllRacksInZone">
-              全選本區
-            </el-button>
-            <el-button v-if="selectedMapRacks.length > 0" size="mini" plain @click="clearMapSelection">
-              清除選取 ({{ selectedMapRacks.length }})
-            </el-button>
+            <template v-if="isSysAdmin">
+              <el-checkbox v-model="mapMultiSelectMode" size="mini" border>
+                多選模式 (或按 Ctrl 點選)
+              </el-checkbox>
+              <el-button size="mini" type="info" plain @click="selectAllRacksInZone">
+                全選本區
+              </el-button>
+              <el-button v-if="selectedMapRacks.length > 0" size="mini" plain @click="clearMapSelection">
+                清除選取 ({{ selectedMapRacks.length }})
+              </el-button>
+            </template>
           </div>
 
           <div class="fp-zoom-controls">
@@ -357,7 +369,7 @@
             class="reopen-inspector-btn"
             @click="showInspector = true"
           >
-            ◀ 展開屬性設定
+            ◀ 展開右側面板
           </button>
 
           <div
@@ -493,7 +505,7 @@
         <!-- 右側屬性與規則編輯面板 -->
         <div v-if="showInspector" class="panel-card fp-inspector">
           <div class="panel-head row-between">
-            <span>{{ selectedMapRacks.length > 1 ? `⚡ 批次設定已選取 (${selectedMapRacks.length} 排)` : '🔎 儲位屬性與規則設定' }}</span>
+            <span>{{ selectedMapRacks.length > 1 ? `⚡ 批次設定已選取 (${selectedMapRacks.length} 排)` : (isSysAdmin ? '🔎 儲位屬性與規則設定' : '🔎 儲位屬性與規則檢視') }}</span>
             <button
               type="button"
               class="hide-inspector-btn"
@@ -509,11 +521,16 @@
             <div>目前檢視：<strong>{{ selectedMapFloor }} {{ currentZoneObj?.label }}</strong></div>
             <div class="text-dim" style="font-size: 12px; margin-top: 8px; line-height: 1.6;">
               • <strong>紅色異常貨架</strong>：點擊可直接彈出該排異常商品明細視窗<br />
-              • <strong>多排批次設定</strong>：按住 <kbd>Ctrl</kbd> 連續點選多排（或點上方「全選本區」），即可一次套用規則！
+              <template v-if="isSysAdmin">
+                • <strong>多排批次設定</strong>：按住 <kbd>Ctrl</kbd> 連續點選多排（或點上方「全選本區」），即可一次套用規則！
+              </template>
+              <template v-else>
+                • <strong>單排查詢</strong>：點擊任一貨架可檢視該排庫存統計與擺放規則
+              </template>
             </div>
           </div>
 
-          <!-- 單排設定 -->
+          <!-- 單排檢視 / 設定 -->
           <div v-else-if="selectedMapRacks.length === 1" class="fp-inspector-body">
             <div class="insp-title-box">
               <div class="text-blue font-bold" style="font-size: 15px;">
@@ -551,7 +568,8 @@
               </div>
             </div>
 
-            <div class="insp-rule-form">
+            <!-- 系統管理員專屬：可編輯規則表單 -->
+            <div v-if="isSysAdmin" class="insp-rule-form">
               <div class="insp-sub-title">⚙️ 設定【{{ selectedMapRacks[0].xCode }} 排】屬性與規則</div>
 
               <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px;">
@@ -640,10 +658,31 @@
                 💾 儲存【{{ selectedMapRacks[0].xCode }}】設定並重算
               </el-button>
             </div>
+
+            <!-- 非系統管理員：唯讀規則檢視 -->
+            <div v-else class="insp-rule-form">
+              <div class="insp-sub-title">🔒 目前排號規則（唯讀檢視）</div>
+              <div style="font-size: 12px; color: #cbd5e1; line-height: 1.8;">
+                <div>• 層別範圍：<strong>{{ mapEditRule.layer_start }} ~ {{ mapEditRule.layer_end }}</strong></div>
+                <div>• 區域用途：<strong>{{ zoneRoleLabelMap[mapEditRule.zone_role] || '撿貨區' }}</strong></div>
+                <div>• 允許借/採：<strong>{{ mapEditRule.allowed_trade === 'ALL' ? '借採皆可' : '僅限「' + mapEditRule.allowed_trade + '」' }}</strong></div>
+                <div>
+                  • 專區/區名/大區：
+                  <strong>{{ mapEditRule.allowed_targets?.length ? mapEditRule.allowed_targets.map(formatTargetToken).join('、') : '不限' }}</strong>
+                </div>
+                <div>
+                  • 月銷級距：
+                  <strong>{{ mapEditRule.allowed_sales_tiers?.length ? mapEditRule.allowed_sales_tiers.join('、') + '級' : '不限' }}</strong>
+                </div>
+              </div>
+              <div class="text-dim" style="font-size: 11px; margin-top: 8px;">
+                ※ 僅限系統管理員 (sys_admin) 可修改儲位規則。
+              </div>
+            </div>
           </div>
 
-          <!-- 多排批次設定 -->
-          <div v-else class="fp-inspector-body">
+          <!-- 多排批次設定（僅 sys_admin 可達） -->
+          <div v-else-if="isSysAdmin" class="fp-inspector-body">
             <div class="insp-title-box">
               <div class="text-yellow font-bold" style="font-size: 14px;">
                 已選取 {{ selectedMapRacks.length }} 排貨架
@@ -749,8 +788,8 @@
       </div>
     </div>
 
-    <!-- ==================== TAB 4: 儲位規則總表 ==================== -->
-    <div v-if="activeTab === 'rules'" class="tab-content" v-loading="loading || batchSaving">
+    <!-- ==================== TAB 4: 儲位規則總表（僅 sys_admin 可見） ==================== -->
+    <div v-if="activeTab === 'rules' && isSysAdmin" class="tab-content" v-loading="loading || batchSaving">
       <div class="panel-card rules-toolbar-card">
         <div class="row-between">
           <div class="rule-filters">
@@ -928,9 +967,9 @@
       </div>
     </div>
 
-    <!-- ==================== TAB 5: 參數設定（獨立子元件，僅保留批次貼上＋匯入匯出） ==================== -->
+    <!-- ==================== TAB 5: 參數設定（僅 sys_admin 可見） ==================== -->
     <StorageSettingsTab
-      v-if="activeTab === 'settings'"
+      v-if="activeTab === 'settings' && isSysAdmin"
       :mode-settings="modeSettings"
       :skus="lookupOptions.skus"
       @save="saveModeSettings"
@@ -1378,6 +1417,26 @@ export default {
     }
   },
   computed: {
+    currentUserInfo() {
+      const keys = ['user', 'userInfo', 'currentUser', 'loginUser']
+      for (const k of keys) {
+        const raw = localStorage.getItem(k) || sessionStorage.getItem(k)
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw)
+            if (parsed && typeof parsed === 'object') return parsed
+          } catch (e) {}
+        }
+      }
+      return {
+        username: localStorage.getItem('username') || sessionStorage.getItem('username') || '',
+        role: localStorage.getItem('role') || sessionStorage.getItem('role') || ''
+      }
+    },
+    isSysAdmin() {
+      const u = this.currentUserInfo
+      return u.role === 'sys_admin' || u.username === 'admin'
+    },
     filteredRules() {
       const kw = this.ruleKeyword.trim().toLowerCase()
       return this.rules.filter(r => {
@@ -1680,6 +1739,15 @@ export default {
     this.refreshAll()
   },
   methods: {
+    getAdminHeaders() {
+      const u = this.currentUserInfo
+      return {
+        headers: {
+          'x-username': u.username || '',
+          'x-user-role': u.role || ''
+        }
+      }
+    },
     getSubOptionsByType(targetType) {
       if (targetType === 'GROUP') {
         return (this.modeSettings.sku_groups || [])
@@ -1763,6 +1831,7 @@ export default {
       this.selectedMapRacks = []
     },
     selectAllRacksInZone() {
+      if (!this.isSysAdmin) return
       const racks = (this.currentFloorCanvas.nodes || []).filter(n => n.isRack)
       const uniqueMap = new Map()
       racks.forEach(r => {
@@ -1825,7 +1894,7 @@ export default {
     },
     handleRackClick(node, event) {
       this.showInspector = true
-      const isMulti = this.mapMultiSelectMode || event.ctrlKey || event.metaKey || event.shiftKey
+      const isMulti = this.isSysAdmin && (this.mapMultiSelectMode || event.ctrlKey || event.metaKey || event.shiftKey)
       if (isMulti) {
         const existsIdx = this.selectedMapRacks.findIndex(r => r.xCode === node.xCode)
         if (existsIdx !== -1) {
@@ -1924,25 +1993,27 @@ export default {
       this.mapEditRule = this.buildRulePayloadForX(node.xCode)
     },
     async saveMapRackRule() {
+      if (!this.isSysAdmin) return ElMessage.warning('僅限系統管理員可修改儲位規則')
       this.batchSaving = true
       try {
         const payload = {
           ...this.mapEditRule,
           allowed_targets: this.mapEditRule.target_type === 'NONE' ? [] : [...(this.mapEditRule.allowed_targets || [])]
         }
-        await axios.post('/api/storage-accuracy/rules/save', { rule: payload })
+        await axios.post('/api/storage-accuracy/rules/save', { rule: payload }, this.getAdminHeaders())
         ElMessage.success(`🎉 已儲存【${payload.floor} - ${payload.x_start} 排】設定！`)
         await this.refreshAll()
         if (this.selectedMapRacks.length === 1) {
           this.loadSingleRackRule(this.selectedMapRacks[0])
         }
       } catch (e) {
-        ElMessage.error('儲存規則失敗：' + e.message)
+        ElMessage.error('儲存規則失敗：' + (e.response?.data?.message || e.message))
       } finally {
         this.batchSaving = false
       }
     },
     async saveMapBatchRules() {
+      if (!this.isSysAdmin) return ElMessage.warning('僅限系統管理員可修改儲位規則')
       const f = this.mapBatchForm
       if (f.zone_role === 'KEEP' && !f.applyLength && f.allowed_trade === 'KEEP' && f.target_type === 'KEEP' && !f.applyTiers) {
         return ElMessage.warning('請至少選擇一項要批次套用的屬性！')
@@ -1965,13 +2036,13 @@ export default {
 
         for (let i = 0; i < payloads.length; i += 10) {
           const chunk = payloads.slice(i, i + 10)
-          await Promise.all(chunk.map(rule => axios.post('/api/storage-accuracy/rules/save', { rule })))
+          await Promise.all(chunk.map(rule => axios.post('/api/storage-accuracy/rules/save', { rule }, this.getAdminHeaders())))
         }
 
         ElMessage.success(`🎉 已成功批次套用至 ${payloads.length} 排貨架！`)
         await this.refreshAll()
       } catch (e) {
-        ElMessage.error('批次套用失敗：' + e.message)
+        ElMessage.error('批次套用失敗：' + (e.response?.data?.message || e.message))
       } finally {
         this.batchSaving = false
       }
@@ -2014,19 +2085,21 @@ export default {
     },
 
     async saveModeSettings() {
+      if (!this.isSysAdmin) return ElMessage.warning('僅限系統管理員可儲存參數設定')
       try {
-        const res = await axios.post('/api/storage-accuracy/mode-settings/save', { settings: this.modeSettings })
+        const res = await axios.post('/api/storage-accuracy/mode-settings/save', { settings: this.modeSettings }, this.getAdminHeaders())
         if (res.data?.success) {
           this.modeSettings = res.data.settings
           ElMessage.success(res.data.message)
           await this.refreshAll()
         }
       } catch (e) {
-        ElMessage.error('儲存參數設定失敗：' + e.message)
+        ElMessage.error('儲存參數設定失敗：' + (e.response?.data?.message || e.message))
       }
     },
 
     async applyModeFromSim(mode) {
+      if (!this.isSysAdmin) return
       this.modeSettings.mode = mode
       await this.saveModeSettings()
     },
@@ -2080,6 +2153,7 @@ export default {
       this.showRuleModal = true
     },
     async submitRuleForm() {
+      if (!this.isSysAdmin) return ElMessage.warning('僅限系統管理員可修改儲位規則')
       if (!this.ruleForm.zone_name || !this.ruleForm.x_start) {
         return ElMessage.warning('請填寫區域名稱與 X 軸排號！')
       }
@@ -2089,12 +2163,12 @@ export default {
         allowed_targets: this.ruleForm.target_type === 'NONE' ? [] : [...(this.ruleForm.allowed_targets || [])]
       }
       try {
-        await axios.post('/api/storage-accuracy/rules/save', { rule: payload })
+        await axios.post('/api/storage-accuracy/rules/save', { rule: payload }, this.getAdminHeaders())
         this.showRuleModal = false
         await this.refreshAll()
         ElMessage.success('🎉 已儲存儲位規則！')
       } catch (e) {
-        ElMessage.error('儲存規則失敗：' + e.message)
+        ElMessage.error('儲存規則失敗：' + (e.response?.data?.message || e.message))
       }
     },
     openTableBatchModal() {
@@ -2110,6 +2184,7 @@ export default {
       this.showTableBatchModal = true
     },
     async submitTableBatchEdit() {
+      if (!this.isSysAdmin) return ElMessage.warning('僅限系統管理員可修改儲位規則')
       const f = this.tableBatchForm
       if (f.area === 'KEEP' && f.zone_role === 'KEEP' && f.allowed_trade === 'KEEP' && f.target_type === 'KEEP' && !f.applyTiers) {
         return ElMessage.warning('請至少選擇一項要修改的屬性！')
@@ -2133,7 +2208,7 @@ export default {
 
         for (let i = 0; i < payloads.length; i += 10) {
           const chunk = payloads.slice(i, i + 10)
-          await Promise.all(chunk.map(rule => axios.post('/api/storage-accuracy/rules/save', { rule })))
+          await Promise.all(chunk.map(rule => axios.post('/api/storage-accuracy/rules/save', { rule }, this.getAdminHeaders())))
         }
 
         this.showTableBatchModal = false
@@ -2141,29 +2216,31 @@ export default {
         await this.refreshAll()
         ElMessage.success(`🎉 已批次更新 ${payloads.length} 條規則！`)
       } catch (e) {
-        ElMessage.error('批次更新失敗：' + e.message)
+        ElMessage.error('批次更新失敗：' + (e.response?.data?.message || e.message))
       } finally {
         this.batchSaving = false
       }
     },
     async expandSingleRangeRule(rule) {
+      if (!this.isSysAdmin) return ElMessage.warning('僅限系統管理員可操作')
       try {
-        const res = await axios.post('/api/storage-accuracy/rules/expand', { ruleId: rule.id })
+        const res = await axios.post('/api/storage-accuracy/rules/expand', { ruleId: rule.id }, this.getAdminHeaders())
         if (res.data?.success) {
           ElMessage.success(res.data.message)
           await this.refreshAll()
         }
       } catch (e) {
-        ElMessage.error('展開失敗：' + e.message)
+        ElMessage.error('展開失敗：' + (e.response?.data?.message || e.message))
       }
     },
     deleteRule(rule) {
+      if (!this.isSysAdmin) return ElMessage.warning('僅限系統管理員可刪除規則')
       ElMessageBox.confirm(`確定要刪除「${rule.floor} - ${rule.zone_name} (${rule.x_start})」嗎？`, '刪除規則確認', {
         confirmButtonText: '確定刪除',
         cancelButtonText: '取消',
         type: 'warning'
       }).then(async () => {
-        await axios.post('/api/storage-accuracy/rules/delete', { id: rule.id })
+        await axios.post('/api/storage-accuracy/rules/delete', { id: rule.id }, this.getAdminHeaders())
         this.selectedRuleIds = this.selectedRuleIds.filter(id => id !== rule.id)
         await this.refreshAll()
         ElMessage.success('已刪除該條規則')
@@ -2202,12 +2279,14 @@ export default {
       ElMessage.success('🎉 已匯出儲位規則 Excel！')
     },
     triggerRuleExcelInput() {
+      if (!this.isSysAdmin) return ElMessage.warning('僅限系統管理員可匯入規則')
       if (this.$refs.ruleExcelInput) {
         this.$refs.ruleExcelInput.value = ''
         this.$refs.ruleExcelInput.click()
       }
     },
     async handleRuleExcelImport(e) {
+      if (!this.isSysAdmin) return ElMessage.warning('僅限系統管理員可匯入規則')
       const file = e.target.files?.[0]
       if (!file) return
       this.batchSaving = true
@@ -2245,19 +2324,20 @@ export default {
 
         for (let i = 0; i < payloads.length; i += 10) {
           const chunk = payloads.slice(i, i + 10)
-          await Promise.all(chunk.map(rule => axios.post('/api/storage-accuracy/rules/save', { rule })))
+          await Promise.all(chunk.map(rule => axios.post('/api/storage-accuracy/rules/save', { rule }, this.getAdminHeaders())))
         }
 
         await this.refreshAll()
         ElMessage.success(`🎉 成功匯入並更新 ${payloads.length} 條儲位規則！`)
       } catch (err) {
-        ElMessage.error('匯入規則 Excel 失敗：' + err.message)
+        ElMessage.error('匯入規則 Excel 失敗：' + (err.response?.data?.message || err.message))
       } finally {
         this.batchSaving = false
       }
     },
 
     triggerCsvInput() {
+      if (!this.isSysAdmin) return ElMessage.warning('僅限系統管理員可上傳 80 庫 CSV')
       if (this.$refs.csvInput) {
         this.$refs.csvInput.value = ''
         this.$refs.csvInput.click()
@@ -2282,6 +2362,7 @@ export default {
       return result
     },
     async handleCsvUpload(e) {
+      if (!this.isSysAdmin) return ElMessage.warning('僅限系統管理員可上傳 80 庫 CSV')
       const file = e.target.files?.[0]
       if (!file) return
       this.uploading = true
@@ -2360,14 +2441,14 @@ export default {
             batchId,
             isFirstChunk: offset === 0,
             rows: chunk
-          })
+          }, this.getAdminHeaders())
         }
 
         this.uploadProgressText = '計算擺放準確率與動線分析中...'
         await this.refreshAll()
         ElMessage.success(`🎉 成功匯入 ${parsedRows.length.toLocaleString()} 筆 80 庫儲位明細並完成準確率稽核！`)
       } catch (err) {
-        ElMessage.error('上傳 80 庫 CSV 失敗：' + err.message)
+        ElMessage.error('上傳 80 庫 CSV 失敗：' + (err.response?.data?.message || err.message))
       } finally {
         this.uploading = false
         this.uploadProgressText = ''

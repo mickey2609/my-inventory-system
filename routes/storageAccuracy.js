@@ -4,6 +4,25 @@ const express = require('express');
 module.exports = function(db) {
   const router = express.Router();
 
+  // 驗證是否為系統管理員 (sys_admin)
+  function requireSysAdmin(req, res, next) {
+    const headerUser = String(req.headers['x-username'] || req.body?.operator_username || '').trim();
+    const headerRole = String(req.headers['x-user-role'] || req.body?.operator_role || '').trim();
+
+    if (headerUser) {
+      db.get(`SELECT role FROM users WHERE username = ?`, [headerUser], (err, row) => {
+        if (!err && row && row.role === 'sys_admin') {
+          return next();
+        }
+        return res.status(403).json({ success: false, message: '⛔ 權限不足：僅限系統管理員 (sys_admin) 執行此操作！' });
+      });
+    } else if (headerRole === 'sys_admin') {
+      return next();
+    } else {
+      return res.status(403).json({ success: false, message: '⛔ 權限不足：僅限系統管理員 (sys_admin) 執行此操作！' });
+    }
+  }
+
   const DEFAULT_ZONE_ZONES = [
     { zone_name: '80D-B區', floor: '2F西', storage_type: '重型層架-低', wh: '80', area: 'B', x_start: 'A01', x_end: 'A06', y_start: '043', y_end: '072', layer_start: 'A', layer_end: 'B', rack_length_m: 18, zone_role: 'BOTH' },
     { zone_name: '80D-B區', floor: '2F西', storage_type: '落地儲位', wh: '80', area: 'B', x_start: 'A06', x_end: 'A08', y_start: '043', y_end: '072', layer_start: 'A', layer_end: 'A', rack_length_m: 18, zone_role: 'STORAGE' },
@@ -320,7 +339,6 @@ module.exports = function(db) {
     return map[tier] || tier;
   }
 
-  // 解析儲位編碼（同時產生 3 碼 x 如 C2A，與 5 碼 subX 如 C2A03）
   function parseBinCode(binCode) {
     const clean = String(binCode || '').trim().toUpperCase().replace(/^80-/, '80');
     const m = clean.match(/^80([A-Z0-9]{3})(\d{2,3})([A-Z]?)$/);
@@ -350,7 +368,6 @@ module.exports = function(db) {
     return val >= start && val <= end;
   }
 
-  // 精準匹配規則（支援 5 碼 subX 如 C2A03 與 3 碼 x 如 C2A）
   function matchRuleForRecord(rec, sortedRules) {
     const parsed = parseBinCode(rec.bin_code);
     for (let i = 0; i < sortedRules.length; i++) {
@@ -363,7 +380,6 @@ module.exports = function(db) {
         const targetX = is5CharRule ? parsed.subX : parsed.x;
         if (!compareX(targetX, r.x_start, r.x_end)) continue;
 
-        // 5 碼細分排號（如 C2A03）本身已代表特定格號，不重複卡 3 碼格號區間；3 碼規則才檢查 Y 格號
         if (!is5CharRule) {
           const yStart = parseInt(r.y_start || '0', 10);
           const yEnd = parseInt(r.y_end || '999', 10);
@@ -380,7 +396,6 @@ module.exports = function(db) {
     return null;
   }
 
-  // 解析第二順位允許清單（相容舊版 allowed_categories 與新版 allowed_targets）
   function parseRuleAllowedTargets(rule) {
     let targets = [];
     try {
@@ -530,7 +545,7 @@ module.exports = function(db) {
     });
   }
 
-  // 0. 讀取 / 儲存參數設定（擺放模式、月銷量級距門檻、商品ID**區群組）
+  // 0. 讀取 / 儲存參數設定（僅 sys_admin 可寫入）
   router.get('/mode-settings', (req, res) => {
     ensureTables(() => {
       getModeSettings((settings) => {
@@ -539,7 +554,7 @@ module.exports = function(db) {
     });
   });
 
-  router.post('/mode-settings/save', (req, res) => {
+  router.post('/mode-settings/save', requireSysAdmin, (req, res) => {
     const incoming = req.body.settings || {};
     const cleanGroups = Array.isArray(incoming.sku_groups)
       ? incoming.sku_groups
@@ -651,8 +666,8 @@ module.exports = function(db) {
     });
   });
 
-  // 2. 儲存 / 更新單條規則
-  router.post('/rules/save', (req, res) => {
+  // 2. 儲存 / 更新單條規則（僅 sys_admin 可寫入）
+  router.post('/rules/save', requireSysAdmin, (req, res) => {
     const rule = req.body.rule;
     if (!rule || !rule.zone_name || !rule.floor || !rule.x_start) {
       return res.status(400).json({ success: false, message: '請填寫區域名稱、樓層與 X 軸排號' });
@@ -711,8 +726,8 @@ module.exports = function(db) {
     }
   });
 
-  // 3. 把「區間規則」展開成單條 X 軸
-  router.post('/rules/expand', (req, res) => {
+  // 3. 把「區間規則」展開成單條 X 軸（僅 sys_admin 可寫入）
+  router.post('/rules/expand', requireSysAdmin, (req, res) => {
     const { ruleId } = req.body;
     const query = ruleId
       ? `SELECT * FROM storage_placement_rules WHERE id = ?`
@@ -756,8 +771,8 @@ module.exports = function(db) {
     });
   });
 
-  // 4. 刪除單條規則
-  router.post('/rules/delete', (req, res) => {
+  // 4. 刪除單條規則（僅 sys_admin 可寫入）
+  router.post('/rules/delete', requireSysAdmin, (req, res) => {
     const { id } = req.body;
     db.run(`DELETE FROM storage_placement_rules WHERE id = ?`, [id], (err) => {
       if (err) return res.status(500).json({ success: false, message: err.message });
@@ -765,8 +780,8 @@ module.exports = function(db) {
     });
   });
 
-  // 5. 接收前端分批上傳的 80 庫 CSV 明細快照
-  router.post('/audit/upload-chunk', (req, res) => {
+  // 5. 接收前端分批上傳的 80 庫 CSV 明細快照（僅 sys_admin 可寫入）
+  router.post('/audit/upload-chunk', requireSysAdmin, (req, res) => {
     const { batchId, isFirstChunk, rows } = req.body;
     if (!batchId || !Array.isArray(rows)) {
       return res.status(400).json({ success: false, message: '無效的上傳批次資料' });
@@ -822,7 +837,6 @@ module.exports = function(db) {
       getModeSettings((settings) => {
         const activeMode = req.query.mode || settings.mode || 'CAT_TRADE';
 
-        // 建立 SKU -> 所屬「商品ID**區」專區集合（支援專區排他性判斷）
         const skuToGroupsMap = new Map();
         (settings.sku_groups || []).forEach(g => {
           const gName = String(g.name || '').trim();
@@ -847,7 +861,6 @@ module.exports = function(db) {
               const targets = parseRuleAllowedTargets(r);
               const isSingleX = r.x_start === r.x_end;
               const is5CharSingle = isSingleX && String(r.x_start).length >= 5;
-              // 排序權重：5碼單排(2) > 3碼單排(1) > 區間排(0)
               const specificity = is5CharSingle ? 2 : (isSingleX ? 1 : 0);
 
               return {
@@ -905,7 +918,6 @@ module.exports = function(db) {
               const byXRow = {};
               const exceptions = [];
 
-              // 建議移庫目標池（依 allowed_targets 與 allowed_sales_tiers 建立）
               const targetTokenMap = {};
               const tierTargetMap = {};
               const allOpenTargets = [];
@@ -990,7 +1002,6 @@ module.exports = function(db) {
                     isOk = false;
                     reasons.push(`🚫 區域「關閉中」：該儲位已停用關閉，禁止存放庫存（現有 ${rec.qty} 件需立即移出）`);
                   } else {
-                    // ==================== 第一順位：借 / 採 ====================
                     let step1Passed = true;
                     if (matchedRule && matchedRule.allowed_trade && matchedRule.allowed_trade !== 'ALL') {
                       if (!rec.trade_type || matchedRule.allowed_trade !== rec.trade_type) {
@@ -1000,10 +1011,8 @@ module.exports = function(db) {
                       }
                     }
 
-                    // ==================== 第二順位：商品ID**區 > 區名 > 大區名（第一順位吻合才檢查） ====================
                     let step2Passed = true;
                     if (step1Passed) {
-                      // 專區排他性：若商品屬於參數設定內的「商品ID**區」，只能擺放在允許該專區的儲位
                       if (itemGroups && itemGroups.size > 0) {
                         const groupList = Array.from(itemGroups);
                         const allowedByGroup = ruleTargets.some(
@@ -1029,7 +1038,6 @@ module.exports = function(db) {
                       }
                     }
 
-                    // ==================== 第三順位：月銷量級距（前兩順位皆吻合才檢查） ====================
                     if (step1Passed && step2Passed && matchedRule && matchedRule.allowed_sales_tiers.length > 0) {
                       if (!matchedRule.allowed_sales_tiers.includes(salesTier)) {
                         const allowedLabels = matchedRule.allowed_sales_tiers.map(formatTierLabel).join('、');
@@ -1068,7 +1076,6 @@ module.exports = function(db) {
                       if (tierTargetMap[salesTier]) targetObjs = targetObjs.concat(tierTargetMap[salesTier]);
                     }
 
-                    // 過濾符合該商品借/採屬性的目標區
                     const tradeMatchedTargets = targetObjs.filter(
                       t => t.allowedTrade === 'ALL' || !rec.trade_type || t.allowedTrade === rec.trade_type
                     );
@@ -1495,8 +1502,8 @@ module.exports = function(db) {
     });
   });
 
-  // 8. 一鍵自動學習
-  router.post('/rules/auto-suggest', (req, res) => {
+  // 8. 一鍵自動學習（僅 sys_admin 可寫入）
+  router.post('/rules/auto-suggest', requireSysAdmin, (req, res) => {
     ensureTables(() => {
       getModeSettings((settings) => {
         db.all(`SELECT * FROM storage_placement_rules WHERE zone_role != 'CLOSED'`, [], (rErr, rules) => {

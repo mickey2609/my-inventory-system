@@ -51,6 +51,7 @@
 
           <div style="margin-top: auto; padding-top: 8px;">
             <el-button
+              v-if="isSysAdmin"
               size="mini"
               :type="m.recommended ? 'success' : 'primary'"
               :plain="activeMode === m.mode"
@@ -59,6 +60,12 @@
             >
               {{ activeMode === m.mode ? '✓ 已套用此擺放模式' : '⚡ 一鍵切換套用此模式' }}
             </el-button>
+            <div
+              v-else-if="activeMode === m.mode"
+              style="text-align: center; font-size: 12px; font-weight: bold; color: #38bdf8; padding: 5px; background: rgba(56, 189, 248, 0.12); border-radius: 4px;"
+            >
+              ✓ 目前系統啟用中之擺放模式
+            </div>
           </div>
         </div>
       </div>
@@ -143,6 +150,10 @@ export default {
     activeMode: {
       type: String,
       default: 'CAT_TRADE'
+    },
+    isSysAdmin: {
+      type: Boolean,
+      default: false
     }
   },
   emits: ['apply-mode'],
