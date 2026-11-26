@@ -354,7 +354,6 @@
           <div v-else class="fp-legend">
             <span class="leg-item"><i class="leg-dot dot-buy"></i> 僅限「採」</span>
             <span class="leg-item"><i class="leg-dot dot-borrow"></i> 僅限「借」</span>
-            <span class="leg-item"><i class="leg-dot dot-cat"></i> 已設專區/區名/大區</span>
             <span class="leg-item"><i class="leg-dot dot-closed"></i> 🚫 關閉中</span>
             <span class="leg-item"><i class="leg-dot dot-err"></i> 含異常庫存（點擊看明細）</span>
           </div>
@@ -1534,7 +1533,15 @@ export default {
       const ruleFl = zoneObj.ruleFloor || this.selectedMapFloor
       const floorRules = this.rules
         .filter(r => r.enabled && (r.floor === ruleFl || r.floor === this.selectedMapFloor))
-        .sort((a, b) => (a.x_start === a.x_end ? -1 : 1))
+        .sort((a, b) => {
+          const aSingle = a.x_start === a.x_end ? 1 : 0
+          const bSingle = b.x_start === b.x_end ? 1 : 0
+          if (bSingle !== aSingle) return bSingle - aSingle
+          const aSpan = Math.abs(parseInt(a.y_end || '999', 10) - parseInt(a.y_start || '0', 10))
+          const bSpan = Math.abs(parseInt(b.y_end || '999', 10) - parseInt(b.y_start || '0', 10))
+          if (aSpan !== bSpan) return aSpan - bSpan
+          return (b.id || 0) - (a.id || 0)
+        })
 
       const targetRole = zoneObj.defaultRole
       const isRoleSplitView = targetRole === 'PICK' || targetRole === 'STORAGE'
@@ -1548,8 +1555,10 @@ export default {
 
         const matchY = (r) => {
           if (!range.hasYRange) return true
-          const rY1 = parseInt(r.y_start || '0', 10)
-          const rY2 = parseInt(r.y_end || '999', 10)
+          const raw1 = parseInt(r.y_start || '0', 10)
+          const raw2 = parseInt(r.y_end || '999', 10)
+          const rY1 = Math.min(raw1, raw2)
+          const rY2 = Math.max(raw1, raw2)
           return range.yStart <= rY2 && range.yEnd >= rY1
         }
 
@@ -1580,14 +1589,11 @@ export default {
           else if (tiers.includes('B')) statusClass = 'fp-status-borrow'
           else if (tiers.includes('C')) statusClass = 'fp-status-buy'
         } else {
-          // 預設著色視角：有異常必亮紅燈；其餘只要有設定條件（含區域用途）皆顯示對應顏色，空儲位亦同
+          // 預設著色視角：只分「異常(紅) / 關閉中(灰) / 僅限借(橘) / 僅限採(藍)」，專區/區名/大區名不上色
           if (xStat && xStat.failed > 0) statusClass = 'fp-status-err'
           else if (zRole === 'CLOSED') statusClass = 'fp-status-closed'
           else if (rule && rule.allowed_trade === '借') statusClass = 'fp-status-borrow'
           else if (rule && rule.allowed_trade === '採') statusClass = 'fp-status-buy'
-          else if (rule && (targets.length > 0 || (rule.allowed_sales_tiers?.length > 0))) statusClass = 'fp-status-cat'
-          else if (rule && zRole === 'STORAGE') statusClass = 'fp-status-buy'
-          else if (rule) statusClass = 'fp-status-cat'
         }
 
         const roleLabel = this.zoneRoleLabelMap[zRole] || '撿貨區'
@@ -1811,10 +1817,12 @@ mounted() {
       const str = String(label || '').trim().toUpperCase()
       const mRange = str.match(/^80([A-Z0-9]{3})(\d{2,3})[A-Z]?~(\d{2,3})[A-Z]?$/)
       if (mRange) {
+        const n1 = parseInt(mRange[2], 10)
+        const n2 = parseInt(mRange[3], 10)
         return {
           hasYRange: true,
-          yStart: parseInt(mRange[2], 10),
-          yEnd: parseInt(mRange[3], 10)
+          yStart: Math.min(n1, n2),
+          yEnd: Math.max(n1, n2)
         }
       }
       if (String(xCode || '').length <= 3) {
@@ -2063,9 +2071,9 @@ mounted() {
         if (r.x_start !== xCode || r.x_end !== xCode) return false
         if (isRoleSplitView && r.zone_role !== targetRole) return false
         if (range.hasYRange) {
-          const rY1 = parseInt(r.y_start || '0', 10)
-          const rY2 = parseInt(r.y_end || '999', 10)
-          return rY1 === range.yStart && rY2 === range.yEnd
+          const raw1 = parseInt(r.y_start || '0', 10)
+          const raw2 = parseInt(r.y_end || '999', 10)
+          return Math.min(raw1, raw2) === range.yStart && Math.max(raw1, raw2) === range.yEnd
         }
         return true
       })
