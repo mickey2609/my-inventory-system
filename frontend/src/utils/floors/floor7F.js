@@ -45,7 +45,7 @@ function buildAgvMRows(startNum, endNum, x, w, suffix, shortenOnCol = false) {
     .filter((item) => item.num <= startNum && item.num >= endNum)
     .map((item) => {
       const code = `M${String(item.num).padStart(2, '0')}`;
-      const rowW = shortenOnCol && item.onCol ? Number((w - 1.6).toFixed(2)) : w;
+      const rowW = shortenOnCol && item.onCol ? Number((w - 1.2).toFixed(2)) : w;
       const prefixTag = item.unused ? '不使用 ' : '';
       return {
         x,
@@ -58,7 +58,7 @@ function buildAgvMRows(startNum, endNum, x, w, suffix, shortenOnCol = false) {
     });
 }
 
-// A區第4段小層架（M43~M53）：第43~50條較長(x=30.0, w=9.5)，第51~53條避讓煙管(x=35.0, w=4.5)
+// A區第4段小層架（M43~M53）：總長 7.32m（6座 × 1.22m），緊貼 x=24m 牆側；M51~M53 避讓排煙管道
 function buildAgvSeg4Rows() {
   return AGV_M_LAYOUT
     .filter((item) => item.num <= 53 && item.num >= 43)
@@ -67,9 +67,9 @@ function buildAgvSeg4Rows() {
       const isShortByDuct = item.num >= 51;
       const prefixTag = item.unused ? '不使用 ' : '';
       return {
-        x: isShortByDuct ? 35.0 : 30.0,
+        x: isShortByDuct ? 28.8 : 24.5,
         y: item.y,
-        w: isShortByDuct ? 4.5 : 9.5,
+        w: isShortByDuct ? 3.02 : 7.32,
         h: 0.85,
         label: `${prefixTag}80${code}080~085A~E`,
         xCode: code
@@ -79,9 +79,13 @@ function buildAgvSeg4Rows() {
 
 // ==================== 7F A區貨架 ====================
 const RACKS_7F_A_AGV = [
-  ...buildAgvMRows(53, 1, 70.5, 12.5, '001~052A~E', true),
-  ...buildAgvMRows(53, 1, 56.0, 12.5, '056~067A~F', false),
-  ...buildAgvMRows(53, 1, 41.5, 12.5, '068~079A~E', false),
+  // 第1段：15.91m（13座 × 1.22m，東端切齊 x=84m）
+  ...buildAgvMRows(53, 1, 68.09, 15.91, '001~052A~E', true),
+  // 第2段：14.69m（12座 × 1.22m）
+  ...buildAgvMRows(53, 1, 51.60, 14.69, '056~067A~F', false),
+  // 第3段：14.69m（12座 × 1.22m）
+  ...buildAgvMRows(53, 1, 35.11, 14.69, '068~079A~E', false),
+  // 第4段：7.32m（6座 × 1.22m）
   ...buildAgvSeg4Rows()
 ];
 
@@ -123,7 +127,7 @@ const build7FAHeavy = (layerSuffix) => {
   });
 };
 
-// ==================== 7F B區貨架（N53~N35｜西起向東至 x=60m，第27座落在60m柱中） ====================
+// ==================== 7F B區貨架（N53~N35） ====================
 const build7FBHeavy = (layerSuffix) => {
   const layout = [
     // y = 0 ~ 12m 柱跨（51~53，3排；N53 避讓西北排煙管道，與 N52 不一樣長）
@@ -147,13 +151,13 @@ const build7FBHeavy = (layerSuffix) => {
     { num: 42, y: 36.8 },
     { num: 41, y: 40.9 },
     { num: 40, y: 42.1 },
-    { num: 39, y: 45.6 },
+    { num: 39, y: 46.1 },
 
-    // y = 48 ~ 60m 柱跨（35~38，4排；N38 切齊 y=46.8m，N37~35 避讓 12x12m 電梯/樓梯）
-    { num: 38, y: 46.8 },
-    { num: 37, y: 52.4, x: 25.0, w: 35.0 },
-    { num: 36, y: 53.6, x: 25.0, w: 35.0 },
-    { num: 35, y: 57.5, x: 25.0, w: 35.0 }
+    // y = 48 ~ 60m 柱跨（35~38，4排；N38 移至 y=48m 柱線下方，N35~38 全部切齊 x=36m 紅線）
+    { num: 38, y: 49.2, x: 25.0, w: 11.0 },
+    { num: 37, y: 52.4, x: 25.0, w: 11.0 },
+    { num: 36, y: 53.6, x: 25.0, w: 11.0 },
+    { num: 35, y: 57.5, x: 25.0, w: 11.0 }
   ];
 
   return layout.map((item) => {
@@ -169,23 +173,23 @@ const build7FBHeavy = (layerSuffix) => {
   });
 };
 
-// ==================== 7F C區貨架（N34~N15｜西起向東至 x=95m） ====================
+// ==================== 7F C區貨架（N34~N15） ====================
 const build7FCHeavy = (layerSuffix) => {
   const layout = [
-    // y = 0 ~ 12m 柱跨（31~34，4排；34為落地僅A層，34與33避讓西北 12x12m 電梯/樓梯）
-    { num: 34, y: 1.4, x: 25.0, w: 70.0, floorOnlyA: true },
-    { num: 33, y: 5.4, x: 25.0, w: 70.0 },
-    { num: 32, y: 12.6 },
-    { num: 31, y: 13.8 },
+    // y = 0 ~ 12m 柱跨（31~34，4排；N32~34 切齊 x=36m 紅線，N31 位於 y=12m 柱上方延伸至 x=95m）
+    { num: 34, y: 1.4, x: 25.0, w: 11.0, floorOnlyA: true },
+    { num: 33, y: 5.2, x: 25.0, w: 11.0 },
+    { num: 32, y: 6.4, x: 25.0, w: 11.0 },
+    { num: 31, y: 10.2, x: 25.0, w: 70.0 },
 
-    // y = 12 ~ 24m 柱跨（27~30，4排）
-    { num: 30, y: 17.2 },
-    { num: 29, y: 18.4 },
-    { num: 28, y: 21.4 },
-    { num: 27, y: 22.6 },
+    // y = 12 ~ 24m 柱跨（N27~N30 完整落在柱子與柱子之間共 4 排）
+    { num: 30, y: 13.2 },
+    { num: 29, y: 16.9 },
+    { num: 28, y: 18.1 },
+    { num: 27, y: 22.1 },
 
     // y = 24 ~ 36m 柱跨（23~26，4排）
-    { num: 26, y: 25.2 },
+    { num: 26, y: 24.8 },
     { num: 25, y: 28.9 },
     { num: 24, y: 30.1 },
     { num: 23, y: 34.1 },
@@ -219,7 +223,7 @@ const build7FCHeavy = (layerSuffix) => {
     });
 };
 
-// ==================== 7F D區貨架（N14~N01 + S05~S01｜西起向東至 x=95m） ====================
+// ==================== 7F D區貨架（N14~N01 + S05~S01） ====================
 const build7FDHeavy = (layerSuffix) => {
   const layout = [
     // y = 0 ~ 12m 柱跨（N14落地與N14一樣短，避讓西北排煙管道）
@@ -246,11 +250,11 @@ const build7FDHeavy = (layerSuffix) => {
     { prefix: 'N', num: 1, y: 42.1 },
     { prefix: 'S', num: 5, y: 46.1, closed: true, range: '001~056' },
 
-    // y = 48 ~ 60m 柱跨（S01~S04，4排關閉中；S04~S03避讓12x12m核心筒，S02~S01再避讓排煙管道）
+    // y = 48 ~ 60m 柱跨（S01~S04，4排關閉中；S02與S03等長，S01切齊x=36m紅線）
     { prefix: 'S', num: 4, y: 48.8, x: 25.0, w: 70.0, closed: true, range: '001~056' },
-    { prefix: 'S', num: 3, y: 52.9, x: 25.0, w: 70.0, closed: true, range: '001~056' },
-    { prefix: 'S', num: 2, y: 54.1, x: 29.5, w: 65.5, closed: true, range: '001~056' },
-    { prefix: 'S', num: 1, y: 57.5, x: 29.5, w: 65.5, closed: true, range: '001~056' }
+    { prefix: 'S', num: 3, y: 52.4, x: 25.0, w: 70.0, closed: true, range: '001~056' },
+    { prefix: 'S', num: 2, y: 53.6, x: 25.0, w: 70.0, closed: true, range: '001~056' },
+    { prefix: 'S', num: 1, y: 57.5, x: 29.0, w: 7.0, closed: true, range: '001~056' }
   ];
 
   return layout
