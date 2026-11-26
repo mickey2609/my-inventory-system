@@ -9,6 +9,9 @@ module.exports = function(db) {
     const headerUser = String(req.headers['x-username'] || req.body?.operator_username || '').trim();
     const headerRole = String(req.headers['x-user-role'] || req.body?.operator_role || '').trim();
 
+    if (headerRole === 'sys_admin') {
+      return next();
+    }
     if (headerUser) {
       db.get(`SELECT role FROM users WHERE username = ?`, [headerUser], (err, row) => {
         if (!err && row && row.role === 'sys_admin') {
@@ -16,8 +19,6 @@ module.exports = function(db) {
         }
         return res.status(403).json({ success: false, message: '⛔ 權限不足：僅限系統管理員 (sys_admin) 執行此操作！' });
       });
-    } else if (headerRole === 'sys_admin') {
-      return next();
     } else {
       return res.status(403).json({ success: false, message: '⛔ 權限不足：僅限系統管理員 (sys_admin) 執行此操作！' });
     }
@@ -895,6 +896,7 @@ module.exports = function(db) {
                   bySalesTier: [],
                   byZoneRole: [],
                   byXRow: {},
+                  bySlot: {},
                   exceptions: []
                 });
               }
@@ -916,6 +918,7 @@ module.exports = function(db) {
                 D: { label: 'D級滯銷', total: 0, passed: 0, failed: 0 }
               };
               const byXRow = {};
+              const bySlot = {};
               const exceptions = [];
 
               const targetTokenMap = {};
@@ -1149,6 +1152,7 @@ module.exports = function(db) {
                       bin_code: rec.bin_code,
                       x_code: parsed ? parsed.x : '',
                       sub_x_code: parsed ? parsed.subX : '',
+                      y_code: parsed ? parsed.y : 0,
                       qty: rec.qty,
                       zone_role: zoneRole,
                       zone_role_label: formatZoneRoleLabel(zoneRole),
@@ -1184,6 +1188,19 @@ module.exports = function(db) {
                       if (rec.cat_name) xs.cats[rec.cat_name] = (xs.cats[rec.cat_name] || 0) + 1;
                       xs.tiers[salesTier] = (xs.tiers[salesTier] || 0) + 1;
                     });
+
+                    // 精確到格號 Y 的統計（區隔同排不同格號區間，如 2F西 A區 081~110 與 B區 043~072）
+                    const slotKey = `${baseFloor}|${parsed.x}|${parsed.y}`;
+                    if (!bySlot[slotKey]) {
+                      bySlot[slotKey] = { total: 0, passed: 0, failed: 0, borrowCnt: 0, buyCnt: 0, cats: {}, tiers: { A: 0, B: 0, C: 0, D: 0 } };
+                    }
+                    const ss = bySlot[slotKey];
+                    ss.total++;
+                    if (isOk) ss.passed++; else ss.failed++;
+                    if (rec.trade_type === '借') ss.borrowCnt++;
+                    if (rec.trade_type === '採') ss.buyCnt++;
+                    if (rec.cat_name) ss.cats[rec.cat_name] = (ss.cats[rec.cat_name] || 0) + 1;
+                    ss.tiers[salesTier] = (ss.tiers[salesTier] || 0) + 1;
                   }
                 }
 
@@ -1245,6 +1262,7 @@ module.exports = function(db) {
                 bySalesTier,
                 byZoneRole,
                 byXRow,
+                bySlot,
                 exceptions
               });
             });

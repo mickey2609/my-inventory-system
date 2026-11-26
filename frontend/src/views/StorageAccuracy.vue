@@ -266,7 +266,7 @@
       </template>
     </div>
 
-    <!-- ==================== TAB 2: 三模式揀貨動線與找貨效益模擬分析（獨立子元件） ==================== -->
+    <!-- ==================== TAB 2: 三模式揀貨動線與找貨效益模擬分析 ==================== -->
     <StorageSimulationTab
       v-if="activeTab === 'simulation'"
       ref="simTab"
@@ -275,7 +275,7 @@
       @apply-mode="applyModeFromSim"
     />
 
-    <!-- ==================== TAB 3: 樓層儲位平面配置圖（sys_admin可編輯 / 一般人員唯讀檢視） ==================== -->
+    <!-- ==================== TAB 3: 樓層儲位平面配置圖 ==================== -->
     <div v-if="activeTab === 'floorplan'" class="tab-content" v-loading="loading">
       <div class="panel-card fp-toolbar">
         <div class="row-between">
@@ -505,7 +505,7 @@
         <!-- 右側屬性與規則編輯面板 -->
         <div v-if="showInspector" class="panel-card fp-inspector">
           <div class="panel-head row-between">
-            <span>{{ selectedMapRacks.length > 1 ? `⚡ 批次設定已選取 (${selectedMapRacks.length} 排)` : (isSysAdmin ? '🔎 儲位屬性與規則設定' : '🔎 儲位屬性與規則檢視') }}</span>
+            <span>{{ selectedMapRacks.length > 1 ? `⚡ 批次設定已選取 (${selectedMapRacks.length} 段)` : (isSysAdmin ? '🔎 儲位屬性與規則設定' : '🔎 儲位屬性與規則檢視') }}</span>
             <button
               type="button"
               class="hide-inspector-btn"
@@ -520,17 +520,17 @@
             <div style="font-size: 28px; margin-bottom: 8px;">👆</div>
             <div>目前檢視：<strong>{{ selectedMapFloor }} {{ currentZoneObj?.label }}</strong></div>
             <div class="text-dim" style="font-size: 12px; margin-top: 8px; line-height: 1.6;">
-              • <strong>紅色異常貨架</strong>：點擊可直接彈出該排異常商品明細視窗<br />
+              • <strong>紅色異常貨架</strong>：點擊可直接彈出該段異常商品明細視窗<br />
               <template v-if="isSysAdmin">
-                • <strong>多排批次設定</strong>：按住 <kbd>Ctrl</kbd> 連續點選多排（或點上方「全選本區」），即可一次套用規則！
+                • <strong>多排批次設定</strong>：按住 <kbd>Ctrl</kbd> 連續點選多段（或點上方「全選本區」），即可一次套用規則！
               </template>
               <template v-else>
-                • <strong>單排查詢</strong>：點擊任一貨架可檢視該排庫存統計與擺放規則
+                • <strong>單段查詢</strong>：點擊任一貨架可檢視該段庫存統計與擺放規則
               </template>
             </div>
           </div>
 
-          <!-- 單排檢視 / 設定 -->
+          <!-- 單段檢視 / 設定 -->
           <div v-else-if="selectedMapRacks.length === 1" class="fp-inspector-body">
             <div class="insp-title-box">
               <div class="text-blue font-bold" style="font-size: 15px;">
@@ -541,12 +541,12 @@
 
             <div class="insp-stat-card">
               <div class="row-between" style="margin-bottom: 6px;">
-                <div class="insp-sub-title" style="margin: 0;">📦 目前該排庫存統計</div>
+                <div class="insp-sub-title" style="margin: 0;">📦 目前該段庫存統計</div>
                 <el-button
                   v-if="selectedRackStats.failed > 0"
                   size="mini"
                   type="danger"
-                  @click="openRackExceptionDialog(selectedMapRacks[0].xCode)"
+                  @click="openRackExceptionDialog(selectedMapRacks[0])"
                 >
                   🚨 檢視異常 ({{ selectedRackStats.failed }})
                 </el-button>
@@ -570,7 +570,7 @@
 
             <!-- 系統管理員專屬：可編輯規則表單 -->
             <div v-if="isSysAdmin" class="insp-rule-form">
-              <div class="insp-sub-title">⚙️ 設定【{{ selectedMapRacks[0].xCode }} 排】屬性與規則</div>
+              <div class="insp-sub-title">⚙️ 設定【{{ selectedMapRacks[0].label }}】屬性與規則</div>
 
               <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px;">
                 <div>
@@ -681,15 +681,15 @@
             </div>
           </div>
 
-          <!-- 多排批次設定（僅 sys_admin 可達） -->
+          <!-- 多段批次設定（僅 sys_admin 可達） -->
           <div v-else-if="isSysAdmin" class="fp-inspector-body">
             <div class="insp-title-box">
               <div class="text-yellow font-bold" style="font-size: 14px;">
-                已選取 {{ selectedMapRacks.length }} 排貨架
+                已選取 {{ selectedMapRacks.length }} 段貨架
               </div>
               <div class="selected-tags-box">
-                <span v-for="rk in selectedMapRacks" :key="rk.xCode" class="mini-rack-tag">
-                  {{ rk.xCode }}
+                <span v-for="(rk, idx) in selectedMapRacks" :key="`${rk.xCode}-${idx}`" class="mini-rack-tag">
+                  {{ rk.shortLabel || rk.xCode }}
                 </span>
               </div>
             </div>
@@ -780,7 +780,7 @@
               </el-select>
 
               <el-button type="success" size="mini" style="width: 100%;" :loading="batchSaving" @click="saveMapBatchRules">
-                ⚡ 批次套用至這 {{ selectedMapRacks.length }} 排並重算
+                ⚡ 批次套用至這 {{ selectedMapRacks.length }} 段並重算
               </el-button>
             </div>
           </div>
@@ -1226,7 +1226,7 @@
           </thead>
           <tbody>
             <tr v-if="rackExceptionList.length === 0">
-              <td colspan="15" class="empty-td">此排目前無異常明細資料</td>
+              <td colspan="15" class="empty-td">此段目前無異常明細資料</td>
             </tr>
             <tr v-for="(item, idx) in rackExceptionList" :key="idx">
               <td class="text-blue font-bold">{{ item.sku_id }}</td>
@@ -1277,6 +1277,10 @@ export default {
       uploading: false,
       batchSaving: false,
       uploadProgressText: '',
+      detectedAuth: {
+        username: '',
+        role: ''
+      },
 
       modeSettings: {
         mode: 'CAT_TRADE',
@@ -1371,6 +1375,7 @@ export default {
         bySalesTier: [],
         byZoneRole: [],
         byXRow: {},
+        bySlot: {},
         exceptions: []
       },
 
@@ -1418,20 +1423,47 @@ export default {
   },
   computed: {
     currentUserInfo() {
-      const keys = ['user', 'userInfo', 'currentUser', 'loginUser']
-      for (const k of keys) {
-        const raw = localStorage.getItem(k) || sessionStorage.getItem(k)
-        if (raw) {
-          try {
-            const parsed = JSON.parse(raw)
-            if (parsed && typeof parsed === 'object') return parsed
-          } catch (e) {}
+      let username = this.detectedAuth.username || ''
+      let role = this.detectedAuth.role || ''
+
+      // 掃描 localStorage 與 sessionStorage 所有鍵值，相容各種主系統儲存名稱
+      const storages = [window.localStorage, window.sessionStorage]
+      for (const st of storages) {
+        if (!st) continue
+        for (let i = 0; i < st.length; i++) {
+          const key = st.key(i)
+          const raw = st.getItem(key)
+          if (!raw) continue
+          if (raw === 'sys_admin') {
+            role = 'sys_admin'
+            continue
+          }
+          if (raw.startsWith('{') && raw.endsWith('}')) {
+            try {
+              const obj = JSON.parse(raw)
+              if (obj && typeof obj === 'object') {
+                if (obj.role === 'sys_admin' || obj.user_role === 'sys_admin' || obj.is_sys_admin) {
+                  role = 'sys_admin'
+                } else if (!role && (obj.role || obj.user_role)) {
+                  role = obj.role || obj.user_role
+                }
+                if (!username && (obj.username || obj.account || obj.user_id)) {
+                  username = String(obj.username || obj.account || obj.user_id)
+                }
+              }
+            } catch (e) {}
+          }
         }
       }
-      return {
-        username: localStorage.getItem('username') || sessionStorage.getItem('username') || '',
-        role: localStorage.getItem('role') || sessionStorage.getItem('role') || ''
+
+      if (!username) {
+        username = localStorage.getItem('username') || sessionStorage.getItem('username') || ''
       }
+      if (!role && username === 'admin') {
+        role = 'sys_admin'
+      }
+
+      return { username, role }
     },
     isSysAdmin() {
       const u = this.currentUserInfo
@@ -1506,21 +1538,29 @@ export default {
       const targetRole = zoneObj.defaultRole
       const isRoleSplitView = targetRole === 'PICK' || targetRole === 'STORAGE'
 
-      const findRuleForX = (xCode) => {
+      const findRuleForSegment = (xCode, label) => {
         if (!xCode) return null
+        const range = this.parseRackYRange(label, xCode)
         const matchX = (r) => (r.x_start === r.x_end)
           ? (r.x_start === xCode || xCode.startsWith(r.x_start))
           : (xCode >= r.x_start && xCode <= r.x_end)
 
-        if (isRoleSplitView) {
-          return floorRules.find(r => matchX(r) && r.zone_role === targetRole) || null
+        const matchY = (r) => {
+          if (!range.hasYRange) return true
+          const rY1 = parseInt(r.y_start || '0', 10)
+          const rY2 = parseInt(r.y_end || '999', 10)
+          return range.yStart <= rY2 && range.yEnd >= rY1
         }
-        return floorRules.find(matchX) || null
+
+        if (isRoleSplitView) {
+          return floorRules.find(r => matchX(r) && matchY(r) && r.zone_role === targetRole) || null
+        }
+        return floorRules.find(r => matchX(r) && matchY(r)) || null
       }
 
       const decorateRack = (xCode, label, widthPx = 0) => {
-        const rule = findRuleForX(xCode)
-        const xStat = this.report.byXRow?.[`${this.selectedMapFloor}|${xCode}`] || this.report.byXRow?.[`${ruleFl}|${xCode}`]
+        const rule = findRuleForSegment(xCode, label)
+        const xStat = this.computeSegmentStats(xCode, label)
         const zRole = rule?.zone_role || zoneObj.defaultRole || 'PICK'
         const targets = rule?.allowed_targets || []
 
@@ -1720,9 +1760,8 @@ export default {
         return { total: 0, passed: 0, failed: 0, borrowCnt: 0, buyCnt: 0, accuracyPct: 100, topCatsText: '-', tiers: {} }
       }
       const rk = this.selectedMapRacks[0]
-      const st = this.report.byXRow?.[`${this.selectedMapFloor}|${rk.xCode}`] ||
-        this.report.byXRow?.[`${this.currentRuleFloorKey}|${rk.xCode}`]
-      if (!st) return { total: 0, passed: 0, failed: 0, borrowCnt: 0, buyCnt: 0, accuracyPct: 100, topCatsText: '-', tiers: {} }
+      const st = this.computeSegmentStats(rk.xCode, rk.label)
+      if (!st || st.total === 0) return { total: 0, passed: 0, failed: 0, borrowCnt: 0, buyCnt: 0, accuracyPct: 100, topCatsText: '-', tiers: {} }
       const topCats = Object.entries(st.cats || {})
         .sort((a, b) => b[1] - a[1])
         .slice(0, 3)
@@ -1736,17 +1775,74 @@ export default {
     }
   },
   mounted() {
+    this.syncAuthFromDomAndStorage()
     this.refreshAll()
   },
   methods: {
+    syncAuthFromDomAndStorage() {
+      // 同步檢查頂部系統導航欄是否已顯示「系統控制選單」或「系統管理員」
+      const headerText = document.body ? document.body.innerText || '' : ''
+      if (headerText.includes('系統控制選單') || headerText.includes('系統管理員，歡迎登入')) {
+        this.detectedAuth.role = 'sys_admin'
+      }
+    },
     getAdminHeaders() {
       const u = this.currentUserInfo
       return {
         headers: {
-          'x-username': u.username || '',
-          'x-user-role': u.role || ''
+          'x-username': u.username || (this.isSysAdmin ? 'admin' : ''),
+          'x-user-role': u.role || (this.isSysAdmin ? 'sys_admin' : '')
         }
       }
+    },
+    // 從貨架標示（如 80D01081A~110C、80D02059A~072B、D07069）解析該段專屬的 Y 格號起訖範圍
+    parseRackYRange(label, xCode) {
+      const str = String(label || '').trim().toUpperCase()
+      const mRange = str.match(/^80([A-Z0-9]{3})(\d{2,3})[A-Z]?~(\d{2,3})[A-Z]?$/)
+      if (mRange) {
+        return {
+          hasYRange: true,
+          yStart: parseInt(mRange[2], 10),
+          yEnd: parseInt(mRange[3], 10)
+        }
+      }
+      if (String(xCode || '').length <= 3) {
+        const mSingle = str.match(/^(?:80)?([A-Z0-9]{3})(\d{2,3})[A-Z]?$/)
+        if (mSingle) {
+          const yVal = parseInt(mSingle[2], 10)
+          return { hasYRange: true, yStart: yVal, yEnd: yVal }
+        }
+      }
+      return { hasYRange: false, yStart: 0, yEnd: 999 }
+    },
+    // 依據排號與格號範圍計算該段貨架的專屬統計（避免 2F西 A區 081~110 混入 B區 043~072）
+    computeSegmentStats(xCode, label) {
+      const fl = this.selectedMapFloor
+      const ruleFl = this.currentRuleFloorKey
+      const range = this.parseRackYRange(label, xCode)
+      const bySlot = this.report.bySlot || {}
+
+      if (range.hasYRange && Object.keys(bySlot).length > 0) {
+        const agg = { total: 0, passed: 0, failed: 0, borrowCnt: 0, buyCnt: 0, cats: {}, tiers: { A: 0, B: 0, C: 0, D: 0 } }
+        for (let y = range.yStart; y <= range.yEnd; y++) {
+          const st = bySlot[`${fl}|${xCode}|${y}`] || bySlot[`${ruleFl}|${xCode}|${y}`]
+          if (!st) continue
+          agg.total += st.total
+          agg.passed += st.passed
+          agg.failed += st.failed
+          agg.borrowCnt += st.borrowCnt
+          agg.buyCnt += st.buyCnt
+          Object.entries(st.cats || {}).forEach(([k, v]) => {
+            agg.cats[k] = (agg.cats[k] || 0) + v
+          })
+          ;['A', 'B', 'C', 'D'].forEach(t => {
+            agg.tiers[t] += st.tiers?.[t] || 0
+          })
+        }
+        return agg
+      }
+
+      return this.report.byXRow?.[`${fl}|${xCode}`] || this.report.byXRow?.[`${ruleFl}|${xCode}`] || null
     },
     getSubOptionsByType(targetType) {
       if (targetType === 'GROUP') {
@@ -1835,7 +1931,8 @@ export default {
       const racks = (this.currentFloorCanvas.nodes || []).filter(n => n.isRack)
       const uniqueMap = new Map()
       racks.forEach(r => {
-        if (!uniqueMap.has(r.xCode)) uniqueMap.set(r.xCode, r)
+        const uid = `${r.xCode}|${r.label}`
+        if (!uniqueMap.has(uid)) uniqueMap.set(uid, r)
       })
       this.selectedMapRacks = Array.from(uniqueMap.values())
       if (this.selectedMapRacks.length > 0) {
@@ -1847,18 +1944,28 @@ export default {
         this.resetMapBatchForm()
       }
     },
-    openRackExceptionDialog(xCode) {
+    openRackExceptionDialog(target) {
+      const rackObj = typeof target === 'object' ? target : { xCode: target, label: target }
+      const xCode = rackObj.xCode
+      const range = this.parseRackYRange(rackObj.label, xCode)
       const fl = this.selectedMapFloor
       const ruleFl = this.currentRuleFloorKey
+
       const matches = (this.report.exceptions || []).filter(item => {
         const itemFl = String(item.floor || '').trim()
         const floorMatch = itemFl === fl || itemFl === ruleFl || (fl === '2F' && itemFl.startsWith('2F'))
         const m = String(item.bin_code || '').trim().toUpperCase().match(/^80([A-Z0-9]{3})(\d{2,3})/)
         const itemX = item.x_code || (m ? m[1] : '')
         const itemSubX = item.sub_x_code || (m ? `${m[1]}${String(parseInt(m[2], 10)).padStart(2, '0')}` : '')
-        return floorMatch && (itemX === xCode || itemSubX === xCode)
+        const itemY = Number(item.y_code || (m ? parseInt(m[2], 10) : 0))
+
+        if (!floorMatch || (itemX !== xCode && itemSubX !== xCode)) return false
+        if (range.hasYRange && itemY > 0) {
+          return itemY >= range.yStart && itemY <= range.yEnd
+        }
+        return true
       })
-      this.rackExceptionTitle = `${ruleFl} - ${xCode} 排`
+      this.rackExceptionTitle = `${ruleFl} - ${rackObj.label || xCode}`
       this.rackExceptionList = matches
       this.showRackExceptionModal = true
     },
@@ -1896,7 +2003,7 @@ export default {
       this.showInspector = true
       const isMulti = this.isSysAdmin && (this.mapMultiSelectMode || event.ctrlKey || event.metaKey || event.shiftKey)
       if (isMulti) {
-        const existsIdx = this.selectedMapRacks.findIndex(r => r.xCode === node.xCode)
+        const existsIdx = this.selectedMapRacks.findIndex(r => r.xCode === node.xCode && r.label === node.label)
         if (existsIdx !== -1) {
           this.selectedMapRacks.splice(existsIdx, 1)
         } else {
@@ -1909,7 +2016,7 @@ export default {
       if (this.selectedMapRacks.length === 1) {
         this.loadSingleRackRule(this.selectedMapRacks[0])
         if (!isMulti && (node.hasError || node.statusClass === 'fp-status-err')) {
-          this.openRackExceptionDialog(node.xCode)
+          this.openRackExceptionDialog(node)
         }
       } else if (this.selectedMapRacks.length > 1) {
         this.resetMapBatchForm()
@@ -1927,18 +2034,31 @@ export default {
         allowed_sales_tiers: []
       }
     },
-    buildRulePayloadForX(xCode) {
+    buildRulePayloadForX(rackNode) {
+      const node = typeof rackNode === 'object' ? rackNode : { xCode: rackNode, label: rackNode }
+      const xCode = node.xCode
+      const range = this.parseRackYRange(node.label, xCode)
+      const segYStart = range.hasYRange ? String(range.yStart).padStart(3, '0') : '001'
+      const segYEnd = range.hasYRange ? String(range.yEnd).padStart(3, '0') : '999'
+
       const ruleFl = this.currentRuleFloorKey
       const zoneArea = this.currentZoneAreaCode
       const targetRole = this.currentZoneObj?.defaultRole
       const isRoleSplitView = targetRole === 'PICK' || targetRole === 'STORAGE'
       const defaultRole = targetRole || 'PICK'
 
-      const exactRule = this.rules.find(
-        r => (r.floor === ruleFl || r.floor === this.selectedMapFloor) &&
-          r.x_start === xCode && r.x_end === xCode &&
-          (!isRoleSplitView || r.zone_role === targetRole)
-      )
+      const exactRule = this.rules.find(r => {
+        if (!(r.floor === ruleFl || r.floor === this.selectedMapFloor)) return false
+        if (r.x_start !== xCode || r.x_end !== xCode) return false
+        if (isRoleSplitView && r.zone_role !== targetRole) return false
+        if (range.hasYRange) {
+          const rY1 = parseInt(r.y_start || '0', 10)
+          const rY2 = parseInt(r.y_end || '999', 10)
+          return rY1 === range.yStart && rY2 === range.yEnd
+        }
+        return true
+      })
+
       if (exactRule) {
         const targets = [...(exactRule.allowed_targets || [])]
         return {
@@ -1953,12 +2073,18 @@ export default {
         }
       }
 
-      const rangeRule = this.rules.find(
-        r => (r.floor === ruleFl || r.floor === this.selectedMapFloor) &&
-          (!isRoleSplitView || r.zone_role === targetRole) &&
-          ((r.x_start === r.x_end && xCode.startsWith(r.x_start)) ||
-            (xCode >= r.x_start && xCode <= r.x_end))
-      )
+      const rangeRule = this.rules.find(r => {
+        if (!(r.floor === ruleFl || r.floor === this.selectedMapFloor)) return false
+        if (isRoleSplitView && r.zone_role !== targetRole) return false
+        const matchX = (r.x_start === r.x_end && xCode.startsWith(r.x_start)) || (xCode >= r.x_start && xCode <= r.x_end)
+        if (!matchX) return false
+        if (range.hasYRange) {
+          const rY1 = parseInt(r.y_start || '0', 10)
+          const rY2 = parseInt(r.y_end || '999', 10)
+          return range.yStart >= rY1 && range.yEnd <= rY2
+        }
+        return true
+      })
 
       const defaultLayerStart = isRoleSplitView ? (targetRole === 'PICK' ? 'A' : 'C') : (rangeRule ? rangeRule.layer_start : 'A')
       const defaultLayerEnd = isRoleSplitView
@@ -1969,18 +2095,18 @@ export default {
 
       return {
         id: null,
-        zone_name: `${xCode} 排${roleSuffix}`,
+        zone_name: `${node.label || xCode + ' 排'}${roleSuffix}`,
         floor: ruleFl,
         storage_type: rangeRule ? rangeRule.storage_type : '重型層架',
         area: zoneArea || (rangeRule ? rangeRule.area : ''),
         x_start: xCode,
         x_end: xCode,
-        y_start: rangeRule ? rangeRule.y_start : '01',
-        y_end: rangeRule ? rangeRule.y_end : '99',
+        y_start: range.hasYRange ? segYStart : (rangeRule ? rangeRule.y_start : '001'),
+        y_end: range.hasYRange ? segYEnd : (rangeRule ? rangeRule.y_end : '999'),
         layer_start: defaultLayerStart,
         layer_end: defaultLayerEnd,
         zone_role: defaultRole,
-        rack_length_m: rangeRule ? Number(rangeRule.rack_length_m || 20) : 48,
+        rack_length_m: rangeRule ? Number(rangeRule.rack_length_m || 20) : 20,
         allowed_trade: rangeRule ? rangeRule.allowed_trade : 'ALL',
         target_type: this.detectTargetType(rangeTargets),
         allowed_targets: rangeTargets,
@@ -1990,7 +2116,7 @@ export default {
       }
     },
     loadSingleRackRule(node) {
-      this.mapEditRule = this.buildRulePayloadForX(node.xCode)
+      this.mapEditRule = this.buildRulePayloadForX(node)
     },
     async saveMapRackRule() {
       if (!this.isSysAdmin) return ElMessage.warning('僅限系統管理員可修改儲位規則')
@@ -2021,7 +2147,7 @@ export default {
       this.batchSaving = true
       try {
         const payloads = this.selectedMapRacks.map(rk => {
-          const base = this.buildRulePayloadForX(rk.xCode)
+          const base = this.buildRulePayloadForX(rk)
           if (f.zone_role !== 'KEEP') base.zone_role = f.zone_role
           if (f.applyLength) base.rack_length_m = f.rack_length_m
           if (f.allowed_trade !== 'KEEP') base.allowed_trade = f.allowed_trade
@@ -2039,7 +2165,7 @@ export default {
           await Promise.all(chunk.map(rule => axios.post('/api/storage-accuracy/rules/save', { rule }, this.getAdminHeaders())))
         }
 
-        ElMessage.success(`🎉 已成功批次套用至 ${payloads.length} 排貨架！`)
+        ElMessage.success(`🎉 已成功批次套用至 ${payloads.length} 段貨架！`)
         await this.refreshAll()
       } catch (e) {
         ElMessage.error('批次套用失敗：' + (e.response?.data?.message || e.message))
