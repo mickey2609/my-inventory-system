@@ -4,24 +4,20 @@ const express = require('express');
 module.exports = function(db) {
   const router = express.Router();
 
-  // 驗證是否為系統管理員 (sys_admin)
+  // 驗證是否為系統管理員 (僅限 admin 帳號或 sys_admin 角色)
   function requireSysAdmin(req, res, next) {
     const headerUser = String(req.headers['x-username'] || req.body?.operator_username || '').trim();
-    const headerRole = String(req.headers['x-user-role'] || req.body?.operator_role || '').trim();
 
-    if (headerRole === 'sys_admin') {
-      return next();
+    if (!headerUser) {
+      return res.status(403).json({ success: false, message: '⛔ 權限不足：僅限系統管理員 (admin) 執行此操作！' });
     }
-    if (headerUser) {
-      db.get(`SELECT role FROM users WHERE username = ?`, [headerUser], (err, row) => {
-        if (!err && row && row.role === 'sys_admin') {
-          return next();
-        }
-        return res.status(403).json({ success: false, message: '⛔ 權限不足：僅限系統管理員 (sys_admin) 執行此操作！' });
-      });
-    } else {
-      return res.status(403).json({ success: false, message: '⛔ 權限不足：僅限系統管理員 (sys_admin) 執行此操作！' });
-    }
+
+    db.get(`SELECT username, role FROM users WHERE username = ?`, [headerUser], (err, row) => {
+      if (!err && row && (row.username.toLowerCase() === 'admin' || row.role === 'sys_admin')) {
+        return next();
+      }
+      return res.status(403).json({ success: false, message: '⛔ 權限不足：僅限系統管理員 (admin) 執行此操作！' });
+    });
   }
 
   const DEFAULT_ZONE_ZONES = [

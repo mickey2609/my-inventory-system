@@ -1467,7 +1467,8 @@ export default {
     },
     isSysAdmin() {
       const u = this.currentUserInfo
-      return u.role === 'sys_admin' || u.username === 'admin'
+      const uname = String(u.username || '').trim().toLowerCase()
+      return uname === 'admin' || u.role === 'sys_admin'
     },
     filteredRules() {
       const kw = this.ruleKeyword.trim().toLowerCase()
@@ -1779,10 +1780,11 @@ export default {
     this.refreshAll()
   },
   methods: {
-    syncAuthFromDomAndStorage() {
-      // 同步檢查頂部系統導航欄是否已顯示「系統控制選單」或「系統管理員」
+    ssyncAuthFromDomAndStorage() {
+      // 僅限左上角顯示「系統管理員，歡迎登入」或帳號為 admin 時才賦予最高設定權限
       const headerText = document.body ? document.body.innerText || '' : ''
-      if (headerText.includes('系統控制選單') || headerText.includes('系統管理員，歡迎登入')) {
+      if (headerText.includes('系統管理員，歡迎登入')) {
+        this.detectedAuth.username = 'admin'
         this.detectedAuth.role = 'sys_admin'
       }
     },
