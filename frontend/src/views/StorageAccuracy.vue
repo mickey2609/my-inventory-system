@@ -40,7 +40,7 @@
             type="button"
             class="sub-tab-btn"
             :class="{ active: activeTab === 'simulation' }"
-            @click="activeTab = 'simulation'; fetchSimulation()"
+            @click="activeTab = 'simulation'"
           >
             🧠 三模式揀貨動線與找貨分析
           </button>
@@ -264,138 +264,13 @@
       </template>
     </div>
 
-    <!-- ==================== TAB 2: 三模式揀貨動線與找貨效益模擬分析 ==================== -->
-    <div v-if="activeTab === 'simulation'" class="tab-content" v-loading="simLoading">
-      <div v-if="!simData.hasData" class="empty-guide-card">
-        <h4>尚無 80 庫庫存數據可供動線模擬</h4>
-        <p>請先上傳 80 庫 CSV（或從首頁匯入 80 庫），系統即可自動依區域用途與層架公尺數算出揀貨距離！</p>
-      </div>
-
-      <template v-else>
-        <div class="sim-modes-grid">
-          <div
-            v-for="m in simData.modesComparison"
-            :key="m.mode"
-            class="sim-mode-card"
-            :class="{ 'sim-recommended': m.recommended, 'sim-active': modeSettings.mode === m.mode }"
-          >
-            <div class="sim-card-top">
-              <div class="sim-mode-title">{{ m.name }}</div>
-              <div class="sim-badges">
-                <span v-if="m.recommended" class="rec-badge">🏆 系統推薦最佳平衡</span>
-                <span v-if="modeSettings.mode === m.mode" class="cur-badge">目前啟用中</span>
-              </div>
-            </div>
-
-            <div class="sim-metrics-row">
-              <div class="sim-metric">
-                <span class="sm-lbl">🚶 撿貨區月步行總里程</span>
-                <span class="sm-val text-blue">{{ m.walkDistanceIndex }} <small style="font-size: 11px;">km</small></span>
-                <span v-if="m.walkSavingPct > 0" class="sm-sub text-green">
-                  ▼ 省 {{ m.savedKm }} km ({{ m.walkSavingPct }}% / 約 {{ m.savedHours }} 小時)
-                </span>
-                <span v-else class="sm-sub text-dim">7F A區出發往返基準</span>
-              </div>
-              <div class="sim-metric">
-                <span class="sm-lbl">🔥 黃金區位爆品率</span>
-                <span class="sm-val text-yellow">{{ m.goldenHotPct }}%</span>
-                <span class="sm-sub text-dim">7F/6F撿貨區佔比</span>
-              </div>
-              <div class="sim-metric">
-                <span class="sm-lbl">🧭 找貨直覺度評分</span>
-                <span class="sm-val text-purple">{{ m.findEaseScore }} 分</span>
-                <span class="sm-sub text-dim">品類聚合度指標</span>
-              </div>
-            </div>
-
-            <div class="sim-desc-box">
-              <div><strong>📦 搬遷調整成本：</strong><span class="text-yellow">{{ m.moveEffortLevel }}</span></div>
-              <div style="margin-top: 4px;"><strong class="text-green">✅ 優勢：</strong>{{ m.pros }}</div>
-              <div style="margin-top: 2px;"><strong class="text-red">⚠️ 限制：</strong>{{ m.cons }}</div>
-            </div>
-
-            <div style="margin-top: auto; padding-top: 8px;">
-              <el-button
-                size="mini"
-                :type="m.recommended ? 'success' : 'primary'"
-                :plain="modeSettings.mode === m.mode"
-                style="width: 100%;"
-                @click="applyModeFromSim(m.mode)"
-              >
-                {{ modeSettings.mode === m.mode ? '✓ 已套用此擺放模式' : '⚡ 一鍵切換套用此模式' }}
-              </el-button>
-            </div>
-          </div>
-        </div>
-
-        <div class="sim-bottom-grid">
-          <div class="panel-card">
-            <div class="panel-head">📊 現況 80 庫月銷量級距與黃金區位佔比分析</div>
-            <div class="table-scroll">
-              <table class="dark-table">
-                <thead>
-                  <tr>
-                    <th>月銷級距</th>
-                    <th>品項數</th>
-                    <th>儲位筆數</th>
-                    <th>月總銷量</th>
-                    <th>月揀貨單天數</th>
-                    <th>已放黃金區位</th>
-                    <th>黃金區位佔比</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="t in simData.tierDistribution" :key="t.tier">
-                    <td><span class="tier-pill" :class="`tier-${t.tier}`">{{ t.label }}</span></td>
-                    <td class="font-bold">{{ t.skuCount.toLocaleString() }}</td>
-                    <td>{{ t.binCount.toLocaleString() }}</td>
-                    <td class="text-yellow font-bold">{{ Math.round(t.totalSales).toLocaleString() }}</td>
-                    <td class="text-blue font-bold">{{ Math.round(t.pickFreq).toLocaleString() }}</td>
-                    <td class="text-green font-bold">{{ t.goldenBins.toLocaleString() }}</td>
-                    <td class="font-bold">
-                      {{ t.binCount > 0 ? ((t.goldenBins / t.binCount) * 100).toFixed(1) : 0 }}%
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div class="panel-card">
-            <div class="panel-head">🚀 優先移庫建議：關閉中殘留庫存 / 庫區爆品 / 遠端爆品（Top 15）</div>
-            <div class="table-scroll">
-              <table class="dark-table">
-                <thead>
-                  <tr>
-                    <th>商品ID</th>
-                    <th>商品名稱</th>
-                    <th>月銷量</th>
-                    <th>目前樓層/儲位</th>
-                    <th>目前用途</th>
-                    <th>往返距離</th>
-                    <th>優先處置建議</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-if="simData.topMoveCandidates.length === 0">
-                    <td colspan="7" class="empty-td">🎉 目前無關閉中殘留庫存或急需前移的爆品！</td>
-                  </tr>
-                  <tr v-for="(c, i) in simData.topMoveCandidates" :key="i">
-                    <td class="text-blue font-bold">{{ c.sku_id }}</td>
-                    <td class="text-left">{{ c.sku_name }}</td>
-                    <td class="text-yellow font-bold">{{ c.monthly_sales }}</td>
-                    <td class="text-red font-bold">{{ c.floor }} / {{ c.bin_code }}</td>
-                    <td><span class="role-pill" :class="`role-${c.zoneRole}`">{{ c.zone_role_label }}</span></td>
-                    <td class="text-yellow font-bold">{{ c.roundTripM }} m</td>
-                    <td class="text-left text-green">{{ c.moveReason }}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </template>
-    </div>
+    <!-- ==================== TAB 2: 三模式揀貨動線與找貨效益模擬分析（獨立子元件） ==================== -->
+    <StorageSimulationTab
+      v-if="activeTab === 'simulation'"
+      ref="simTab"
+      :active-mode="modeSettings.mode"
+      @apply-mode="applyModeFromSim"
+    />
 
     <!-- ==================== TAB 3: 樓層儲位平面配置圖（主力規則編輯器＋多選批次） ==================== -->
     <div v-if="activeTab === 'floorplan'" class="tab-content" v-loading="loading">
@@ -543,7 +418,6 @@
                   ▶ 東側碼頭方向（{{ currentZoneObj?.label || '' }}｜柱心距 12m）
                 </div>
 
-                <!-- 建築結構外圍框 -->
                 <svg
                   v-if="currentFloorCanvas.outerFrame"
                   class="fp-zone-svg-outline"
@@ -585,7 +459,6 @@
                   </g>
                 </svg>
 
-                <!-- 12m 標準建築柱位黑方塊 -->
                 <div
                   v-for="(col, cIdx) in currentFloorCanvas.columns"
                   :key="`col-${cIdx}`"
@@ -647,6 +520,7 @@
             </div>
           </div>
 
+          <!-- 單排設定 -->
           <div v-else-if="selectedMapRacks.length === 1" class="fp-inspector-body">
             <div class="insp-title-box">
               <div class="text-blue font-bold" style="font-size: 15px;">
@@ -723,28 +597,37 @@
                 <el-option label="僅限「採」" value="採" />
               </el-select>
 
-              <label class="m-lbl">② 第二順位｜商品ID專區 / 區名 / 大區名（可多選）：</label>
+              <label class="m-lbl">② 第二順位｜主條件類別：</label>
               <el-select
-                v-model="mapEditRule.allowed_targets"
-                multiple
-                filterable
+                v-model="mapEditRule.target_type"
                 size="mini"
-                placeholder="不限（可多選商品ID專區、區編-區名、大區編-大區名）"
-                style="width: 100%; margin-bottom: 8px;"
+                style="width: 100%; margin-bottom: 6px;"
+                @change="mapEditRule.allowed_targets = []"
               >
-                <el-option-group
-                  v-for="grp in groupedTargetOptions"
-                  :key="grp.label"
-                  :label="grp.label"
+                <el-option label="不限（跳過第二順位）" value="NONE" />
+                <el-option label="① 商品ID**區（專區優先）" value="GROUP" />
+                <el-option label="② 區名（帶區編）" value="ZONE" />
+                <el-option label="③ 大區名（帶大區編）" value="CAT" />
+              </el-select>
+
+              <template v-if="mapEditRule.target_type !== 'NONE'">
+                <label class="m-lbl">② 第二順位｜子條件明細（可多選）：</label>
+                <el-select
+                  v-model="mapEditRule.allowed_targets"
+                  multiple
+                  filterable
+                  size="mini"
+                  :placeholder="`請搜尋並多選${targetTypeLabelMap[mapEditRule.target_type]}...`"
+                  style="width: 100%; margin-bottom: 8px;"
                 >
                   <el-option
-                    v-for="opt in grp.options"
+                    v-for="opt in getSubOptionsByType(mapEditRule.target_type)"
                     :key="opt.value"
                     :label="opt.label"
                     :value="opt.value"
                   />
-                </el-option-group>
-              </el-select>
+                </el-select>
+              </template>
 
               <label class="m-lbl">③ 第三順位｜允許月銷量級距（可多選）：</label>
               <el-select
@@ -766,6 +649,7 @@
             </div>
           </div>
 
+          <!-- 多排批次設定 -->
           <div v-else class="fp-inspector-body">
             <div class="insp-title-box">
               <div class="text-yellow font-bold" style="font-size: 14px;">
@@ -812,32 +696,38 @@
                 <el-option label="僅限「採」" value="採" />
               </el-select>
 
-              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
-                <label class="m-lbl" style="margin: 0;">② 商品ID專區/區名/大區：</label>
-                <el-checkbox v-model="mapBatchForm.applyTargets" size="mini">覆蓋設定</el-checkbox>
-              </div>
+              <label class="m-lbl">② 第二順位｜主條件類別：</label>
               <el-select
-                v-model="mapBatchForm.allowed_targets"
-                :disabled="!mapBatchForm.applyTargets"
-                multiple
-                filterable
+                v-model="mapBatchForm.target_type"
                 size="mini"
-                placeholder="勾選右側後選擇（留空=不限）"
-                style="width: 100%; margin-bottom: 8px;"
+                style="width: 100%; margin-bottom: 6px;"
+                @change="mapBatchForm.allowed_targets = []"
               >
-                <el-option-group
-                  v-for="grp in groupedTargetOptions"
-                  :key="grp.label"
-                  :label="grp.label"
+                <el-option label="（維持各排原設定）" value="KEEP" />
+                <el-option label="清除為不限" value="NONE" />
+                <el-option label="① 商品ID**區（專區優先）" value="GROUP" />
+                <el-option label="② 區名（帶區編）" value="ZONE" />
+                <el-option label="③ 大區名（帶大區編）" value="CAT" />
+              </el-select>
+
+              <template v-if="['GROUP', 'ZONE', 'CAT'].includes(mapBatchForm.target_type)">
+                <label class="m-lbl">② 第二順位｜子條件明細（可多選）：</label>
+                <el-select
+                  v-model="mapBatchForm.allowed_targets"
+                  multiple
+                  filterable
+                  size="mini"
+                  :placeholder="`請搜尋並多選${targetTypeLabelMap[mapBatchForm.target_type]}...`"
+                  style="width: 100%; margin-bottom: 8px;"
                 >
                   <el-option
-                    v-for="opt in grp.options"
+                    v-for="opt in getSubOptionsByType(mapBatchForm.target_type)"
                     :key="opt.value"
                     :label="opt.label"
                     :value="opt.value"
                   />
-                </el-option-group>
-              </el-select>
+                </el-select>
+              </template>
 
               <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
                 <label class="m-lbl" style="margin: 0;">③ 允許月銷量級距：</label>
@@ -1048,7 +938,6 @@
     <!-- ==================== TAB 5: 參數設定（月銷量級距門檻 ＋ 商品ID**區專區管理） ==================== -->
     <div v-if="activeTab === 'settings'" class="tab-content" v-loading="loading">
       <div class="settings-split-grid">
-        <!-- 左側：月銷量級距門檻設定 -->
         <div class="panel-card">
           <div class="panel-head row-between">
             <span>🔥 第三順位｜月銷量級距門檻參數設定</span>
@@ -1087,7 +976,6 @@
           </div>
         </div>
 
-        <!-- 右側：商品ID**區 專區管理（多選商品ID帶名稱 ＋ Excel/CSV 匯入） -->
         <div class="panel-card">
           <div class="panel-head row-between">
             <span>🏷️ 第二順位｜「商品ID**區」專區管理（共 {{ (modeSettings.sku_groups || []).length }} 區）</span>
@@ -1108,7 +996,6 @@
           </div>
 
           <div class="sku-group-workspace">
-            <!-- 專區清單側欄 -->
             <div class="sku-group-list">
               <div
                 v-for="(grp, gIdx) in modeSettings.sku_groups"
@@ -1122,7 +1009,6 @@
               </div>
             </div>
 
-            <!-- 選定專區編輯區 -->
             <div v-if="currentSkuGroup" class="sku-group-editor">
               <div class="row-between" style="margin-bottom: 10px;">
                 <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
@@ -1199,7 +1085,7 @@
       </div>
     </div>
 
-    <!-- Modal 1: 新增 / 編輯單條規則 -->
+    <!-- Modal 1: 新增 / 編輯單條規則（第二順位改為主條件＋子條件兩格連動） -->
     <el-dialog
       v-model="showRuleModal"
       :title="ruleForm.id ? `✏️ 編輯儲位規則（${ruleForm.floor} - ${ruleForm.x_start}）` : '➕ 新增儲位擺放規則'"
@@ -1268,21 +1154,37 @@
             <el-option label="僅限「採」" value="採" />
           </el-select>
         </div>
-        <div style="grid-column: span 2;">
-          <label class="m-lbl">② 第二順位｜商品ID專區 / 區名 / 大區名（可多選，留空代表不限）</label>
-          <el-select v-model="ruleForm.allowed_targets" multiple filterable size="mini" style="width: 100%;">
-            <el-option-group
-              v-for="grp in groupedTargetOptions"
-              :key="grp.label"
-              :label="grp.label"
-            >
-              <el-option
-                v-for="opt in grp.options"
-                :key="opt.value"
-                :label="opt.label"
-                :value="opt.value"
-              />
-            </el-option-group>
+        <div>
+          <label class="m-lbl">② 第二順位｜主條件類別</label>
+          <el-select
+            v-model="ruleForm.target_type"
+            size="mini"
+            style="width: 100%;"
+            @change="ruleForm.allowed_targets = []"
+          >
+            <el-option label="不限（跳過第二順位）" value="NONE" />
+            <el-option label="① 商品ID**區（專區優先）" value="GROUP" />
+            <el-option label="② 區名（帶區編）" value="ZONE" />
+            <el-option label="③ 大區名（帶大區編）" value="CAT" />
+          </el-select>
+        </div>
+        <div>
+          <label class="m-lbl">② 第二順位｜子條件明細（可多選）</label>
+          <el-select
+            v-model="ruleForm.allowed_targets"
+            :disabled="ruleForm.target_type === 'NONE'"
+            multiple
+            filterable
+            size="mini"
+            :placeholder="ruleForm.target_type === 'NONE' ? '請先於左側選擇主條件' : '請搜尋並多選子條件...'"
+            style="width: 100%;"
+          >
+            <el-option
+              v-for="opt in getSubOptionsByType(ruleForm.target_type)"
+              :key="opt.value"
+              :label="opt.label"
+              :value="opt.value"
+            />
           </el-select>
         </div>
         <div style="grid-column: span 2;">
@@ -1301,7 +1203,7 @@
       </template>
     </el-dialog>
 
-    <!-- Modal 2: 規則總表勾選批次編輯 -->
+    <!-- Modal 2: 規則總表勾選批次編輯（第二順位改為主條件＋子條件兩格連動） -->
     <el-dialog
       v-model="showTableBatchModal"
       :title="`⚡ 批次修改已勾選的 ${selectedRuleIds.length} 條規則`"
@@ -1340,23 +1242,36 @@
           </el-select>
         </div>
         <div>
-          <div style="display: flex; justify-content: space-between;">
-            <label class="m-lbl">② 第二順位｜商品ID專區 / 區名 / 大區名：</label>
-            <el-checkbox v-model="tableBatchForm.applyTargets" size="mini">覆蓋設定</el-checkbox>
-          </div>
-          <el-select v-model="tableBatchForm.allowed_targets" :disabled="!tableBatchForm.applyTargets" multiple filterable size="mini" style="width: 100%;">
-            <el-option-group
-              v-for="grp in groupedTargetOptions"
-              :key="grp.label"
-              :label="grp.label"
-            >
-              <el-option
-                v-for="opt in grp.options"
-                :key="opt.value"
-                :label="opt.label"
-                :value="opt.value"
-              />
-            </el-option-group>
+          <label class="m-lbl">② 第二順位｜主條件類別：</label>
+          <el-select
+            v-model="tableBatchForm.target_type"
+            size="mini"
+            style="width: 100%;"
+            @change="tableBatchForm.allowed_targets = []"
+          >
+            <el-option label="（維持原設定）" value="KEEP" />
+            <el-option label="清除為不限" value="NONE" />
+            <el-option label="① 商品ID**區（專區優先）" value="GROUP" />
+            <el-option label="② 區名（帶區編）" value="ZONE" />
+            <el-option label="③ 大區名（帶大區編）" value="CAT" />
+          </el-select>
+        </div>
+        <div v-if="['GROUP', 'ZONE', 'CAT'].includes(tableBatchForm.target_type)">
+          <label class="m-lbl">② 第二順位｜子條件明細（可多選）：</label>
+          <el-select
+            v-model="tableBatchForm.allowed_targets"
+            multiple
+            filterable
+            size="mini"
+            :placeholder="`請搜尋並多選${targetTypeLabelMap[tableBatchForm.target_type]}...`"
+            style="width: 100%;"
+          >
+            <el-option
+              v-for="opt in getSubOptionsByType(tableBatchForm.target_type)"
+              :key="opt.value"
+              :label="opt.label"
+              :value="opt.value"
+            />
           </el-select>
         </div>
         <div>
@@ -1456,14 +1371,17 @@ import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as XLSX from 'xlsx'
 import { FLOOR_MODULES } from '../utils/floorLayoutData.js'
+import StorageSimulationTab from '../components/StorageSimulationTab.vue'
 
 export default {
   name: 'StorageAccuracy',
+  components: {
+    StorageSimulationTab
+  },
   data() {
     return {
       activeTab: 'dashboard',
       loading: false,
-      simLoading: false,
       uploading: false,
       batchSaving: false,
       uploadProgressText: '',
@@ -1486,6 +1404,12 @@ export default {
         skus: [],
         zones: [],
         categories: []
+      },
+
+      targetTypeLabelMap: {
+        GROUP: '商品ID**區',
+        ZONE: '區編 - 區名',
+        CAT: '大區編 - 大區名'
       },
 
       zoneRoleLabelMap: {
@@ -1530,6 +1454,7 @@ export default {
         zone_role: 'PICK',
         rack_length_m: 20,
         allowed_trade: 'ALL',
+        target_type: 'NONE',
         allowed_targets: [],
         allowed_volumes: [],
         allowed_sales_tiers: []
@@ -1540,7 +1465,7 @@ export default {
         applyLength: false,
         rack_length_m: 20,
         allowed_trade: 'KEEP',
-        applyTargets: false,
+        target_type: 'KEEP',
         allowed_targets: [],
         applyTiers: false,
         allowed_sales_tiers: []
@@ -1556,13 +1481,6 @@ export default {
         byZoneRole: [],
         byXRow: {},
         exceptions: []
-      },
-
-      simData: {
-        hasData: false,
-        tierDistribution: [],
-        modesComparison: [],
-        topMoveCandidates: []
       },
 
       excKeyword: '',
@@ -1589,6 +1507,7 @@ export default {
         zone_role: 'PICK',
         rack_length_m: 20,
         allowed_trade: 'ALL',
+        target_type: 'NONE',
         allowed_targets: [],
         allowed_volumes: [],
         allowed_sales_tiers: [],
@@ -1599,7 +1518,7 @@ export default {
         area: 'KEEP',
         zone_role: 'KEEP',
         allowed_trade: 'KEEP',
-        applyTargets: false,
+        target_type: 'KEEP',
         allowed_targets: [],
         applyTiers: false,
         allowed_sales_tiers: []
@@ -1615,36 +1534,6 @@ export default {
       const map = new Map();
       (this.lookupOptions.skus || []).forEach(s => map.set(s.sku_id, s.sku_name));
       return map;
-    },
-    // 第二順位同一個格子內的分組選單：商品ID**區 > 區名(帶區編) > 大區名(帶大區編)
-    groupedTargetOptions() {
-      const groups = [];
-      const skuGroupOpts = (this.modeSettings.sku_groups || [])
-        .filter(g => g && g.name)
-        .map(g => ({
-          value: `GROUP:${g.name}`,
-          label: `${g.name} (${(g.skus || []).length}品)`
-        }));
-      if (skuGroupOpts.length > 0) {
-        groups.push({ label: '① 商品ID**區（最高專區優先權）', options: skuGroupOpts });
-      }
-
-      const zoneOpts = (this.lookupOptions.zones || []).map(z => ({
-        value: z.token,
-        label: z.label
-      }));
-      if (zoneOpts.length > 0) {
-        groups.push({ label: '② 區編 - 區名', options: zoneOpts });
-      }
-
-      const catOpts = (this.lookupOptions.categories || []).map(c => ({
-        value: c.token,
-        label: c.label
-      }));
-      if (catOpts.length > 0) {
-        groups.push({ label: '③ 大區編 - 大區名', options: catOpts });
-      }
-      return groups;
     },
     filteredRules() {
       const kw = this.ruleKeyword.trim().toLowerCase();
@@ -1948,6 +1837,39 @@ export default {
     this.refreshAll();
   },
   methods: {
+    // 依據主條件類別回傳對應的子條件下拉選單
+    getSubOptionsByType(targetType) {
+      if (targetType === 'GROUP') {
+        return (this.modeSettings.sku_groups || [])
+          .filter(g => g && g.name)
+          .map(g => ({
+            value: `GROUP:${g.name}`,
+            label: `${g.name} (${(g.skus || []).length}品)`
+          }));
+      }
+      if (targetType === 'ZONE') {
+        return (this.lookupOptions.zones || []).map(z => ({
+          value: z.token,
+          label: z.label
+        }));
+      }
+      if (targetType === 'CAT') {
+        return (this.lookupOptions.categories || []).map(c => ({
+          value: c.token,
+          label: c.label
+        }));
+      }
+      return [];
+    },
+    // 從既有 allowed_targets 陣列自動反推主條件類別
+    detectTargetType(targets) {
+      if (!Array.isArray(targets) || targets.length === 0) return 'NONE';
+      const first = String(targets[0] || '');
+      if (first.startsWith('GROUP:')) return 'GROUP';
+      if (first.startsWith('ZONE:')) return 'ZONE';
+      if (first.startsWith('CAT:')) return 'CAT';
+      return 'NONE';
+    },
     formatTargetToken(token) {
       const str = String(token || '');
       if (str.startsWith('GROUP:')) return `🏷️ ${str.slice(6)}`;
@@ -2166,7 +2088,7 @@ export default {
         applyLength: false,
         rack_length_m: 20,
         allowed_trade: 'KEEP',
-        applyTargets: false,
+        target_type: 'KEEP',
         allowed_targets: [],
         applyTiers: false,
         allowed_sales_tiers: []
@@ -2185,12 +2107,14 @@ export default {
           (!isRoleSplitView || r.zone_role === targetRole)
       );
       if (exactRule) {
+        const targets = [...(exactRule.allowed_targets || [])];
         return {
           ...exactRule,
           area: exactRule.area || zoneArea,
           zone_role: exactRule.zone_role || defaultRole,
           rack_length_m: Number(exactRule.rack_length_m || 20),
-          allowed_targets: [...(exactRule.allowed_targets || [])],
+          target_type: this.detectTargetType(targets),
+          allowed_targets: targets,
           allowed_volumes: [...(exactRule.allowed_volumes || [])],
           allowed_sales_tiers: [...(exactRule.allowed_sales_tiers || [])]
         };
@@ -2208,6 +2132,7 @@ export default {
         ? (targetRole === 'PICK' ? 'B' : (ruleFl === '6F' ? 'C' : 'E'))
         : (rangeRule ? rangeRule.layer_end : 'Z');
       const roleSuffix = isRoleSplitView ? (targetRole === 'PICK' ? ' (撿貨區)' : ' (庫區)') : '';
+      const rangeTargets = rangeRule ? [...(rangeRule.allowed_targets || [])] : [];
 
       return {
         id: null,
@@ -2224,7 +2149,8 @@ export default {
         zone_role: defaultRole,
         rack_length_m: rangeRule ? Number(rangeRule.rack_length_m || 20) : 48,
         allowed_trade: rangeRule ? rangeRule.allowed_trade : 'ALL',
-        allowed_targets: rangeRule ? [...(rangeRule.allowed_targets || [])] : [],
+        target_type: this.detectTargetType(rangeTargets),
+        allowed_targets: rangeTargets,
         allowed_volumes: rangeRule ? [...(rangeRule.allowed_volumes || [])] : [],
         allowed_sales_tiers: rangeRule ? [...(rangeRule.allowed_sales_tiers || [])] : [],
         enabled: true
@@ -2236,8 +2162,12 @@ export default {
     async saveMapRackRule() {
       this.batchSaving = true;
       try {
-        await axios.post('/api/storage-accuracy/rules/save', { rule: this.mapEditRule });
-        ElMessage.success(`🎉 已儲存【${this.mapEditRule.floor} - ${this.mapEditRule.x_start} 排】設定！`);
+        const payload = {
+          ...this.mapEditRule,
+          allowed_targets: this.mapEditRule.target_type === 'NONE' ? [] : [...(this.mapEditRule.allowed_targets || [])]
+        };
+        await axios.post('/api/storage-accuracy/rules/save', { rule: payload });
+        ElMessage.success(`🎉 已儲存【${payload.floor} - ${payload.x_start} 排】設定！`);
         await this.refreshAll();
         if (this.selectedMapRacks.length === 1) {
           this.loadSingleRackRule(this.selectedMapRacks[0]);
@@ -2250,7 +2180,7 @@ export default {
     },
     async saveMapBatchRules() {
       const f = this.mapBatchForm;
-      if (f.zone_role === 'KEEP' && !f.applyLength && f.allowed_trade === 'KEEP' && !f.applyTargets && !f.applyTiers) {
+      if (f.zone_role === 'KEEP' && !f.applyLength && f.allowed_trade === 'KEEP' && f.target_type === 'KEEP' && !f.applyTiers) {
         return ElMessage.warning('請至少選擇一項要批次套用的屬性！');
       }
       this.batchSaving = true;
@@ -2260,7 +2190,11 @@ export default {
           if (f.zone_role !== 'KEEP') base.zone_role = f.zone_role;
           if (f.applyLength) base.rack_length_m = f.rack_length_m;
           if (f.allowed_trade !== 'KEEP') base.allowed_trade = f.allowed_trade;
-          if (f.applyTargets) base.allowed_targets = [...f.allowed_targets];
+          if (f.target_type === 'NONE') {
+            base.allowed_targets = [];
+          } else if (['GROUP', 'ZONE', 'CAT'].includes(f.target_type)) {
+            base.allowed_targets = [...f.allowed_targets];
+          }
           if (f.applyTiers) base.allowed_sales_tiers = [...f.allowed_sales_tiers];
           return base;
         });
@@ -2305,8 +2239,8 @@ export default {
         const repRes = await axios.get(`/api/storage-accuracy/audit/report?mode=${this.modeSettings.mode}`);
         if (repRes.data?.success) this.report = repRes.data;
 
-        if (this.activeTab === 'simulation') {
-          await this.fetchSimulation();
+        if (this.activeTab === 'simulation' && this.$refs.simTab) {
+          await this.$refs.simTab.fetchSimulation();
         }
       } catch (e) {
         ElMessage.error('載入儲位準確率資料失敗：' + e.message);
@@ -2331,20 +2265,6 @@ export default {
     async applyModeFromSim(mode) {
       this.modeSettings.mode = mode;
       await this.saveModeSettings();
-    },
-
-    async fetchSimulation() {
-      this.simLoading = true;
-      try {
-        const res = await axios.get('/api/storage-accuracy/audit/simulate-modes');
-        if (res.data?.success) {
-          this.simData = res.data;
-        }
-      } catch (e) {
-        ElMessage.error('載入動線模擬分析失敗：' + e.message);
-      } finally {
-        this.simLoading = false;
-      }
     },
 
     toggleSelectAllPageRules(e) {
@@ -2373,6 +2293,7 @@ export default {
         zone_role: 'PICK',
         rack_length_m: 20,
         allowed_trade: 'ALL',
+        target_type: 'NONE',
         allowed_targets: [],
         allowed_volumes: [],
         allowed_sales_tiers: [],
@@ -2381,12 +2302,14 @@ export default {
       this.showRuleModal = true;
     },
     openEditRuleModal(r) {
+      const targets = [...(r.allowed_targets || [])];
       this.ruleForm = {
         ...r,
         area: this.resolveRuleArea(r),
         zone_role: r.zone_role || 'PICK',
         rack_length_m: Number(r.rack_length_m || 20),
-        allowed_targets: [...(r.allowed_targets || [])],
+        target_type: this.detectTargetType(targets),
+        allowed_targets: targets,
         allowed_volumes: [...(r.allowed_volumes || [])],
         allowed_sales_tiers: [...(r.allowed_sales_tiers || [])]
       };
@@ -2396,9 +2319,13 @@ export default {
       if (!this.ruleForm.zone_name || !this.ruleForm.x_start) {
         return ElMessage.warning('請填寫區域名稱與 X 軸排號！');
       }
-      if (!this.ruleForm.x_end) this.ruleForm.x_end = this.ruleForm.x_start;
+      const payload = {
+        ...this.ruleForm,
+        x_end: this.ruleForm.x_end || this.ruleForm.x_start,
+        allowed_targets: this.ruleForm.target_type === 'NONE' ? [] : [...(this.ruleForm.allowed_targets || [])]
+      };
       try {
-        await axios.post('/api/storage-accuracy/rules/save', { rule: this.ruleForm });
+        await axios.post('/api/storage-accuracy/rules/save', { rule: payload });
         this.showRuleModal = false;
         await this.refreshAll();
         ElMessage.success('🎉 已儲存儲位規則！');
@@ -2411,7 +2338,7 @@ export default {
         area: 'KEEP',
         zone_role: 'KEEP',
         allowed_trade: 'KEEP',
-        applyTargets: false,
+        target_type: 'KEEP',
         allowed_targets: [],
         applyTiers: false,
         allowed_sales_tiers: []
@@ -2420,7 +2347,7 @@ export default {
     },
     async submitTableBatchEdit() {
       const f = this.tableBatchForm;
-      if (f.area === 'KEEP' && f.zone_role === 'KEEP' && f.allowed_trade === 'KEEP' && !f.applyTargets && !f.applyTiers) {
+      if (f.area === 'KEEP' && f.zone_role === 'KEEP' && f.allowed_trade === 'KEEP' && f.target_type === 'KEEP' && !f.applyTiers) {
         return ElMessage.warning('請至少選擇一項要修改的屬性！');
       }
       this.batchSaving = true;
@@ -2431,7 +2358,11 @@ export default {
           if (f.area !== 'KEEP') copy.area = f.area;
           if (f.zone_role !== 'KEEP') copy.zone_role = f.zone_role;
           if (f.allowed_trade !== 'KEEP') copy.allowed_trade = f.allowed_trade;
-          if (f.applyTargets) copy.allowed_targets = [...f.allowed_targets];
+          if (f.target_type === 'NONE') {
+            copy.allowed_targets = [];
+          } else if (['GROUP', 'ZONE', 'CAT'].includes(f.target_type)) {
+            copy.allowed_targets = [...f.allowed_targets];
+          }
           if (f.applyTiers) copy.allowed_sales_tiers = [...f.allowed_sales_tiers];
           return copy;
         });
@@ -2799,23 +2730,6 @@ export default {
 .st-bar-wrap { height: 7px; background: #334155; border-radius: 4px; overflow: hidden; }
 .st-bar { height: 100%; }
 .st-pct { font-weight: bold; text-align: right; }
-
-.sim-modes-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; flex-shrink: 0; }
-.sim-mode-card { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
-.sim-recommended { border-color: #4ade80; background: linear-gradient(180deg, rgba(74, 222, 128, 0.08) 0%, #1e293b 45%); }
-.sim-active { box-shadow: 0 0 0 1px #38bdf8; }
-.sim-card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; }
-.sim-mode-title { font-size: 14px; font-weight: bold; color: #f8fafc; }
-.sim-badges { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; }
-.rec-badge { background: rgba(74, 222, 128, 0.2); color: #4ade80; border: 1px solid rgba(74, 222, 128, 0.45); font-size: 11px; font-weight: bold; padding: 2px 7px; border-radius: 10px; }
-.cur-badge { background: rgba(56, 189, 248, 0.2); color: #38bdf8; font-size: 11px; font-weight: bold; padding: 2px 7px; border-radius: 10px; }
-.sim-metrics-row { display: grid; grid-template-columns: 1.25fr 0.9fr 0.85fr; gap: 8px; background: #0f172a; padding: 8px; border-radius: 6px; border: 1px solid #334155; }
-.sim-metric { display: flex; flex-direction: column; gap: 2px; }
-.sm-lbl { font-size: 11px; color: #94a3b8; }
-.sm-val { font-size: 16px; font-weight: 800; }
-.sm-sub { font-size: 10px; }
-.sim-desc-box { font-size: 12px; color: #cbd5e1; line-height: 1.5; }
-.sim-bottom-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1.35fr; gap: 10px; }
 
 /* ==================== 參數設定分割版面 ==================== */
 .settings-split-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: 420px 1fr; gap: 10px; }
