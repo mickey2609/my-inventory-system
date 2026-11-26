@@ -370,7 +370,9 @@ module.exports = function(db) {
     for (let i = 0; i < sortedRules.length; i++) {
       const r = sortedRules[i];
       if (r.floor && rec.floor) {
-        if (r.floor !== rec.floor && !(r.floor === '2F' && rec.floor.startsWith('2F'))) continue;
+        const is2FMatch = r.floor.startsWith('2F') && rec.floor.startsWith('2F') &&
+          (r.floor === '2F' || rec.floor === '2F' || r.floor === rec.floor);
+        if (r.floor !== rec.floor && !is2FMatch) continue;
       }
       if (parsed) {
         const is5CharRule = r.x_start.length >= 5 || r.x_end.length >= 5;
