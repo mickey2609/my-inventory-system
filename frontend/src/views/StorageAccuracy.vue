@@ -1399,8 +1399,20 @@
               <td colspan="15" class="empty-td">此段目前無異常明細資料</td>
             </tr>
             <tr v-for="(item, idx) in rackExceptionList" :key="idx">
-              <td class="text-blue font-bold">{{ item.sku_id }}</td>
-              <td class="text-left" style="min-width: 170px;">{{ item.sku_name }}</td>
+              <td
+                    class="text-blue font-bold clickable-sku"
+                    title="點擊複製商品ID"
+                    @click="$copySkuId(item.sku_id)"
+                  >
+                    {{ item.sku_id }}
+                  </td>
+                  <td
+                    class="text-left clickable-prod-name"
+                    title="點擊開啟 PChome 24h 商品網頁"
+                    @click="$openProductWeb(item.sku_id)"
+                  >
+                    {{ item.sku_name }}
+                  </td>
               <td class="text-yellow font-bold">{{ item.bin_code }}</td>
               <td class="font-bold">{{ item.qty }}</td>
               <td>{{ item.cat_code || '-' }}</td>
@@ -3400,6 +3412,10 @@ export default {
 .text-red { color: #f87171; }
 .text-dim { color: #94a3b8; }
 .font-bold { font-weight: bold; }
+.clickable-sku { cursor: pointer; transition: color 0.15s; }
+.clickable-sku:hover { color: #7dd3fc; text-decoration: underline; }
+.clickable-prod-name { cursor: pointer; transition: color 0.15s; }
+.clickable-prod-name:hover { color: #38bdf8; text-decoration: underline; }
 </style>
 
 <style>

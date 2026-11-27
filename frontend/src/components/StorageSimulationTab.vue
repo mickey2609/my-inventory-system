@@ -126,8 +126,20 @@
                   <td colspan="8" class="empty-td">🎉 目前無關閉中殘留庫存或急需前移的爆品！</td>
                 </tr>
                 <tr v-for="(c, i) in simData.topMoveCandidates" :key="i">
-                  <td class="text-blue font-bold">{{ c.sku_id }}</td>
-                  <td class="text-left">{{ c.sku_name }}</td>
+                  <td
+                    class="text-blue font-bold clickable-sku"
+                    title="點擊複製商品ID"
+                    @click="$copySkuId(c.sku_id)"
+                  >
+                    {{ c.sku_id }}
+                  </td>
+                  <td
+                    class="text-left clickable-prod-name"
+                    title="點擊開啟 PChome 24h 商品網頁"
+                    @click="$openProductWeb(c.sku_id)"
+                  >
+                    {{ c.sku_name }}
+                  </td>
                   <td class="text-yellow font-bold">{{ c.monthly_sales }}</td>
                   <td class="text-red font-bold">{{ c.floor }} / {{ c.bin_code }}</td>
                   <td><span class="role-pill" :class="`role-${c.zoneRole}`">{{ c.zone_role_label }}</span></td>
@@ -242,6 +254,11 @@ export default {
 .dark-table tbody tr:hover td { background: rgba(56, 189, 248, 0.08); }
 .text-left { text-align: left !important; }
 .empty-td { padding: 30px !important; color: #94a3b8; }
+
+.clickable-sku { cursor: pointer; transition: color 0.15s; }
+.clickable-sku:hover { color: #7dd3fc; text-decoration: underline; }
+.clickable-prod-name { cursor: pointer; transition: color 0.15s; }
+.clickable-prod-name:hover { color: #38bdf8; text-decoration: underline; }
 
 .role-pill { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 11px; font-weight: bold; white-space: nowrap; }
 .role-PICK { background: rgba(74, 222, 128, 0.16); color: #4ade80; border: 1px solid rgba(74, 222, 128, 0.35); }

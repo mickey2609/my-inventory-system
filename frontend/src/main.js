@@ -1,6 +1,6 @@
 // frontend/src/main.js
 import { createApp } from 'vue';
-import ElementPlus from 'element-plus';
+import ElementPlus, { ElMessage } from 'element-plus';
 import 'element-plus/dist/index.css';
 import * as ElementPlusIconsVue from '@element-plus/icons-vue';
 import axios from 'axios';
@@ -33,6 +33,39 @@ const app = createApp(App);
 for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
   app.component(key, component);
 }
+
+// 全站共用：點擊商品ID一鍵複製
+app.config.globalProperties.$copySkuId = async function(skuId) {
+  const cleanId = String(skuId || '').trim();
+  if (!cleanId) return;
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(cleanId);
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = cleanId;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+    ElMessage.success(`📋 已複製商品ID：${cleanId}`);
+  } catch (e) {
+    ElMessage.error('複製失敗，請手動選取複製');
+  }
+};
+
+// 全站共用：點擊商品名稱開啟公司商品網頁（自動去除尾端 -000 規格碼）
+app.config.globalProperties.$openProductWeb = function(skuId) {
+  const cleanId = String(skuId || '').trim();
+  if (!cleanId) return;
+  const parts = cleanId.split('-');
+  const prodId = parts.length >= 3 ? `${parts[0]}-${parts[1]}` : cleanId;
+  const url = `https://24h.pchome.com.tw/prod/${encodeURIComponent(prodId)}`;
+  window.open(url, '_blank', 'noopener,noreferrer');
+};
 
 app.use(ElementPlus);
 app.mount('#app');
