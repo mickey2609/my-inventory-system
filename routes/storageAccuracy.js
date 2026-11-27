@@ -1442,7 +1442,90 @@ module.exports = function(db) {
     });
   });
 
-  // 7. 三種擺放模式實際步行公尺(m)與找貨效益精算分析
+  // ==================== 依 floor2F~8F.js 實際公尺座標建立儲位空間索引 ====================
+  const FLOORPLAN_RACK_COORDS = (() => {
+    const map = {};
+    const reg = (fl, xCode, x, y, w, h, zoneOffsetY = 0, zoneOffsetElev = 0) => {
+      const key = `${fl}|${xCode}`;
+      if (!map[key]) map[key] = [];
+      map[key].push({ x, y, w, h, len: Number(Math.max(w, h).toFixed(2)), zoneOffsetY, zoneOffsetElev });
+    };
+
+    // 7F A區 AGV (M01~M53)
+    const agvY = {
+      53: 1.6, 52: 3.2, 51: 4.15, 50: 5.4, 49: 6.35, 48: 7.6, 47: 8.55, 46: 9.8, 45: 10.75,
+      44: 11.55, 43: 12.5, 40: 15.6, 39: 16.55, 38: 17.7, 37: 18.65, 36: 19.8, 35: 20.75,
+      34: 21.9, 33: 22.85, 32: 23.55, 31: 24.5, 30: 25.6, 29: 26.55, 28: 27.6, 27: 28.55,
+      26: 29.6, 25: 30.55, 24: 31.6, 23: 32.55, 22: 33.6, 21: 34.55, 20: 35.55, 19: 36.5,
+      18: 37.6, 17: 38.55, 16: 39.6, 15: 40.55, 14: 41.6, 13: 42.55, 12: 43.6, 11: 44.55,
+      10: 45.6, 9: 46.55, 8: 47.55, 7: 48.5, 6: 50.0, 5: 50.95, 4: 52.3, 3: 53.25, 2: 54.6, 1: 55.55
+    };
+    Object.entries(agvY).forEach(([nStr, y]) => {
+      const code = `M${String(nStr).padStart(2, '0')}`;
+      reg('7F', code, 68.09, y, 15.91, 0.85, 0, 0);
+      reg('7F', code, 51.60, y, 14.69, 0.85, 0, 0);
+      reg('7F', code, 35.11, y, 14.69, 0.85, 0, 0);
+      if (Number(nStr) >= 43) reg('7F', code, 24.5, y, 7.32, 0.85, 0, 0);
+    });
+
+    // 7F A~D區重型層架 (N01~N69, S01~S05)
+    for (let n = 55; n <= 69; n++) reg('7F', `N${n}`, 1.0, 16.9 + (69 - n) * 2.8, 27.5, 1.05, 0, 0);
+    for (let n = 35; n <= 53; n++) reg('7F', `N${n}`, 1.0, 4.9 + (53 - n) * 2.9, 59.0, 1.05, 60, 0);
+    for (let n = 15; n <= 34; n++) reg('7F', `N${String(n).padStart(2, '0')}`, 1.0, 1.4 + (34 - n) * 2.9, 94.0, 1.05, 120, 0);
+    for (let n = 1; n <= 14; n++) reg('7F', `N${String(n).padStart(2, '0')}`, 1.0, 1.4 + (14 - n) * 3.1, 94.0, 1.05, 180, 0);
+    for (let n = 1; n <= 5; n++) reg('7F', `S0${n}`, 25.0, 46.1 + (5 - n) * 2.8, 70.0, 1.05, 180, 0);
+
+    // 8F A區 (R11~R43) 與 B/C/D區 (R01~R05, Q01~Q84)
+    reg('8F', 'R43', 6.2, 12.6, 5.6, 4.0, 0, 0);
+    for (let n = 11; n <= 42; n++) reg('8F', `R${n}`, 15.6 + (42 - n) * 1.02, 1.2, 0.85, 11.2, 0, 0);
+    [
+      { z: 12, r1: 44.5, qMax: 84, qMin: 61, qX: 13.6 },
+      { z: 24, r1: 45.5, qMax: 60, qMin: 31, qX: 24.4 },
+      { z: 36, r1: 31.6, qMax: 30, qMin: 1, qX: 13.6 }
+    ].forEach(cfg => {
+      reg('8F', 'R01', 13.0, 0.8, cfg.r1, 1.3, 0, cfg.z);
+      ['R02', 'R03', 'R04', 'R05'].forEach((rc, i) => reg('8F', rc, 15.4, 3.4 + i * 2.2, 29.2, 1.3, 0, cfg.z));
+      for (let q = cfg.qMin; q <= cfg.qMax; q++) {
+        reg('8F', `Q${String(q).padStart(2, '0')}`, cfg.qX + (cfg.qMax - q) * 0.94, 15.6, 0.85, 8.0, 0, cfg.z);
+      }
+    });
+
+    // 6F B/C/D區 (K01~K05, L01~L84)
+    [
+      { z: 12, k1: 38.0, lMax: 84, lMin: 62, lX: 13.6 },
+      { z: 24, k1: 38.0, lMax: 60, lMin: 31, lX: 24.4 }
+    ].forEach(cfg => {
+      reg('6F', 'K01', 13.0, 0.8, cfg.k1, 1.3, 0, cfg.z);
+      ['K02', 'K03', 'K04', 'K05'].forEach((kc, i) => reg('6F', kc, 14.8, 3.4 + i * 2.2, 36.2, 1.3, 0, cfg.z));
+      for (let l = cfg.lMin; l <= cfg.lMax; l++) {
+        reg('6F', `L${String(l).padStart(2, '0')}`, cfg.lX + (cfg.lMax - l) * 0.94, 15.6, 0.86, 8.0, 0, cfg.z);
+      }
+    });
+    for (let l = 1; l <= 30; l++) {
+      reg('6F', `L${String(l).padStart(2, '0')}`, 13.4 + (30 - l) * 0.96, 0.8, 0.86, 12.2, 0, 36);
+    }
+
+    // 4F 貴重區 (H01~H18)
+    for (let h = 1; h <= 17; h++) reg('4F', `H${String(h).padStart(2, '0')}`, 2.4, 2.8, 1.5, 0.65, 0, 0);
+    reg('4F', 'H18', 0, 5.7, 6.0, 0.6, 0, 0);
+
+    // 3F B/C區 (E01~E08)
+    [1.0, 4.4, 6.2, 9.6, 12.8, 16.2, 18.0, 21.4].forEach((yPos, idx) => {
+      reg('3F', `E0${8 - idx}`, 12.6, yPos, 46.8, 1.6, 0, 18);
+    });
+
+    // 2F 東側 (C2A, C2B, C2C) 與 西側 (D01~D08)
+    for (let n = 1; n <= 56; n++) reg('2F東', `C2A${String(n).padStart(2, '0')}`, 16.0 + n * 0.7, 15.0, 1.15, 9.0, 0, 12);
+    for (let n = 1; n <= 63; n++) reg('2F東', `C2B${String(n).padStart(2, '0')}`, 13.5 + n * 0.7, 0.0, 1.15, 11.0, 0, 24);
+    for (let n = 1; n <= 78; n++) reg('2F東', `C2C${String(n).padStart(2, '0')}`, 14.5 + n * 0.55, 0.0, 1.15, 11.0, 0, 36);
+    [1.4, 4.8, 6.4, 10.6, 12.2, 15.8, 17.6, 22.3].forEach((yPos, idx) => {
+      reg('2F西', `D0${idx + 1}`, 5.0, yPos, 39.0, 1.0, 0, 48);
+    });
+
+    return map;
+  })();
+
+  // 7. 三種擺放模式實際步行公尺(m)、往返時間與找貨效益精算分析
   router.get('/audit/simulate-modes', (req, res) => {
     ensureTables(() => {
       getModeSettings((settings) => {
@@ -1471,55 +1554,94 @@ module.exports = function(db) {
               return res.json({ success: true, hasData: false });
             }
 
-            const calcRealRoundTripMeters = (rec, matchedRule) => {
+            const calcRealRoundTripMetrics = (rec, matchedRule) => {
               const f = String(rec.floor || '').toUpperCase().trim();
               const a = String(rec.area || '').toUpperCase().trim();
               const parsed = parseBinCode(rec.bin_code);
 
-              const rackLenM = matchedRule && matchedRule.rack_length_m > 0 ? matchedRule.rack_length_m : 20;
+              // 查找平面圖實際公尺座標 (floor2F~8F.js)
+              let fpList = null;
+              if (parsed) {
+                fpList = FLOORPLAN_RACK_COORDS[`${f}|${parsed.subX}`] ||
+                         FLOORPLAN_RACK_COORDS[`${f}|${parsed.x}`] ||
+                         (f.startsWith('2F') ? (FLOORPLAN_RACK_COORDS[`2F東|${parsed.subX}`] || FLOORPLAN_RACK_COORDS[`2F西|${parsed.x}`]) : null);
+              }
+              const fp = fpList && fpList.length > 0 ? fpList[0] : null;
 
-              let aisleDepthM = rackLenM * 0.4;
+              // 若使用者有手動調整層架公尺數(非預設20m)則優先採用，否則直接採用平面圖實際公尺長度
+              const hasCustomLen = matchedRule && matchedRule.rack_length_m > 0 && matchedRule.rack_length_m !== 20;
+              const effectiveRackLenM = hasCustomLen ? matchedRule.rack_length_m : (fp ? fp.len : 20);
+
+              let aisleDepthM = effectiveRackLenM * 0.4;
               if (parsed) {
                 const yStart = matchedRule ? Math.max(1, parseInt(matchedRule.y_start || '1', 10)) : 1;
                 const yEnd = matchedRule ? Math.max(yStart + 1, parseInt(matchedRule.y_end || '60', 10)) : 60;
                 const ratio = Math.min(1, Math.max(0, (parsed.y - yStart) / Math.max(1, yEnd - yStart)));
-                aisleDepthM = ratio * rackLenM;
+                aisleDepthM = ratio * effectiveRackLenM;
               }
 
-              let rowIndexOffsetM = 0;
-              if (parsed) {
-                const mNum = parsed.x.match(/(\d+)$/);
-                if (mNum) {
-                  const rowNo = parseInt(mNum[1], 10);
-                  rowIndexOffsetM = (rowNo % 30) * 1.4;
+              let oneWayM = 65;
+              let verticalSec = 0; // 跨樓層等電梯／上下樓往返秒數
+
+              if (fp) {
+                if (f.startsWith('7F')) {
+                  // 7F 包裝／集貨區座標 (86m, 30m)
+                  const packX = 86.0;
+                  const packY = 30.0;
+                  const entryX = fp.x + fp.w;
+                  const entryY = fp.zoneOffsetY + fp.y;
+                  oneWayM = Math.abs(packX - entryX) + Math.abs(packY - entryY) + aisleDepthM;
+                  verticalSec = 0;
+                } else {
+                  // 7F包裝區 -> 7F貨梯(38m) -> 目標樓層電梯廳(8m, 12m) -> 走道至該排入口 + 深入公尺
+                  const elevX = 8.0;
+                  const elevY = 12.0;
+                  const toElev7F = 38.0;
+                  const entryX = fp.x >= elevX ? fp.x : (fp.x + fp.w);
+                  const entryY = fp.y;
+                  oneWayM = toElev7F + fp.zoneOffsetElev + Math.abs(entryX - elevX) + Math.abs(entryY - elevY) + aisleDepthM;
+                  verticalSec = f.startsWith('8F') || f.startsWith('6F') ? 45 : (f.startsWith('4F') || f.startsWith('3F') ? 90 : 110);
                 }
+              } else {
+                // 1F 或未建平面圖之排號基準計算
+                let rowIndexOffsetM = 0;
+                if (parsed) {
+                  const mNum = parsed.x.match(/(\d+)$/);
+                  if (mNum) rowIndexOffsetM = (parseInt(mNum[1], 10) % 30) * 1.4;
+                }
+                let zoneEntryM = 45;
+                if (f.startsWith('7F')) {
+                  verticalSec = 0;
+                  zoneEntryM = a === 'A' ? 6 : (a === 'B' ? 24 : (a === 'C' ? 34 : 42));
+                } else if (f.startsWith('6F')) {
+                  verticalSec = 45;
+                  zoneEntryM = a === 'B' ? 48 : (a === 'C' ? 56 : 64);
+                } else if (f.startsWith('8F')) {
+                  verticalSec = 45;
+                  zoneEntryM = a === 'A' ? 54 : (a === 'B' ? 62 : (a === 'C' ? 68 : 74));
+                } else if (f.startsWith('4F')) {
+                  verticalSec = 90;
+                  zoneEntryM = 88;
+                } else if (f.startsWith('3F')) {
+                  verticalSec = 90;
+                  zoneEntryM = 96;
+                } else if (f.startsWith('2F')) {
+                  verticalSec = 110;
+                  zoneEntryM = f.includes('東') ? 115 : 128;
+                } else if (f.startsWith('1F')) {
+                  verticalSec = 130;
+                  zoneEntryM = 135;
+                }
+                oneWayM = zoneEntryM + rowIndexOffsetM + aisleDepthM;
               }
 
-              let zoneEntryM = 45;
-              if (f.startsWith('7F')) {
-                if (a === 'A' || (parsed && parsed.x.startsWith('M'))) zoneEntryM = 6;
-                else if (a === 'B') zoneEntryM = 24;
-                else if (a === 'C') zoneEntryM = 34;
-                else zoneEntryM = 42;
-              } else if (f.startsWith('6F')) {
-                if (a === 'B') zoneEntryM = 48;
-                else if (a === 'C') zoneEntryM = 56;
-                else zoneEntryM = 64;
-              } else if (f.startsWith('8F')) {
-                if (a === 'A') zoneEntryM = 54;
-                else if (a === 'B') zoneEntryM = 62;
-                else if (a === 'C') zoneEntryM = 68;
-                else zoneEntryM = 74;
-              } else if (f.startsWith('4F')) {
-                zoneEntryM = 88;
-              } else if (f.startsWith('3F')) {
-                zoneEntryM = 96;
-              } else if (f.startsWith('2F')) {
-                zoneEntryM = f.includes('東') ? 115 : 128;
-              }
+              const roundTripM = Number((oneWayM * 2).toFixed(1));
+              const roundTripSec = Math.round(roundTripM / 1.1 + verticalSec);
+              const mins = Math.floor(roundTripSec / 60);
+              const secs = roundTripSec % 60;
+              const roundTripTimeLabel = mins > 0 ? `${mins}分${String(secs).padStart(2, '0')}秒` : `${secs}秒`;
 
-              const oneWayM = zoneEntryM + rowIndexOffsetM + aisleDepthM;
-              return Number((oneWayM * 2).toFixed(1));
+              return { roundTripM, roundTripSec, roundTripTimeLabel };
             };
 
             const hasConfiguredHotRules = rules.some(
@@ -1543,6 +1665,7 @@ module.exports = function(db) {
             };
 
             let currentTotalMeters = 0;
+            let currentTotalSeconds = 0;
             let totalPickFrequency = 0;
             let hotItemsCount = 0;
             let hotItemsInGoldenZone = 0;
@@ -1561,10 +1684,10 @@ module.exports = function(db) {
             const enrichedRecords = records.map(rec => {
               const matchedRule = matchRuleForRecord(rec, rules);
               const zoneRole = matchedRule ? matchedRule.zone_role : 'PICK';
-              const roundTripM = calcRealRoundTripMeters(rec, matchedRule);
+              const { roundTripM, roundTripSec, roundTripTimeLabel } = calcRealRoundTripMetrics(rec, matchedRule);
               const pickFreq = Math.max(1, Number(rec.pick_days_m || 0) || Math.ceil(Number(rec.monthly_sales || 0) / 3));
               const isGolden = isRealGoldenZone(rec, matchedRule, zoneRole);
-              return { ...rec, matchedRule, zoneRole, roundTripM, pickFreq, isGolden };
+              return { ...rec, matchedRule, zoneRole, roundTripM, roundTripSec, roundTripTimeLabel, pickFreq, isGolden };
             });
 
             enrichedRecords.forEach(rec => {
@@ -1576,6 +1699,7 @@ module.exports = function(db) {
 
               if (rec.zoneRole === 'PICK' || rec.zoneRole === 'BOTH') {
                 currentTotalMeters += rec.pickFreq * rec.roundTripM;
+                currentTotalSeconds += rec.pickFreq * rec.roundTripSec;
                 totalPickFrequency += rec.pickFreq;
               } else if (rec.zoneRole === 'STORAGE' && (tier === 'A' || tier === 'B')) {
                 hotInStorageOnlyCount++;
@@ -1605,21 +1729,29 @@ module.exports = function(db) {
             });
 
             const activePickRecords = enrichedRecords.filter(r => r.zoneRole === 'PICK' || r.zoneRole === 'BOTH');
-            const allSlotMeters = activePickRecords.map(r => r.roundTripM).sort((a, b) => a - b);
+            const allSlotMetrics = activePickRecords
+              .map(r => ({ m: r.roundTripM, sec: r.roundTripSec }))
+              .sort((a, b) => a.m - b.m);
             const recordsByFreqDesc = [...activePickRecords].sort((a, b) => b.pickFreq - a.pickFreq);
 
             let pureSalesMeters = 0;
+            let pureSalesSeconds = 0;
             recordsByFreqDesc.forEach((r, idx) => {
-              pureSalesMeters += r.pickFreq * (allSlotMeters[idx] || 60);
+              const slot = allSlotMetrics[idx] || { m: 60, sec: 55 };
+              pureSalesMeters += r.pickFreq * slot.m;
+              pureSalesSeconds += r.pickFreq * slot.sec;
             });
 
             const hybridMeters = pureSalesMeters * 0.65 + currentTotalMeters * 0.35;
+            const hybridSeconds = pureSalesSeconds * 0.65 + currentTotalSeconds * 0.35;
 
             const currentKm = Number((currentTotalMeters / 1000).toFixed(1));
             const pureSalesKm = Number((pureSalesMeters / 1000).toFixed(1));
             const hybridKm = Number((hybridMeters / 1000).toFixed(1));
 
-            const calcSavedHours = (baseM, newM) => Number((Math.max(0, baseM - newM) / 4000).toFixed(1));
+            const currentHours = Number((currentTotalSeconds / 3600).toFixed(1));
+            const pureSalesHours = Number((pureSalesSeconds / 3600).toFixed(1));
+            const hybridHours = Number((hybridSeconds / 3600).toFixed(1));
 
             const avgCatFloors = Object.values(catFloorSpread).length > 0
               ? Object.values(catFloorSpread).reduce((acc, s) => acc + s.size, 0) / Object.values(catFloorSpread).length
@@ -1633,6 +1765,7 @@ module.exports = function(db) {
                 mode: 'CAT_TRADE',
                 name: '模式 1：大區 + 借採（屬性分區導向）',
                 walkDistanceIndex: currentKm,
+                totalHours: currentHours,
                 walkUnit: 'km / 月',
                 walkSavingPct: 0,
                 savedKm: 0,
@@ -1648,10 +1781,11 @@ module.exports = function(db) {
                 mode: 'SALES_TRADE',
                 name: '模式 2：月銷 + 借採（純熱度動線導向）',
                 walkDistanceIndex: pureSalesKm,
+                totalHours: pureSalesHours,
                 walkUnit: 'km / 月',
                 walkSavingPct: currentTotalMeters > 0 ? Number((((currentTotalMeters - pureSalesMeters) / currentTotalMeters) * 100).toFixed(1)) : 0,
                 savedKm: Number((currentKm - pureSalesKm).toFixed(1)),
-                savedHours: calcSavedHours(currentTotalMeters, pureSalesMeters),
+                savedHours: Number(Math.max(0, currentHours - pureSalesHours).toFixed(1)),
                 goldenHotPct: Math.min(98, Math.max(currentHotRatio + 22, 88)),
                 findEaseScore: 64,
                 moveEffortLevel: `高（約 ${Math.min(65, Math.round(misallocatedHotRatio * 0.85))}% 撿貨區儲位需大搬風）`,
@@ -1663,10 +1797,11 @@ module.exports = function(db) {
                 mode: 'CAT_SALES_TRADE',
                 name: '模式 3：大區 + 月銷 + 借採（黃金平衡模式）',
                 walkDistanceIndex: hybridKm,
+                totalHours: hybridHours,
                 walkUnit: 'km / 月',
                 walkSavingPct: currentTotalMeters > 0 ? Number((((currentTotalMeters - hybridMeters) / currentTotalMeters) * 100).toFixed(1)) : 0,
                 savedKm: Number((currentKm - hybridKm).toFixed(1)),
-                savedHours: calcSavedHours(currentTotalMeters, hybridMeters),
+                savedHours: Number(Math.max(0, currentHours - hybridHours).toFixed(1)),
                 goldenHotPct: Math.min(92, Math.max(currentHotRatio + 15, 78)),
                 findEaseScore: Math.min(95, Math.max(82, Math.round(98 - avgCatFloors * 3.0))),
                 moveEffortLevel: `中（僅需將遠端 2F~4F 的 A/B 爆品前移約 ${Math.min(35, Math.round(misallocatedHotRatio * 0.45))}%）`,

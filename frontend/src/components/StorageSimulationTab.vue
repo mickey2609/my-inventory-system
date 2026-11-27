@@ -3,7 +3,7 @@
   <div class="tab-content" v-loading="simLoading">
     <div v-if="!simData.hasData" class="empty-guide-card">
       <h4>尚無 80 庫庫存數據可供動線模擬</h4>
-      <p>請先上傳 80 庫 CSV（或從首頁匯入 80 庫），系統即可自動依區域用途與層架公尺數算出揀貨距離！</p>
+      <p>請先上傳 80 庫 CSV（或從首頁匯入 80 庫），系統即可自動依區域用途與層架公尺數算出揀貨距離與時間！</p>
     </div>
 
     <template v-else>
@@ -27,14 +27,16 @@
               <span class="sm-lbl">🚶 撿貨區月步行總里程</span>
               <span class="sm-val text-blue">{{ m.walkDistanceIndex }} <small style="font-size: 11px;">km</small></span>
               <span v-if="m.walkSavingPct > 0" class="sm-sub text-green">
-                ▼ 省 {{ m.savedKm }} km ({{ m.walkSavingPct }}% / 約 {{ m.savedHours }} 小時)
+                ▼ 省 {{ m.savedKm }} km ({{ m.walkSavingPct }}% / 省 {{ m.savedHours }} 小時)
               </span>
-              <span v-else class="sm-sub text-dim">7F A區出發往返基準</span>
+              <span v-else class="sm-sub text-dim">
+                預估月總耗時約 {{ m.totalHours || 0 }} 小時
+              </span>
             </div>
             <div class="sim-metric">
               <span class="sm-lbl">🔥 黃金區位爆品率</span>
               <span class="sm-val text-yellow">{{ m.goldenHotPct }}%</span>
-              <span class="sm-sub text-dim">7F/6F撿貨區佔比</span>
+              <span class="sm-sub text-dim">A/B級黃金區佔比</span>
             </div>
             <div class="sim-metric">
               <span class="sm-lbl">🧭 找貨直覺度評分</span>
@@ -115,12 +117,13 @@
                   <th>目前樓層/儲位</th>
                   <th>目前用途</th>
                   <th>往返距離</th>
+                  <th>往返時間</th>
                   <th>優先處置建議</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-if="simData.topMoveCandidates.length === 0">
-                  <td colspan="7" class="empty-td">🎉 目前無關閉中殘留庫存或急需前移的爆品！</td>
+                  <td colspan="8" class="empty-td">🎉 目前無關閉中殘留庫存或急需前移的爆品！</td>
                 </tr>
                 <tr v-for="(c, i) in simData.topMoveCandidates" :key="i">
                   <td class="text-blue font-bold">{{ c.sku_id }}</td>
@@ -128,7 +131,8 @@
                   <td class="text-yellow font-bold">{{ c.monthly_sales }}</td>
                   <td class="text-red font-bold">{{ c.floor }} / {{ c.bin_code }}</td>
                   <td><span class="role-pill" :class="`role-${c.zoneRole}`">{{ c.zone_role_label }}</span></td>
-                  <td class="text-yellow font-bold">{{ c.roundTripM }} m</td>
+                  <td class="text-yellow font-bold" style="white-space: nowrap;">{{ c.roundTripM }} m</td>
+                  <td class="text-blue font-bold" style="white-space: nowrap;">{{ c.roundTripTimeLabel || '-' }}</td>
                   <td class="text-left text-green">{{ c.moveReason }}</td>
                 </tr>
               </tbody>
