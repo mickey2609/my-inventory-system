@@ -980,9 +980,9 @@ export default {
     skillCapableCounts() {
       void this.renderTick;
       const counts = {};
-      const emps = this.currentEmployees;
-      for (let i = 0; i < emps.length; i++) {
-        const sk = emps[i].skills;
+      const rows = this.filteredRows;
+      for (let i = 0; i < rows.length; i++) {
+        const sk = rows[i].emp?.skills;
         if (!sk) continue;
         for (const k in sk) {
           if (sk[k] === 1) counts[k] = (counts[k] || 0) + 1;
@@ -1280,7 +1280,7 @@ export default {
       return 'upd-ok';
     },
     getSkillPct(skillId) {
-      const tot = this.currentEmployees.length;
+      const tot = this.filteredRows.length;
       if (!tot) return 0;
       const cnt = this.skillCapableCounts[skillId] || 0;
       return Math.round((cnt / tot) * 100);
