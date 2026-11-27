@@ -627,6 +627,7 @@ module.exports = function(db) {
   });
 
   // 0.3 讀取 / 儲存類別定義對照表（來自類別定義.xlsx：材積、樓層、區編、區名、大區編、大區名）
+  //     匯入時自動依「樓層」統整大區名、區名與材積，並批次帶入規則總表該樓層所有儲位規則
   router.get('/category-definitions', (req, res) => {
     ensureTables(() => {
       getCategoryDefinitions((definitions) => {
@@ -638,7 +639,7 @@ module.exports = function(db) {
   router.post('/category-definitions/save', requireSysAdmin, (req, res) => {
     const rows = Array.isArray(req.body.definitions) ? req.body.definitions : [];
     const cleaned = rows
-      .filter(r => r && (r.zone_id || r.cat_code))
+      .filter(r => r && (r.zone_id || r.cat_code || r.zone_name || r.cat_name))
       .map(r => ({
         vol: String(r.vol || r['材積'] || '').trim(),
         floor: String(r.floor || r['樓層'] || '').trim(),
@@ -648,15 +649,75 @@ module.exports = function(db) {
         cat_name: String(r.cat_name || r['大區名'] || '').trim()
       }));
 
-    db.run(
-      `INSERT INTO system_config (config_key, config_value) VALUES ('storage_category_definitions', ?)
-       ON CONFLICT(config_key) DO UPDATE SET config_value = EXCLUDED.config_value`,
-      [JSON.stringify(cleaned)],
-      (err) => {
-        if (err) return res.status(500).json({ success: false, message: err.message });
-        res.json({ success: true, count: cleaned.length, message: `🎉 成功匯入並儲存 ${cleaned.length} 筆類別定義對照表！` });
+    // 依「樓層」統整允許的大區名、區名與材積
+    const floorMap = new Map();
+    cleaned.forEach(d => {
+      if (!d.floor) return;
+      if (!floorMap.has(d.floor)) {
+        floorMap.set(d.floor, {
+          vols: new Set(),
+          catTokens: new Set(),
+          zoneTokens: new Set(),
+          catNames: new Set()
+        });
       }
-    );
+      const entry = floorMap.get(d.floor);
+      if (d.vol) entry.vols.add(d.vol);
+      if (d.cat_code || d.cat_name) {
+        entry.catTokens.add(`CAT:${d.cat_code}|${d.cat_name}`);
+        if (d.cat_name) entry.catNames.add(d.cat_name);
+      }
+      if ((d.zone_id || d.zone_name) && d.zone_name !== '停用' && !d.zone_name.includes('(停用)')) {
+        entry.zoneTokens.add(`ZONE:${d.zone_id}|${d.zone_name}`);
+      }
+    });
+
+    ensureTables(() => {
+      db.run(
+        `INSERT INTO system_config (config_key, config_value) VALUES ('storage_category_definitions', ?)
+         ON CONFLICT(config_key) DO UPDATE SET config_value = EXCLUDED.config_value`,
+        [JSON.stringify(cleaned)],
+        (err) => {
+          if (err) return res.status(500).json({ success: false, message: err.message });
+
+          const floorEntries = Array.from(floorMap.entries());
+          if (floorEntries.length === 0) {
+            return res.json({
+              success: true,
+              count: cleaned.length,
+              message: `🎉 成功匯入並儲存 ${cleaned.length} 筆類別定義對照表！`
+            });
+          }
+
+          let done = 0;
+          let updatedRulesTotal = 0;
+          floorEntries.forEach(([fl, agg]) => {
+            const mergedTargets = [...Array.from(agg.catTokens), ...Array.from(agg.zoneTokens)];
+            const mergedCats = Array.from(agg.catNames);
+            const mergedVols = Array.from(agg.vols);
+
+            db.run(
+              `UPDATE storage_placement_rules
+               SET allowed_targets = ?, allowed_categories = ?, allowed_volumes = ?
+               WHERE UPPER(TRIM(floor)) = UPPER(TRIM(?)) AND zone_role != 'CLOSED'`,
+              [JSON.stringify(mergedTargets), JSON.stringify(mergedCats), JSON.stringify(mergedVols), fl],
+              function(uErr) {
+                if (!uErr) updatedRulesTotal += (this.changes || 0);
+                done++;
+                if (done === floorEntries.length) {
+                  res.json({
+                    success: true,
+                    count: cleaned.length,
+                    updatedRules: updatedRulesTotal,
+                    message: `🎉 已匯入 ${cleaned.length} 筆類別定義，並自動依樓層統整大區/區名與材積套用至 ${updatedRulesTotal} 條儲位規則！`
+                  });
+                }
+              }
+            );
+          });
+        }
+      );
+    });
   });
 
   // 0.5 取得下拉選單選項（合併類別定義對照表 + 現有庫存）
