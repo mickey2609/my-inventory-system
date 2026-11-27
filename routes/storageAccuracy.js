@@ -1448,15 +1448,22 @@ module.exports = function(db) {
       getModeSettings((settings) => {
         db.all(`SELECT * FROM storage_placement_rules WHERE enabled = 1`, [], (rErr, ruleRows) => {
           const rules = (ruleRows || []).map(r => {
+            let tiers = [];
+            try { tiers = JSON.parse(r.allowed_sales_tiers || '[]'); } catch (e) {}
             const isSingleX = r.x_start === r.x_end;
             const is5CharSingle = isSingleX && String(r.x_start).length >= 5;
+            const yStartNum = parseInt(r.y_start || '0', 10);
+            const yEndNum = parseInt(r.y_end || '999', 10);
+            const ySpan = Math.abs(yEndNum - yStartNum);
             return {
               ...r,
+              allowed_sales_tiers: Array.isArray(tiers) ? tiers : [],
               rack_length_m: Number(r.rack_length_m || 20),
               zone_role: VALID_ZONE_ROLES.includes(r.zone_role) ? r.zone_role : 'PICK',
-              _specificity: is5CharSingle ? 2 : (isSingleX ? 1 : 0)
+              _specificity: is5CharSingle ? 3 : (isSingleX && ySpan < 900 ? 2 : (isSingleX ? 1 : 0)),
+              _ySpan: ySpan
             };
-          }).sort((a, b) => b._specificity - a._specificity || a.id - b.id);
+          }).sort((a, b) => b._specificity - a._specificity || a._ySpan - b._ySpan || b.id - a.id);
 
           loadAuditRecordsWithSales((err, records) => {
             if (err) return res.status(500).json({ success: false, message: err.message });
@@ -1515,13 +1522,23 @@ module.exports = function(db) {
               return Number((oneWayM * 2).toFixed(1));
             };
 
-            const isRealGoldenZone = (floorStr, areaStr, binCode, zoneRole) => {
+            const hasConfiguredHotRules = rules.some(
+              r => r.zone_role !== 'CLOSED' && r.zone_role !== 'STORAGE' &&
+                   (r.allowed_sales_tiers.includes('A') || r.allowed_sales_tiers.includes('B'))
+            );
+
+            const isRealGoldenZone = (rec, matchedRule, zoneRole) => {
               if (zoneRole === 'CLOSED' || zoneRole === 'STORAGE') return false;
-              const f = String(floorStr || '').toUpperCase().trim();
-              const a = String(areaStr || '').toUpperCase().trim();
-              const parsed = parseBinCode(binCode);
-              if (f.startsWith('7F')) return true;
-              if (f.startsWith('6F') && (a === 'B' || a === 'C') && (!parsed || parsed.y <= 60)) return true;
+              if (matchedRule && matchedRule.allowed_sales_tiers.length > 0) {
+                return matchedRule.allowed_sales_tiers.includes('A') || matchedRule.allowed_sales_tiers.includes('B');
+              }
+              if (!hasConfiguredHotRules) {
+                const f = String(rec.floor || '').toUpperCase().trim();
+                const a = String(rec.area || '').toUpperCase().trim();
+                const parsed = parseBinCode(rec.bin_code);
+                if (f.startsWith('7F')) return true;
+                if (f.startsWith('6F') && (a === 'B' || a === 'C') && (!parsed || parsed.y <= 60)) return true;
+              }
               return false;
             };
 
@@ -1546,7 +1563,8 @@ module.exports = function(db) {
               const zoneRole = matchedRule ? matchedRule.zone_role : 'PICK';
               const roundTripM = calcRealRoundTripMeters(rec, matchedRule);
               const pickFreq = Math.max(1, Number(rec.pick_days_m || 0) || Math.ceil(Number(rec.monthly_sales || 0) / 3));
-              return { ...rec, zoneRole, roundTripM, pickFreq };
+              const isGolden = isRealGoldenZone(rec, matchedRule, zoneRole);
+              return { ...rec, matchedRule, zoneRole, roundTripM, pickFreq, isGolden };
             });
 
             enrichedRecords.forEach(rec => {
@@ -1563,17 +1581,16 @@ module.exports = function(db) {
                 hotInStorageOnlyCount++;
               }
 
-              const isGolden = isRealGoldenZone(rec.floor, rec.area, rec.bin_code, rec.zoneRole);
               if (tier === 'A' || tier === 'B') {
                 hotItemsCount++;
-                if (isGolden) hotItemsInGoldenZone++;
+                if (rec.isGolden) hotItemsInGoldenZone++;
               }
 
               const td = tierDistribution[tier];
               td.binCount++;
               td.totalSales += Number(rec.monthly_sales || 0);
               td.pickFreq += rec.pickFreq;
-              if (isGolden) td.goldenBins++;
+              if (rec.isGolden) td.goldenBins++;
 
               const skuKey = `${tier}|${rec.sku_id}`;
               if (!seenSkuTier.has(skuKey)) {
@@ -1665,7 +1682,8 @@ module.exports = function(db) {
                 let moveReason = '';
                 if (r.zoneRole === 'CLOSED') moveReason = '🚫 位於「關閉中」區域，需立即清空移出';
                 else if (r.zoneRole === 'STORAGE' && (tier === 'A' || tier === 'B')) moveReason = '📦 爆品誤放純「庫區」，建議移入撿貨區減少補貨';
-                else if ((tier === 'A' || tier === 'B') && r.roundTripM >= 165) moveReason = '🚶 爆品位於遠端低樓層，拉回 7F/6F 可大幅縮短步行';
+                else if ((tier === 'A' || tier === 'B') && !r.isGolden) moveReason = '🔥 爆品未放在設定為 A/B 級的黃金撿貨區，建議前移縮短動線';
+                else if ((tier === 'A' || tier === 'B') && r.roundTripM >= 165) moveReason = '🚶 爆品位於遠端低樓層，拉回黃金區可大幅縮短步行';
                 return { ...r, sales_tier: tier, zone_role_label: formatZoneRoleLabel(r.zoneRole), moveReason };
               })
               .filter(r => r.moveReason !== '')
