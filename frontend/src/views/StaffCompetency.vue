@@ -52,8 +52,12 @@
             <span class="k-lbl">能力項數</span>
             <span class="k-val text-purple">{{ currentSkills.length }} 項</span>
           </div>
-          <div class="kpi-chip">
-            <span class="k-lbl">平均掌握度</span>
+          <div class="kpi-chip" :title="`目前篩選名單 (${filteredRows.length} 人) 各自所屬組別項目的平均完成率`">
+            <span class="k-lbl">該組平均掌握度</span>
+            <span class="k-val text-cyan">{{ filteredGroupMasteryPct }}%</span>
+          </div>
+          <div class="kpi-chip" title="全倉所有人員跨全倉所有項目的整體平均完成率">
+            <span class="k-lbl">全倉平均掌握度</span>
             <span class="k-val text-green">{{ avgMasteryPct }}%</span>
           </div>
           <div v-if="!viewingSnapshotId" class="kpi-chip clickable" @click="toggleFilterOverdueOnly">
@@ -1051,6 +1055,18 @@ export default {
       const start = (safePage - 1) * this.pageSize;
       return this.filteredRows.slice(start, start + this.pageSize);
     },
+
+    filteredGroupMasteryPct() {
+      void this.renderTick;
+      const rows = this.filteredRows;
+      if (!rows || rows.length === 0) return 0;
+      let sumGroupPct = 0;
+      for (let i = 0; i < rows.length; i++) {
+        sumGroupPct += rows[i].groupPct || 0;
+      }
+      return Math.round(sumGroupPct / rows.length);
+    },
+    
     avgMasteryPct() {
       void this.renderTick;
       const staffCnt = this.currentEmployees.length;
