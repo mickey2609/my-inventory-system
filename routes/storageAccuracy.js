@@ -1214,7 +1214,7 @@ module.exports = function(db) {
 
                     if (isClosedZone) {
                       isOk = false;
-                      reasons.push(`🚫 區域「關閉中」：該儲位已停用關閉，禁止存放庫存（現有 ${rec.qty} 件需立即移出）`);
+                      reasons.push(`🚫 區域「關閉中」（禁止存放庫存）`);
                     } else {
                       // ① 第一順位：借 / 採
                       let step1Passed = true;
@@ -1222,7 +1222,7 @@ module.exports = function(db) {
                         if (!rec.trade_type || matchedRule.allowed_trade !== rec.trade_type) {
                           isOk = false;
                           step1Passed = false;
-                          reasons.push(`【第一順位】借/採不符：限放「${matchedRule.allowed_trade}」，實際「${rec.trade_type || '未標示'}」`);
+                          reasons.push(`【第一順位】借/採不符`);
                         }
                       }
 
@@ -1230,26 +1230,20 @@ module.exports = function(db) {
                       let step2Passed = true;
                       if (step1Passed) {
                         if (itemGroups && itemGroups.size > 0) {
-                          const groupList = Array.from(itemGroups);
                           const allowedByGroup = ruleTargets.some(
                             tok => tok.startsWith('GROUP:') && itemGroups.has(tok.slice(6))
                           );
                           if (!allowedByGroup) {
                             isOk = false;
                             step2Passed = false;
-                            reasons.push(`【第二順位】商品ID專區不符：此商品限定放置於[${groupList.join('、')}]`);
+                            reasons.push(`【第二順位】商品ID專區不符`);
                           }
                         } else if (ruleTargets.length > 0) {
                           const matchedAnyTarget = ruleTargets.some(tok => checkTargetTokenMatch(tok, rec, itemGroups));
                           if (!matchedAnyTarget) {
                             isOk = false;
                             step2Passed = false;
-                            const allowedNames = ruleTargets.map(formatTargetDisplay).join('、');
-                            const actualInfo = [
-                              rec.zone_id || rec.zone_name ? `區:${rec.zone_id}-${rec.zone_name}` : '',
-                              rec.cat_code || rec.cat_name ? `大區:${rec.cat_code}-${rec.cat_name}` : ''
-                            ].filter(Boolean).join(' / ') || '未分類';
-                            reasons.push(`【第二順位】專區/區名/大區不符：限放[${allowedNames}]，實際「${actualInfo}」`);
+                            reasons.push(`【第二順位】專區/區名/大區不符`);
                           }
                         }
                       }
@@ -1260,16 +1254,15 @@ module.exports = function(db) {
                         if (!actualVolJudgment || !matchedRule.allowed_volumes.includes(actualVolJudgment)) {
                           isOk = false;
                           step3Passed = false;
-                          reasons.push(`【第三順位】材積不符：限放[${matchedRule.allowed_volumes.join('、')}]，實際「${actualVolJudgment || '未標示'}」`);
+                          reasons.push(`【第三順位】材積判斷不符`);
                         }
                       }
 
                       // ④ 第四順位：月銷量級距
                       if (step1Passed && step2Passed && step3Passed && matchedRule && matchedRule.allowed_sales_tiers.length > 0) {
                         if (!matchedRule.allowed_sales_tiers.includes(salesTier)) {
-                          const allowedLabels = matchedRule.allowed_sales_tiers.map(formatTierLabel).join('、');
                           isOk = false;
-                          reasons.push(`【第四順位】月銷不符：限放[${allowedLabels}]，實際「${formatTierLabel(salesTier)}(月銷${rec.monthly_sales})」`);
+                          reasons.push(`【第四順位】月銷量級距不符`);
                         }
                       }
                     }
