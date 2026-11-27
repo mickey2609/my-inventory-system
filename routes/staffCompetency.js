@@ -199,27 +199,59 @@ module.exports = function(db) {
     return result;
   }
 
-  async function ensureWeeklyAutoSnapshot(existingData = null) {
+  // 🌟 每日自動備份快照（供清晨 02:00 排程與每日首次異動前呼叫，保留最近 60 份自動快照，手動備份永久保留）
+  async function ensureDailyAutoSnapshot(existingData = null, forceOverwriteToday = false) {
     try {
-      const { weekKey, dateStr } = getIsoWeekLabel(new Date());
-      const row = await dbGet(
-        `SELECT id FROM staff_competency_snapshots WHERE week_key = ? AND snapshot_type = 'auto'`,
-        [weekKey]
+      await ensureTables();
+      const now = new Date();
+      const { weekKey, dateStr } = getIsoWeekLabel(now);
+      const timeStr = now.toTimeString().slice(0, 5);
+      const nowStr = `${dateStr} ${timeStr}`;
+
+      const existingToday = await dbGet(
+        `SELECT id FROM staff_competency_snapshots WHERE snapshot_type = 'auto' AND created_at LIKE ?`,
+        [`${dateStr}%`]
       );
-      if (row) return;
+      if (existingToday && !forceOverwriteToday) return existingToday.id;
 
       const fullData = existingData || await buildFullDataObject();
       const totalEmps = (fullData['林口倉']?.employees?.length || 0) + (fullData['3PL一組']?.employees?.length || 0);
-      if (totalEmps === 0) return;
+      if (totalEmps === 0) return null;
 
-      const nowStr = `${dateStr} ${new Date().toTimeString().slice(0, 5)}`;
+      const title = `${weekKey} 【全倉】每日自動備份 - 系統排程 (${nowStr})`;
+      const payloadStr = JSON.stringify(fullData);
+
+      let savedId;
+      if (existingToday) {
+        await dbRun(
+          `UPDATE staff_competency_snapshots
+           SET week_key = ?, snapshot_name = ?, created_at = ?, payload_json = ?
+           WHERE id = ?`,
+          [weekKey, title, nowStr, payloadStr, existingToday.id]
+        );
+        savedId = existingToday.id;
+      } else {
+        const info = await dbRun(
+          `INSERT INTO staff_competency_snapshots (week_key, snapshot_name, snapshot_type, target_groups, created_by, created_at, payload_json)
+           VALUES (?, ?, 'auto', 'ALL', '系統自動', ?, ?)`,
+          [weekKey, title, nowStr, payloadStr]
+        );
+        savedId = info.lastID;
+      }
+
+      // 僅清理超過 60 份的舊「自動備份」，手動記名備份全部完整保留
       await dbRun(
-        `INSERT INTO staff_competency_snapshots (week_key, snapshot_name, snapshot_type, target_groups, created_by, created_at, payload_json)
-         VALUES (?, ?, 'auto', 'ALL', '系統自動', ?, ?)`,
-        [weekKey, `${weekKey} 全倉自動週備份 - 系統自動 (${dateStr})`, nowStr, JSON.stringify(fullData)]
+        `DELETE FROM staff_competency_snapshots
+         WHERE snapshot_type = 'auto'
+           AND id NOT IN (
+             SELECT id FROM staff_competency_snapshots WHERE snapshot_type = 'auto' ORDER BY id DESC LIMIT 60
+           )`
       );
+
+      return savedId;
     } catch (e) {
-      console.error('自動週備份略過:', e.message);
+      console.error('每日自動備份略過:', e.message);
+      return null;
     }
   }
 
@@ -248,7 +280,7 @@ module.exports = function(db) {
 
     try {
       await ensureTables();
-      await ensureWeeklyAutoSnapshot();
+      await ensureDailyAutoSnapshot();
 
       const grouped = new Map();
       updates.forEach(u => {
@@ -314,7 +346,7 @@ module.exports = function(db) {
 
     try {
       await ensureTables();
-      await ensureWeeklyAutoSnapshot();
+      await ensureDailyAutoSnapshot();
 
       await dbRun('BEGIN TRANSACTION');
       try {
@@ -359,7 +391,7 @@ module.exports = function(db) {
     const { warehouse, empId } = req.body;
     try {
       await ensureTables();
-      await ensureWeeklyAutoSnapshot();
+      await ensureDailyAutoSnapshot();
       await dbRun(`DELETE FROM staff_competency_employees WHERE wh_name = ? AND emp_id = ?`, [warehouse, empId]);
       bumpVersion();
       res.json({ success: true, version: currentVersion });
@@ -413,7 +445,7 @@ module.exports = function(db) {
 
     try {
       await ensureTables();
-      await ensureWeeklyAutoSnapshot();
+      await ensureDailyAutoSnapshot();
 
       const existingTarget = await dbGet(
         `SELECT id FROM staff_competency_skills WHERE wh_name = ? AND skill_id = ?`,
@@ -482,7 +514,7 @@ module.exports = function(db) {
     }
     try {
       await ensureTables();
-      await ensureWeeklyAutoSnapshot();
+      await ensureDailyAutoSnapshot();
       await dbRun('BEGIN TRANSACTION');
       try {
         await dbRun(`DELETE FROM staff_competency_skills WHERE wh_name = ? AND skill_id = ?`, [warehouse, skillId]);
@@ -518,7 +550,7 @@ module.exports = function(db) {
     try {
       await ensureTables();
       const existingData = await buildFullDataObject();
-      await ensureWeeklyAutoSnapshot(existingData);
+      await ensureDailyAutoSnapshot(existingData);
 
       await dbRun('BEGIN TRANSACTION');
       try {
@@ -595,7 +627,7 @@ module.exports = function(db) {
     try {
       await ensureTables();
       const existingData = await buildFullDataObject();
-      await ensureWeeklyAutoSnapshot(existingData);
+      await ensureDailyAutoSnapshot(existingData);
 
       const whSkills = existingData[warehouse]?.skills || [];
       const whEmps = existingData[warehouse]?.employees || [];
@@ -689,7 +721,7 @@ module.exports = function(db) {
       const rows = await dbAll(
         `SELECT id, week_key, snapshot_name, snapshot_type, target_groups, created_by, created_at
          FROM staff_competency_snapshots
-         ORDER BY id DESC LIMIT 80`
+         ORDER BY id DESC LIMIT 120`
       );
       res.json({ success: true, snapshots: rows });
     } catch (err) {
@@ -761,13 +793,6 @@ module.exports = function(db) {
         );
         savedId = info.lastID;
       }
-
-      await dbRun(
-        `DELETE FROM staff_competency_snapshots
-         WHERE id NOT IN (
-           SELECT id FROM staff_competency_snapshots ORDER BY id DESC LIMIT 90
-         )`
-      );
 
       bumpVersion();
       res.json({
@@ -853,6 +878,11 @@ module.exports = function(db) {
       res.status(500).json({ success: false, message: err.message });
     }
   });
+
+  // 掛載供 server.js 清晨 02:00 排程直接呼叫的每日自動備份函式
+  router.runDailyAutoBackup = async () => {
+    return await ensureDailyAutoSnapshot(null, true);
+  };
 
   return router;
 };

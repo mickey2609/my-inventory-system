@@ -1351,6 +1351,78 @@ abnormalDb.serialize(() => {
   abnormalDb.run(`CREATE INDEX IF NOT EXISTS idx_abnormal_snapshot_date ON abnormal_purchase_history(snapshot_date)`);
 });
 
+// -----------------------------------------------------------------------------
+// 🌟 每日清晨 02:00 自動備份排程（人員能力快照 + 實體 SQLite 資料庫檔案雙重備份）
+// -----------------------------------------------------------------------------
+function vacuumBackupSqlite(dbInstance, destPath) {
+  return new Promise((resolve) => {
+    try {
+      if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
+      const escaped = destPath.replace(/'/g, "''");
+      dbInstance.run(`VACUUM INTO '${escaped}'`, (err) => {
+        if (err) {
+          console.error(`⚠️ [02:00 實體備份失敗] ${path.basename(destPath)}:`, err.message);
+          resolve(false);
+        } else {
+          resolve(true);
+        }
+      });
+    } catch (e) {
+      console.error(`⚠️ [02:00 實體備份例外] ${path.basename(destPath)}:`, e.message);
+      resolve(false);
+    }
+  });
+}
+
+async function executeScheduled0200Backup() {
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const dateStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  console.log(`⏰ [每日排程 02:00] 開始執行自動備份 (${dateStr})...`);
+
+  // 1. 建立人員能力表每日自動快照（可直接從前端「備份紀錄」下拉選單檢視與還原）
+  if (typeof staffCompetencyRouter.runDailyAutoBackup === 'function') {
+    await staffCompetencyRouter.runDailyAutoBackup();
+  }
+
+  // 2. 實體 SQLite 資料庫備份至 backups/YYYY-MM-DD/（保留最近 14 天）
+  try {
+    const backupRoot = path.join(__dirname, 'backups');
+    const dayDir = path.join(backupRoot, dateStr);
+    fs.mkdirSync(dayDir, { recursive: true });
+
+    await vacuumBackupSqlite(staffCompetencyDb, path.join(dayDir, 'staff_competency.sqlite'));
+    await vacuumBackupSqlite(db, path.join(dayDir, 'inventory_local.sqlite'));
+
+    const dirs = fs.readdirSync(backupRoot)
+      .filter(name => /^\d{4}-\d{2}-\d{2}$/.test(name))
+      .sort();
+    while (dirs.length > 14) {
+      const oldest = dirs.shift();
+      fs.rmSync(path.join(backupRoot, oldest), { recursive: true, force: true });
+    }
+    console.log(`✅ [每日排程 02:00] 自動備份完成！實體資料庫已存至 backups/${dateStr}`);
+  } catch (e) {
+    console.error('⚠️ [每日排程 02:00] 實體備份清理失敗:', e.message);
+  }
+}
+
+function scheduleDaily0200Backup() {
+  const now = new Date();
+  const nextRun = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 2, 0, 0, 0);
+  if (nextRun <= now) {
+    nextRun.setDate(nextRun.getDate() + 1);
+  }
+  const delayMs = nextRun.getTime() - now.getTime();
+  console.log(`🛡️ [自動備份排程] 已啟用，下次將於 ${nextRun.toLocaleString()} 自動執行備份`);
+
+  setTimeout(async () => {
+    await executeScheduled0200Backup();
+    setInterval(executeScheduled0200Backup, 24 * 60 * 60 * 1000);
+  }, delayMs);
+}
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 業務 API 伺服器已成功啟動（多模組獨立 SQLite 並行架構）！(Port: ${PORT})`);
+  scheduleDaily0200Backup();
 });
