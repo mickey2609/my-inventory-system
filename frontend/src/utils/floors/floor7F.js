@@ -85,6 +85,16 @@ const RACKS_7F_A_AGV = [
   ...buildAgvSeg4Rows()
 ];
 
+// A區南側外牆 O區鐵櫃（位於 x=60m 結構柱周圍、中間排 M01056~067 正下方）
+const RACK_7F_A_O01 = {
+  x: 53.0,
+  y: 57.5,
+  w: 12.0,
+  h: 1.05,
+  label: '80O01001~027A~L',
+  xCode: 'O01'
+};
+
 // A區西側重型層架（N69~N55）：67~69、63~66、59~62、55~58
 const build7FAHeavy = (layerSuffix) => {
   const layout = [
@@ -276,7 +286,7 @@ export const FLOOR_7F = {
   title: '7F 全層儲區（東側朝右橫向｜A～D區｜柱距12m）',
   orientation: 'east-right',
   zones: [
-    { id: '7F-A', label: 'A區 (撿貨區｜M01~53 + N55~69 A~B)', ruleFloor: '7F', defaultRole: 'PICK', meterMode: true, pxPerM: 9.5, shell: SHELL_7F['7F-A'] },
+    { id: '7F-A', label: 'A區 (撿貨區｜M01~53 + N55~69 A~B + O01 A~L)', ruleFloor: '7F', defaultRole: 'PICK', meterMode: true, pxPerM: 9.5, shell: SHELL_7F['7F-A'] },
     { id: '7F-A-STORAGE', label: 'A區 (庫區｜N55~69 C~E)', ruleFloor: '7F', defaultRole: 'STORAGE', meterMode: true, pxPerM: 9.5, shell: SHELL_7F['7F-A'] },
     { id: '7F-B', label: 'B區 (撿貨區｜N35~53 A~B)', ruleFloor: '7F', defaultRole: 'PICK', meterMode: true, pxPerM: 9.5, shell: SHELL_7F['7F-B'] },
     { id: '7F-B-STORAGE', label: 'B區 (庫區｜N35~53 C~E)', ruleFloor: '7F', defaultRole: 'STORAGE', meterMode: true, pxPerM: 9.5, shell: SHELL_7F['7F-B'] },
@@ -286,7 +296,7 @@ export const FLOOR_7F = {
     { id: '7F-D-STORAGE', label: 'D區 (庫區｜N01~14 C~E + S01~05關閉)', ruleFloor: '7F', defaultRole: 'STORAGE', meterMode: true, pxPerM: 9.5, shell: SHELL_7F['7F-D'] }
   ],
   zoneRacks: {
-    '7F-A': [...RACKS_7F_A_AGV, ...build7FAHeavy('A~B')],
+    '7F-A': [...RACKS_7F_A_AGV, ...build7FAHeavy('A~B'), RACK_7F_A_O01],
     '7F-A-STORAGE': build7FAHeavy('C~E'),
     '7F-B': build7FBHeavy('A~B'),
     '7F-B-STORAGE': build7FBHeavy('C~E'),

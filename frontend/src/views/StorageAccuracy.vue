@@ -248,8 +248,20 @@
                   <td colspan="13" class="empty-td">🎉 目前篩選條件下無放錯儲位的異常商品！</td>
                 </tr>
                 <tr v-for="(item, idx) in filteredExceptions.slice(0, 300)" :key="idx">
-                  <td class="text-blue font-bold">{{ item.sku_id }}</td>
-                  <td class="text-left">{{ item.sku_name }}</td>
+                  <td
+                    class="text-blue font-bold clickable-sku"
+                    title="點擊複製商品ID"
+                    @click="$copySkuId(item.sku_id)"
+                  >
+                    {{ item.sku_id }}
+                  </td>
+                  <td
+                    class="text-left clickable-prod-name"
+                    title="點擊開啟 PChome 24h 商品網頁"
+                    @click="$openProductWeb(item.sku_id)"
+                  >
+                    {{ item.sku_name }}
+                  </td>
                   <td>
                     <span class="trade-pill" :class="item.trade_type === '借' ? 'pill-borrow' : 'pill-buy'">
                       {{ item.trade_type }}
